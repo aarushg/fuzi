@@ -1,0 +1,57 @@
+[
+  {
+    "id": "USR-001",
+    "username": "admin",
+    "display_name": "Portal Administrator",
+    "role": "admin",
+    "linked_team_member": "",
+    "active": true,
+    "must_change_password": false,
+    "password_hash": "scrypt:32768:8:1$LGAV2c5rGFJfNoRX$8915b56671fde7cb24359934089484044061e5cde297513869a02aa871e0b3985d3f2a06561e235ff6b4c414da154360fcf651e6e441f3c2da74e1b8adcae12b",
+    "created_at": "2026-05-16 14:50"
+  },
+  {
+    "id": "USR-002",
+    "username": "ravi.sharma",
+    "display_name": "Ravi Sharma",
+    "role": "technician",
+    "linked_team_member": "TM-301",
+    "active": true,
+    "must_change_password": true,
+    "password_hash": "scrypt:32768:8:1$UjZMguf0CAb8PpHE$93d2c8478781e08f661134f42d3bd5a7c1b0af461ed3c829231c962ac65dcc5bfc62a6a3cbfcb1468da0e7b4e00d7bed2d0ea638b3482d99f96c395a30425a2e",
+    "created_at": "2026-05-16 14:50"
+  },
+  {
+    "id": "USR-003",
+    "username": "nadeem.khan",
+    "display_name": "Nadeem Khan",
+    "role": "technician",
+    "linked_team_member": "TM-302",
+    "active": true,
+    "must_change_password": true,
+    "password_hash": "scrypt:32768:8:1$Xd6mWEOgZ4kDWuIs$83c0884308b194ec36aa253a34abb34ed0244f1a9c1bdc679de887a2b5c8a47e42827e3c2c6398be2c24dffce5b24c5b3acc696a0831148f5df4e14538e5be59",
+    "created_at": "2026-05-16 14:50"
+  },
+  {
+    "id": "USR-004",
+    "username": "pawan.meena",
+    "display_name": "Pawan Meena",
+    "role": "technician",
+    "linked_team_member": "TM-303",
+    "active": true,
+    "must_change_password": true,
+    "password_hash": "scrypt:32768:8:1$nhpor9dWuq3koO9U$9fb6c28ee93d22963ae69b24eca21f02acf3b13376d634e3ee1ef7e8b56ce01dba651b51f96868e085556a590098303e4f64226428b2cc4a235a6681c18c8c57",
+    "created_at": "2026-05-16 14:50"
+  },
+  {
+    "id": "USR-005",
+    "username": "suresh.yadav",
+    "display_name": "Suresh Yadav",
+    "role": "technician",
+    "linked_team_member": "TM-304",
+    "active": true,
+    "must_change_password": true,
+    "password_hash": "scrypt:32768:8:1$9G1VxH1X4cLKSzjr$8c50f836b5a9672e226458d4508c3eb84f1bb7dba47e624f93177aea5c317f77cb25e77ca14309462f318b6628b2aa120f1da4fa1ce5d6b02187be2713c9301b",
+    "created_at": "2026-05-16 14:50"
+  }
+]

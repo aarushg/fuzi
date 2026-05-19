@@ -1,0 +1,86 @@
+[
+  {
+    "id": "IJ-201",
+    "site": "Mansarovar Residency",
+    "type": "Residential elevator",
+    "crew": "Install Team 1",
+    "target": "May 24",
+    "status": "In Progress",
+    "stages": [
+      {
+        "id": "planning",
+        "status": "Done"
+      },
+      {
+        "id": "drawings",
+        "status": "Done"
+      },
+      {
+        "id": "hoistway",
+        "status": "Done"
+      },
+      {
+        "id": "inspection",
+        "status": "In Progress"
+      },
+      {
+        "id": "scheduling",
+        "status": "Open"
+      },
+      {
+        "id": "install",
+        "status": "Open"
+      },
+      {
+        "id": "quality",
+        "status": "Open"
+      },
+      {
+        "id": "care",
+        "status": "Open"
+      }
+    ]
+  },
+  {
+    "id": "IJ-202",
+    "site": "Vaishali Plaza Lift 2",
+    "type": "Passenger elevator",
+    "crew": "Install Team 2",
+    "target": "May 19",
+    "status": "Final QA",
+    "stages": [
+      {
+        "id": "planning",
+        "status": "Done"
+      },
+      {
+        "id": "drawings",
+        "status": "Done"
+      },
+      {
+        "id": "hoistway",
+        "status": "Done"
+      },
+      {
+        "id": "inspection",
+        "status": "Done"
+      },
+      {
+        "id": "scheduling",
+        "status": "Done"
+      },
+      {
+        "id": "install",
+        "status": "Done"
+      },
+      {
+        "id": "quality",
+        "status": "In Progress"
+      },
+      {
+        "id": "care",
+        "status": "Open"
+      }
+    ]
+  }
+]

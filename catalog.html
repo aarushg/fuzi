@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Product Catalog — FUZI Classic Elevators</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="stylesheet" href="product.css" />
+  <style>
+    .catalog-section { padding: 64px 5%; }
+    .catalog-section:nth-child(even) { background: #f8f9fb; }
+    .cat-header { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; padding-bottom: 16px; border-bottom: 3px solid var(--red); }
+    .cat-header h2 { font-size: 28px; font-weight: 800; color: var(--dark); margin: 0; }
+    .cat-header .cat-icon { width: 48px; height: 48px; background: var(--red); border-radius: 10px; display: grid; place-items: center; color: #fff; font-size: 20px; flex-shrink: 0; }
+    .spec-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+    .spec-table thead tr { background: var(--dark); color: #fff; }
+    .spec-table thead th { padding: 10px 12px; text-align: center; font-weight: 600; font-size: 12px; letter-spacing: 0.3px; white-space: nowrap; }
+    .spec-table thead th:first-child { text-align: left; }
+    .spec-table tbody tr:nth-child(even) { background: #f4f5f8; }
+    .spec-table tbody tr:hover { background: #ffe8e8; }
+    .spec-table tbody td { padding: 9px 12px; color: var(--text); text-align: center; border-bottom: 1px solid #eee; white-space: nowrap; }
+    .spec-table tbody td:first-child { text-align: left; font-weight: 600; }
+    .spec-table .sub-header td { background: #1a1d27; color: #fff; font-weight: 700; font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; }
+    .spec-note { margin-top: 12px; font-size: 12px; color: var(--muted); font-style: italic; }
+    .cat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: start; }
+    .cat-desc { font-size: 15px; line-height: 1.75; color: #555; margin-bottom: 20px; }
+    .cat-badge { display: inline-flex; align-items: center; gap: 8px; background: var(--red); color: #fff; padding: 8px 18px; border-radius: 20px; font-size: 13px; font-weight: 700; margin-bottom: 20px; }
+    .acc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .acc-card { background: #fff; border: 1px solid #e8e8e8; border-radius: 12px; padding: 20px 18px; display: flex; align-items: center; gap: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.05); }
+    .acc-icon { width: 44px; height: 44px; background: #fff3f3; border-radius: 8px; display: grid; place-items: center; color: var(--red); font-size: 18px; flex-shrink: 0; }
+    .acc-name { font-size: 14px; font-weight: 600; color: var(--dark); }
+    .branches-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+    .branch-pill { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #ddd; border-radius: 24px; padding: 10px 20px; font-size: 14px; font-weight: 600; color: var(--dark); box-shadow: 0 2px 6px rgba(0,0,0,.05); }
+    .branch-pill i { color: var(--red); }
+    @media(max-width:768px) { .cat-grid { grid-template-columns: 1fr; } .acc-grid { grid-template-columns: 1fr 1fr; } }
+    @media(max-width:500px) { .acc-grid { grid-template-columns: 1fr; } .spec-table { font-size: 11px; } .spec-table thead th, .spec-table tbody td { padding: 7px 7px; } }
+  </style>
+</head>
+<body>
+<nav id="navbar">
+  <a href="index.html" class="nav-logo"><div class="nav-logo-mark">FE</div><span class="nav-logo-text">FUZI <span>Elevators</span></span></a>
+  <ul class="nav-links">
+    <li><a href="index.html#about">About Us</a></li>
+    <li><a href="index.html#products">Products</a></li>
+    <li><a href="index.html#elevators">Elevators</a></li>
+    <li><a href="index.html#escalators">Escalators</a></li>
+    <li class="nav-dropdown"><a href="#">Services <i class="fa fa-chevron-down" style="font-size:10px;"></i></a><ul class="nav-dropdown-menu"><li><a href="installation.html">Installation</a></li><li><a href="maintenance.html">Maintenance</a></li></ul></li>
+    <li><a href="catalog.html" style="color:#fff;">Catalog</a></li>
+    <li><a href="index.html#contact">Contact</a></li>
+  </ul>
+  <div class="nav-actions">
+    <a href="/portal" class="nav-portal"><i class="fa fa-gauge-high"></i> Portal</a>
+    <a href="tel:+919928019671" class="nav-cta"><i class="fa fa-phone"></i> Call Us</a>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="hero-bg" style="background-image:url('https://www.fuzielevators.com/doc/422038_1727107260.jpg')"></div>
+  <div class="hero-overlay"></div>
+  <div class="hero-content">
+    <div class="breadcrumb"><a href="index.html">Home</a><span class="sep">/</span><span>Catalog</span></div>
+    <div class="hero-tag"><i class="fa fa-book-open"></i> Product Catalog</div>
+    <h1>FUZI Elevator Catalog</h1>
+    <p>Complete technical specifications for our full range of passenger, commercial, hospital, freight, and home elevators.</p>
+  </div>
+</section>
+
+<!-- ── PASSENGER ELEVATOR ── -->
+<section class="catalog-section" id="passenger">
+  <div class="cat-header">
+    <div class="cat-icon"><i class="fa fa-user-friends"></i></div>
+    <h2>Passenger Elevator</h2>
+  </div>
+  <div class="cat-grid">
+    <div>
+      <div class="cat-badge"><i class="fa fa-users"></i> 6 to 20 Passengers</div>
+      <p class="cat-desc">Our passenger elevators are engineered for comfort, reliability, and style. Featuring VVVF drive technology and auto doors, they suit residential complexes, offices, and commercial buildings of all sizes.</p>
+      <ul style="font-size:14px;color:#555;line-height:2;padding-left:20px;">
+        <li>Speed up to 2.5 m/s</li>
+        <li>Auto sliding door</li>
+        <li>VVVF close-loop microprocessor control</li>
+        <li>Machine room with overhead clearance of 4800–6700 mm</li>
+      </ul>
+    </div>
+    <div>
+      <div style="overflow-x:auto;">
+        <table class="spec-table">
+          <thead>
+            <tr>
+              <th>Load (Persons)</th>
+              <th>Weight (kg)</th>
+              <th>Car W (mm)</th>
+              <th>Car D (mm)</th>
+              <th>Well W (mm)</th>
+              <th>Well D (mm)</th>
+              <th>Entrance (mm)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>6</td><td>408</td><td>1100</td><td>1000</td><td>1900</td><td>1650</td><td>800</td></tr>
+            <tr><td>8</td><td>544</td><td>1300</td><td>1100</td><td>1900</td><td>1900</td><td>800</td></tr>
+            <tr><td>10</td><td>680</td><td>1350</td><td>1300</td><td>1900</td><td>2000</td><td>800</td></tr>
+            <tr><td>13</td><td>884</td><td>2000</td><td>1100</td><td>2500</td><td>1900</td><td>1000</td></tr>
+            <tr><td>16</td><td>1088</td><td>2000</td><td>1300</td><td>2500</td><td>2000</td><td>1000</td></tr>
+            <tr><td>20</td><td>1360</td><td>2000</td><td>1550</td><td>2500</td><td>2300</td><td>1000</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="spec-note">* Machine Room: 2500 mm height. Up to 1.5 m/s: pit 1600 mm, OH 4800 mm. Up to 2.5 m/s: pit 2600 mm, OH 6700 mm.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── CAPSULE / PANORAMIC ELEVATOR ── -->
+<section class="catalog-section" id="capsule">
+  <div class="cat-header">
+    <div class="cat-icon"><i class="fa fa-circle"></i></div>
+    <h2>Panoramic / Capsule Elevator</h2>
+  </div>
+  <div class="cat-grid">
+    <div>
+      <div class="cat-badge"><i class="fa fa-users"></i> 6 to 20 Passengers</div>
+      <p class="cat-desc">Our capsule lifts feature ultra-modern glass facade design, delivering a cosmic zone experience to passengers. The VVVF close-loop microprocessor controller makes operation extremely sophisticated, silent, and economical with minimum maintenance.</p>
+      <ul style="font-size:14px;color:#555;line-height:2;padding-left:20px;">
+        <li>Panoramic glass facade</li>
+        <li>Ultra-modern design</li>
+        <li>Extremely silent operation</li>
+        <li>Speed up to 1.5 m/s</li>
+        <li>VVVF microprocessor control</li>
+      </ul>
+    </div>
+    <div>
+      <div style="overflow-x:auto;">
+        <table class="spec-table">
+          <thead>
+            <tr>
+              <th>Persons</th>
+              <th>Weight (kg)</th>
+              <th>Car W (mm)</th>
+              <th>Car D (mm)</th>
+              <th>Well W (mm)</th>
+              <th>Entrance (mm)</th>
+              <th>MR W (mm)</th>
+              <th>MR D (mm)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>6</td><td>408</td><td>1000</td><td>1225</td><td>1900</td><td>800</td><td>3000</td><td>3500</td></tr>
+            <tr><td>8</td><td>544</td><td>1200</td><td>1360</td><td>2150</td><td>800</td><td>3200</td><td>3500</td></tr>
+            <tr><td>10</td><td>680</td><td>1400</td><td>1460</td><td>2250</td><td>800</td><td>3500</td><td>4000</td></tr>
+            <tr><td>15</td><td>1020</td><td>1400</td><td>1850</td><td>2250</td><td>900</td><td>3500</td><td>4000</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="spec-note">* Machine Room Height: 2500 mm. Pit: 2100 mm. Overhead: 4800 mm.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── HYDRAULIC ELEVATOR ── -->
+<section class="catalog-section" id="hydraulic">
+  <div class="cat-header">
+    <div class="cat-icon"><i class="fa fa-tint"></i></div>
+    <h2>Hydraulic Elevator</h2>
+  </div>
+  <div style="overflow-x:auto;">
+    <table class="spec-table">
+      <thead>
+        <tr>
+          <th>Persons</th>
+          <th>Capacity (kg)</th>
+          <th>Car Width — A (mm)</th>
+          <th>Car Depth — B (mm)</th>
+          <th>Shaft Width — C (mm)</th>
+          <th>Shaft Depth — D (mm)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>3</td><td>225</td><td>800</td><td>900</td><td>1300</td><td>1300</td></tr>
+        <tr><td>4</td><td>300</td><td>850</td><td>1050</td><td>1350</td><td>1450</td></tr>
+        <tr><td>5</td><td>375</td><td>1000</td><td>1100</td><td>1500</td><td>1500</td></tr>
+        <tr><td>6</td><td>450</td><td>1100</td><td>1150</td><td>1600</td><td>1550</td></tr>
+        <tr><td>8</td><td>600</td><td>1100</td><td>1400</td><td>1600</td><td>1800</td></tr>
+        <tr><td>10</td><td>750</td><td>1200</td><td>1550</td><td>1700</td><td>1950</td></tr>
+        <tr><td>12</td><td>900</td><td>1300</td><td>1650</td><td>1800</td><td>2050</td></tr>
+        <tr><td>15</td><td>1125</td><td>1300</td><td>2000</td><td>1800</td><td>2400</td></tr>
+        <tr><td>20</td><td>1600</td><td>1400</td><td>2400</td><td>1900</td><td>2800</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="spec-note">* Standard data only. For special requirements please contact us.</p>
+</section>
+
+<!-- ── HOSPITAL ELEVATOR ── -->
+<section class="catalog-section" id="hospital">
+  <div class="cat-header">
+    <div class="cat-icon"><i class="fa fa-hospital"></i></div>
+    <h2>Hospital Elevator</h2>
+  </div>
+  <div class="cat-grid">
+    <div>
+      <div class="cat-badge"><i class="fa fa-procedures"></i> Stretcher-Ready Design</div>
+      <p class="cat-desc">Designed specifically for healthcare facilities, our hospital elevators provide wide car dimensions to accommodate stretchers and wheelchairs. Maximum safety and smooth operation at up to 0.7 m/s.</p>
+      <ul style="font-size:14px;color:#555;line-height:2;padding-left:20px;">
+        <li>Speed up to 0.7 m/s</li>
+        <li>Deep car for stretcher access</li>
+        <li>Auto door with wide opening</li>
+        <li>Machine Room Height: 2500 mm</li>
+        <li>Pit: 1600 mm, Overhead: 4800 mm</li>
+      </ul>
+    </div>
+    <div>
+      <div style="overflow-x:auto;">
+        <table class="spec-table">
+          <thead>
+            <tr>
+              <th>Persons (SON)</th>
+              <th>Weight (kg)</th>
+              <th>Car W (mm)</th>
+              <th>Car D (mm)</th>
+              <th>Well W (mm)</th>
+              <th>Well D (mm)</th>
+              <th>Entrance (mm)</th>
+              <th>MR W (mm)</th>
+              <th>MR D (mm)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>15</td><td>1020</td><td>950</td><td>2400</td><td>1700</td><td>3000</td><td>800</td><td>3800</td><td>4000</td></tr>
+            <tr><td>20</td><td>1360</td><td>1300</td><td>2400</td><td>2200</td><td>3000</td><td>1200</td><td>4500</td><td>4500</td></tr>
+            <tr><td>26</td><td>1768</td><td>1600</td><td>2400</td><td>2350</td><td>3000</td><td>1200</td><td>4800</td><td>5000</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── FREIGHT ELEVATOR ── -->
+<section class="catalog-section" id="freight">
+  <div class="cat-header">
+    <div class="cat-icon"><i class="fa fa-boxes"></i></div>
+    <h2>Freight / Goods Elevator</h2>
+  </div>
+  <div class="cat-grid">
+    <div>
+      <div class="cat-badge"><i class="fa fa-weight-hanging"></i> 500 to 5000 kg Capacity</div>
+      <p class="cat-desc">Built for industrial and commercial use, our freight elevators handle heavy loads with ease. Available with manual or auto doors, trap door access, and robust structural design for warehouse, factory, and retail environments.</p>
+      <ul style="font-size:14px;color:#555;line-height:2;padding-left:20px;">
+        <li>Capacity 500–5000 kg</li>
+        <li>Speed up to 0.7 m/s</li>
+        <li>Pit: 550 mm, Overhead: 3100 mm</li>
+        <li>Manual or Auto door options</li>
+        <li>Trap door provision available</li>
+      </ul>
+    </div>
+    <div>
+      <div style="overflow-x:auto;">
+        <table class="spec-table">
+          <thead>
+            <tr>
+              <th>Load (kg)</th>
+              <th>Car W (mm)</th>
+              <th>Car D (mm)</th>
+              <th>Well W (mm)</th>
+              <th>Well D (mm)</th>
+              <th>Entrance (mm)</th>
+              <th>MR W (mm)</th>
+              <th>MR D (mm)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>500</td><td>1100</td><td>1200</td><td>1900</td><td>1500</td><td>750</td><td>3000</td><td>3800</td></tr>
+            <tr><td>1000</td><td>1400</td><td>1800</td><td>2300</td><td>2100</td><td>1000</td><td>3000</td><td>4000</td></tr>
+            <tr><td>1500</td><td>1700</td><td>2000</td><td>2600</td><td>2300</td><td>1250</td><td>3200</td><td>4200</td></tr>
+            <tr><td>2000</td><td>1700</td><td>2500</td><td>2600</td><td>2800</td><td>1500</td><td>3200</td><td>4200</td></tr>
+            <tr><td>2500</td><td>2000</td><td>2500</td><td>2900</td><td>2800</td><td>1500</td><td>3500</td><td>4400</td></tr>
+            <tr><td>3000</td><td>2000</td><td>3000</td><td>2900</td><td>3300</td><td>2000</td><td>3500</td><td>4500</td></tr>
+            <tr><td>4000</td><td>2500</td><td>3000</td><td>3400</td><td>3300</td><td>2000</td><td>4000</td><td>4600</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="spec-note">* MR Height: 2500 mm for all models. Pit: 550 mm, Overhead: 3100 mm.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── HOME ELEVATOR ── -->
+<section class="catalog-section" id="home">
+  <div class="cat-header">
+    <div class="cat-icon"><i class="fa fa-home"></i></div>
+    <h2>Home Elevator</h2>
+  </div>
+  <div class="cat-grid">
+    <div>
+      <div class="cat-badge"><i class="fa fa-user"></i> 3 to 4 Passengers</div>
+      <p class="cat-desc">Compact and elegant, our home elevators are the perfect addition to any residence. Available with manual or auto doors, designed to fit within small lift wells without compromising comfort or safety.</p>
+      <ul style="font-size:14px;color:#555;line-height:2;padding-left:20px;">
+        <li>Speed: 0.3 m/s</li>
+        <li>Pit: 550 mm, Overhead: 3100 mm</li>
+        <li>Entrance: 700 mm (all models)</li>
+        <li>Manual or Auto door options</li>
+        <li>Compact well dimensions</li>
+      </ul>
+    </div>
+    <div>
+      <div style="overflow-x:auto;">
+        <table class="spec-table">
+          <thead>
+            <tr>
+              <th>Door Type</th>
+              <th>Persons</th>
+              <th>Load (kg)</th>
+              <th>Well W — C (mm)</th>
+              <th>Well D — D (mm)</th>
+              <th>Car W — A (mm)</th>
+              <th>Car D — B (mm)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Manual Door</td><td>3</td><td>204</td><td>1200</td><td>700</td><td>1100</td><td>810</td></tr>
+            <tr><td>Manual Door</td><td>4</td><td>272</td><td>1400</td><td>1200</td><td>1300</td><td>800</td></tr>
+            <tr><td>Auto Door</td><td>3</td><td>204</td><td>1250</td><td>700</td><td>1250</td><td>810</td></tr>
+            <tr><td>Auto Door</td><td>4</td><td>272</td><td>1600</td><td>1150</td><td>1300</td><td>850</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="spec-note">* Speed: 0.3 m/s. Pit: 550 mm. Overhead: 3100 mm. Entrance: 700 mm.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── MACHINE ROOMLESS ── -->
+<section class="catalog-section" id="mrl">
+  <div class="cat-header">
+    <div class="cat-icon"><i class="fa fa-cog"></i></div>
+    <h2>Machine Roomless Elevator</h2>
+  </div>
+  <div style="max-width:760px;">
+    <div class="cat-badge"><i class="fa fa-check-circle"></i> Space-Saving Design</div>
+    <p class="cat-desc">The machine roomless (MRL) elevator eliminates the need for a dedicated machine room, placing the drive unit directly in the hoistway. This space-efficient design reduces construction costs and is ideal for buildings with height restrictions.</p>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:24px;">
+      <div style="background:#fff;border:1px solid #eee;border-radius:10px;padding:18px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.05);">
+        <div style="color:var(--red);font-size:24px;font-weight:800;margin-bottom:4px;">No</div>
+        <div style="font-size:13px;color:var(--muted);font-weight:500;">Machine Room Required</div>
+      </div>
+      <div style="background:#fff;border:1px solid #eee;border-radius:10px;padding:18px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.05);">
+        <div style="color:var(--red);font-size:24px;font-weight:800;margin-bottom:4px;">Lower</div>
+        <div style="font-size:13px;color:var(--muted);font-weight:500;">Construction Cost</div>
+      </div>
+      <div style="background:#fff;border:1px solid #eee;border-radius:10px;padding:18px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.05);">
+        <div style="color:var(--red);font-size:24px;font-weight:800;margin-bottom:4px;">VVVF</div>
+        <div style="font-size:13px;color:var(--muted);font-weight:500;">Drive Technology</div>
+      </div>
+    </div>
+    <a href="index.html#contact" class="cta-btn" style="max-width:280px;margin-top:28px;"><i class="fa fa-phone"></i> Request Specifications</a>
+  </div>
+</section>
+
+<!-- ── ACCESSORIES ── -->
+<section class="catalog-section" id="accessories" style="background:#fff;">
+  <div class="cat-header">
+    <div class="cat-icon"><i class="fa fa-tools"></i></div>
+    <h2>Accessories</h2>
+  </div>
+  <p class="cat-desc" style="margin-bottom:28px;">FUZI offers a comprehensive range of door types, control panels, and cab accessories to suit every architectural and functional requirement.</p>
+  <div class="acc-grid">
+    <div class="acc-card"><div class="acc-icon"><i class="fa fa-door-open"></i></div><div><div class="acc-name">S.S. Auto Telescopic Door</div></div></div>
+    <div class="acc-card"><div class="acc-icon"><i class="fa fa-door-open"></i></div><div><div class="acc-name">S.S. Auto Glass Door</div></div></div>
+    <div class="acc-card"><div class="acc-icon"><i class="fa fa-door-open"></i></div><div><div class="acc-name">S.S. Auto Door</div></div></div>
+    <div class="acc-card"><div class="acc-icon"><i class="fa fa-door-open"></i></div><div><div class="acc-name">M.S. Auto Door</div></div></div>
+    <div class="acc-card"><div class="acc-icon"><i class="fa fa-door-open"></i></div><div><div class="acc-name">M.S. Swing Door</div></div></div>
+    <div class="acc-card"><div class="acc-icon"><i class="fa fa-door-open"></i></div><div><div class="acc-name">M.S. Manual Telescopic Door</div></div></div>
+    <div class="acc-card"><div class="acc-icon"><i class="fa fa-th"></i></div><div><div class="acc-name">Collapsible Door</div></div></div>
+    <div class="acc-card"><div class="acc-icon"><i class="fa fa-sliders-h"></i></div><div><div class="acc-name">Control Panel</div></div></div>
+    <div class="acc-card"><div class="acc-icon"><i class="fa fa-hand-pointer"></i></div><div><div class="acc-name">COP &amp; LOP</div></div></div>
+  </div>
+  <p class="spec-note" style="margin-top:20px;">* Contact us for a complete range of door finishes and custom cabin interiors.</p>
+</section>
+
+<!-- ── BRANCHES ── -->
+<section class="catalog-section" id="branches">
+  <div class="cat-header">
+    <div class="cat-icon"><i class="fa fa-map-marker-alt"></i></div>
+    <h2>Our Branches</h2>
+  </div>
+  <p class="cat-desc" style="margin-bottom:28px;">FUZI Classic Elevators is present across Rajasthan and Central India, ensuring fast service and support wherever you are.</p>
+  <div class="branches-grid">
+    <div class="branch-pill"><i class="fa fa-map-marker-alt"></i> Jaipur (HQ)</div>
+    <div class="branch-pill"><i class="fa fa-map-marker-alt"></i> Jodhpur</div>
+    <div class="branch-pill"><i class="fa fa-map-marker-alt"></i> Sikar</div>
+    <div class="branch-pill"><i class="fa fa-map-marker-alt"></i> Kota</div>
+    <div class="branch-pill"><i class="fa fa-map-marker-alt"></i> Indore</div>
+    <div class="branch-pill"><i class="fa fa-map-marker-alt"></i> Ajmer</div>
+    <div class="branch-pill"><i class="fa fa-map-marker-alt"></i> Bikaner</div>
+    <div class="branch-pill"><i class="fa fa-map-marker-alt"></i> Neemuch</div>
+    <div class="branch-pill"><i class="fa fa-map-marker-alt"></i> Bhilwara</div>
+  </div>
+  <div style="margin-top:36px;background:var(--red);border-radius:14px;padding:32px 36px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:20px;">
+    <div>
+      <div style="color:rgba(255,255,255,.75);font-size:13px;font-weight:600;margin-bottom:6px;">HEAD OFFICE</div>
+      <div style="color:#fff;font-size:16px;font-weight:700;">360, Guru Nanak Pura, Raja Park, Jaipur – 302 004, Rajasthan</div>
+      <div style="color:rgba(255,255,255,.8);font-size:13px;margin-top:6px;">Tel: 0141-2620168 &nbsp;|&nbsp; Mob: +91 99280 19671 &nbsp;|&nbsp; Toll Free: 1800 102 8421</div>
+      <div style="color:rgba(255,255,255,.8);font-size:13px;margin-top:4px;">atulsinghal@fuzielevators.com &nbsp;|&nbsp; www.fuzielevators.com</div>
+      <div style="margin-top:10px;"><span style="background:rgba(255,255,255,.15);color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:10px;margin-right:8px;">ISO 9001 Certified</span><span style="background:rgba(255,255,255,.15);color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:10px;">ISO 14000 Certified</span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <a href="tel:+919928019671" style="display:inline-flex;align-items:center;gap:8px;background:#fff;color:var(--red);font-weight:700;padding:12px 22px;border-radius:8px;text-decoration:none;font-size:14px;"><i class="fa fa-phone"></i> Call Now</a>
+      <a href="index.html#contact" style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.15);color:#fff;font-weight:700;padding:12px 22px;border-radius:8px;text-decoration:none;font-size:14px;border:1px solid rgba(255,255,255,.3);"><i class="fa fa-envelope"></i> Send Enquiry</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-top">
+    <div class="footer-brand"><a href="index.html" class="nav-logo"><div class="nav-logo-mark">FE</div><span class="nav-logo-text">FUZI <span>Elevators</span></span></a><p>FUZI Classic Elevators Pvt. Ltd. — delivering precision-engineered vertical transportation solutions across Rajasthan since 2009.</p></div>
+    <div class="footer-col"><h4>Elevators</h4><ul><li><a href="residential-elevators.html">Residential</a></li><li><a href="commercial-elevators.html">Commercial</a></li><li><a href="industrial-elevators.html">Industrial</a></li><li><a href="hotel-elevators.html">Hotel</a></li><li><a href="hospital-elevators.html">Hospital</a></li><li><a href="capsule-elevators.html">Capsule</a></li></ul></div>
+    <div class="footer-col"><h4>Escalators</h4><ul><li><a href="parallel-escalator.html">Parallel</a></li><li><a href="crisscross-escalator.html">Crisscross</a></li><li><a href="step-type-escalator.html">Step Type</a></li></ul></div>
+    <div class="footer-col"><h4>Services</h4><ul><li><a href="installation.html">Installation</a></li><li><a href="maintenance.html">Maintenance</a></li><li><a href="catalog.html">Catalog</a></li></ul></div>
+  </div>
+  <div class="footer-bottom"><p>&copy; 2024 FUZI Classic Elevators Pvt. Ltd. All rights reserved.</p><div class="footer-bottom-links"><a href="#">Privacy Policy</a><a href="#">Terms &amp; Conditions</a></div></div>
+</footer>
+
+<a href="https://api.whatsapp.com/send?phone=+919928019671&text=Hello, I'd like to request the FUZI elevator catalog." class="wa-float" target="_blank"><i class="fa-brands fa-whatsapp"></i></a>
+<script>const n=document.getElementById('navbar');window.addEventListener('scroll',()=>n.classList.toggle('scrolled',window.scrollY>40));</script>
+</body>
+</html>

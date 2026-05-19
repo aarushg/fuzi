@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Operations Portal - FUZI Classic Elevators</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --red: #e02020;
+      --red-dark: #b91414;
+      --dark: #0f1117;
+      --dark2: #1a1d27;
+      --panel: #ffffff;
+      --line: #e8eaf0;
+      --soft: #f5f6f9;
+      --text: #252935;
+      --muted: #747a88;
+      --green: #15996a;
+      --amber: #d98c00;
+      --blue: #2563eb;
+      --shadow: 0 18px 55px rgba(15,17,23,0.08);
+    }
+    body {
+      font-family: 'Inter', sans-serif;
+      color: var(--text);
+      background: #eef0f4;
+      min-height: 100vh;
+    }
+    a { color: inherit; text-decoration: none; }
+    .portal-shell { display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      background: #090b12;
+      color: #fff;
+      padding: 24px 22px;
+      overflow-y: auto;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+    .brand-mark {
+      width: 42px; height: 42px; border-radius: 8px; background: var(--red);
+      display: grid; place-items: center; font-weight: 900;
+    }
+    .brand-name { font-weight: 800; line-height: 1.2; }
+    .brand-name span { color: var(--red); }
+    .side-label {
+      color: rgba(255,255,255,0.34);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1.4px;
+      margin: 28px 0 12px;
+    }
+    .side-link {
+      display: flex; align-items: center; gap: 12px;
+      color: rgba(255,255,255,0.68);
+      padding: 11px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 650;
+      margin-bottom: 4px;
+      transition: background 0.2s, color 0.2s;
+    }
+    .side-link:hover, .side-link.active { background: rgba(224,32,32,0.16); color: #fff; }
+    .side-link i { width: 18px; text-align: center; color: #ff6b6b; }
+    .side-status {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 24px;
+    }
+    .pulse { display: inline-flex; align-items: center; gap: 8px; color: #78e3b4; font-size: 12px; font-weight: 750; }
+    .pulse::before {
+      content: '';
+      width: 8px; height: 8px; background: #26d07c; border-radius: 50%;
+      box-shadow: 0 0 0 6px rgba(38,208,124,0.13);
+    }
+    .status-copy { color: rgba(255,255,255,0.52); font-size: 12px; line-height: 1.6; margin-top: 10px; }
+    .main { min-width: 0; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      height: 74px;
+      background: rgba(255,255,255,0.88);
+      backdrop-filter: blur(18px);
+      border-bottom: 1px solid rgba(15,17,23,0.08);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 32px;
+      gap: 20px;
+    }
+    .page-kicker { color: var(--red); font-size: 11px; font-weight: 850; text-transform: uppercase; letter-spacing: 1.5px; }
+    .page-title { font-size: 20px; font-weight: 850; color: var(--dark); margin-top: 2px; }
+    .top-actions { display: flex; gap: 10px; align-items: center; }
+    .sync-pill, .small-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 10px 13px;
+      font-size: 12px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+    .small-btn.primary { background: var(--red); border-color: var(--red); color: #fff; }
+    .content { padding: 30px 32px 44px; }
+    .hero-panel {
+      background: linear-gradient(135deg, #111420 0%, #1e2435 58%, #2a1212 100%);
+      color: #fff;
+      border-radius: 16px;
+      padding: 28px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      position: relative;
+    }
+    .hero-panel::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      opacity: 0.08;
+      background-image: linear-gradient(rgba(255,255,255,0.55) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.55) 1px, transparent 1px);
+      background-size: 46px 46px;
+    }
+    .hero-inner { position: relative; z-index: 1; display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 28px; align-items: end; }
+    .hero-panel h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(32px, 4vw, 52px);
+      line-height: 1.05;
+      margin: 10px 0 14px;
+    }
+    .hero-panel p { color: rgba(255,255,255,0.68); max-width: 660px; line-height: 1.7; font-size: 15px; }
+    .brief-card {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.11);
+      border-radius: 12px;
+      padding: 18px;
+    }
+    .brief-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .brief-head h3 { font-size: 14px; }
+    .brief-time { color: #ffd08a; font-size: 12px; font-weight: 800; }
+    .brief-line { display: flex; gap: 10px; color: rgba(255,255,255,0.74); font-size: 13px; line-height: 1.5; padding: 10px 0; border-top: 1px solid rgba(255,255,255,0.09); }
+    .brief-line i { color: #ff7a7a; margin-top: 2px; }
+    .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 18px; }
+    .metric {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 18px;
+      box-shadow: 0 8px 30px rgba(15,17,23,0.04);
+    }
+    .metric-label { color: var(--muted); font-size: 12px; font-weight: 750; text-transform: uppercase; letter-spacing: 0.7px; }
+    .metric-value { display: flex; align-items: baseline; gap: 8px; margin-top: 10px; font-size: 31px; font-weight: 900; color: var(--dark); }
+    .metric-value span { font-size: 12px; font-weight: 800; color: var(--green); }
+    .metric-foot { color: var(--muted); font-size: 12px; margin-top: 8px; line-height: 1.5; }
+    .section-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.65fr); gap: 18px; margin-top: 18px; align-items: start; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(15,17,23,0.04);
+      overflow: hidden;
+    }
+    .panel-head {
+      display: flex; justify-content: space-between; align-items: center; gap: 14px;
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--line);
+    }
+    .panel-title { font-size: 15px; font-weight: 850; color: var(--dark); display: flex; align-items: center; gap: 10px; }
+    .panel-title i { color: var(--red); }
+    .panel-note { color: var(--muted); font-size: 12px; font-weight: 700; }
+    .table { width: 100%; border-collapse: collapse; }
+    .table th {
+      text-align: left;
+      padding: 13px 20px;
+      background: var(--soft);
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+    .table td { padding: 15px 20px; border-top: 1px solid var(--line); font-size: 13px; vertical-align: middle; }
+    .unit-name { font-weight: 850; color: var(--dark); }
+    .subtext { color: var(--muted); font-size: 12px; margin-top: 4px; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 11px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+    .badge.red { background: rgba(224,32,32,0.1); color: var(--red-dark); }
+    .badge.amber { background: rgba(217,140,0,0.12); color: #a46600; }
+    .badge.green { background: rgba(21,153,106,0.12); color: var(--green); }
+    .badge.blue { background: rgba(37,99,235,0.11); color: var(--blue); }
+    .progress { height: 8px; border-radius: 99px; background: #e9ebf1; overflow: hidden; min-width: 120px; }
+    .progress span { display: block; height: 100%; border-radius: inherit; background: var(--red); }
+    .progress.green span { background: var(--green); }
+    .progress.amber span { background: var(--amber); }
+    .stack { display: grid; gap: 18px; }
+    .agent-list { padding: 8px 0; }
+    .agent-row {
+      display: grid;
+      grid-template-columns: 42px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 14px 20px;
+      border-top: 1px solid var(--line);
+    }
+    .agent-row:first-child { border-top: 0; }
+    .agent-icon {
+      width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center;
+      background: rgba(224,32,32,0.1); color: var(--red);
+    }
+    .agent-title { font-weight: 850; color: var(--dark); font-size: 13px; }
+    .agent-copy { color: var(--muted); font-size: 12px; line-height: 1.5; margin-top: 3px; }
+    .timeline { padding: 4px 20px 20px; }
+    .timeline-item {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 12px;
+      padding-top: 15px;
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; background: var(--green); box-shadow: 0 0 0 5px rgba(21,153,106,0.1); }
+    .dot.red { background: var(--red); box-shadow: 0 0 0 5px rgba(224,32,32,0.1); }
+    .dot.amber { background: var(--amber); box-shadow: 0 0 0 5px rgba(217,140,0,0.11); }
+    .timeline-title { font-size: 13px; font-weight: 850; color: var(--dark); }
+    .timeline-copy { color: var(--muted); font-size: 12px; line-height: 1.5; margin-top: 3px; }
+    .card-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 18px; }
+    .feature-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 8px 30px rgba(15,17,23,0.04);
+    }
+    .feature-top { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
+    .feature-icon {
+      width: 44px; height: 44px; border-radius: 10px;
+      background: rgba(224,32,32,0.1);
+      display: grid; place-items: center;
+      color: var(--red);
+      font-size: 18px;
+    }
+    .feature-card h3 { font-size: 15px; color: var(--dark); margin-bottom: 8px; }
+    .feature-card p { color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .mini-list { list-style: none; margin-top: 16px; display: grid; gap: 9px; }
+    .mini-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--muted); }
+    .mini-list strong { color: var(--dark); }
+    .workorder-box {
+      margin: 0 20px 20px;
+      padding: 16px;
+      border-radius: 10px;
+      background: var(--soft);
+      border: 1px solid var(--line);
+    }
+    .workorder-box h4 { font-size: 13px; color: var(--dark); margin-bottom: 10px; }
+    .workorder-box p { color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .chat-row { padding: 15px 20px; border-top: 1px solid var(--line); }
+    .chat-row:first-child { border-top: 0; }
+    .chat-meta { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 11px; font-weight: 750; margin-bottom: 6px; }
+    .chat-text { color: var(--text); font-size: 13px; line-height: 1.55; }
+    .install-stage { padding: 16px 20px; border-top: 1px solid var(--line); }
+    .install-stage:first-child { border-top: 0; }
+    .stage-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
+    .stage-name { font-size: 13px; font-weight: 850; color: var(--dark); }
+    .footer-note { color: var(--muted); font-size: 12px; text-align: center; margin-top: 26px; }
+    @media (max-width: 1180px) {
+      .portal-shell { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; display: none; }
+      .hero-inner, .section-grid { grid-template-columns: 1fr; }
+      .metric-grid, .card-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 720px) {
+      .topbar { height: auto; padding: 16px; align-items: flex-start; flex-direction: column; }
+      .top-actions { flex-wrap: wrap; }
+      .content { padding: 18px 16px 32px; }
+      .hero-panel { padding: 22px; border-radius: 12px; }
+      .metric-grid, .card-grid { grid-template-columns: 1fr; }
+      .table { min-width: 720px; }
+      .table-wrap { overflow-x: auto; }
+      .agent-row { grid-template-columns: 42px 1fr; }
+      .agent-row .badge { grid-column: 2; justify-self: start; }
+    }
+  </style>
+</head>
+<body>
+  <div class="portal-shell">
+    <aside class="sidebar">
+      <a href="index.html" class="brand">
+        <div class="brand-mark">FE</div>
+        <div class="brand-name">FUZI <span>Elevators</span><br />Ops Portal</div>
+      </a>
+      <div class="side-label">Monitor</div>
+      <a class="side-link active" href="#overview"><i class="fa fa-gauge-high"></i> Live Overview</a>
+      <a class="side-link" href="#fleet"><i class="fa fa-screwdriver-wrench"></i> Self-Healing Fleet</a>
+      <a class="side-link" href="#projects"><i class="fa fa-list-check"></i> Modernization Jobs</a>
+      <a class="side-link" href="#install"><i class="fa fa-helmet-safety"></i> Field Installation</a>
+      <div class="side-label">Agents</div>
+      <a class="side-link" href="#service"><i class="fa fa-headset"></i> Customer Service</a>
+      <a class="side-link" href="#renewals"><i class="fa fa-handshake"></i> Renewal CRM</a>
+      <a class="side-link" href="#workorders"><i class="fa fa-microphone-lines"></i> Walkthrough Orders</a>
+      <div class="side-status">
+        <div class="pulse">All connectors online</div>
+        <p class="status-copy">FSM, ERP, CRM, WhatsApp, email, and web chat sync every 5 minutes.</p>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <div class="page-kicker">Operations Command Center</div>
+          <div class="page-title">Live Operations Dashboard</div>
+        </div>
+        <div class="top-actions">
+          <div class="sync-pill"><i class="fa fa-rotate"></i> Updated <span id="lastSync">now</span></div>
+          <a class="small-btn" href="index.html"><i class="fa fa-arrow-left"></i> Website</a>
+          <a class="small-btn primary" href="tel:+919928019671"><i class="fa fa-phone"></i> On-call</a>
+        </div>
+      </header>
+
+      <div class="content" id="overview">
+        <section class="hero-panel">
+          <div class="hero-inner">
+            <div>
+              <div class="page-kicker">24/7 agentic operations layer</div>
+              <h1>Every lift, ticket, install, part, and renewal in one operating view.</h1>
+              <p>Use this portal to track the eight operational agents: self-healing fleet monitoring, modernization coordination, customer service, morning SMS briefs, live business system sync, renewal CRM, site walkthrough work orders, and field installation management.</p>
+            </div>
+            <div class="brief-card">
+              <div class="brief-head">
+                <h3><i class="fa fa-sun"></i> Morning Operations Brief</h3>
+                <div class="brief-time">6:30 AM weekdays</div>
+              </div>
+              <div class="brief-line"><i class="fa fa-triangle-exclamation"></i><span>4 units in fault state, with 2 SLA risks requiring dispatch before 11:00 AM.</span></div>
+              <div class="brief-line"><i class="fa fa-user-clock"></i><span>North Jaipur coverage gap from 2:00 PM to 5:00 PM.</span></div>
+              <div class="brief-line"><i class="fa fa-box-open"></i><span>3 blocked parts orders: door rollers, inverter board, ARD battery kit.</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="metric-grid" aria-label="Operations metrics">
+          <div class="metric">
+            <div class="metric-label">Fleet Health</div>
+            <div class="metric-value">92<span>+3%</span></div>
+            <div class="metric-foot">128 units online, 4 in fault, 6 under watch.</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Open Tickets</div>
+            <div class="metric-value">37<span>-8 today</span></div>
+            <div class="metric-foot">11 auto-created by threshold alerts.</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Active Jobs</div>
+            <div class="metric-value">18<span>5 at risk</span></div>
+            <div class="metric-foot">Permits, parts, inspections, and crews tracked.</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Renewals Due</div>
+            <div class="metric-value">24<span>60 days</span></div>
+            <div class="metric-foot">9 accounts still need first outreach.</div>
+          </div>
+        </section>
+
+        <section class="section-grid">
+          <div class="panel" id="fleet">
+            <div class="panel-head">
+              <div class="panel-title"><i class="fa fa-screwdriver-wrench"></i> Self-Healing Fleet Monitor</div>
+              <div class="panel-note">Auto-ticket and SMS thresholds</div>
+            </div>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Unit</th>
+                    <th>Status</th>
+                    <th>Telemetry</th>
+                    <th>Ticket</th>
+                    <th>Owner</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><div class="unit-name">FE-JP-204</div><div class="subtext">Pearl Heights, Tower B</div></td>
+                    <td><span class="badge red"><i class="fa fa-circle"></i> Fault</span></td>
+                    <td>Motor 88 C, door cycles +32%</td>
+                    <td><div class="unit-name">#T-4182</div><div class="subtext">Created 08:06 AM</div></td>
+                    <td>R. Sharma</td>
+                  </tr>
+                  <tr>
+                    <td><div class="unit-name">FE-JP-117</div><div class="subtext">City Mall, Escalator 3</div></td>
+                    <td><span class="badge amber"><i class="fa fa-circle"></i> Watch</span></td>
+                    <td>Drive temp rising, E31 intermittent</td>
+                    <td><div class="unit-name">#T-4179</div><div class="subtext">SMS sent to on-call</div></td>
+                    <td>N. Khan</td>
+                  </tr>
+                  <tr>
+                    <td><div class="unit-name">FE-JP-309</div><div class="subtext">Sunrise Hospital</div></td>
+                    <td><span class="badge green"><i class="fa fa-circle"></i> Healthy</span></td>
+                    <td>Normal load, 18 sec avg trip</td>
+                    <td><div class="subtext">No ticket</div></td>
+                    <td>AMC Team 2</td>
+                  </tr>
+                  <tr>
+                    <td><div class="unit-name">FE-AJ-052</div><div class="subtext">Ajmer Residency</div></td>
+                    <td><span class="badge red"><i class="fa fa-circle"></i> Fault</span></td>
+                    <td>Door lock circuit, D14</td>
+                    <td><div class="unit-name">#T-4184</div><div class="subtext">Escalated to manager</div></td>
+                    <td>P. Meena</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="stack">
+            <div class="panel" id="service">
+              <div class="panel-head">
+                <div class="panel-title"><i class="fa fa-headset"></i> 24/7 Customer Service Agent</div>
+                <div class="panel-note">WhatsApp, email, chat</div>
+              </div>
+              <div class="chat-row">
+                <div class="chat-meta"><span>WhatsApp - Arihant Towers</span><span>Auto-answered</span></div>
+                <div class="chat-text">Routine AMC date confirmed for Monday, 10:30 AM. Manager received technician ETA.</div>
+              </div>
+              <div class="chat-row">
+                <div class="chat-meta"><span>Web chat - City Mall</span><span>Escalated</span></div>
+                <div class="chat-text">Passenger entrapment keyword detected. Emergency team and duty manager notified.</div>
+              </div>
+              <div class="chat-row">
+                <div class="chat-meta"><span>Email - Pearl Heights</span><span>Drafted</span></div>
+                <div class="chat-text">Explained fault ticket #T-4182 and shared next action plan for building manager approval.</div>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-head">
+                <div class="panel-title"><i class="fa fa-bell"></i> Alert Timeline</div>
+                <div class="panel-note">Last 45 minutes</div>
+              </div>
+              <div class="timeline">
+                <div class="timeline-item">
+                  <div class="dot red"></div>
+                  <div><div class="timeline-title">Fault crossed threshold</div><div class="timeline-copy">FE-JP-204 motor temperature crossed 85 C for 7 minutes.</div></div>
+                </div>
+                <div class="timeline-item">
+                  <div class="dot amber"></div>
+                  <div><div class="timeline-title">Parts order blocked</div><div class="timeline-copy">ARD battery kit awaiting supplier confirmation.</div></div>
+                </div>
+                <div class="timeline-item">
+                  <div class="dot"></div>
+                  <div><div class="timeline-title">Final inspection passed</div><div class="timeline-copy">Vaishali Plaza Lift 2 handover report generated.</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card-grid">
+          <div class="feature-card" id="projects">
+            <div class="feature-top">
+              <div class="feature-icon"><i class="fa fa-list-check"></i></div>
+              <span class="badge amber">5 at risk</span>
+            </div>
+            <h3>Modernization Project Coordinator</h3>
+            <p>Tracks permits, part orders, inspection dates, and assigned techs so blocked work is visible before the morning schedule is built.</p>
+            <ul class="mini-list">
+              <li><span>Pending permits</span><strong>3</strong></li>
+              <li><span>Parts orders due today</span><strong>7</strong></li>
+              <li><span>Inspection dates this week</span><strong>6</strong></li>
+            </ul>
+          </div>
+
+          <div class="feature-card" id="renewals">
+            <div class="feature-top">
+              <div class="feature-icon"><i class="fa fa-handshake"></i></div>
+              <span class="badge blue">24 due</span>
+            </div>
+            <h3>Contract Renewal CRM Agent</h3>
+            <p>Answers renewal questions, finds buildings due in the next 60 days, and drafts outreach emails for accounts that have not been contacted.</p>
+            <ul class="mini-list">
+              <li><span>Not contacted</span><strong>9</strong></li>
+              <li><span>Drafts ready</span><strong>6</strong></li>
+              <li><span>High value renewals</span><strong>4</strong></li>
+            </ul>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-top">
+              <div class="feature-icon"><i class="fa fa-chart-line"></i></div>
+              <span class="badge green">5 min sync</span>
+            </div>
+            <h3>Live Operations Dashboard</h3>
+            <p>Pulls from FSM, ERP, and CRM to show fleet health, open tickets, stockouts, upcoming renewals, crew coverage, and SLA risks.</p>
+            <ul class="mini-list">
+              <li><span>ERP stockouts</span><strong>3</strong></li>
+              <li><span>FSM dispatches</span><strong>14</strong></li>
+              <li><span>CRM follow-ups</span><strong>17</strong></li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="section-grid">
+          <div class="panel" id="install">
+            <div class="panel-head">
+              <div class="panel-title"><i class="fa fa-helmet-safety"></i> Field Installation Manager</div>
+              <div class="panel-note">Real-time crew progress</div>
+            </div>
+            <div class="install-stage">
+              <div class="stage-head"><div class="stage-name">Vaishali Plaza - Lift 2</div><span class="badge green">Final inspection passed</span></div>
+              <div class="progress green"><span style="width:100%"></span></div>
+              <div class="subtext">Handover report and warranty registration auto-generated.</div>
+            </div>
+            <div class="install-stage">
+              <div class="stage-head"><div class="stage-name">Mansarovar Residency - Lift 1</div><span class="badge amber">Electrical commissioning</span></div>
+              <div class="progress amber"><span style="width:72%"></span></div>
+              <div class="subtext">Crew flagged overload relay mismatch. Office notified.</div>
+            </div>
+            <div class="install-stage">
+              <div class="stage-head"><div class="stage-name">Bapu Nagar Clinic - Hospital Lift</div><span class="badge blue">Shaft alignment</span></div>
+              <div class="progress"><span style="width:46%"></span></div>
+              <div class="subtext">Alignment photos received. Inspection slot requested.</div>
+            </div>
+            <div class="install-stage">
+              <div class="stage-head"><div class="stage-name">Ajmer Trade Center - Escalator 1</div><span class="badge amber">Rigging overdue</span></div>
+              <div class="progress amber"><span style="width:31%"></span></div>
+              <div class="subtext">Rigging stage overdue by 4 hours; back-office alert sent.</div>
+            </div>
+          </div>
+
+          <div class="stack">
+            <div class="panel" id="workorders">
+              <div class="panel-head">
+                <div class="panel-title"><i class="fa fa-microphone-lines"></i> Site Walkthrough to Work Order</div>
+                <div class="panel-note">Voice structured</div>
+              </div>
+              <div class="workorder-box">
+                <h4>Draft work order: Pearl Heights Tower B</h4>
+                <p>Urgent: replace door lock contact and verify landing door alignment. Parts: D14 contact kit, roller set. Permit: not required. Assign: R. Sharma before 3:00 PM.</p>
+              </div>
+              <div class="workorder-box">
+                <h4>Draft work order: City Mall Escalator 3</h4>
+                <p>Medium: inspect drive cooling, clean comb plate sensors, and monitor E31 recurrence. Parts: fan assembly if temperature repeats.</p>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-head">
+                <div class="panel-title"><i class="fa fa-robot"></i> Agent Run Status</div>
+                <div class="panel-note">Automation health</div>
+              </div>
+              <div class="agent-list">
+                <div class="agent-row">
+                  <div class="agent-icon"><i class="fa fa-bolt"></i></div>
+                  <div><div class="agent-title">Fault watcher</div><div class="agent-copy">Scans every connected unit and opens tickets automatically.</div></div>
+                  <span class="badge green">Running</span>
+                </div>
+                <div class="agent-row">
+                  <div class="agent-icon"><i class="fa fa-calendar-day"></i></div>
+                  <div><div class="agent-title">Morning SMS brief</div><div class="agent-copy">Queued for next weekday at 6:30 AM.</div></div>
+                  <span class="badge blue">Scheduled</span>
+                </div>
+                <div class="agent-row">
+                  <div class="agent-icon"><i class="fa fa-envelope-open-text"></i></div>
+                  <div><div class="agent-title">Renewal drafter</div><div class="agent-copy">6 account emails ready for review.</div></div>
+                  <span class="badge amber">Review</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <p class="footer-note">Prototype dashboard with representative operational data. Connect FSM, ERP, CRM, SMS, WhatsApp, email, and web chat APIs to make each panel live.</p>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const lastSync = document.getElementById('lastSync');
+    function renderSyncTime() {
+      const now = new Date();
+      lastSync.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    renderSyncTime();
+    setInterval(renderSyncTime, 60000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FUZI Portal Login</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='portal.css') }}" />
+</head>
+<body class="login-body">
+  <main class="login-shell">
+    <section class="login-hero">
+      <a href="/" class="login-brand">
+        <span class="brand-mark">FE</span>
+        <span>FUZI <strong>Elevators</strong></span>
+      </a>
+      <div>
+        <div class="eyebrow">Operations Portal</div>
+        <h1>Sign in to monitor every unit, crew, ticket, and renewal.</h1>
+        <p>Protected command center for fleet health, modernization jobs, installation progress, customer escalations, and daily operations briefs.</p>
+      </div>
+      <div class="login-signal">
+        <span><i class="fa fa-circle"></i> FSM online</span>
+        <span><i class="fa fa-circle"></i> ERP online</span>
+        <span><i class="fa fa-circle"></i> CRM online</span>
+      </div>
+    </section>
+
+    <section class="login-card" aria-label="Portal login">
+      <div class="login-card-head">
+        <div class="login-icon"><i class="fa fa-lock"></i></div>
+        <div>
+          <h2>Welcome back</h2>
+          <p>Use your portal credentials to continue.</p>
+        </div>
+      </div>
+
+      {% if error %}
+        <div class="form-alert"><i class="fa fa-triangle-exclamation"></i> {{ error }}</div>
+      {% endif %}
+
+      <form method="post" class="login-form">
+        <label for="username">Username</label>
+        <div class="input-wrap">
+          <i class="fa fa-user"></i>
+          <input id="username" name="username" type="text" autocomplete="username" placeholder="admin" required />
+        </div>
+
+        <label for="password">Password</label>
+        <div class="input-wrap">
+          <i class="fa fa-key"></i>
+          <input id="password" name="password" type="password" autocomplete="current-password" placeholder="fuzi2026" required />
+        </div>
+
+        <button type="submit" class="login-submit">
+          <i class="fa fa-arrow-right-to-bracket"></i>
+          Sign in
+        </button>
+      </form>
+
+      <div class="demo-note">
+        <strong>Demo access:</strong> admin / fuzi2026
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,62 @@
+[
+  {
+    "id": "TM-301",
+    "name": "Ravi Sharma",
+    "role": "Lead Installer",
+    "phone": "+91 90000 1301",
+    "skills": [
+      "Rails",
+      "Cab assembly",
+      "Final leveling"
+    ],
+    "availability": "On Site",
+    "current_job": "IJ-201",
+    "shift": "9:00 AM - 6:00 PM",
+    "notes": "Owns final hoistway inspection and install-day readiness."
+  },
+  {
+    "id": "TM-302",
+    "name": "Nadeem Khan",
+    "role": "Electrical Technician",
+    "phone": "+91 90000 1302",
+    "skills": [
+      "220-V hookup",
+      "COP wiring",
+      "Drive commissioning"
+    ],
+    "availability": "Available",
+    "current_job": "",
+    "shift": "10:00 AM - 7:00 PM",
+    "notes": "Best fit for commissioning and power-readiness checks."
+  },
+  {
+    "id": "TM-303",
+    "name": "Pawan Meena",
+    "role": "Door & Safety Specialist",
+    "phone": "+91 90000 1303",
+    "skills": [
+      "Landing doors",
+      "Interlocks",
+      "Light curtains"
+    ],
+    "availability": "On Site",
+    "current_job": "IJ-202",
+    "shift": "9:00 AM - 6:00 PM",
+    "notes": "Assigned to final QA and homeowner orientation support."
+  },
+  {
+    "id": "TM-304",
+    "name": "Suresh Yadav",
+    "role": "Helper",
+    "phone": "+91 90000 1304",
+    "skills": [
+      "Material staging",
+      "Hoistway prep",
+      "Site cleanup"
+    ],
+    "availability": "Off Duty",
+    "current_job": "",
+    "shift": "Off today",
+    "notes": "Use for material movement and site readiness when active."
+  }
+]

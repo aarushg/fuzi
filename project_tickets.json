@@ -1,0 +1,35 @@
+[
+  {
+    "id": "PT-1001",
+    "project": "Raja Park Modernization",
+    "title": "Permit file pending fire department sign-off",
+    "owner": "A. Singhal",
+    "status": "In Progress",
+    "priority": "High",
+    "due": "Today",
+    "notes": "Missing stamped drawing set. Follow up with consultant before 4 PM.",
+    "created_at": "2026-05-16 09:20"
+  },
+  {
+    "id": "PT-1002",
+    "project": "Mansarovar Residency",
+    "title": "ARD battery kit supplier confirmation",
+    "owner": "N. Khan",
+    "status": "Open",
+    "priority": "High",
+    "due": "Tomorrow",
+    "notes": "ERP stock is zero. Vendor promised callback with dispatch ETA.",
+    "created_at": "2026-05-16 10:05"
+  },
+  {
+    "id": "PT-1003",
+    "project": "City Mall AMC Upgrade",
+    "title": "Inspection checklist review",
+    "owner": "R. Sharma",
+    "status": "In Progress",
+    "priority": "Medium",
+    "due": "May 21",
+    "notes": "Confirm escalator comb plate test photos before final inspection.",
+    "created_at": "2026-05-16 11:15"
+  }
+]

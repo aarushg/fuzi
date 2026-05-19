@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FUZI Operations Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='portal.css') }}" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a href="/" class="side-brand">
+        <span class="brand-mark">FE</span>
+        <span>FUZI <strong>Ops</strong></span>
+      </a>
+      <nav class="side-nav" aria-label="Portal navigation">
+        <button class="side-link active" data-view="overview"><i class="fa fa-gauge-high"></i> Overview</button>
+        <button class="side-link" data-view="modules"><i class="fa fa-layer-group"></i> Platform Modules</button>
+        <button class="side-link" data-view="customers"><i class="fa fa-building-user"></i> Customers</button>
+        <button class="side-link" data-view="fleet"><i class="fa fa-screwdriver-wrench"></i> Fleet Monitor</button>
+        <button class="side-link" data-view="tickets"><i class="fa fa-ticket"></i> Project Tickets</button>
+        <button class="side-link" data-view="projects"><i class="fa fa-list-check"></i> Projects</button>
+        <button class="side-link" data-view="installations"><i class="fa fa-helmet-safety"></i> Installations</button>
+        <button class="side-link" data-view="team"><i class="fa fa-users-gear"></i> Install Team</button>
+        <button class="side-link" data-view="accounts"><i class="fa fa-user-lock"></i> Team Accounts</button>
+        <button class="side-link" data-view="messages"><i class="fa fa-headset"></i> Service Agent</button>
+        <button class="side-link" data-view="renewals"><i class="fa fa-handshake"></i> Renewals</button>
+        <button class="side-link" data-view="workorders"><i class="fa fa-microphone-lines"></i> Work Orders</button>
+      </nav>
+      <div class="connector-card">
+        <div class="connector-status"><span></span> Connectors online</div>
+        <p>FSM, ERP, CRM, WhatsApp, email, and web chat refresh every 5 minutes.</p>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">Operations Command Center</div>
+          <h1>Live Operations Dashboard</h1>
+        </div>
+        <div class="top-actions">
+          <div class="sync-pill"><i class="fa fa-rotate"></i> Synced <span id="syncTime">{{ synced_at }}</span></div>
+          <span class="user-pill"><i class="fa fa-user-shield"></i> {{ user }}</span>
+          <a href="{{ url_for('logout') }}" class="action-btn quiet"><i class="fa fa-right-from-bracket"></i> Logout</a>
+        </div>
+      </header>
+
+      <section class="command-band view-section active" id="view-overview">
+        <div class="command-copy">
+          <div class="eyebrow">24/7 agentic operations layer</div>
+          <h2>Track faults, jobs, crews, messages, parts, renewals, and handovers without chasing calls.</h2>
+          <p>The portal is now interactive: filter data, refresh live sample feeds, generate agent actions, and jump between operational views.</p>
+        </div>
+        <div class="brief-card">
+          <div class="brief-head">
+            <strong><i class="fa fa-sun"></i> Morning Operations Brief</strong>
+            <span>6:30 AM weekdays</span>
+          </div>
+          <p>4 units in fault state, 2 SLA risks, 1 coverage gap, and 3 blocked parts orders.</p>
+          <button class="action-btn" data-action="Send SMS brief" data-target="on-call tech"><i class="fa fa-paper-plane"></i> Send test brief</button>
+        </div>
+      </section>
+
+      <section class="metric-grid" id="metricGrid">
+        {% for metric in data.metrics %}
+          <article class="metric-card {{ metric.tone }}">
+            <span>{{ metric.label }}</span>
+            <strong>{{ metric.value }}</strong>
+            <em>{{ metric.delta }}</em>
+            <p>{{ metric.detail }}</p>
+          </article>
+        {% endfor %}
+      </section>
+
+      <section class="toolbar">
+        <div class="search-wrap">
+          <i class="fa fa-search"></i>
+          <input id="globalSearch" type="search" placeholder="Search units, jobs, buildings, owners..." />
+        </div>
+        <select id="statusFilter" aria-label="Filter status">
+          <option value="all">All statuses</option>
+          <option value="open">Open</option>
+          <option value="in progress">In Progress</option>
+          <option value="available">Available</option>
+          <option value="on site">On Site</option>
+          <option value="off duty">Off Duty</option>
+          <option value="critical">Critical</option>
+          <option value="warning">Warning</option>
+          <option value="healthy">Healthy</option>
+          <option value="blocked">Blocked</option>
+          <option value="at risk">At risk</option>
+          <option value="done">Done</option>
+          <option value="closed">Closed</option>
+        </select>
+        <button class="action-btn" id="refreshBtn"><i class="fa fa-rotate"></i> Refresh feed</button>
+      </section>
+
+      <section class="customer-workspace view-section active" id="view-customers">
+        <article class="panel customer-board">
+          <div class="panel-head">
+            <h2><i class="fa fa-building-user"></i> Customer Management</h2>
+            <span class="panel-subtitle">Store actual customer, building, contact, renewal, and service notes here.</span>
+          </div>
+          <div class="table-wrap">
+            <table class="customer-table">
+              <thead>
+                <tr>
+                  <th>Customer / Building</th>
+                  <th>Contact</th>
+                  <th>Segment</th>
+                  <th>Status</th>
+                  <th>Renewal</th>
+                  <th>Notes</th>
+                  <th>Update</th>
+                </tr>
+              </thead>
+              <tbody id="customerRows">
+                {% for customer in data.customers %}
+                <tr data-customer-id="{{ customer.id }}" data-search="{{ customer.id }} {{ customer.name }} {{ customer.contact_person }} {{ customer.phone }} {{ customer.email }} {{ customer.segment }} {{ customer.status }} {{ customer.notes }}" data-status="{{ customer.status|lower }}">
+                  <td><strong>{{ customer.name }}</strong><span>{{ customer.id }} · {{ customer.address }}</span></td>
+                  <td>{{ customer.contact_person }}<span>{{ customer.phone }} · {{ customer.email }}</span></td>
+                  <td>{{ customer.segment }}</td>
+                  <td>
+                    <select class="customer-status" aria-label="Update {{ customer.name }} status">
+                      {% for status in ["Active", "At Risk", "Renewal Due", "Paused", "Closed"] %}
+                      <option value="{{ status }}" {% if customer.status == status %}selected{% endif %}>{{ status }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                  <td>{{ customer.renewal_date or "Not set" }}</td>
+                  <td><input class="customer-notes" type="text" value="{{ customer.notes }}" aria-label="Notes for {{ customer.name }}" /></td>
+                  <td><button class="action-btn small customer-save" data-customer-id="{{ customer.id }}"><i class="fa fa-check"></i> Save</button></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% if not data.customers %}
+            <div class="empty-state" id="customerEmpty">No customer records yet. Add your first real customer from the form.</div>
+            {% endif %}
+          </div>
+        </article>
+
+        <aside class="panel customer-form-panel">
+          <div class="panel-head">
+            <h2><i class="fa fa-plus"></i> Add Customer</h2>
+          </div>
+          <form id="customerForm" class="ticket-form">
+            <label for="customerName">Customer / Building</label>
+            <input id="customerName" name="name" type="text" placeholder="Customer or building name" required />
+
+            <div class="form-grid">
+              <div>
+                <label for="customerContact">Contact person</label>
+                <input id="customerContact" name="contact_person" type="text" placeholder="Manager name" />
+              </div>
+              <div>
+                <label for="customerPhone">Phone</label>
+                <input id="customerPhone" name="phone" type="tel" placeholder="+91 ..." />
+              </div>
+            </div>
+
+            <label for="customerEmail">Email</label>
+            <input id="customerEmail" name="email" type="email" placeholder="manager@example.com" />
+
+            <label for="customerAddress">Address</label>
+            <input id="customerAddress" name="address" type="text" placeholder="Site address" />
+
+            <div class="form-grid">
+              <div>
+                <label for="customerSegment">Segment</label>
+                <select id="customerSegment" name="segment">
+                  <option>Residential</option>
+                  <option>Commercial</option>
+                  <option>Hospital</option>
+                  <option>Hotel</option>
+                  <option>Industrial</option>
+                </select>
+              </div>
+              <div>
+                <label for="customerStatus">Status</label>
+                <select id="customerStatus" name="status">
+                  <option selected>Active</option>
+                  <option>At Risk</option>
+                  <option>Renewal Due</option>
+                  <option>Paused</option>
+                  <option>Closed</option>
+                </select>
+              </div>
+            </div>
+
+            <label for="customerRenewal">Renewal date</label>
+            <input id="customerRenewal" name="renewal_date" type="date" />
+
+            <label for="customerNotes">Customer notes</label>
+            <textarea id="customerNotes" name="notes" placeholder="Service expectations, contacts, site access, billing notes"></textarea>
+
+            <button class="action-btn" type="submit"><i class="fa fa-building-circle-check"></i> Save customer</button>
+          </form>
+        </aside>
+      </section>
+
+      <section class="modules-workspace view-section active" id="view-modules">
+        <article class="panel">
+          <div class="panel-head">
+            <h2><i class="fa fa-layer-group"></i> Elevator Business Platform</h2>
+            <span class="panel-subtitle">Ten operating modules for sales, AMC, breakdowns, field service, inventory, CRM, modernization, projects, and MIS.</span>
+          </div>
+          <div class="module-grid">
+            {% for module in data.platform_modules %}
+            <article class="module-card" data-search="{{ module.name }} {{ module.owner }} {{ module.status }} {{ module.summary }} {{ module.actions | join(' ') }}" data-status="{{ module.status|lower }}">
+              <div class="module-head">
+                <div class="module-icon"><i class="fa {{ module.icon }}"></i></div>
+                <mark class="badge {{ 'critical' if module.status in ['Critical Watch', 'At Risk', 'Stock Watch'] else 'healthy' if module.status == 'Active' else 'warning' }}">{{ module.status }}</mark>
+              </div>
+              <h3>{{ loop.index }}. {{ module.name }}</h3>
+              <p>{{ module.summary }}</p>
+              <div class="module-owner"><i class="fa fa-user-tie"></i> {{ module.owner }}</div>
+              <div class="module-metrics">
+                {% for metric in module.metrics %}
+                <div><strong>{{ metric.value }}</strong><span>{{ metric.label }}</span></div>
+                {% endfor %}
+              </div>
+              <div class="module-actions">
+                {% for action in module.actions %}
+                <button class="module-action" data-action="{{ action }}" data-target="{{ module.name }}">{{ action }}</button>
+                {% endfor %}
+              </div>
+            </article>
+            {% endfor %}
+          </div>
+        </article>
+      </section>
+
+      <section class="ticket-workspace view-section active" id="view-tickets">
+        <article class="panel ticket-board">
+          <div class="panel-head">
+            <h2><i class="fa fa-ticket"></i> Project Ticketing System</h2>
+            <span class="panel-subtitle">Manage blockers, owner actions, due dates, and current project follow-ups.</span>
+          </div>
+          <div class="table-wrap">
+            <table class="ticket-table">
+              <thead>
+                <tr>
+                  <th>Ticket</th>
+                  <th>Project</th>
+                  <th>Owner</th>
+                  <th>Priority</th>
+                  <th>Status</th>
+                  <th>Due</th>
+                  <th>Update</th>
+                </tr>
+              </thead>
+              <tbody id="ticketRows">
+                {% for ticket in data.project_tickets %}
+                <tr data-ticket-id="{{ ticket.id }}" data-search="{{ ticket.id }} {{ ticket.project }} {{ ticket.title }} {{ ticket.owner }} {{ ticket.status }} {{ ticket.priority }}" data-status="{{ ticket.status|lower }}">
+                  <td><strong>{{ ticket.id }}</strong><span>{{ ticket.title }}</span></td>
+                  <td>{{ ticket.project }}</td>
+                  <td>{{ ticket.owner }}</td>
+                  <td><mark class="badge {{ 'critical' if ticket.priority == 'High' else 'warning' if ticket.priority == 'Medium' else 'info' }}">{{ ticket.priority }}</mark></td>
+                  <td>
+                    <select class="ticket-status" aria-label="Update {{ ticket.id }} status">
+                      {% for status in ["Open", "In Progress", "Blocked", "Closed"] %}
+                      <option value="{{ status }}" {% if ticket.status == status %}selected{% endif %}>{{ status }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                  <td>{{ ticket.due }}</td>
+                  <td><button class="action-btn small ticket-save" data-ticket-id="{{ ticket.id }}"><i class="fa fa-check"></i> Save</button></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <aside class="panel ticket-form-panel">
+          <div class="panel-head">
+            <h2><i class="fa fa-plus"></i> New Project Ticket</h2>
+          </div>
+          <form id="ticketForm" class="ticket-form">
+            <label for="ticketProject">Project</label>
+            <input id="ticketProject" name="project" type="text" placeholder="Mansarovar Residency" required />
+
+            <label for="ticketTitle">Ticket title</label>
+            <input id="ticketTitle" name="title" type="text" placeholder="Parts order blocked" required />
+
+            <div class="form-grid">
+              <div>
+                <label for="ticketOwner">Owner</label>
+                <input id="ticketOwner" name="owner" type="text" placeholder="N. Khan" />
+              </div>
+              <div>
+                <label for="ticketDue">Due</label>
+                <input id="ticketDue" name="due" type="text" placeholder="Today" />
+              </div>
+            </div>
+
+            <div class="form-grid">
+              <div>
+                <label for="ticketPriority">Priority</label>
+                <select id="ticketPriority" name="priority">
+                  <option>High</option>
+                  <option selected>Medium</option>
+                  <option>Low</option>
+                </select>
+              </div>
+              <div>
+                <label for="ticketStatus">Status</label>
+                <select id="ticketStatus" name="status">
+                  <option selected>Open</option>
+                  <option>In Progress</option>
+                  <option>Blocked</option>
+                  <option>Closed</option>
+                </select>
+              </div>
+            </div>
+
+            <label for="ticketNotes">Notes</label>
+            <textarea id="ticketNotes" name="notes" placeholder="What needs to happen next?"></textarea>
+
+            <button class="action-btn" type="submit"><i class="fa fa-plus"></i> Create ticket</button>
+          </form>
+        </aside>
+      </section>
+
+      <section class="install-workspace view-section active" id="view-installations">
+        <article class="panel install-board">
+          <div class="panel-head">
+            <h2><i class="fa fa-helmet-safety"></i> Install Team Process Tracker</h2>
+            <span class="panel-subtitle">Residential elevator workflow from planning through post-install care.</span>
+          </div>
+
+          <div class="install-job-grid">
+            {% for job in data.install_jobs %}
+            <article class="install-job-card" data-search="{{ job.id }} {{ job.site }} {{ job.type }} {{ job.crew }} {{ job.status }} {{ job.current_stage }}" data-status="{{ job.status|lower }}">
+              <div class="install-job-head">
+                <div>
+                  <strong>{{ job.site }}</strong>
+                  <span>{{ job.id }} · {{ job.type }} · {{ job.crew }}</span>
+                </div>
+                <mark class="badge {{ 'critical' if job.status == 'Blocked' else 'healthy' if job.status == 'Complete' else 'warning' }}">{{ job.status }}</mark>
+              </div>
+              <div class="progress"><span style="width: {{ job.progress }}%"></span></div>
+              <div class="install-current">{{ job.progress }}% complete · Current: {{ job.current_stage }} · Target {{ job.target }}</div>
+
+              <div class="install-stage-list">
+                {% for stage in data.install_stage_template %}
+                  {% set job_stage = (job.stages | selectattr("id", "equalto", stage.id) | list | first) %}
+                  <div class="install-stage-row" data-search="{{ job.site }} {{ stage.name }} {{ stage.checkpoint }} {{ job_stage.status }}" data-status="{{ job_stage.status|lower }}">
+                    <div>
+                      <strong>{{ stage.name }}</strong>
+                      <p>{{ stage.checkpoint }}</p>
+                      <ul>
+                        {% for check in stage.checks %}
+                        <li>{{ check }}</li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                    <div class="install-stage-actions">
+                      <select class="install-stage-status" data-job-id="{{ job.id }}" data-stage-id="{{ stage.id }}" aria-label="Update {{ job.site }} {{ stage.name }}">
+                        {% for status in ["Open", "In Progress", "Done", "Blocked"] %}
+                        <option value="{{ status }}" {% if job_stage.status == status %}selected{% endif %}>{{ status }}</option>
+                        {% endfor %}
+                      </select>
+                      <button class="action-btn small install-stage-save" data-job-id="{{ job.id }}" data-stage-id="{{ stage.id }}"><i class="fa fa-check"></i> Save</button>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            </article>
+            {% endfor %}
+          </div>
+        </article>
+
+        <aside class="install-side">
+          <article class="panel">
+            <div class="panel-head">
+              <h2><i class="fa fa-file-signature"></i> Permits & Code</h2>
+            </div>
+            <div class="install-note-list">
+              <p><strong>Building permit</strong><span>Usually handled by the GC or elevator company on turnkey projects.</span></p>
+              <p><strong>Electrical permit</strong><span>Licensed electrician pulls and closes after final hookup.</span></p>
+              <p><strong>Special inspections</strong><span>Some jurisdictions require fire rating, pit waterproofing, or seismic checks.</span></p>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h2><i class="fa fa-boxes-stacked"></i> Procurement Lead Times</h2>
+            </div>
+            <div class="lead-list">
+              {% for material in data.install_materials %}
+              <div data-search="{{ material.component }} {{ material.lead_time }} {{ material.notes }}">
+                <strong>{{ material.component }}</strong>
+                <span>{{ material.lead_time }}</span>
+                <p>{{ material.notes }}</p>
+              </div>
+              {% endfor %}
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h2><i class="fa fa-triangle-exclamation"></i> Common Challenges</h2>
+            </div>
+            <div class="lead-list">
+              {% for item in data.install_challenges %}
+              <div data-search="{{ item.challenge }} {{ item.prevention }}">
+                <strong>{{ item.challenge }}</strong>
+                <p>{{ item.prevention }}</p>
+              </div>
+              {% endfor %}
+            </div>
+          </article>
+        </aside>
+      </section>
+
+      <section class="team-workspace view-section active" id="view-team">
+        <article class="panel team-board">
+          <div class="panel-head">
+            <h2><i class="fa fa-users-gear"></i> Install Team Management</h2>
+            <span class="panel-subtitle">Assign technicians to live install jobs, track availability, and see skills at a glance.</span>
+          </div>
+          <div class="table-wrap">
+            <table class="team-table">
+              <thead>
+                <tr>
+                  <th>Technician</th>
+                  <th>Role</th>
+                  <th>Skills</th>
+                  <th>Availability</th>
+                  <th>Current Job</th>
+                  <th>Shift</th>
+                  <th>Update</th>
+                </tr>
+              </thead>
+              <tbody id="teamRows">
+                {% for member in data.install_team %}
+                <tr data-member-id="{{ member.id }}" data-search="{{ member.id }} {{ member.name }} {{ member.role }} {{ member.skills | join(' ') }} {{ member.availability }} {{ member.current_job }} {{ member.shift }}" data-status="{{ member.availability|lower }}">
+                  <td><strong>{{ member.name }}</strong><span>{{ member.id }} · {{ member.phone }}</span></td>
+                  <td>{{ member.role }}</td>
+                  <td>
+                    <div class="skill-list">
+                      {% for skill in member.skills %}
+                      <span>{{ skill }}</span>
+                      {% endfor %}
+                    </div>
+                  </td>
+                  <td>
+                    <select class="team-availability" aria-label="Availability for {{ member.name }}">
+                      {% for availability in ["Available", "On Site", "Off Duty", "Blocked"] %}
+                      <option value="{{ availability }}" {% if member.availability == availability %}selected{% endif %}>{{ availability }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                  <td>
+                    <select class="team-job" aria-label="Current job for {{ member.name }}">
+                      <option value="">Unassigned</option>
+                      {% for job in data.install_jobs %}
+                      <option value="{{ job.id }}" {% if member.current_job == job.id %}selected{% endif %}>{{ job.id }} · {{ job.site }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                  <td>{{ member.shift }}</td>
+                  <td><button class="action-btn small team-save" data-member-id="{{ member.id }}"><i class="fa fa-check"></i> Save</button></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <aside class="panel team-form-panel">
+          <div class="panel-head">
+            <h2><i class="fa fa-user-plus"></i> Add Technician</h2>
+          </div>
+          <form id="teamForm" class="ticket-form">
+            <label for="teamName">Name</label>
+            <input id="teamName" name="name" type="text" placeholder="Amit Jain" required />
+
+            <label for="teamRole">Role</label>
+            <input id="teamRole" name="role" type="text" placeholder="Electrical Technician" required />
+
+            <label for="teamPhone">Phone</label>
+            <input id="teamPhone" name="phone" type="tel" placeholder="+91 90000 1305" />
+
+            <label for="teamSkills">Skills</label>
+            <input id="teamSkills" name="skills" type="text" placeholder="COP wiring, drive commissioning, safety audit" />
+
+            <div class="form-grid">
+              <div>
+                <label for="teamAvailability">Availability</label>
+                <select id="teamAvailability" name="availability">
+                  <option selected>Available</option>
+                  <option>On Site</option>
+                  <option>Off Duty</option>
+                  <option>Blocked</option>
+                </select>
+              </div>
+              <div>
+                <label for="teamCurrentJob">Assign Job</label>
+                <select id="teamCurrentJob" name="current_job">
+                  <option value="">Unassigned</option>
+                  {% for job in data.install_jobs %}
+                  <option value="{{ job.id }}">{{ job.id }} · {{ job.site }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+
+            <label for="teamShift">Shift</label>
+            <input id="teamShift" name="shift" type="text" placeholder="9:00 AM - 6:00 PM" />
+
+            <label for="teamNotes">Notes</label>
+            <textarea id="teamNotes" name="notes" placeholder="What should the office know before assigning this technician?"></textarea>
+
+            <button class="action-btn" type="submit"><i class="fa fa-user-plus"></i> Add technician</button>
+          </form>
+        </aside>
+      </section>
+
+      <section class="account-workspace view-section active" id="view-accounts">
+        <article class="panel account-board">
+          <div class="panel-head">
+            <h2><i class="fa fa-user-lock"></i> Team Login Accounts</h2>
+            <span class="panel-subtitle">Create real portal accounts for installers, managers, and office users.</span>
+          </div>
+          <div class="table-wrap">
+            <table class="account-table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Role</th>
+                  <th>Linked Team Member</th>
+                  <th>Status</th>
+                  <th>Password Reset</th>
+                  <th>Update</th>
+                </tr>
+              </thead>
+              <tbody id="accountRows">
+                {% for account in data.users %}
+                <tr data-user-id="{{ account.id }}" data-search="{{ account.username }} {{ account.display_name }} {{ account.role }} {{ account.linked_team_member }}" data-status="{{ 'active' if account.active else 'blocked' }}">
+                  <td><strong>{{ account.display_name }}</strong><span>{{ account.username }} · {{ account.id }}</span></td>
+                  <td>
+                    <select class="account-role" aria-label="Role for {{ account.username }}">
+                      {% for role in ["admin", "manager", "technician"] %}
+                      <option value="{{ role }}" {% if account.role == role %}selected{% endif %}>{{ role|title }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                  <td>
+                    <select class="account-member" aria-label="Linked team member for {{ account.username }}">
+                      <option value="">None</option>
+                      {% for member in data.install_team %}
+                      <option value="{{ member.id }}" {% if account.linked_team_member == member.id %}selected{% endif %}>{{ member.id }} · {{ member.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
+                  <td>
+                    <select class="account-active" aria-label="Status for {{ account.username }}">
+                      <option value="true" {% if account.active %}selected{% endif %}>Active</option>
+                      <option value="false" {% if not account.active %}selected{% endif %}>Disabled</option>
+                    </select>
+                  </td>
+                  <td><input class="account-password" type="password" placeholder="New password only" aria-label="Reset password for {{ account.username }}" /></td>
+                  <td><button class="action-btn small account-save" data-user-id="{{ account.id }}"><i class="fa fa-check"></i> Save</button></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <aside class="panel account-form-panel">
+          <div class="panel-head">
+            <h2><i class="fa fa-user-plus"></i> Create Account</h2>
+          </div>
+          <form id="accountForm" class="ticket-form">
+            <label for="accountUsername">Username</label>
+            <input id="accountUsername" name="username" type="text" placeholder="first.last" required />
+
+            <label for="accountDisplay">Display name</label>
+            <input id="accountDisplay" name="display_name" type="text" placeholder="Team member name" required />
+
+            <label for="accountPassword">Temporary password</label>
+            <input id="accountPassword" name="password" type="password" placeholder="Set a real temporary password" required />
+
+            <div class="form-grid">
+              <div>
+                <label for="accountRole">Role</label>
+                <select id="accountRole" name="role">
+                  <option>technician</option>
+                  <option>manager</option>
+                  <option>admin</option>
+                </select>
+              </div>
+              <div>
+                <label for="accountMember">Team member</label>
+                <select id="accountMember" name="linked_team_member">
+                  <option value="">None</option>
+                  {% for member in data.install_team %}
+                  <option value="{{ member.id }}">{{ member.id }} · {{ member.name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+
+            <button class="action-btn" type="submit"><i class="fa fa-user-lock"></i> Create login</button>
+          </form>
+        </aside>
+      </section>
+
+      <div class="content-grid">
+        <section class="panel view-section active" id="view-fleet">
+          <div class="panel-head">
+            <h2><i class="fa fa-screwdriver-wrench"></i> Self-Healing Fleet Monitor</h2>
+            <button class="action-btn small" data-action="Create ticket" data-target="selected fleet alert">Create ticket</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Unit</th><th>Status</th><th>Telemetry</th><th>Ticket</th><th>Owner</th><th></th></tr></thead>
+              <tbody id="fleetRows">
+                {% for item in data.fleet %}
+                <tr data-search="{{ item.unit }} {{ item.site }} {{ item.status }} {{ item.owner }}" data-status="{{ item.severity }}">
+                  <td><strong>{{ item.unit }}</strong><span>{{ item.site }}</span></td>
+                  <td><mark class="badge {{ item.severity }}">{{ item.status }}</mark></td>
+                  <td>{{ item.telemetry }}</td>
+                  <td>{{ item.ticket }}</td>
+                  <td>{{ item.owner }}</td>
+                  <td><button class="icon-btn" data-action="Text technician" data-target="{{ item.unit }}" title="Text technician"><i class="fa fa-message"></i></button></td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <aside class="panel view-section active" id="view-messages">
+          <div class="panel-head">
+            <h2><i class="fa fa-headset"></i> 24/7 Customer Service Agent</h2>
+          </div>
+          <div id="messageFeed">
+            {% for msg in data.messages %}
+            <article class="feed-item" data-search="{{ msg.channel }} {{ msg.from }} {{ msg.state }} {{ msg.text }}">
+              <div><strong>{{ msg.channel }} - {{ msg.from }}</strong><mark class="badge info">{{ msg.state }}</mark></div>
+              <p>{{ msg.text }}</p>
+            </article>
+            {% endfor %}
+          </div>
+        </aside>
+      </div>
+
+      <section class="card-grid">
+        <article class="panel view-section active" id="view-projects">
+          <div class="panel-head">
+            <h2><i class="fa fa-list-check"></i> Modernization Project Coordinator</h2>
+          </div>
+          <div id="projectList" class="list-stack">
+            {% for project in data.projects %}
+            <div class="list-row" data-search="{{ project.name }} {{ project.stage }} {{ project.risk }} {{ project.owner }}" data-status="{{ project.risk|lower }}">
+              <div><strong>{{ project.name }}</strong><span>{{ project.stage }} - {{ project.owner }}</span></div>
+              <mark class="badge {% if project.risk == 'Blocked' %}critical{% elif project.risk == 'At risk' %}warning{% else %}healthy{% endif %}">{{ project.risk }}</mark>
+            </div>
+            {% endfor %}
+          </div>
+        </article>
+
+        <article class="panel view-section active" id="view-installations-summary">
+          <div class="panel-head">
+            <h2><i class="fa fa-helmet-safety"></i> Field Installation Manager</h2>
+          </div>
+          <div class="list-stack">
+            {% for install in data.installations %}
+            <div class="stage-card" data-search="{{ install.job }} {{ install.stage }} {{ install.note }}" data-status="{{ install.tone }}">
+              <div class="stage-top"><strong>{{ install.job }}</strong><mark class="badge {{ install.tone }}">{{ install.stage }}</mark></div>
+              <div class="progress"><span style="width: {{ install.progress }}%"></span></div>
+              <p>{{ install.note }}</p>
+            </div>
+            {% endfor %}
+          </div>
+        </article>
+
+        <article class="panel view-section active" id="view-renewals">
+          <div class="panel-head">
+            <h2><i class="fa fa-handshake"></i> Contract Renewal CRM Agent</h2>
+            <button class="action-btn small" data-action="Draft outreach" data-target="uncontacted renewals">Draft emails</button>
+          </div>
+          <div class="list-stack">
+            {% for renewal in data.renewals %}
+            <div class="list-row" data-search="{{ renewal.building }} {{ renewal.value }} renewal" data-status="{% if renewal.contacted %}healthy{% else %}warning{% endif %}">
+              <div><strong>{{ renewal.building }}</strong><span>{{ renewal.days }} days left - {{ renewal.value }} value</span></div>
+              <mark class="badge {% if renewal.contacted %}healthy{% else %}warning{% endif %}">{{ "Contacted" if renewal.contacted else "Needs outreach" }}</mark>
+            </div>
+            {% endfor %}
+          </div>
+        </article>
+      </section>
+
+      <section class="panel view-section active" id="view-workorders">
+        <div class="panel-head">
+          <h2><i class="fa fa-microphone-lines"></i> Site Walkthrough to Work Order</h2>
+          <button class="action-btn small" data-action="Push work order" data-target="FSM">Push to FSM</button>
+        </div>
+        <div class="workorder-grid">
+          {% for order in data.work_orders %}
+          <article class="workorder" data-search="{{ order.title }} {{ order.urgency }} {{ order.body }}" data-status="{{ 'critical' if order.urgency == 'Urgent' else 'warning' }}">
+            <mark class="badge {{ 'critical' if order.urgency == 'Urgent' else 'warning' }}">{{ order.urgency }}</mark>
+            <h3>{{ order.title }}</h3>
+            <p>{{ order.body }}</p>
+          </article>
+          {% endfor %}
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="{{ url_for('static', filename='portal.js') }}"></script>
+</body>
+</html>
