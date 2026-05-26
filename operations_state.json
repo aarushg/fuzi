@@ -457,6 +457,51 @@
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 14:14"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 14:09"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 14:04"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 13:59"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 13:54"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 13:49"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 13:44"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 13:39"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 13:34"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
       "timestamp": "2026-05-26 07:52"
     },
     {
@@ -608,57 +653,12 @@
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
       "timestamp": "2026-05-26 06:03"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 06:01"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 05:58"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 05:58"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 05:55"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 05:53"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 05:53"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 05:50"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 05:48"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 05:48"
     }
   ],
   "connector_status": {
     "state": "online",
-    "last_attempt": "2026-05-26 07:52",
+    "last_attempt": "2026-05-26 14:14",
     "last_error": "",
-    "last_response": "{\"ok\":true,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\n  \\\"ok\\\": true,\\n  \\\"result\\\": {\\n    \\\"messageId\\\": \\\"1508799889247568036\\\",\\n    \\\"channelId\\\": \\\"1508544170824831128\\\"\\n  }\\n}\"}],\"details\":{\"ok\":true,\"result\":{\"messageId\":\"1508799889247568036\",\"channelId\":\"1508544170824831128\"}}}}"
+    "last_response": "{\"ok\":true,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\n  \\\"ok\\\": true,\\n  \\\"result\\\": {\\n    \\\"messageId\\\": \\\"1508896150546284696\\\",\\n    \\\"channelId\\\": \\\"1508544170824831128\\\"\\n  }\\n}\"}],\"details\":{\"ok\":true,\"result\":{\"messageId\":\"1508896150546284696\",\"channelId\":\"1508544170824831128\"}}}}"
   }
 }

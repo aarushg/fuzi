@@ -1,0 +1,30 @@
+[
+  {
+    "id": "COM-0001",
+    "installation_ref": "",
+    "customer": "ACME Corp",
+    "site": "",
+    "install_complete_date": "",
+    "payment_cleared": false,
+    "start_date": null,
+    "handover_date": null,
+    "status": "Pending",
+    "notes": "",
+    "created_at": "2026-05-26T18:15:38.958258"
+  },
+  {
+    "id": "COM-0002",
+    "unit": "L-201",
+    "job_ref": "JOB-001",
+    "installation_ref": "JOB-001",
+    "customer": "ACME",
+    "site": "",
+    "install_complete_date": "",
+    "payment_cleared": false,
+    "start_date": "2026-06-15",
+    "handover_date": null,
+    "status": "In Progress",
+    "notes": "",
+    "created_at": "2026-05-26T18:20:23.620661"
+  }
+]

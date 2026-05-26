@@ -24,7 +24,14 @@
       "Bash(curl -s http://127.0.0.1:5000/api/portal/estimates/calculate -X POST -H \"Content-Type: application/json\" -d '{\"capacity\":\"10-person \\(800 kg\\)\",\"num_floors\":5,\"drive_type\":\"Gearless MRL\",\"cabin_finish\":\"Standard \\(MS\\)\",\"door_type\":\"Automatic SS\",\"control_type\":\"Collective Control\",\"margin_percent\":18,\"addons\":[]}')",
       "Bash(.venv/Scripts/python.exe -c ' *)",
       "PowerShell(& \"C:\\\\Users\\\\User\\\\Documents\\\\GitHub\\\\fuzi\\\\.venv\\\\Scripts\\\\python.exe\" \"C:/Users/User/Documents/GitHub/fuzi/docs/costing/build_engine.py\" 2>&1)",
-      "Bash(python \"C:/Users/User/Documents/GitHub/fuzi/docs/costing/gen_apppy.py\")"
+      "Bash(python \"C:/Users/User/Documents/GitHub/fuzi/docs/costing/gen_apppy.py\")",
+      "Bash(curl -s -c /tmp/fuzi_cookies.txt -b /tmp/fuzi_cookies.txt http://127.0.0.1:5000/portal -o /tmp/fuzi_portal.html -w '%{http_code}')",
+      "Bash(curl -sv -c /tmp/fuzi_cookies.txt -b /tmp/fuzi_cookies.txt -X POST http://127.0.0.1:5000/portal/login --data-urlencode username=admin --data-urlencode password=admin123 -L)",
+      "Bash(rm -f /tmp/fuzi2.txt)",
+      "Bash(curl -s -c /tmp/fuzi2.txt -X POST http://127.0.0.1:5000/portal/login --data-urlencode username=admin --data-urlencode password=admin123 -D -)",
+      "Bash(curl -s -c /tmp/fuzi3.txt -X POST http://127.0.0.1:5000/portal/login -d 'username=admin&password=admin123' -D /tmp/fuzi3_headers.txt -o /tmp/fuzi3_body.txt)",
+      "Read(//tmp/**)",
+      "Bash(grep -v \"^$\")"
     ]
   }
 }

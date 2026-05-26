@@ -1,0 +1,32 @@
+[
+  {
+    "id": "MSG-0001",
+    "from_dept": "Executive Office",
+    "from_user": "admin",
+    "from_name": "Admin",
+    "to_depts": [
+      "Installation",
+      "GAD"
+    ],
+    "subject": "New order",
+    "body": "Please proceed.",
+    "priority": "Normal",
+    "timestamp": "2026-05-26T18:15:38.965666",
+    "read_by": []
+  },
+  {
+    "id": "MSG-0002",
+    "from_dept": "Executive Office",
+    "from_user": "admin",
+    "from_name": "Admin",
+    "to_depts": [
+      "Installation",
+      "GAD"
+    ],
+    "subject": "New order",
+    "body": "Please proceed.",
+    "priority": "Normal",
+    "timestamp": "2026-05-26T18:20:23.627513",
+    "read_by": []
+  }
+]

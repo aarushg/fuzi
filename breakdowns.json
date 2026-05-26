@@ -1,0 +1,36 @@
+[
+  {
+    "id": "BRK-0001",
+    "elevator_ref": "",
+    "customer": "ACME Corp",
+    "site": "Delhi",
+    "reported_at": "2026-05-26T18:15:38.947700",
+    "attended_at": null,
+    "resolved_at": null,
+    "closed_at": null,
+    "technician": "admin",
+    "fault": "Door stuck",
+    "resolution": "",
+    "priority": "High",
+    "status": "Open",
+    "created_at": "2026-05-26T18:15:38.947700"
+  },
+  {
+    "id": "BRK-0002",
+    "unit": "L-201",
+    "elevator_ref": "L-201",
+    "customer": "ACME",
+    "site": "Delhi",
+    "reported_at": "2026-05-26T18:20:23.611593",
+    "attended_at": "2026-05-26T18:20:23.632239",
+    "resolved_at": null,
+    "closed_at": null,
+    "technician": "admin",
+    "fault": "Door stuck",
+    "contract_type": "AMC",
+    "resolution": "",
+    "priority": "High",
+    "status": "Attended",
+    "created_at": "2026-05-26T18:20:23.611593"
+  }
+]

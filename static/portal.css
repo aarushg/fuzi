@@ -1343,3 +1343,40 @@ td span, .list-row span { display: block; color: var(--muted); font-size: 12px; 
   .command-band { padding: 22px; }
   .brief-head, .panel-head, .feed-item div, .list-row, .stage-top { align-items: flex-start; flex-direction: column; }
 }
+
+/* ===== Department Module Utilities ===== */
+.btn-primary { display: inline-flex; align-items: center; gap: 6px; padding: 9px 18px; border: 0; border-radius: 10px; background: var(--red); color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; transition: background .15s, transform .1s; }
+.btn-primary:hover { background: var(--red-dark); transform: translateY(-1px); }
+.btn-ghost { display: inline-flex; align-items: center; gap: 6px; padding: 9px 18px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--text); font-weight: 600; font-size: 13px; cursor: pointer; }
+.btn-ghost:hover { background: var(--soft); }
+.btn-xs { padding: 5px 10px; border: 0; border-radius: 7px; background: var(--soft); color: var(--text); font-size: 11px; font-weight: 700; cursor: pointer; }
+.btn-xs:hover { background: var(--line); }
+.form-input, .form-select, .form-textarea { display: block; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--soft); color: var(--ink); font-size: 13px; margin-top: 4px; box-sizing: border-box; }
+.form-textarea { resize: vertical; }
+label { display: block; font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 10px; }
+.badge-success { background: rgba(20,134,95,0.12); color: var(--green); }
+.badge-warn { background: rgba(196,122,0,0.12); color: var(--amber); }
+.badge-info { background: rgba(37,99,235,0.1); color: var(--blue); }
+.badge.badge-success { background: rgba(20,134,95,0.12); color: var(--green); }
+.badge.badge-warn { background: rgba(196,122,0,0.12); color: var(--amber); }
+.badge.badge-info { background: rgba(37,99,235,0.1); color: var(--blue); }
+span.badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+.modal-card { background: var(--paper); border-radius: 16px; width: min(520px, 96vw); max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column; gap: 0; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--line); }
+.modal-head h3 { margin: 0; font-size: 1rem; font-weight: 700; }
+.modal-close { border: 0; background: none; font-size: 1.4rem; cursor: pointer; color: var(--muted); line-height: 1; }
+.modal-body { padding: 1.25rem 1.5rem; display: flex; flex-direction: column; }
+.modal-foot { display: flex; gap: .75rem; justify-content: flex-end; padding: 1rem 1.5rem; border-top: 1px solid var(--line); }
+.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.data-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid var(--line); font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; white-space: nowrap; }
+.data-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: var(--soft); }
+.dept-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 20px; font-size: 11px; font-weight: 600; cursor: pointer; }
+.dept-chip:has(input:checked) { background: var(--red); color: #fff; border-color: var(--red); }
+.comms-msg { padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.comms-msg .msg-from { font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 3px; }
+.comms-msg .msg-subject { font-size: 13px; font-weight: 700; margin-bottom: 3px; }
+.comms-msg .msg-body { font-size: 12px; color: var(--text); }
+.comms-msg.unread { border-left: 3px solid var(--red); }

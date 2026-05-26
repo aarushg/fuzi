@@ -32,6 +32,17 @@
         {% if 'inventory' in allowed_views %}<button class="side-link" data-view="inventory"><i class="fa fa-boxes-stacked"></i> Inventory</button>{% endif %}
         {% if 'estimator' in allowed_views %}<button class="side-link" data-view="estimator"><i class="fa fa-file-invoice-dollar"></i> Costing Estimator</button>{% endif %}
         {% if 'orgchart' in allowed_views %}<button class="side-link" data-view="orgchart"><i class="fa fa-sitemap"></i> Staff & Attendance</button>{% endif %}
+        {% if 'sales' in allowed_views %}<button class="side-link" data-view="sales"><i class="fa fa-chart-line"></i> Sales</button>{% endif %}
+        {% if 'installation_dept' in allowed_views %}<button class="side-link" data-view="installation_dept"><i class="fa fa-helmet-safety"></i> Installation Dept</button>{% endif %}
+        {% if 'breakdown' in allowed_views %}<button class="side-link" data-view="breakdown"><i class="fa fa-triangle-exclamation"></i> Breakdown</button>{% endif %}
+        {% if 'service' in allowed_views %}<button class="side-link" data-view="service"><i class="fa fa-wrench"></i> Service</button>{% endif %}
+        {% if 'gad' in allowed_views %}<button class="side-link" data-view="gad"><i class="fa fa-drafting-compass"></i> GAD Drawings</button>{% endif %}
+        {% if 'finance' in allowed_views %}<button class="side-link" data-view="finance"><i class="fa fa-coins"></i> Accounts</button>{% endif %}
+        {% if 'commissioning' in allowed_views %}<button class="side-link" data-view="commissioning"><i class="fa fa-circle-check"></i> Commissioning</button>{% endif %}
+        {% if 'backoffice' in allowed_views %}<button class="side-link" data-view="backoffice"><i class="fa fa-folder-open"></i> Back Office</button>{% endif %}
+        {% if 'tender' in allowed_views %}<button class="side-link" data-view="tender"><i class="fa fa-file-contract"></i> Tender</button>{% endif %}
+        {% if 'factory' in allowed_views %}<button class="side-link" data-view="factory"><i class="fa fa-industry"></i> Factory</button>{% endif %}
+        {% if 'comms' in allowed_views %}<button class="side-link" data-view="comms"><i class="fa fa-comments"></i> Dept Comms</button>{% endif %}
       </nav>
       <div class="connector-card">
         <div class="connector-status"><span></span> Connectors online</div>
@@ -1174,7 +1185,9 @@
             <div class="est-form-grid">
               <!-- Left: Spec inputs -->
               <div class="est-spec">
-                <h4 class="est-section-head"><i class="fa fa-ruler-combined"></i> Specification</h4>
+
+                <!-- Project Info -->
+                <h4 class="est-section-head"><i class="fa fa-building"></i> Project Info</h4>
                 <div class="form-grid">
                   <div>
                     <label for="estCustomerName">Customer / Building Name</label>
@@ -1196,66 +1209,187 @@
                     </select>
                   </div>
                   <div>
-                    <label for="estType">Elevator Type</label>
-                    <select id="estType" name="elevator_type">
-                      {% for t in data.elevator_types %}
-                      <option value="{{ t }}">{{ t }}</option>
-                      {% endfor %}
-                    </select>
-                  </div>
-                </div>
-                <div class="form-grid">
-                  <div>
-                    <label for="estCapacity">Capacity</label>
-                    <select id="estCapacity" name="capacity">
-                      {% for c in data.capacity_options %}
-                      <option value="{{ c }}" {{ 'selected' if '8-person' in c else '' }}>{{ c }}</option>
-                      {% endfor %}
-                    </select>
-                  </div>
-                  <div>
-                    <label for="estFloors">Number of Floors / Stops</label>
-                    <input id="estFloors" name="num_floors" type="number" min="1" max="100" value="5" />
-                  </div>
-                </div>
-                <div class="form-grid">
-                  <div>
-                    <label for="estDrive">Drive Type</label>
-                    <select id="estDrive" name="drive_type">
-                      {% for d in data.drive_options %}
-                      <option value="{{ d }}" {{ 'selected' if 'Gearless' in d else '' }}>{{ d }}</option>
-                      {% endfor %}
-                    </select>
-                  </div>
-                  <div>
-                    <label for="estFinish">Cabin Construction</label>
-                    <select id="estFinish" name="cabin_finish">
-                      {% for f in data.finish_options %}
-                      <option value="{{ f }}" {{ 'selected' if 'Standard' in f else '' }}>{{ f }}</option>
-                      {% endfor %}
-                    </select>
-                  </div>
-                </div>
-                <div class="form-grid">
-                  <div>
-                    <label for="estDoor">Door Type</label>
-                    <select id="estDoor" name="door_type">
-                      {% for d in data.door_options %}
-                      <option value="{{ d }}" {{ 'selected' if 'Automatic SS' in d else '' }}>{{ d }}</option>
-                      {% endfor %}
-                    </select>
-                  </div>
-                  <div>
-                    <label for="estControl">Control System</label>
-                    <select id="estControl" name="control_type">
-                      {% for c in data.control_options %}
-                      <option value="{{ c }}" {{ 'selected' if 'Microprocessor' in c else '' }}>{{ c }}</option>
+                    <label for="estMake">Make / Brand</label>
+                    <select id="estMake" name="make">
+                      {% for m in data.make_options %}
+                      <option value="{{ m }}" {{ 'selected' if m == 'Fuzi' else '' }}>{{ m }}</option>
                       {% endfor %}
                     </select>
                   </div>
                 </div>
 
-                <h4 class="est-section-head" style="margin-top:1.25rem"><i class="fa fa-plus-circle"></i> Add-ons</h4>
+                <!-- Elevator Specification -->
+                <h4 class="est-section-head" style="margin-top:1.1rem"><i class="fa fa-ruler-combined"></i> Elevator Specification</h4>
+                <div class="form-grid">
+                  <div>
+                    <label for="estType">Elevator Type</label>
+                    <select id="estType" name="elevator_type">
+                      {% for t in data.elevator_types %}
+                      <option value="{{ t }}" {{ 'selected' if t == 'Passenger' else '' }}>{{ t }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div id="estCapacityPaxWrap">
+                    <label for="estCapacityPax">Capacity (Passengers)</label>
+                    <select id="estCapacityPax" name="capacity">
+                      {% for c in data.capacity_options %}
+                      <option value="{{ c }}" {{ 'selected' if '8-person' in c else '' }}>{{ c }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div id="estCapacityGoodsWrap" style="display:none">
+                    <label for="estCapacityGoods">Capacity (Load)</label>
+                    <select id="estCapacityGoods" name="capacity" disabled>
+                      {% for c in data.goods_capacity_options %}
+                      <option value="{{ c }}" {{ 'selected' if c == '1000 kg' else '' }}>{{ c }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <div>
+                    <label for="estMotor">Motor Type</label>
+                    <select id="estMotor" name="motor_type">
+                      {% for m in data.motor_options %}
+                      <option value="{{ m }}" {{ 'selected' if m == 'Gearless' else '' }}>{{ m }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div>
+                    <label for="estSpeed">Speed</label>
+                    <select id="estSpeed" name="speed">
+                      {% for s in data.speed_options %}
+                      <option value="{{ s }}" {{ 'selected' if s == '1.0 m/s' else '' }}>{{ s }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <div>
+                    <label for="estFloors">Number of Stops</label>
+                    <input id="estFloors" name="num_floors" type="number" min="2" max="20" value="4" />
+                  </div>
+                  <div>
+                    <label for="estControl">Control System</label>
+                    <select id="estControl" name="control_type">
+                      {% for c in data.control_options %}
+                      <option value="{{ c }}" {{ 'selected' if 'Collective' in c else '' }}>{{ c }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+
+                <!-- Hoistway Dimensions -->
+                <h4 class="est-section-head" style="margin-top:1.1rem"><i class="fa fa-arrows-up-down"></i> Hoistway Dimensions</h4>
+                <div class="form-grid">
+                  <div>
+                    <label for="estFloorHeight">Floor-to-Floor Height (mm)</label>
+                    <input id="estFloorHeight" name="floor_height_mm" type="number" min="2400" max="5000" value="3000" placeholder="2400 – 5000" />
+                  </div>
+                  <div>
+                    <label for="estPitDepth">Pit Depth (mm)</label>
+                    <input id="estPitDepth" name="pit_depth_mm" type="number" min="300" max="2000" value="1200" placeholder="300 – 2000" />
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <div>
+                    <label for="estOverhead">Overhead (mm)</label>
+                    <input id="estOverhead" name="overhead_mm" type="number" min="2800" max="5000" value="4200" placeholder="2800 – 5000" />
+                  </div>
+                  <div></div>
+                </div>
+
+                <!-- Cabin -->
+                <h4 class="est-section-head" style="margin-top:1.1rem"><i class="fa fa-box"></i> Cabin</h4>
+                <div class="form-grid">
+                  <div>
+                    <label for="estFinish">Cabin Construction</label>
+                    <select id="estFinish" name="cabin_finish">
+                      {% for f in data.finish_options %}
+                      <option value="{{ f }}" {{ 'selected' if f == 'Stainless Steel' else '' }}>{{ f }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div></div>
+                </div>
+
+                <!-- Door -->
+                <h4 class="est-section-head" style="margin-top:1.1rem"><i class="fa fa-door-open"></i> Door</h4>
+                <div class="form-grid">
+                  <div>
+                    <label for="estDoor">Door Type</label>
+                    <select id="estDoor" name="door_type">
+                      {% for d in data.door_options %}
+                      <option value="{{ d }}" {{ 'selected' if d == 'Automatic' else '' }}>{{ d }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div>
+                    <label for="estDoorConstruction">Door Construction</label>
+                    <select id="estDoorConstruction" name="door_construction">
+                      {% for d in data.door_construction_options %}
+                      <option value="{{ d }}" {{ 'selected' if d == 'Stainless Steel' else '' }}>{{ d }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <div>
+                    <label for="estDoorPanels">No. of Door Panels</label>
+                    <select id="estDoorPanels" name="door_panels">
+                      {% for p in data.door_panel_options %}
+                      <option value="{{ p }}" {{ 'selected' if p == 2 else '' }}>{{ p }} Panel{{ 's' if p > 1 else '' }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div>
+                    <label for="estDoorOpeningType">Opening Type</label>
+                    <select id="estDoorOpeningType" name="door_opening_type">
+                      {% for o in data.door_opening_type_options %}
+                      <option value="{{ o }}" {{ 'selected' if 'Center' in o else '' }}>{{ o }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <div>
+                    <label for="estDoorVision">Door Vision</label>
+                    <select id="estDoorVision" name="door_vision">
+                      {% for v in data.door_vision_options %}
+                      <option value="{{ v }}" {{ 'selected' if v == 'Small Vision' else '' }}>{{ v }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div>
+                    <label for="estDoorArrangement">Floor Arrangement</label>
+                    <select id="estDoorArrangement" name="door_arrangement">
+                      {% for a in data.door_arrangement_options %}
+                      <option value="{{ a }}" {{ 'selected' if a == 'All Same Side' else '' }}>{{ a }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <div>
+                    <label for="estDoorWidth">Door Width (mm)</label>
+                    <select id="estDoorWidth" name="door_width_mm">
+                      {% for w in data.door_width_options %}
+                      <option value="{{ w }}" {{ 'selected' if w == 700 else '' }}>{{ w }} mm</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div>
+                    <label for="estDoorHeight">Door Height (mm)</label>
+                    <select id="estDoorHeight" name="door_height_mm">
+                      {% for h in data.door_height_options %}
+                      <option value="{{ h }}" {{ 'selected' if h == 2000 else '' }}>{{ h }} mm</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+
+                <!-- Add-ons -->
+                <h4 class="est-section-head" style="margin-top:1.1rem"><i class="fa fa-plus-circle"></i> Add-ons</h4>
                 <div class="est-addons-grid">
                   {% for addon in data.addon_options %}
                   <label class="est-addon-check">
@@ -1264,6 +1398,30 @@
                   </label>
                   {% endfor %}
                 </div>
+
+                <!-- Remarks / Accessories -->
+                <h4 class="est-section-head" style="margin-top:1.1rem"><i class="fa fa-comment-dots"></i> Remarks / Accessories</h4>
+                <div class="form-grid">
+                  <div>
+                    <label for="estRemark1">Remark 1</label>
+                    <input id="estRemark1" name="remark_1" type="text" placeholder="Accessory or note..." />
+                  </div>
+                  <div>
+                    <label for="estRemark2">Remark 2</label>
+                    <input id="estRemark2" name="remark_2" type="text" placeholder="Accessory or note..." />
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <div>
+                    <label for="estRemark3">Remark 3</label>
+                    <input id="estRemark3" name="remark_3" type="text" placeholder="Accessory or note..." />
+                  </div>
+                  <div>
+                    <label for="estRemark4">Remark 4</label>
+                    <input id="estRemark4" name="remark_4" type="text" placeholder="Accessory or note..." />
+                  </div>
+                </div>
+
               </div>
 
               <!-- Right: Pricing summary -->
@@ -1548,6 +1706,379 @@
           <!-- seed today's attendance records for JS -->
           <script id="attendanceTodayData" type="application/json">{{ data.attendance_today | tojson }}</script>
         </div>
+      </section>
+
+      <!-- ===== Sales & Inquiries ===== -->
+      <section class="view-section" id="view-sales">
+        <div class="panel-head" style="padding:1.5rem 1.5rem 0">
+          <h2><i class="fa fa-chart-line"></i> Sales &amp; Inquiries</h2>
+          <p class="sub">Track new inquiries, follow-up pipeline, and orders received.</p>
+        </div>
+        <div style="padding:1rem 1.5rem">
+          <button class="btn-primary" onclick="openSalesModal()"><i class="fa fa-plus"></i> New Inquiry</button>
+        </div>
+        <div class="table-wrap" style="padding:0 1.5rem 1.5rem">
+          <table class="data-table" id="salesTable">
+            <thead><tr><th>ID</th><th>Customer</th><th>Site</th><th>Type</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
+            <tbody id="salesRows"></tbody>
+          </table>
+        </div>
+        <div id="salesModal" class="modal-overlay" style="display:none">
+          <div class="modal-card">
+            <div class="modal-head"><h3>New Inquiry</h3><button class="modal-close" onclick="closeSalesModal()">&times;</button></div>
+            <div class="modal-body">
+              <label>Customer Name<input id="siqCustomer" class="form-input" placeholder="Customer / Company"></label>
+              <label>Site Address<input id="siqSite" class="form-input" placeholder="Installation site"></label>
+              <label>Elevator Type
+                <select id="siqType" class="form-select">
+                  {% for t in data.elevator_types %}<option>{{ t }}</option>{% endfor %}
+                </select>
+              </label>
+              <label>Notes<textarea id="siqNotes" class="form-textarea" rows="3" placeholder="Initial inquiry details"></textarea></label>
+            </div>
+            <div class="modal-foot">
+              <button class="btn-ghost" onclick="closeSalesModal()">Cancel</button>
+              <button class="btn-primary" onclick="submitSalesInquiry()">Save</button>
+            </div>
+          </div>
+        </div>
+        <script id="salesInquiriesData" type="application/json">{{ data.sales_inquiries | tojson }}</script>
+      </section>
+
+      <!-- ===== Installation Dept ===== -->
+      <section class="view-section" id="view-installation_dept">
+        <div class="panel-head" style="padding:1.5rem 1.5rem 0">
+          <h2><i class="fa fa-helmet-safety"></i> Installation Department</h2>
+          <p class="sub">Manage active installation jobs from order to handover.</p>
+        </div>
+        <div class="table-wrap" style="padding:1.5rem">
+          <table class="data-table" id="installDeptTable">
+            <thead><tr><th>Job Ref</th><th>Customer</th><th>Site</th><th>Stage</th><th>Start</th><th>Target Handover</th><th>Supervisor</th><th></th></tr></thead>
+            <tbody id="installDeptRows">
+              {% for job in data.install_jobs %}
+              <tr>
+                <td>{{ job.id }}</td>
+                <td>{{ job.customer }}</td>
+                <td>{{ job.site or '—' }}</td>
+                <td><span class="badge badge-{{ 'success' if job.status == 'Completed' else ('warn' if job.status == 'In Progress' else 'info') }}">{{ job.current_stage }}</span></td>
+                <td>{{ job.start_date or '—' }}</td>
+                <td>{{ job.target_date or '—' }}</td>
+                <td>{{ job.supervisor or '—' }}</td>
+                <td><button class="btn-xs" onclick="switchView('installations')">Details</button></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===== Breakdown ===== -->
+      <section class="view-section" id="view-breakdown">
+        <div class="panel-head" style="padding:1.5rem 1.5rem 0">
+          <h2><i class="fa fa-triangle-exclamation"></i> Breakdown Management</h2>
+          <p class="sub">Log, attend, and close elevator breakdowns. Track response times.</p>
+        </div>
+        <div style="padding:1rem 1.5rem">
+          <button class="btn-primary" onclick="openBreakdownModal()"><i class="fa fa-plus"></i> Log Breakdown</button>
+        </div>
+        <div class="table-wrap" style="padding:0 1.5rem 1.5rem">
+          <table class="data-table" id="breakdownTable">
+            <thead><tr><th>ID</th><th>Unit</th><th>Customer</th><th>Reported</th><th>Attended</th><th>Closed</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody id="breakdownRows"></tbody>
+          </table>
+        </div>
+        <div id="breakdownModal" class="modal-overlay" style="display:none">
+          <div class="modal-card">
+            <div class="modal-head"><h3>Log Breakdown</h3><button class="modal-close" onclick="closeBreakdownModal()">&times;</button></div>
+            <div class="modal-body">
+              <label>Unit / Lift ID<input id="brkUnit" class="form-input" placeholder="Lift unit ID or serial"></label>
+              <label>Customer<input id="brkCustomer" class="form-input" placeholder="Customer name"></label>
+              <label>Site<input id="brkSite" class="form-input" placeholder="Site address"></label>
+              <label>Fault Description<textarea id="brkFault" class="form-textarea" rows="3"></textarea></label>
+              <label>Contract Type
+                <select id="brkWarranty" class="form-select">
+                  <option value="Warranty">Warranty</option>
+                  <option value="AMC">AMC</option>
+                  <option value="Chargeable">Chargeable</option>
+                </select>
+              </label>
+            </div>
+            <div class="modal-foot">
+              <button class="btn-ghost" onclick="closeBreakdownModal()">Cancel</button>
+              <button class="btn-primary" onclick="submitBreakdown()">Save</button>
+            </div>
+          </div>
+        </div>
+        <script id="breakdownsData" type="application/json">{{ data.breakdowns | tojson }}</script>
+      </section>
+
+      <!-- ===== Service ===== -->
+      <section class="view-section" id="view-service">
+        <div class="panel-head" style="padding:1.5rem 1.5rem 0">
+          <h2><i class="fa fa-wrench"></i> Service Records</h2>
+          <p class="sub">Bi-monthly service schedule and completed service reports.</p>
+        </div>
+        <div style="padding:1rem 1.5rem">
+          <button class="btn-primary" onclick="openServiceModal()"><i class="fa fa-plus"></i> Schedule Service</button>
+        </div>
+        <div class="table-wrap" style="padding:0 1.5rem 1.5rem">
+          <table class="data-table" id="serviceTable">
+            <thead><tr><th>ID</th><th>Unit</th><th>Customer</th><th>Scheduled</th><th>Technician</th><th>Status</th><th>Completed</th><th>Actions</th></tr></thead>
+            <tbody id="serviceRows"></tbody>
+          </table>
+        </div>
+        <div id="serviceModal" class="modal-overlay" style="display:none">
+          <div class="modal-card">
+            <div class="modal-head"><h3>Schedule Service</h3><button class="modal-close" onclick="closeServiceModal()">&times;</button></div>
+            <div class="modal-body">
+              <label>Unit / Lift ID<input id="svcUnit" class="form-input" placeholder="Lift unit ID or serial"></label>
+              <label>Customer<input id="svcCustomer" class="form-input" placeholder="Customer name"></label>
+              <label>Scheduled Date<input id="svcDate" class="form-input" type="date"></label>
+              <label>Technician<input id="svcTech" class="form-input" placeholder="Assigned technician"></label>
+              <label>Notes<textarea id="svcNotes" class="form-textarea" rows="2"></textarea></label>
+            </div>
+            <div class="modal-foot">
+              <button class="btn-ghost" onclick="closeServiceModal()">Cancel</button>
+              <button class="btn-primary" onclick="submitService()">Save</button>
+            </div>
+          </div>
+        </div>
+        <script id="serviceRecordsData" type="application/json">{{ data.service_records | tojson }}</script>
+      </section>
+
+      <!-- ===== GAD ===== -->
+      <section class="view-section" id="view-gad">
+        <div class="panel-head" style="padding:1.5rem 1.5rem 0">
+          <h2><i class="fa fa-drafting-compass"></i> GAD — General Arrangement Drawings</h2>
+          <p class="sub">Track drawing status for orders and inquiries.</p>
+        </div>
+        <div style="padding:1rem 1.5rem">
+          <button class="btn-primary" onclick="openGADModal()"><i class="fa fa-plus"></i> New Drawing Request</button>
+        </div>
+        <div class="table-wrap" style="padding:0 1.5rem 1.5rem">
+          <table class="data-table" id="gadTable">
+            <thead><tr><th>ID</th><th>Ref Type</th><th>Ref No.</th><th>Customer</th><th>Drawing No.</th><th>Status</th><th>Submitted</th><th>Actions</th></tr></thead>
+            <tbody id="gadRows"></tbody>
+          </table>
+        </div>
+        <div id="gadModal" class="modal-overlay" style="display:none">
+          <div class="modal-card">
+            <div class="modal-head"><h3>New Drawing Request</h3><button class="modal-close" onclick="closeGADModal()">&times;</button></div>
+            <div class="modal-body">
+              <label>Reference Type
+                <select id="gadRefType" class="form-select">
+                  <option>Order</option><option>Inquiry</option><option>Offer</option>
+                </select>
+              </label>
+              <label>Reference Number<input id="gadRefNo" class="form-input" placeholder="Order / Inquiry number"></label>
+              <label>Customer<input id="gadCustomer" class="form-input" placeholder="Customer name"></label>
+              <label>Drawing Number<input id="gadDrawingNo" class="form-input" placeholder="GAD drawing ref"></label>
+              <label>Notes<textarea id="gadNotes" class="form-textarea" rows="2"></textarea></label>
+            </div>
+            <div class="modal-foot">
+              <button class="btn-ghost" onclick="closeGADModal()">Cancel</button>
+              <button class="btn-primary" onclick="submitGAD()">Save</button>
+            </div>
+          </div>
+        </div>
+        <script id="gadRecordsData" type="application/json">{{ data.gad_records | tojson }}</script>
+      </section>
+
+      <!-- ===== Finance / Accounts ===== -->
+      <section class="view-section" id="view-finance">
+        <div class="panel-head" style="padding:1.5rem 1.5rem 0">
+          <h2><i class="fa fa-coins"></i> Accounts &amp; Finance</h2>
+          <p class="sub">Payment records from order through AMC. Upcoming dues and AMC renewal alerts.</p>
+        </div>
+        <div class="table-wrap" style="padding:1.5rem">
+          <table class="data-table" id="financeTable">
+            <thead><tr><th>Payment ID</th><th>Customer</th><th>Amount</th><th>Stage</th><th>Due Date</th><th>Status</th><th>Method</th></tr></thead>
+            <tbody id="financeRows">
+              {% for p in data.payments %}
+              <tr>
+                <td>{{ p.id }}</td>
+                <td>{{ p.get('customer_name') or p.get('customer') or '—' }}</td>
+                <td>&#8377;{{ "{:,.0f}".format(p.get('amount', 0) | float) }}</td>
+                <td>{{ p.get('stage') or '—' }}</td>
+                <td>{{ p.get('due_date') or '—' }}</td>
+                <td><span class="badge badge-{{ 'success' if p.get('status') == 'Paid' else 'warn' }}">{{ p.get('status', 'Pending') }}</span></td>
+                <td>{{ p.get('method') or '—' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===== Commissioning ===== -->
+      <section class="view-section" id="view-commissioning">
+        <div class="panel-head" style="padding:1.5rem 1.5rem 0">
+          <h2><i class="fa fa-circle-check"></i> Commissioning</h2>
+          <p class="sub">Commission lifts after installation is complete and payment terms are met.</p>
+        </div>
+        <div style="padding:1rem 1.5rem">
+          <button class="btn-primary" onclick="openCommissioningModal()"><i class="fa fa-plus"></i> New Commissioning</button>
+        </div>
+        <div class="table-wrap" style="padding:0 1.5rem 1.5rem">
+          <table class="data-table" id="commissioningTable">
+            <thead><tr><th>ID</th><th>Customer</th><th>Unit</th><th>Start Date</th><th>Handover Date</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody id="commissioningRows"></tbody>
+          </table>
+        </div>
+        <div id="commissioningModal" class="modal-overlay" style="display:none">
+          <div class="modal-card">
+            <div class="modal-head"><h3>New Commissioning</h3><button class="modal-close" onclick="closeCommissioningModal()">&times;</button></div>
+            <div class="modal-body">
+              <label>Customer<input id="comCustomer" class="form-input" placeholder="Customer name"></label>
+              <label>Unit / Lift ID<input id="comUnit" class="form-input" placeholder="Lift serial or unit ID"></label>
+              <label>Installation Job Ref<input id="comJobRef" class="form-input" placeholder="Installation job ref"></label>
+              <label>Start Date<input id="comStart" class="form-input" type="date"></label>
+              <label>Notes<textarea id="comNotes" class="form-textarea" rows="2"></textarea></label>
+            </div>
+            <div class="modal-foot">
+              <button class="btn-ghost" onclick="closeCommissioningModal()">Cancel</button>
+              <button class="btn-primary" onclick="submitCommissioning()">Save</button>
+            </div>
+          </div>
+        </div>
+        <script id="commissioningsData" type="application/json">{{ data.commissionings | tojson }}</script>
+      </section>
+
+      <!-- ===== Back Office ===== -->
+      <section class="view-section" id="view-backoffice">
+        <div class="panel-head" style="padding:1.5rem 1.5rem 0">
+          <h2><i class="fa fa-folder-open"></i> Back Office</h2>
+          <p class="sub">Customer, site, and product records. Keep documents updated.</p>
+        </div>
+        <div class="table-wrap" style="padding:1.5rem">
+          <table class="data-table" id="backofficeTable">
+            <thead><tr><th>Customer</th><th>Site</th><th>Units</th><th>Actions</th></tr></thead>
+            <tbody id="backofficeRows">
+              {% for c in data.customers %}
+              <tr>
+                <td>{{ c.get('name') or c.get('company', '—') }}</td>
+                <td>{{ c.get('site') or c.get('address', '—') }}</td>
+                <td>{{ (c.get('units') or []) | length }} unit(s)</td>
+                <td><button class="btn-xs" onclick="switchView('customers')">Open</button></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===== Tender ===== -->
+      <section class="view-section" id="view-tender">
+        <div class="panel-head" style="padding:1.5rem 1.5rem 0">
+          <h2><i class="fa fa-file-contract"></i> Tender Management</h2>
+          <p class="sub">Track online and offline tenders. Record won/lost and party-wise analysis.</p>
+        </div>
+        <div style="padding:1rem 1.5rem">
+          <button class="btn-primary" onclick="openTenderModal()"><i class="fa fa-plus"></i> Log Tender</button>
+        </div>
+        <div class="table-wrap" style="padding:0 1.5rem 1.5rem">
+          <table class="data-table" id="tenderTable">
+            <thead><tr><th>ID</th><th>Tender Name</th><th>Party</th><th>Source</th><th>Submitted</th><th>Qty</th><th>Value</th><th>Result</th><th>Actions</th></tr></thead>
+            <tbody id="tenderRows"></tbody>
+          </table>
+        </div>
+        <div id="tenderModal" class="modal-overlay" style="display:none">
+          <div class="modal-card">
+            <div class="modal-head"><h3>Log Tender</h3><button class="modal-close" onclick="closeTenderModal()">&times;</button></div>
+            <div class="modal-body">
+              <label>Tender Name<input id="tdrName" class="form-input" placeholder="Tender / Project name"></label>
+              <label>Party / Authority<input id="tdrParty" class="form-input" placeholder="Issuing party"></label>
+              <label>Source
+                <select id="tdrSource" class="form-select">
+                  <option>Online</option><option>Offline</option>
+                </select>
+              </label>
+              <label>Submission Date<input id="tdrDate" class="form-input" type="date"></label>
+              <label>Quantity<input id="tdrQty" class="form-input" type="number" min="1" value="1"></label>
+              <label>Estimated Value (&#8377;)<input id="tdrValue" class="form-input" type="number" min="0" placeholder="0"></label>
+              <label>Notes<textarea id="tdrNotes" class="form-textarea" rows="2"></textarea></label>
+            </div>
+            <div class="modal-foot">
+              <button class="btn-ghost" onclick="closeTenderModal()">Cancel</button>
+              <button class="btn-primary" onclick="submitTender()">Save</button>
+            </div>
+          </div>
+        </div>
+        <script id="tendersData" type="application/json">{{ data.tenders | tojson }}</script>
+      </section>
+
+      <!-- ===== Factory ===== -->
+      <section class="view-section" id="view-factory">
+        <div class="panel-head" style="padding:1.5rem 1.5rem 0">
+          <h2><i class="fa fa-industry"></i> Factory &amp; Production</h2>
+          <p class="sub">Job-wise material, production, and inventory records.</p>
+        </div>
+        <div style="padding:1rem 1.5rem">
+          <button class="btn-primary" onclick="openFactoryModal()"><i class="fa fa-plus"></i> New Factory Job</button>
+        </div>
+        <div class="table-wrap" style="padding:0 1.5rem 1.5rem">
+          <table class="data-table" id="factoryTable">
+            <thead><tr><th>Job ID</th><th>Order Ref</th><th>Customer</th><th>Stage</th><th>Materials</th><th>Dispatched</th><th>Actions</th></tr></thead>
+            <tbody id="factoryRows"></tbody>
+          </table>
+        </div>
+        <div id="factoryModal" class="modal-overlay" style="display:none">
+          <div class="modal-card">
+            <div class="modal-head"><h3>New Factory Job</h3><button class="modal-close" onclick="closeFactoryModal()">&times;</button></div>
+            <div class="modal-body">
+              <label>Order Reference<input id="facOrderRef" class="form-input" placeholder="Order / Sales ref"></label>
+              <label>Customer<input id="facCustomer" class="form-input" placeholder="Customer name"></label>
+              <label>Production Stage
+                <select id="facStage" class="form-select">
+                  <option>Material Procurement</option>
+                  <option>Fabrication</option>
+                  <option>Assembly</option>
+                  <option>Testing</option>
+                  <option>Ready to Dispatch</option>
+                  <option>Dispatched</option>
+                </select>
+              </label>
+              <label>Materials Required<textarea id="facMaterials" class="form-textarea" rows="3" placeholder="List key materials..."></textarea></label>
+              <label>Notes<textarea id="facNotes" class="form-textarea" rows="2"></textarea></label>
+            </div>
+            <div class="modal-foot">
+              <button class="btn-ghost" onclick="closeFactoryModal()">Cancel</button>
+              <button class="btn-primary" onclick="submitFactoryJob()">Save</button>
+            </div>
+          </div>
+        </div>
+        <script id="factoryJobsData" type="application/json">{{ data.factory_jobs | tojson }}</script>
+      </section>
+
+      <!-- ===== Inter-Department Communications ===== -->
+      <section class="view-section" id="view-comms">
+        <div class="panel-head" style="padding:1.5rem 1.5rem 0">
+          <h2><i class="fa fa-comments"></i> Department Communications</h2>
+          <p class="sub">Send and receive messages between departments.</p>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1.5fr;gap:1.5rem;padding:1.5rem">
+          <div>
+            <div style="font-weight:600;margin-bottom:.75rem">Inbox</div>
+            <div id="commsList" style="display:flex;flex-direction:column;gap:.5rem;max-height:480px;overflow-y:auto"></div>
+          </div>
+          <div>
+            <div style="font-weight:600;margin-bottom:.75rem">Compose Message</div>
+            <label style="display:block;margin-bottom:.5rem">To (departments)
+              <div id="commsToDepts" style="display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.4rem">
+                {% for d in data.department_options %}{% if d != 'Executive Office' %}
+                <label class="dept-chip"><input type="checkbox" name="toDept" value="{{ d }}"> {{ d }}</label>
+                {% endif %}{% endfor %}
+              </div>
+            </label>
+            <label style="display:block;margin-bottom:.5rem">Subject<input id="commsSubject" class="form-input" placeholder="Message subject"></label>
+            <label style="display:block;margin-bottom:.5rem">Body<textarea id="commsBody" class="form-textarea" rows="5" placeholder="Write your message..."></textarea></label>
+            <div style="text-align:right;margin-top:.75rem">
+              <button class="btn-primary" onclick="sendCommsMessage()"><i class="fa fa-paper-plane"></i> Send</button>
+            </div>
+          </div>
+        </div>
+        <script id="deptCommsData" type="application/json">{{ data.dept_comms | tojson }}</script>
+        <script id="userDeptData" type="application/json">{{ data.user_dept | tojson }}</script>
       </section>
 
     </main>

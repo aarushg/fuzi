@@ -42,6 +42,14 @@ ATTENDANCE_FILE = BASE_DIR / "attendance.json"
 ESTIMATES_FILE = BASE_DIR / "estimates.json"
 CUSTOMER_USERS_FILE = BASE_DIR / "customer_users.json"
 PAYMENTS_FILE = BASE_DIR / "payments.json"
+SALES_INQUIRIES_FILE = BASE_DIR / "sales_inquiries.json"
+BREAKDOWNS_FILE = BASE_DIR / "breakdowns.json"
+SERVICE_RECORDS_FILE = BASE_DIR / "service_records.json"
+GAD_RECORDS_FILE = BASE_DIR / "gad_records.json"
+COMMISSIONINGS_FILE = BASE_DIR / "commissionings.json"
+FACTORY_JOBS_FILE = BASE_DIR / "factory_jobs.json"
+TENDERS_FILE = BASE_DIR / "tenders.json"
+DEPT_COMMS_FILE = BASE_DIR / "dept_comms.json"
 SMTP_HOST = os.environ.get("FUZI_SMTP_HOST", "")
 SMTP_PORT = int(os.environ.get("FUZI_SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("FUZI_SMTP_USER", "")
@@ -282,21 +290,29 @@ INSTALL_STAGES: list[dict[str, Any]] = [
 
 DEPARTMENT_OPTIONS: list[str] = [
     "Executive Office",
-    "Service Control",
-    "Project Office",
-    "Install Operations",
-    "Stores & Procurement",
-    "Sales & Renewals",
-    "Customer Success",
+    "Sales",
+    "Installation",
+    "Breakdown",
+    "Service",
+    "GAD",
+    "Accounts",
+    "Commissioning",
+    "Back Office",
+    "Tender",
+    "Factory",
 ]
 
 DEPARTMENT_MANAGER_SEEDS: list[dict[str, str]] = [
-    {"department": "Service Control", "username": "service.control.manager", "display_name": "Service Control Manager"},
-    {"department": "Project Office", "username": "project.office.manager", "display_name": "Project Office Manager"},
-    {"department": "Install Operations", "username": "install.ops.manager", "display_name": "Install Operations Manager"},
-    {"department": "Stores & Procurement", "username": "stores.procurement.manager", "display_name": "Stores & Procurement Manager"},
-    {"department": "Sales & Renewals", "username": "sales.renewals.manager", "display_name": "Sales & Renewals Manager"},
-    {"department": "Customer Success", "username": "customer.success.manager", "display_name": "Customer Success Manager"},
+    {"department": "Sales", "username": "sales.manager", "display_name": "Sales Manager"},
+    {"department": "Installation", "username": "installation.manager", "display_name": "Installation Manager"},
+    {"department": "Breakdown", "username": "breakdown.manager", "display_name": "Breakdown Manager"},
+    {"department": "Service", "username": "service.manager", "display_name": "Service Manager"},
+    {"department": "GAD", "username": "gad.manager", "display_name": "GAD Manager"},
+    {"department": "Accounts", "username": "accounts.manager", "display_name": "Accounts Manager"},
+    {"department": "Commissioning", "username": "commissioning.manager", "display_name": "Commissioning Manager"},
+    {"department": "Back Office", "username": "backoffice.manager", "display_name": "Back Office Manager"},
+    {"department": "Tender", "username": "tender.manager", "display_name": "Tender Manager"},
+    {"department": "Factory", "username": "factory.manager", "display_name": "Factory Manager"},
 ]
 
 DASHBOARD_VIEW_ORDER: list[str] = [
@@ -315,6 +331,18 @@ DASHBOARD_VIEW_ORDER: list[str] = [
     "inventory",
     "estimator",
     "orgchart",
+    # Department-specific views
+    "sales",
+    "installation_dept",
+    "breakdown",
+    "service",
+    "gad",
+    "finance",
+    "commissioning",
+    "backoffice",
+    "tender",
+    "factory",
+    "comms",
 ]
 
 
@@ -901,19 +929,31 @@ def access_profile_for_user(user: dict[str, Any]) -> dict[str, Any]:
     role = normalized_user.get("role", "technician")
     department = normalized_user.get("department", "")
 
-    if role == "admin" or department == "Executive Office":
+    if role == "admin" or department in ("Executive Office", ""):
         allowed_views = list(DASHBOARD_VIEW_ORDER)
         default_view = "overview"
     else:
-        department_views = {
-            "Service Control": ["fleet", "messages", "orgchart"],
-            "Project Office": ["tickets", "projects", "orgchart"],
-            "Install Operations": ["installations", "team", "orgchart"],
-            "Stores & Procurement": ["inventory", "orgchart"],
-            "Sales & Renewals": ["customers", "renewals", "estimator", "orgchart"],
-            "Customer Success": ["customers", "messages", "workorders", "estimator", "orgchart"],
+        department_views: dict[str, list[str]] = {
+            # ── New operational departments ───────────────────────────────────
+            "Sales": ["overview", "sales", "estimator", "customers", "comms"],
+            "Installation": ["overview", "installation_dept", "comms"],
+            "Breakdown": ["overview", "breakdown", "fleet", "comms"],
+            "Service": ["overview", "service", "fleet", "comms"],
+            "GAD": ["overview", "gad", "customers", "comms"],
+            "Accounts": ["overview", "finance", "estimator", "customers", "comms"],
+            "Commissioning": ["overview", "commissioning", "installation_dept", "comms"],
+            "Back Office": ["overview", "backoffice", "customers", "orgchart", "comms"],
+            "Tender": ["overview", "tender", "estimator", "comms"],
+            "Factory": ["overview", "factory", "inventory", "comms"],
+            # ── Legacy department names kept for backwards compat ─────────────
+            "Service Control": ["overview", "service", "fleet", "comms"],
+            "Project Office": ["overview", "tickets", "projects", "comms"],
+            "Install Operations": ["overview", "installation_dept", "comms"],
+            "Stores & Procurement": ["overview", "inventory", "factory", "comms"],
+            "Sales & Renewals": ["overview", "sales", "customers", "estimator", "comms"],
+            "Customer Success": ["overview", "customers", "backoffice", "comms"],
         }
-        allowed_views = list(department_views.get(department, ["overview"]))
+        allowed_views = list(department_views.get(department, ["overview", "comms"]))
         default_view = allowed_views[0]
 
     requested_view = request.args.get("view", "").strip()
@@ -1747,19 +1787,33 @@ COMPONENT_DATA: dict[str, dict] = {
 }
 EXCEL_CAPACITY_ORDER: list[int] = [6, 8, 10, 13, 15, 20, 26]
 
-ELEVATOR_TYPES: list[str] = [
-    "Passenger (Commercial)", "Residential MRL", "Residential Hydraulic",
-    "Hospital / Stretcher", "Industrial / Goods", "Panoramic / Glass",
-    "Dumbwaiter", "Escalator",
-]
-CAPACITY_OPTIONS: list[str] = [
+ELEVATOR_TYPES: list[str] = ["Passenger", "Goods", "Dumbwaiter"]
+PASSENGER_CAPACITY_OPTIONS: list[str] = [
+    "1-person (80 kg)", "2-person (160 kg)", "3-person (240 kg)",
     "6-person (480 kg)", "8-person (630 kg)", "10-person (800 kg)",
-    "13-person (1000 kg)", "15-person (1200 kg)", "20-person (1600 kg)",
-    "26-person (2000 kg)",
+    "13-person (1000 kg)", "15-person (1200 kg)", "16-person (1275 kg)",
+    "20-person (1600 kg)", "26-person (2000 kg)",
 ]
-DRIVE_OPTIONS: list[str] = ["Hydraulic", "Geared Traction", "Gearless MRL", "VFD Traction"]
-FINISH_OPTIONS: list[str] = ["Basic (MS)", "Standard (MS)", "Premium (SS)", "Custom / Bespoke (SS)"]
-DOOR_OPTIONS: list[str] = ["Manual SS", "Automatic SS", "Automatic Glass", "Fire-Rated"]
+GOODS_CAPACITY_OPTIONS: list[str] = [
+    "500 kg", "1000 kg", "1500 kg", "2000 kg",
+    "2500 kg", "3000 kg", "4000 kg", "5000 kg",
+]
+CAPACITY_OPTIONS: list[str] = PASSENGER_CAPACITY_OPTIONS  # backwards compat alias
+SPEED_OPTIONS: list[str] = ["0.65 m/s", "1.0 m/s", "1.25 m/s", "1.5 m/s", "1.75 m/s", "2.0 m/s"]
+MOTOR_OPTIONS: list[str] = ["Gearless", "Geared", "Hydraulic", "Vacuum"]
+DRIVE_OPTIONS: list[str] = MOTOR_OPTIONS  # backwards compat alias
+FINISH_OPTIONS: list[str] = ["Mild Steel", "Stainless Steel", "Golden", "Rose Gold"]
+DOOR_OPTIONS: list[str] = ["Automatic", "Manual"]
+DOOR_CONSTRUCTION_OPTIONS: list[str] = ["Mild Steel", "Stainless Steel", "Golden", "Rose Gold"]
+DOOR_PANEL_OPTIONS: list[int] = [1, 2, 3, 4]
+DOOR_OPENING_TYPE_OPTIONS: list[str] = ["Center Opening", "Side Opening"]
+DOOR_VISION_OPTIONS: list[str] = ["Non Vision", "Small Vision", "Big Vision", "Full Vision"]
+DOOR_WIDTH_OPTIONS: list[int] = [700, 800, 900, 1000, 1100, 1200, 1300, 1400]
+DOOR_HEIGHT_OPTIONS: list[int] = [2000, 2100, 2200, 2300, 2400]
+DOOR_ARRANGEMENT_OPTIONS: list[str] = [
+    "All Same Side", "One Floor Reverse Opening", "One Floor Both Sides",
+]
+MAKE_OPTIONS: list[str] = ["Fuzi", "Wittur German Kit", "PVE", "Fuzi PWD BSR 2025"]
 CONTROL_OPTIONS: list[str] = ["Basic Relay", "Collective Control", "Microprocessor", "Smart IoT"]
 CONTROL_SURCHARGE: dict[str, int] = {
     "Basic Relay": 0, "Collective Control": 0, "Microprocessor": 35000, "Smart IoT": 75000,
@@ -1773,9 +1827,11 @@ ADDON_COSTS: dict[str, int] = {
 
 def _excel_config_key(drive: str, finish: str, door: str) -> str:
     """Map form field values to one of the 6 Excel configuration keys."""
-    gearless = drive in ("Gearless MRL", "VFD Traction")
-    cabin_ss = "SS" in finish or finish in ("Premium", "Custom / Bespoke")
-    door_auto = door in ("Automatic SS", "Automatic Glass")
+    gearless = drive in ("Gearless", "Gearless MRL", "VFD Traction")
+    cabin_ss = finish in ("Stainless Steel", "Golden", "Rose Gold", "Premium (SS)", "Custom / Bespoke (SS)") or (
+        finish not in ("Mild Steel", "Basic (MS)", "Standard (MS)") and "SS" in finish
+    )
+    door_auto = door in ("Automatic", "Automatic SS", "Automatic Glass")
     mat = "SS" if cabin_ss else "MS"
     if gearless:
         return f"{mat} Gearless Auto Door"
@@ -1794,17 +1850,25 @@ def calculate_full_breakdown(data: dict) -> dict:
 
     # ── 1. Resolve capacity and config ────────────────────────────────────────
     raw = str(data.get("capacity", "8-person (630 kg)"))
-    m = _re.match(r"(\d+)", raw)
-    raw_cap = int(m.group(1)) if m else 8
+    m_pax = _re.match(r"(\d+)[- ]person", raw)
+    m_kg = _re.match(r"(\d+)\s*kg", raw.strip())
+    if m_pax:
+        raw_cap = int(m_pax.group(1))
+    elif m_kg:
+        raw_cap = math.ceil(int(m_kg.group(1)) / 75)
+    else:
+        m_any = _re.match(r"(\d+)", raw)
+        raw_cap = int(m_any.group(1)) if m_any else 8
     excel_cap = next((c for c in EXCEL_CAPACITY_ORDER if raw_cap <= c), 26)
 
+    motor = data.get("motor_type") or data.get("drive_type", "Gearless")
     config_key = _excel_config_key(
-        data.get("drive_type", "Geared Traction"),
-        data.get("cabin_finish", "Standard (MS)"),
-        data.get("door_type", "Automatic SS"),
+        motor,
+        data.get("cabin_finish", "Stainless Steel"),
+        data.get("door_type", "Automatic"),
     )
     cd = COMPONENT_DATA[str(excel_cap)][config_key]
-    num_stops = max(2, min(int(data.get("num_floors", 4)), 10))
+    num_stops = max(2, min(int(data.get("num_floors", 4)), 20))
 
     # ── 2. Build material line items ──────────────────────────────────────────
     items: list[dict] = []
@@ -1843,13 +1907,16 @@ def calculate_full_breakdown(data: dict) -> dict:
     # Bracket: fixed qty=11
     items.append(_li("Bracket", 11, "nos", cd["bracket_rate"]))
 
-    # LOP/COP: lookup by stops
-    lopcop_cost = LOPCOP_BY_STOPS.get(num_stops, LOPCOP_BY_STOPS[10])
+    # LOP/COP: lookup by stops, extrapolate at +₹2450/stop beyond 10
+    lopcop_cost = LOPCOP_BY_STOPS.get(
+        num_stops,
+        LOPCOP_BY_STOPS[10] + (num_stops - 10) * 2450 if num_stops > 10 else LOPCOP_BY_STOPS[2]
+    )
     items.append(_li("LOP / COP Panel", 1, "set", lopcop_cost))
 
     # Rope: base metres at 4 stops, scaled linearly for other stop counts
     # Formula: total_m = base_4stops + (stops - 4) * (floor_height_m * num_ropes)
-    floor_h_m = FLOOR_HEIGHT_MM / 1000.0
+    floor_h_m = max(2.4, min(int(data.get("floor_height_mm", FLOOR_HEIGHT_MM)), 5000)) / 1000.0
     extra_stops = num_stops - 4
     rope_total_m = cd["rope_base_4stops"] + extra_stops * floor_h_m * cd["rope_num_ropes"]
     rope_total_m = max(rope_total_m, cd["rope_base_4stops"] * (num_stops / 4))  # safety floor
@@ -2016,6 +2083,37 @@ def load_payments() -> list[dict[str, Any]]:
 
 def save_payments() -> None:
     PAYMENTS_FILE.write_text(json.dumps(PAYMENTS, indent=2))
+
+
+# ── Department module data stores ─────────────────────────────────────────────
+
+def _load_module(path: Path, default: list) -> list:
+    if not path.exists():
+        path.write_text(json.dumps(default, indent=2))
+        return list(default)
+    try:
+        return json.loads(path.read_text()) or []
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def _save_module(path: Path, data: list) -> None:
+    path.write_text(json.dumps(data, indent=2))
+
+
+def _next_id(data: list, prefix: str) -> str:
+    nums = [int(r["id"].split("-")[1]) for r in data if r.get("id", "").startswith(prefix + "-") and r["id"].split("-")[1].isdigit()]
+    return f"{prefix}-{(max(nums) + 1):04d}" if nums else f"{prefix}-0001"
+
+
+SALES_INQUIRIES: list = _load_module(SALES_INQUIRIES_FILE, [])
+BREAKDOWNS: list = _load_module(BREAKDOWNS_FILE, [])
+SERVICE_RECORDS: list = _load_module(SERVICE_RECORDS_FILE, [])
+GAD_RECORDS: list = _load_module(GAD_RECORDS_FILE, [])
+COMMISSIONINGS: list = _load_module(COMMISSIONINGS_FILE, [])
+FACTORY_JOBS: list = _load_module(FACTORY_JOBS_FILE, [])
+TENDERS: list = _load_module(TENDERS_FILE, [])
+DEPT_COMMS: list = _load_module(DEPT_COMMS_FILE, [])
 
 
 def next_payment_id() -> str:
@@ -4158,13 +4256,32 @@ def portal_data() -> dict[str, Any]:
         "payment_statuses": list(PAYMENT_STATUSES),
         "payment_methods": list(PAYMENT_METHODS),
         "elevator_types": ELEVATOR_TYPES,
-        "capacity_options": CAPACITY_OPTIONS,
+        "capacity_options": PASSENGER_CAPACITY_OPTIONS,
+        "goods_capacity_options": GOODS_CAPACITY_OPTIONS,
+        "speed_options": SPEED_OPTIONS,
+        "motor_options": MOTOR_OPTIONS,
         "finish_options": FINISH_OPTIONS,
         "door_options": DOOR_OPTIONS,
-        "drive_options": DRIVE_OPTIONS,
+        "door_construction_options": DOOR_CONSTRUCTION_OPTIONS,
+        "door_panel_options": DOOR_PANEL_OPTIONS,
+        "door_opening_type_options": DOOR_OPENING_TYPE_OPTIONS,
+        "door_vision_options": DOOR_VISION_OPTIONS,
+        "door_width_options": DOOR_WIDTH_OPTIONS,
+        "door_height_options": DOOR_HEIGHT_OPTIONS,
+        "door_arrangement_options": DOOR_ARRANGEMENT_OPTIONS,
+        "make_options": MAKE_OPTIONS,
         "control_options": CONTROL_OPTIONS,
         "addon_options": list(ADDON_COSTS.keys()),
         "customer_users": [_public_customer_user(u) for u in CUSTOMER_USERS],
+        "sales_inquiries": SALES_INQUIRIES,
+        "breakdowns": BREAKDOWNS,
+        "service_records": SERVICE_RECORDS,
+        "gad_records": GAD_RECORDS,
+        "commissionings": COMMISSIONINGS,
+        "factory_jobs": FACTORY_JOBS,
+        "tenders": TENDERS,
+        "dept_comms": DEPT_COMMS,
+        "user_dept": session.get("portal_department", ""),
     }
 
 
@@ -5005,6 +5122,484 @@ def update_customer_user(cu_id: str):
         return jsonify({"ok": True, "customer_user": _public_customer_user(cu), "temp_password": new_temp})
     save_customer_users()
     return jsonify({"ok": True, "customer_user": _public_customer_user(cu)})
+
+
+# ── Department Module Routes ────────────────────────────────────────────────────
+#
+# Generic pattern: each module stores records in a JSON list.
+# Routes: GET list, POST create, PATCH update, DELETE remove.
+# Breakdown has extra status-transition routes.
+
+def _dept_payload() -> tuple[dict, str, str]:
+    """Return (payload, dept, username) for the current session."""
+    return (
+        request.get_json(silent=True) or {},
+        session.get("portal_department", ""),
+        session.get("portal_user", ""),
+    )
+
+
+# ── Sales Inquiries ───────────────────────────────────────────────────────────
+
+@app.get("/api/portal/sales/inquiries")
+@login_required
+def list_sales_inquiries():
+    return jsonify({"ok": True, "inquiries": SALES_INQUIRIES})
+
+
+@app.post("/api/portal/sales/inquiries")
+@login_required
+def create_sales_inquiry():
+    p, _, user = _dept_payload()
+    now = datetime.utcnow().isoformat()
+    record = {
+        "id": _next_id(SALES_INQUIRIES, "INQ"),
+        "customer": p.get("customer", ""),
+        "contact_name": p.get("contact_name", ""),
+        "phone": p.get("phone", ""),
+        "site": p.get("site", ""),
+        "elevator_type": p.get("elevator_type", ""),
+        "requirement": p.get("requirement", p.get("notes", "")),
+        "received_date": p.get("received_date", now[:10]),
+        "last_followup": None,
+        "next_followup": p.get("next_followup", ""),
+        "linked_estimate": p.get("linked_estimate", ""),
+        "status": p.get("status", "New"),
+        "assigned_to": p.get("assigned_to", user),
+        "notes": p.get("notes", ""),
+        "created_at": now,
+    }
+    SALES_INQUIRIES.append(record)
+    _save_module(SALES_INQUIRIES_FILE, SALES_INQUIRIES)
+    return jsonify({"ok": True, "item": record, "data": SALES_INQUIRIES}), 201
+
+
+@app.patch("/api/portal/sales/inquiries/<inquiry_id>")
+@login_required
+def update_sales_inquiry(inquiry_id: str):
+    p, _, _ = _dept_payload()
+    rec = next((r for r in SALES_INQUIRIES if r["id"] == inquiry_id), None)
+    if not rec:
+        return jsonify({"ok": False, "message": "Not found"}), 404
+    action = p.get("action", "")
+    if action == "followup":
+        rec["status"] = "Follow-up"
+        rec["last_followup"] = datetime.utcnow().isoformat()[:10]
+    elif action == "order_received":
+        rec["status"] = "Order Received"
+        rec["last_followup"] = datetime.utcnow().isoformat()[:10]
+    else:
+        for k in ("customer", "contact_name", "phone", "site", "requirement",
+                  "next_followup", "linked_estimate", "status", "assigned_to", "notes"):
+            if k in p:
+                rec[k] = p[k]
+        if "status" in p or "notes" in p:
+            rec["last_followup"] = datetime.utcnow().isoformat()[:10]
+    _save_module(SALES_INQUIRIES_FILE, SALES_INQUIRIES)
+    return jsonify({"ok": True, "item": rec, "data": SALES_INQUIRIES})
+
+
+# ── Breakdown ─────────────────────────────────────────────────────────────────
+
+@app.get("/api/portal/breakdown")
+@login_required
+def list_breakdowns():
+    return jsonify({"ok": True, "breakdowns": BREAKDOWNS})
+
+
+@app.post("/api/portal/breakdown")
+@login_required
+def create_breakdown():
+    p, _, user = _dept_payload()
+    now = datetime.utcnow().isoformat()
+    record = {
+        "id": _next_id(BREAKDOWNS, "BRK"),
+        "unit": p.get("unit", p.get("elevator_ref", "")),
+        "elevator_ref": p.get("elevator_ref", p.get("unit", "")),
+        "customer": p.get("customer", ""),
+        "site": p.get("site", ""),
+        "reported_at": p.get("reported_at", now),
+        "attended_at": None,
+        "resolved_at": None,
+        "closed_at": None,
+        "technician": p.get("technician", user),
+        "fault": p.get("fault", ""),
+        "contract_type": p.get("contract_type", "Warranty"),
+        "resolution": "",
+        "priority": p.get("priority", "High"),
+        "status": "Open",
+        "created_at": now,
+    }
+    BREAKDOWNS.append(record)
+    _save_module(BREAKDOWNS_FILE, BREAKDOWNS)
+    return jsonify({"ok": True, "item": record, "data": BREAKDOWNS}), 201
+
+
+@app.patch("/api/portal/breakdown/<brk_id>")
+@login_required
+def update_breakdown(brk_id: str):
+    p, _, _ = _dept_payload()
+    rec = next((r for r in BREAKDOWNS if r["id"] == brk_id), None)
+    if not rec:
+        return jsonify({"ok": False, "message": "Not found"}), 404
+    now = datetime.utcnow().isoformat()
+    action = p.get("action", "")
+    if action == "attend":
+        rec["status"] = "Attended"
+        rec["attended_at"] = rec["attended_at"] or now
+        if p.get("technician"):
+            rec["technician"] = p["technician"]
+    elif action == "resolve":
+        rec["status"] = "Resolved"
+        rec["resolved_at"] = rec["resolved_at"] or now
+        rec["resolution"] = p.get("resolution", rec.get("resolution", ""))
+    elif action == "close":
+        rec["status"] = "Closed"
+        rec["closed_at"] = rec["closed_at"] or now
+    else:
+        for k in ("fault", "resolution", "technician", "priority", "notes"):
+            if k in p:
+                rec[k] = p[k]
+    _save_module(BREAKDOWNS_FILE, BREAKDOWNS)
+    return jsonify({"ok": True, "item": rec, "data": BREAKDOWNS})
+
+
+# ── Service ───────────────────────────────────────────────────────────────────
+
+@app.get("/api/portal/service")
+@login_required
+def list_service_records():
+    return jsonify({"ok": True, "records": SERVICE_RECORDS})
+
+
+@app.post("/api/portal/service")
+@login_required
+def create_service_record():
+    p, _, user = _dept_payload()
+    from datetime import timedelta
+    sched = p.get("scheduled_date", "")
+    try:
+        next_date = (datetime.fromisoformat(sched) + timedelta(days=60)).strftime("%Y-%m-%d") if sched else ""
+    except ValueError:
+        next_date = ""
+    record = {
+        "id": _next_id(SERVICE_RECORDS, "SVC"),
+        "unit": p.get("unit", p.get("elevator_ref", "")),
+        "elevator_ref": p.get("elevator_ref", p.get("unit", "")),
+        "customer": p.get("customer", ""),
+        "site": p.get("site", ""),
+        "scheduled_date": sched,
+        "completed_date": None,
+        "completed_at": None,
+        "technician": p.get("technician", user),
+        "service_type": p.get("service_type", "Bi-Monthly"),
+        "findings": p.get("notes", ""),
+        "next_service_date": next_date,
+        "status": "Scheduled",
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    SERVICE_RECORDS.append(record)
+    _save_module(SERVICE_RECORDS_FILE, SERVICE_RECORDS)
+    return jsonify({"ok": True, "item": record, "data": SERVICE_RECORDS}), 201
+
+
+@app.patch("/api/portal/service/<svc_id>")
+@login_required
+def update_service_record(svc_id: str):
+    p, _, _ = _dept_payload()
+    rec = next((r for r in SERVICE_RECORDS if r["id"] == svc_id), None)
+    if not rec:
+        return jsonify({"ok": False, "message": "Not found"}), 404
+    from datetime import timedelta
+    if p.get("action") == "complete":
+        rec["status"] = "Completed"
+        rec["completed_date"] = datetime.utcnow().isoformat()[:10]
+        rec["completed_at"] = datetime.utcnow().isoformat()
+        rec["findings"] = p.get("notes", p.get("findings", ""))
+        try:
+            rec["next_service_date"] = (datetime.utcnow() + timedelta(days=60)).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    else:
+        for k in ("scheduled_date", "technician", "service_type", "findings", "status"):
+            if k in p:
+                rec[k] = p[k]
+    _save_module(SERVICE_RECORDS_FILE, SERVICE_RECORDS)
+    return jsonify({"ok": True, "item": rec, "data": SERVICE_RECORDS})
+
+
+# ── GAD ───────────────────────────────────────────────────────────────────────
+
+@app.get("/api/portal/gad")
+@login_required
+def list_gad_records():
+    return jsonify({"ok": True, "records": GAD_RECORDS})
+
+
+@app.post("/api/portal/gad")
+@login_required
+def create_gad_record():
+    p, _, _ = _dept_payload()
+    record = {
+        "id": _next_id(GAD_RECORDS, "GAD"),
+        "ref_type": p.get("ref_type", "Order"),
+        "ref_no": p.get("ref_no", p.get("ref_id", "")),
+        "ref_id": p.get("ref_id", p.get("ref_no", "")),
+        "customer": p.get("customer", ""),
+        "site": p.get("site", ""),
+        "drawing_no": p.get("drawing_no", ""),
+        "elevator_spec": p.get("elevator_spec", ""),
+        "requested_date": p.get("requested_date", datetime.utcnow().isoformat()[:10]),
+        "submitted_at": None,
+        "submitted_date": None,
+        "revision": 0,
+        "status": "Pending",
+        "notes": p.get("notes", ""),
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    GAD_RECORDS.append(record)
+    _save_module(GAD_RECORDS_FILE, GAD_RECORDS)
+    return jsonify({"ok": True, "item": record, "data": GAD_RECORDS}), 201
+
+
+@app.patch("/api/portal/gad/<gad_id>")
+@login_required
+def update_gad_record(gad_id: str):
+    p, _, _ = _dept_payload()
+    rec = next((r for r in GAD_RECORDS if r["id"] == gad_id), None)
+    if not rec:
+        return jsonify({"ok": False, "message": "Not found"}), 404
+    for k in ("status", "notes", "elevator_spec", "ref_id", "ref_type"):
+        if k in p:
+            rec[k] = p[k]
+    if p.get("action") == "submit":
+        rec["status"] = "Submitted"
+        rec["submitted_date"] = datetime.utcnow().isoformat()[:10]
+        rec["submitted_at"] = datetime.utcnow().isoformat()
+    elif p.get("action") == "revise":
+        rec["status"] = "In Progress"
+        rec["revision"] = rec.get("revision", 0) + 1
+        rec["notes"] = p.get("notes", rec.get("notes", ""))
+    else:
+        for k in ("status", "notes", "elevator_spec", "ref_id", "ref_no", "ref_type", "drawing_no"):
+            if k in p:
+                rec[k] = p[k]
+    _save_module(GAD_RECORDS_FILE, GAD_RECORDS)
+    return jsonify({"ok": True, "item": rec, "data": GAD_RECORDS})
+
+
+# ── Commissioning ─────────────────────────────────────────────────────────────
+
+@app.get("/api/portal/commissioning")
+@login_required
+def list_commissionings():
+    return jsonify({"ok": True, "records": COMMISSIONINGS})
+
+
+@app.post("/api/portal/commissioning")
+@login_required
+def create_commissioning():
+    p, _, _ = _dept_payload()
+    record = {
+        "id": _next_id(COMMISSIONINGS, "COM"),
+        "unit": p.get("unit", ""),
+        "job_ref": p.get("job_ref", p.get("installation_ref", "")),
+        "installation_ref": p.get("installation_ref", p.get("job_ref", "")),
+        "customer": p.get("customer", ""),
+        "site": p.get("site", ""),
+        "install_complete_date": p.get("install_complete_date", ""),
+        "payment_cleared": p.get("payment_cleared", False),
+        "start_date": p.get("start_date") or None,
+        "handover_date": None,
+        "status": "Pending",
+        "notes": p.get("notes", ""),
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    COMMISSIONINGS.append(record)
+    _save_module(COMMISSIONINGS_FILE, COMMISSIONINGS)
+    return jsonify({"ok": True, "item": record, "data": COMMISSIONINGS}), 201
+
+
+@app.patch("/api/portal/commissioning/<com_id>")
+@login_required
+def update_commissioning(com_id: str):
+    p, _, _ = _dept_payload()
+    rec = next((r for r in COMMISSIONINGS if r["id"] == com_id), None)
+    if not rec:
+        return jsonify({"ok": False, "message": "Not found"}), 404
+    for k in ("status", "notes", "payment_cleared", "install_complete_date"):
+        if k in p:
+            rec[k] = p[k]
+    now = datetime.utcnow().isoformat()[:10]
+    if p.get("action") == "start":
+        rec["status"] = "In Progress"
+        rec["start_date"] = rec["start_date"] or now
+    elif p.get("action") == "handover":
+        rec["status"] = "Handed Over"
+        rec["handover_date"] = rec["handover_date"] or now
+    _save_module(COMMISSIONINGS_FILE, COMMISSIONINGS)
+    return jsonify({"ok": True, "item": rec, "data": COMMISSIONINGS})
+
+
+# ── Factory Jobs ──────────────────────────────────────────────────────────────
+
+@app.get("/api/portal/factory")
+@login_required
+def list_factory_jobs():
+    return jsonify({"ok": True, "jobs": FACTORY_JOBS})
+
+
+@app.post("/api/portal/factory")
+@login_required
+def create_factory_job():
+    p, _, _ = _dept_payload()
+    record = {
+        "id": _next_id(FACTORY_JOBS, "FAC"),
+        "order_ref": p.get("order_ref", ""),
+        "customer": p.get("customer", ""),
+        "materials": p.get("materials", p.get("components", "")),
+        "components": p.get("components", p.get("materials", "")),
+        "stage": p.get("stage", p.get("production_status", "Material Procurement")),
+        "production_status": p.get("production_status", p.get("stage", "Material Procurement")),
+        "target_date": p.get("target_date", ""),
+        "dispatched_at": None,
+        "dispatched_date": None,
+        "notes": p.get("notes", ""),
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    FACTORY_JOBS.append(record)
+    _save_module(FACTORY_JOBS_FILE, FACTORY_JOBS)
+    return jsonify({"ok": True, "item": record, "data": FACTORY_JOBS}), 201
+
+
+@app.patch("/api/portal/factory/<job_id>")
+@login_required
+def update_factory_job(job_id: str):
+    p, _, _ = _dept_payload()
+    rec = next((r for r in FACTORY_JOBS if r["id"] == job_id), None)
+    if not rec:
+        return jsonify({"ok": False, "message": "Not found"}), 404
+    if p.get("action") == "dispatch":
+        rec["stage"] = "Dispatched"
+        rec["production_status"] = "Dispatched"
+        rec["dispatched_date"] = datetime.utcnow().isoformat()[:10]
+        rec["dispatched_at"] = datetime.utcnow().isoformat()
+    else:
+        for k in ("stage", "production_status", "materials", "components", "target_date", "notes"):
+            if k in p:
+                rec[k] = p[k]
+        if "stage" in p:
+            rec["production_status"] = p["stage"]
+        if "production_status" in p:
+            rec["stage"] = p["production_status"]
+    _save_module(FACTORY_JOBS_FILE, FACTORY_JOBS)
+    return jsonify({"ok": True, "item": rec, "data": FACTORY_JOBS})
+
+
+# ── Tenders ───────────────────────────────────────────────────────────────────
+
+@app.get("/api/portal/tender")
+@login_required
+def list_tenders():
+    return jsonify({"ok": True, "tenders": TENDERS})
+
+
+@app.post("/api/portal/tender")
+@login_required
+def create_tender():
+    p, _, _ = _dept_payload()
+    record = {
+        "id": _next_id(TENDERS, "TDR"),
+        "name": p.get("name", p.get("title", "")),
+        "title": p.get("title", p.get("name", "")),
+        "source": p.get("source", ""),
+        "keywords": p.get("keywords", ""),
+        "published_date": p.get("published_date", ""),
+        "submitted_date": p.get("submitted_date", p.get("submission_date", "")),
+        "submission_date": p.get("submission_date", p.get("submitted_date", "")),
+        "value": p.get("value", p.get("value_estimate", 0)),
+        "value_estimate": p.get("value_estimate", p.get("value", 0)),
+        "qty": p.get("qty", 1),
+        "party": p.get("party", ""),
+        "status": "Tracking",
+        "result": "Submitted",
+        "notes": p.get("notes", ""),
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    TENDERS.append(record)
+    _save_module(TENDERS_FILE, TENDERS)
+    return jsonify({"ok": True, "item": record, "data": TENDERS}), 201
+
+
+@app.patch("/api/portal/tender/<tdr_id>")
+@login_required
+def update_tender(tdr_id: str):
+    p, _, _ = _dept_payload()
+    rec = next((r for r in TENDERS if r["id"] == tdr_id), None)
+    if not rec:
+        return jsonify({"ok": False, "message": "Not found"}), 404
+    for k in ("name", "title", "source", "keywords", "submitted_date", "submission_date",
+              "value", "value_estimate", "qty", "party", "status", "result", "notes"):
+        if k in p:
+            rec[k] = p[k]
+    if "result" in p:
+        rec["status"] = "Closed"
+    _save_module(TENDERS_FILE, TENDERS)
+    return jsonify({"ok": True, "item": rec, "data": TENDERS})
+
+
+# ── Inter-Department Communications ──────────────────────────────────────────
+
+@app.get("/api/portal/comms")
+@login_required
+def list_comms():
+    dept = session.get("portal_department", "")
+    role = session.get("portal_role", "technician")
+    if role == "admin" or not dept:
+        msgs = DEPT_COMMS
+    else:
+        msgs = [m for m in DEPT_COMMS if dept in m.get("to_depts", []) or m.get("from_dept") == dept]
+    return jsonify({"ok": True, "data": msgs, "messages": msgs, "my_dept": dept})
+
+
+@app.post("/api/portal/comms")
+@login_required
+def send_comms():
+    p, dept, user = _dept_payload()
+    name = session.get("portal_name", user)
+    now = datetime.utcnow().isoformat()
+    to_depts = p.get("to_depts", [])
+    if isinstance(to_depts, str):
+        to_depts = [d.strip() for d in to_depts.split(",") if d.strip()]
+    record = {
+        "id": _next_id(DEPT_COMMS, "MSG"),
+        "from_dept": dept or "Executive Office",
+        "from_user": user,
+        "from_name": name,
+        "to_depts": to_depts,
+        "subject": p.get("subject", ""),
+        "body": p.get("body", ""),
+        "priority": p.get("priority", "Normal"),
+        "timestamp": now,
+        "read_by": [],
+    }
+    DEPT_COMMS.append(record)
+    _save_module(DEPT_COMMS_FILE, DEPT_COMMS)
+    dept_view = [m for m in DEPT_COMMS if dept in m.get("to_depts", []) or m.get("from_dept") == dept] if dept else DEPT_COMMS
+    return jsonify({"ok": True, "item": record, "data": dept_view}), 201
+
+
+@app.post("/api/portal/comms/<msg_id>/read")
+@login_required
+def mark_comms_read(msg_id: str):
+    user = session.get("portal_user", "")
+    rec = next((m for m in DEPT_COMMS if m["id"] == msg_id), None)
+    if not rec:
+        return jsonify({"ok": False, "message": "Not found"}), 404
+    if user not in rec.get("read_by", []):
+        rec.setdefault("read_by", []).append(user)
+    _save_module(DEPT_COMMS_FILE, DEPT_COMMS)
+    return jsonify({"ok": True})
 
 
 # ── Customer Portal Routes ──────────────────────────────────────────────────────

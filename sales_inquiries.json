@@ -1,0 +1,35 @@
+[
+  {
+    "id": "INQ-0001",
+    "customer": "ACME Corp",
+    "contact_name": "",
+    "phone": "",
+    "site": "Delhi",
+    "requirement": "",
+    "received_date": "2026-05-26",
+    "last_followup": null,
+    "next_followup": "",
+    "linked_estimate": "",
+    "status": "New",
+    "assigned_to": "admin",
+    "notes": "VIP",
+    "created_at": "2026-05-26T18:15:38.901277"
+  },
+  {
+    "id": "INQ-0002",
+    "customer": "ACME",
+    "contact_name": "",
+    "phone": "",
+    "site": "Delhi",
+    "elevator_type": "Passenger",
+    "requirement": "VIP",
+    "received_date": "2026-05-26",
+    "last_followup": "2026-05-26",
+    "next_followup": "",
+    "linked_estimate": "",
+    "status": "Follow-up",
+    "assigned_to": "admin",
+    "notes": "VIP",
+    "created_at": "2026-05-26T18:20:23.570135"
+  }
+]

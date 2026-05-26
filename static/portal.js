@@ -933,12 +933,28 @@ function collectEstimatorPayload() {
     customer_id: fd.get("customer_id") || "",
     site: fd.get("site") || "",
     elevator_type: fd.get("elevator_type") || "",
+    make: fd.get("make") || "Fuzi",
     capacity: fd.get("capacity") || "",
-    num_floors: parseInt(fd.get("num_floors") || "2", 10),
-    drive_type: fd.get("drive_type") || "",
+    num_floors: parseInt(fd.get("num_floors") || "4", 10),
+    motor_type: fd.get("motor_type") || "",
+    speed: fd.get("speed") || "",
+    floor_height_mm: parseInt(fd.get("floor_height_mm") || "3000", 10),
+    pit_depth_mm: parseInt(fd.get("pit_depth_mm") || "1200", 10),
+    overhead_mm: parseInt(fd.get("overhead_mm") || "4200", 10),
     cabin_finish: fd.get("cabin_finish") || "",
     door_type: fd.get("door_type") || "",
+    door_construction: fd.get("door_construction") || "",
+    door_panels: parseInt(fd.get("door_panels") || "2", 10),
+    door_opening_type: fd.get("door_opening_type") || "",
+    door_vision: fd.get("door_vision") || "",
+    door_width_mm: parseInt(fd.get("door_width_mm") || "700", 10),
+    door_height_mm: parseInt(fd.get("door_height_mm") || "2000", 10),
+    door_arrangement: fd.get("door_arrangement") || "",
     control_type: fd.get("control_type") || "",
+    remark_1: fd.get("remark_1") || "",
+    remark_2: fd.get("remark_2") || "",
+    remark_3: fd.get("remark_3") || "",
+    remark_4: fd.get("remark_4") || "",
     addons,
     margin_percent: parseFloat(fd.get("margin_percent") || "20"),
     sent_to_email: fd.get("sent_to_email") || "",
@@ -966,12 +982,36 @@ async function calculateEstimate() {
 if (estCalcBtn) estCalcBtn.addEventListener("click", calculateEstimate);
 if (estMargin) estMargin.addEventListener("change", calculateEstimate);
 if (estimatorForm) {
-  ["estType", "estCapacity", "estFloors", "estDrive", "estFinish", "estDoor", "estControl"].forEach(id => {
+  [
+    "estType", "estCapacityPax", "estCapacityGoods", "estFloors", "estMotor", "estSpeed",
+    "estFinish", "estDoor", "estDoorConstruction", "estDoorPanels", "estDoorOpeningType",
+    "estDoorVision", "estDoorWidth", "estDoorHeight", "estDoorArrangement",
+    "estControl", "estFloorHeight", "estMake",
+  ].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener("change", calculateEstimate);
   });
   estimatorForm.querySelectorAll('input[name="addons"]').forEach(el => el.addEventListener("change", calculateEstimate));
 }
+
+// Capacity toggle: show passenger or goods capacity based on elevator type
+(function() {
+  const typeEl = document.getElementById("estType");
+  const paxWrap = document.getElementById("estCapacityPaxWrap");
+  const goodsWrap = document.getElementById("estCapacityGoodsWrap");
+  const paxSel = document.getElementById("estCapacityPax");
+  const goodsSel = document.getElementById("estCapacityGoods");
+  if (!typeEl || !paxWrap || !goodsWrap) return;
+  function syncCapacity() {
+    const isGoods = typeEl.value === "Goods" || typeEl.value === "Dumbwaiter";
+    paxWrap.style.display = isGoods ? "none" : "";
+    goodsWrap.style.display = isGoods ? "" : "none";
+    if (paxSel) paxSel.disabled = isGoods;
+    if (goodsSel) goodsSel.disabled = !isGoods;
+  }
+  typeEl.addEventListener("change", syncCapacity);
+  syncCapacity();
+})();
 
 if (estimatorForm) {
   estimatorForm.addEventListener("submit", async (e) => {
@@ -1251,6 +1291,366 @@ if (payRows) {
 if (payEmptyMsg) { payEmptyMsg.style.display = "block"; }
 
 // ---- End Payment Ledger ----
+
+// ===== Department Module Helpers =====
+function parseDeptData(id) {
+  const el = document.getElementById(id);
+  try { return el ? JSON.parse(el.textContent) : []; } catch { return []; }
+}
+
+function fmtDate(iso) {
+  if (!iso) return "—";
+  return iso.replace("T", " ").substring(0, 16);
+}
+
+function statusBadge(status, map) {
+  const cls = (map && map[status]) || "badge-info";
+  return `<span class="badge ${cls}">${status || "—"}</span>`;
+}
+
+async function deptPost(url, body) {
+  const resp = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await resp.json();
+  if (data.ok) { showToast(data.message || "Saved."); return data; }
+  showToast(data.error || "Error saving.");
+  return null;
+}
+
+async function deptPatch(url, body) {
+  const resp = await fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await resp.json();
+  if (data.ok) { showToast(data.message || "Updated."); return data; }
+  showToast(data.error || "Error updating.");
+  return null;
+}
+
+// ===== Sales Inquiries =====
+function openSalesModal() { document.getElementById("salesModal").style.display = "flex"; }
+function closeSalesModal() { document.getElementById("salesModal").style.display = "none"; }
+
+function renderSalesRows(inquiries) {
+  const tbody = document.getElementById("salesRows");
+  if (!tbody) return;
+  const map = { "New": "badge-info", "Follow-up": "badge-warn", "Order Received": "badge-success", "Closed": "badge-success" };
+  tbody.innerHTML = inquiries.map(r => `<tr>
+    <td>${r.id}</td><td>${r.customer || "—"}</td><td>${r.site || "—"}</td>
+    <td>${r.elevator_type || "—"}</td><td>${statusBadge(r.status, map)}</td>
+    <td>${fmtDate(r.created_at)}</td>
+    <td>
+      <button class="btn-xs" onclick="salesFollowUp('${r.id}')">Follow-up</button>
+      <button class="btn-xs" onclick="salesOrderReceived('${r.id}')">Order Rcvd</button>
+    </td>
+  </tr>`).join("");
+}
+
+async function submitSalesInquiry() {
+  const body = {
+    customer: document.getElementById("siqCustomer").value.trim(),
+    site: document.getElementById("siqSite").value.trim(),
+    elevator_type: document.getElementById("siqType").value,
+    notes: document.getElementById("siqNotes").value.trim(),
+  };
+  if (!body.customer) { showToast("Customer name is required."); return; }
+  const res = await deptPost("/api/portal/sales/inquiries", body);
+  if (res) { closeSalesModal(); renderSalesRows(res.data); }
+}
+
+async function salesFollowUp(id) {
+  const res = await deptPatch(`/api/portal/sales/inquiries/${id}`, { action: "followup" });
+  if (res) renderSalesRows(res.data);
+}
+
+async function salesOrderReceived(id) {
+  const res = await deptPatch(`/api/portal/sales/inquiries/${id}`, { action: "order_received" });
+  if (res) renderSalesRows(res.data);
+}
+
+// ===== Breakdown =====
+function openBreakdownModal() { document.getElementById("breakdownModal").style.display = "flex"; }
+function closeBreakdownModal() { document.getElementById("breakdownModal").style.display = "none"; }
+
+function renderBreakdownRows(records) {
+  const tbody = document.getElementById("breakdownRows");
+  if (!tbody) return;
+  const map = { "Open": "badge-warn", "Attended": "badge-info", "Closed": "badge-success" };
+  tbody.innerHTML = records.map(r => `<tr>
+    <td>${r.id}</td><td>${r.unit || "—"}</td><td>${r.customer || "—"}</td>
+    <td>${fmtDate(r.reported_at)}</td><td>${fmtDate(r.attended_at)}</td>
+    <td>${fmtDate(r.closed_at)}</td><td>${statusBadge(r.status, map)}</td>
+    <td>
+      ${r.status === "Open" ? `<button class="btn-xs" onclick="brkAttend('${r.id}')">Attend</button>` : ""}
+      ${r.status === "Attended" ? `<button class="btn-xs" onclick="brkResolve('${r.id}')">Resolve</button>` : ""}
+      ${r.status === "Resolved" ? `<button class="btn-xs" onclick="brkClose('${r.id}')">Close</button>` : ""}
+    </td>
+  </tr>`).join("");
+}
+
+async function submitBreakdown() {
+  const body = {
+    unit: document.getElementById("brkUnit").value.trim(),
+    customer: document.getElementById("brkCustomer").value.trim(),
+    site: document.getElementById("brkSite").value.trim(),
+    fault: document.getElementById("brkFault").value.trim(),
+    contract_type: document.getElementById("brkWarranty").value,
+  };
+  if (!body.unit) { showToast("Unit ID is required."); return; }
+  const res = await deptPost("/api/portal/breakdown", body);
+  if (res) { closeBreakdownModal(); renderBreakdownRows(res.data); }
+}
+
+async function brkAttend(id) {
+  const res = await deptPatch(`/api/portal/breakdown/${id}`, { action: "attend" });
+  if (res) renderBreakdownRows(res.data);
+}
+
+async function brkResolve(id) {
+  const notes = window.prompt("Resolution notes:");
+  const res = await deptPatch(`/api/portal/breakdown/${id}`, { action: "resolve", resolution: notes || "" });
+  if (res) renderBreakdownRows(res.data);
+}
+
+async function brkClose(id) {
+  const res = await deptPatch(`/api/portal/breakdown/${id}`, { action: "close" });
+  if (res) renderBreakdownRows(res.data);
+}
+
+// ===== Service =====
+function openServiceModal() { document.getElementById("serviceModal").style.display = "flex"; }
+function closeServiceModal() { document.getElementById("serviceModal").style.display = "none"; }
+
+function renderServiceRows(records) {
+  const tbody = document.getElementById("serviceRows");
+  if (!tbody) return;
+  const map = { "Scheduled": "badge-info", "Completed": "badge-success", "Overdue": "badge-warn" };
+  tbody.innerHTML = records.map(r => `<tr>
+    <td>${r.id}</td><td>${r.unit || "—"}</td><td>${r.customer || "—"}</td>
+    <td>${r.scheduled_date || "—"}</td><td>${r.technician || "—"}</td>
+    <td>${statusBadge(r.status, map)}</td><td>${fmtDate(r.completed_at)}</td>
+    <td>${r.status !== "Completed" ? `<button class="btn-xs" onclick="svcComplete('${r.id}')">Complete</button>` : ""}</td>
+  </tr>`).join("");
+}
+
+async function submitService() {
+  const body = {
+    unit: document.getElementById("svcUnit").value.trim(),
+    customer: document.getElementById("svcCustomer").value.trim(),
+    scheduled_date: document.getElementById("svcDate").value,
+    technician: document.getElementById("svcTech").value.trim(),
+    notes: document.getElementById("svcNotes").value.trim(),
+  };
+  if (!body.unit) { showToast("Unit ID is required."); return; }
+  const res = await deptPost("/api/portal/service", body);
+  if (res) { closeServiceModal(); renderServiceRows(res.data); }
+}
+
+async function svcComplete(id) {
+  const notes = window.prompt("Service completion notes:");
+  const res = await deptPatch(`/api/portal/service/${id}`, { action: "complete", notes: notes || "" });
+  if (res) renderServiceRows(res.data);
+}
+
+// ===== GAD =====
+function openGADModal() { document.getElementById("gadModal").style.display = "flex"; }
+function closeGADModal() { document.getElementById("gadModal").style.display = "none"; }
+
+function renderGADRows(records) {
+  const tbody = document.getElementById("gadRows");
+  if (!tbody) return;
+  const map = { "Pending": "badge-warn", "In Progress": "badge-info", "Submitted": "badge-success", "Revised": "badge-info" };
+  tbody.innerHTML = records.map(r => `<tr>
+    <td>${r.id}</td><td>${r.ref_type || "—"}</td><td>${r.ref_no || "—"}</td>
+    <td>${r.customer || "—"}</td><td>${r.drawing_no || "—"}</td>
+    <td>${statusBadge(r.status, map)}</td><td>${fmtDate(r.submitted_at)}</td>
+    <td>
+      ${r.status !== "Submitted" ? `<button class="btn-xs" onclick="gadSubmit('${r.id}')">Submit</button>` : ""}
+      <button class="btn-xs" onclick="gadRevise('${r.id}')">Revise</button>
+    </td>
+  </tr>`).join("");
+}
+
+async function submitGAD() {
+  const body = {
+    ref_type: document.getElementById("gadRefType").value,
+    ref_no: document.getElementById("gadRefNo").value.trim(),
+    customer: document.getElementById("gadCustomer").value.trim(),
+    drawing_no: document.getElementById("gadDrawingNo").value.trim(),
+    notes: document.getElementById("gadNotes").value.trim(),
+  };
+  if (!body.customer) { showToast("Customer is required."); return; }
+  const res = await deptPost("/api/portal/gad", body);
+  if (res) { closeGADModal(); renderGADRows(res.data); }
+}
+
+async function gadSubmit(id) {
+  const res = await deptPatch(`/api/portal/gad/${id}`, { action: "submit" });
+  if (res) renderGADRows(res.data);
+}
+
+async function gadRevise(id) {
+  const notes = window.prompt("Revision notes:");
+  const res = await deptPatch(`/api/portal/gad/${id}`, { action: "revise", notes: notes || "" });
+  if (res) renderGADRows(res.data);
+}
+
+// ===== Commissioning =====
+function openCommissioningModal() { document.getElementById("commissioningModal").style.display = "flex"; }
+function closeCommissioningModal() { document.getElementById("commissioningModal").style.display = "none"; }
+
+function renderCommissioningRows(records) {
+  const tbody = document.getElementById("commissioningRows");
+  if (!tbody) return;
+  const map = { "Pending": "badge-warn", "In Progress": "badge-info", "Handed Over": "badge-success" };
+  tbody.innerHTML = records.map(r => `<tr>
+    <td>${r.id}</td><td>${r.customer || "—"}</td><td>${r.unit || "—"}</td>
+    <td>${fmtDate(r.start_date)}</td><td>${fmtDate(r.handover_date)}</td>
+    <td>${statusBadge(r.status, map)}</td>
+    <td>
+      ${r.status === "Pending" ? `<button class="btn-xs" onclick="commStart('${r.id}')">Start</button>` : ""}
+      ${r.status === "In Progress" ? `<button class="btn-xs" onclick="commHandover('${r.id}')">Handover</button>` : ""}
+    </td>
+  </tr>`).join("");
+}
+
+async function submitCommissioning() {
+  const body = {
+    customer: document.getElementById("comCustomer").value.trim(),
+    unit: document.getElementById("comUnit").value.trim(),
+    job_ref: document.getElementById("comJobRef").value.trim(),
+    start_date: document.getElementById("comStart").value,
+    notes: document.getElementById("comNotes").value.trim(),
+  };
+  if (!body.customer) { showToast("Customer is required."); return; }
+  const res = await deptPost("/api/portal/commissioning", body);
+  if (res) { closeCommissioningModal(); renderCommissioningRows(res.data); }
+}
+
+async function commStart(id) {
+  const res = await deptPatch(`/api/portal/commissioning/${id}`, { action: "start" });
+  if (res) renderCommissioningRows(res.data);
+}
+
+async function commHandover(id) {
+  const res = await deptPatch(`/api/portal/commissioning/${id}`, { action: "handover" });
+  if (res) renderCommissioningRows(res.data);
+}
+
+// ===== Factory Jobs =====
+function openFactoryModal() { document.getElementById("factoryModal").style.display = "flex"; }
+function closeFactoryModal() { document.getElementById("factoryModal").style.display = "none"; }
+
+function renderFactoryRows(records) {
+  const tbody = document.getElementById("factoryRows");
+  if (!tbody) return;
+  const map = { "Material Procurement": "badge-warn", "Fabrication": "badge-info", "Assembly": "badge-info", "Testing": "badge-warn", "Ready to Dispatch": "badge-success", "Dispatched": "badge-success" };
+  tbody.innerHTML = records.map(r => `<tr>
+    <td>${r.id}</td><td>${r.order_ref || "—"}</td><td>${r.customer || "—"}</td>
+    <td>${statusBadge(r.stage, map)}</td><td>${(r.materials || "—").substring(0, 40)}${r.materials && r.materials.length > 40 ? "…" : ""}</td>
+    <td>${fmtDate(r.dispatched_at)}</td>
+    <td>${r.stage !== "Dispatched" ? `<button class="btn-xs" onclick="facDispatch('${r.id}')">Dispatch</button>` : "Dispatched"}</td>
+  </tr>`).join("");
+}
+
+async function submitFactoryJob() {
+  const body = {
+    order_ref: document.getElementById("facOrderRef").value.trim(),
+    customer: document.getElementById("facCustomer").value.trim(),
+    stage: document.getElementById("facStage").value,
+    materials: document.getElementById("facMaterials").value.trim(),
+    notes: document.getElementById("facNotes").value.trim(),
+  };
+  if (!body.order_ref) { showToast("Order reference is required."); return; }
+  const res = await deptPost("/api/portal/factory", body);
+  if (res) { closeFactoryModal(); renderFactoryRows(res.data); }
+}
+
+async function facDispatch(id) {
+  const res = await deptPatch(`/api/portal/factory/${id}`, { action: "dispatch" });
+  if (res) renderFactoryRows(res.data);
+}
+
+// ===== Tender =====
+function openTenderModal() { document.getElementById("tenderModal").style.display = "flex"; }
+function closeTenderModal() { document.getElementById("tenderModal").style.display = "none"; }
+
+function renderTenderRows(records) {
+  const tbody = document.getElementById("tenderRows");
+  if (!tbody) return;
+  const map = { "Submitted": "badge-info", "Won": "badge-success", "Lost": "badge-warn", "Pending": "badge-info" };
+  tbody.innerHTML = records.map(r => `<tr>
+    <td>${r.id}</td><td>${r.name || "—"}</td><td>${r.party || "—"}</td>
+    <td>${r.source || "—"}</td><td>${r.submitted_date || "—"}</td>
+    <td>${r.qty || 1}</td><td>₹${Number(r.value || 0).toLocaleString("en-IN")}</td>
+    <td>${statusBadge(r.result, map)}</td>
+    <td>
+      <button class="btn-xs" onclick="tdrResult('${r.id}','Won')">Won</button>
+      <button class="btn-xs" onclick="tdrResult('${r.id}','Lost')">Lost</button>
+    </td>
+  </tr>`).join("");
+}
+
+async function submitTender() {
+  const body = {
+    name: document.getElementById("tdrName").value.trim(),
+    party: document.getElementById("tdrParty").value.trim(),
+    source: document.getElementById("tdrSource").value,
+    submitted_date: document.getElementById("tdrDate").value,
+    qty: parseInt(document.getElementById("tdrQty").value, 10) || 1,
+    value: parseFloat(document.getElementById("tdrValue").value) || 0,
+    notes: document.getElementById("tdrNotes").value.trim(),
+  };
+  if (!body.name) { showToast("Tender name is required."); return; }
+  const res = await deptPost("/api/portal/tender", body);
+  if (res) { closeTenderModal(); renderTenderRows(res.data); }
+}
+
+async function tdrResult(id, result) {
+  const res = await deptPatch(`/api/portal/tender/${id}`, { result });
+  if (res) renderTenderRows(res.data);
+}
+
+// ===== Department Comms =====
+function renderCommsList(msgs) {
+  const el = document.getElementById("commsList");
+  if (!el) return;
+  if (!msgs.length) { el.innerHTML = '<p style="color:var(--muted);font-size:12px">No messages yet.</p>'; return; }
+  el.innerHTML = msgs.map(m => `<div class="comms-msg${m.read ? "" : " unread"}">
+    <div class="msg-from">${m.from_dept || "System"} → ${(m.to_depts || []).join(", ")} · ${fmtDate(m.sent_at || m.timestamp)}</div>
+    <div class="msg-subject">${m.subject || "(no subject)"}</div>
+    <div class="msg-body">${m.body || ""}</div>
+  </div>`).join("");
+}
+
+async function sendCommsMessage() {
+  const toDepts = Array.from(document.querySelectorAll('#commsToDepts input[name="toDept"]:checked')).map(el => el.value);
+  const body = {
+    to_depts: toDepts,
+    subject: document.getElementById("commsSubject").value.trim(),
+    body: document.getElementById("commsBody").value.trim(),
+  };
+  if (!toDepts.length) { showToast("Select at least one recipient department."); return; }
+  if (!body.body) { showToast("Message body is required."); return; }
+  const res = await deptPost("/api/portal/comms", body);
+  if (res) {
+    document.getElementById("commsSubject").value = "";
+    document.getElementById("commsBody").value = "";
+    document.querySelectorAll('#commsToDepts input[name="toDept"]').forEach(el => { el.checked = false; });
+    renderCommsList(res.data);
+  }
+}
+
+// Init all department module tables from embedded JSON
+(function initDeptModules() {
+  renderSalesRows(parseDeptData("salesInquiriesData"));
+  renderBreakdownRows(parseDeptData("breakdownsData"));
+  renderServiceRows(parseDeptData("serviceRecordsData"));
+  renderGADRows(parseDeptData("gadRecordsData"));
+  renderCommissioningRows(parseDeptData("commissioningsData"));
+  renderFactoryRows(parseDeptData("factoryJobsData"));
+  renderTenderRows(parseDeptData("tendersData"));
+  renderCommsList(parseDeptData("deptCommsData"));
+})();
+
+function viewInstallJob(id) { switchView("installations"); }
 
 function switchView(view) {
   const showAll = view === "overview";

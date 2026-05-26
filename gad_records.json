@@ -1,0 +1,33 @@
+[
+  {
+    "id": "GAD-0001",
+    "ref_type": "Order",
+    "ref_id": "",
+    "customer": "ACME Corp",
+    "site": "",
+    "elevator_spec": "",
+    "requested_date": "2026-05-26",
+    "submitted_date": null,
+    "revision": 0,
+    "status": "Pending",
+    "notes": "",
+    "created_at": "2026-05-26T18:15:38.955806"
+  },
+  {
+    "id": "GAD-0002",
+    "ref_type": "Order",
+    "ref_no": "ORD-001",
+    "ref_id": "ORD-001",
+    "customer": "ACME",
+    "site": "",
+    "drawing_no": "GAD-001",
+    "elevator_spec": "",
+    "requested_date": "2026-05-26",
+    "submitted_at": "2026-05-26T18:20:23.637814",
+    "submitted_date": "2026-05-26",
+    "revision": 0,
+    "status": "Submitted",
+    "notes": "",
+    "created_at": "2026-05-26T18:20:23.618325"
+  }
+]
