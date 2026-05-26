@@ -1,0 +1,664 @@
+{
+  "fleet": [
+    {
+      "unit": "FE-JP-204",
+      "site": "Pearl Heights, Tower B",
+      "status": "Fault",
+      "severity": "critical",
+      "telemetry": "Motor 88 C, door cycles +32%",
+      "ticket": "PT-1007",
+      "owner": "R. Sharma",
+      "fault_code": "MTR-88",
+      "motor_temp_c": 88,
+      "door_cycles_delta": 32,
+      "on_call_phone": "+91 90000 1301",
+      "last_alerted_at": "2026-05-25 14:20",
+      "last_notified_at": "2026-05-25 15:16",
+      "last_notified_ticket": "PT-1007"
+    },
+    {
+      "unit": "FE-JP-117",
+      "site": "City Mall, Escalator 3",
+      "status": "Fault",
+      "severity": "critical",
+      "telemetry": "Drive temp rising, E31 intermittent",
+      "ticket": "PT-1005",
+      "owner": "N. Khan",
+      "fault_code": "E31",
+      "motor_temp_c": 76,
+      "door_cycles_delta": 18,
+      "on_call_phone": "+91 90000 1302",
+      "last_alerted_at": "2026-05-22 14:50",
+      "last_notified_at": "2026-05-22 15:16",
+      "last_notified_ticket": "PT-1005"
+    },
+    {
+      "unit": "FE-JP-309",
+      "site": "Sunrise Hospital",
+      "status": "Healthy",
+      "severity": "healthy",
+      "telemetry": "Normal load, 18 sec avg trip",
+      "ticket": "-",
+      "owner": "AMC Team 2",
+      "fault_code": "",
+      "motor_temp_c": 61,
+      "door_cycles_delta": 4,
+      "on_call_phone": "+91 90000 1302",
+      "last_alerted_at": ""
+    },
+    {
+      "unit": "FE-AJ-052",
+      "site": "Ajmer Residency",
+      "status": "Fault",
+      "severity": "critical",
+      "telemetry": "Door lock circuit, D14",
+      "ticket": "PT-1006",
+      "owner": "P. Meena",
+      "fault_code": "D14",
+      "motor_temp_c": 71,
+      "door_cycles_delta": 28,
+      "on_call_phone": "+91 90000 1303",
+      "last_alerted_at": "2026-05-22 14:50",
+      "last_notified_at": "2026-05-22 15:16",
+      "last_notified_ticket": "PT-1006"
+    },
+    {
+      "unit": "FE-JP-411",
+      "site": "Vaishali Plaza, Lift 2",
+      "status": "Healthy",
+      "severity": "healthy",
+      "telemetry": "Final inspection passed",
+      "ticket": "-",
+      "owner": "Install Team 1",
+      "fault_code": "",
+      "motor_temp_c": 57,
+      "door_cycles_delta": 6,
+      "on_call_phone": "+91 90000 1301",
+      "last_alerted_at": ""
+    }
+  ],
+  "projects": [
+    {
+      "name": "Raja Park Modernization",
+      "stage": "Permit file pending fire department sign-off",
+      "risk": "At risk",
+      "owner": "A. Singhal",
+      "due": "Today",
+      "assigned_techs": [
+        "A. Singhal"
+      ],
+      "permit_status": "Permit file pending fire department sign-off",
+      "parts_status": "No blocker",
+      "inspection_date": "Pending permit clearance"
+    },
+    {
+      "name": "Mansarovar Residency",
+      "stage": "Parts order",
+      "risk": "Blocked",
+      "owner": "N. Khan",
+      "due": "Tomorrow",
+      "assigned_techs": [
+        "N. Khan"
+      ],
+      "permit_status": "Cleared",
+      "parts_status": "ARD battery kit supplier confirmation pending",
+      "inspection_date": "Awaiting parts ETA"
+    },
+    {
+      "name": "City Mall AMC Upgrade",
+      "stage": "Inspection checklist review",
+      "risk": "On track",
+      "owner": "R. Sharma",
+      "due": "May 21",
+      "assigned_techs": [
+        "R. Sharma"
+      ],
+      "permit_status": "Cleared",
+      "parts_status": "Comb plate test photos under review",
+      "inspection_date": "May 21"
+    },
+    {
+      "name": "Ajmer Trade Center",
+      "stage": "Rigging",
+      "risk": "At risk",
+      "owner": "P. Meena",
+      "due": "May 22",
+      "assigned_techs": [
+        "P. Meena"
+      ],
+      "permit_status": "Cleared",
+      "parts_status": "Rigging crew support required",
+      "inspection_date": "Pending rigging completion"
+    }
+  ],
+  "installations": [
+    {
+      "job": "Vaishali Plaza Lift 2 - Passenger elevator",
+      "stage": "Final inspection passed",
+      "progress": 100,
+      "tone": "healthy",
+      "note": "Handover report and warranty registration generated"
+    },
+    {
+      "job": "Mansarovar Residency - Residential elevator",
+      "stage": "Stage 3 - Final Hoistway Inspection",
+      "progress": 38,
+      "tone": "warning",
+      "note": "Stage overdue for target May 24"
+    },
+    {
+      "job": "Vaishali Plaza - Lift 2",
+      "stage": "Final inspection passed",
+      "progress": 100,
+      "tone": "healthy",
+      "note": "Handover report and warranty registration generated"
+    },
+    {
+      "job": "Mansarovar Residency - Lift 1",
+      "stage": "Electrical commissioning",
+      "progress": 72,
+      "tone": "warning",
+      "note": "Crew flagged overload relay mismatch"
+    },
+    {
+      "job": "Bapu Nagar Clinic - Hospital Lift",
+      "stage": "Shaft alignment",
+      "progress": 46,
+      "tone": "info",
+      "note": "Alignment photos received"
+    },
+    {
+      "job": "Ajmer Trade Center - Escalator 1",
+      "stage": "Rigging overdue",
+      "progress": 31,
+      "tone": "warning",
+      "note": "Back-office alert sent"
+    }
+  ],
+  "messages": [
+    {
+      "channel": "SMS",
+      "from": "Operations Bot",
+      "state": "Sent",
+      "text": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 11 SLA risks, 1 blocked parts orders."
+    },
+    {
+      "channel": "Modernization Coordinator",
+      "from": "Blocked jobs",
+      "state": "Sent",
+      "text": "Modernization flag: 3 jobs blocked or at risk."
+    },
+    {
+      "channel": "SMS",
+      "from": "Operations Bot",
+      "state": "Delivery failed",
+      "text": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 11 SLA risks, 1 blocked parts orders."
+    },
+    {
+      "channel": "CRM Query",
+      "from": "Renewals",
+      "state": "Sent",
+      "text": "CRM Query Agent currently supports renewal questions about the next 60 days and contact status."
+    },
+    {
+      "channel": "CRM Query",
+      "from": "Renewals",
+      "state": "Delivery failed",
+      "text": "3 buildings renew in the next 60 days and still need outreach."
+    },
+    {
+      "channel": "CRM Query",
+      "from": "Renewals",
+      "state": "Delivery failed",
+      "text": "3 buildings renew in the next 60 days and still need outreach."
+    },
+    {
+      "channel": "CRM Query",
+      "from": "Renewals",
+      "state": "Delivery failed",
+      "text": "3 buildings renew in the next 60 days and still need outreach."
+    },
+    {
+      "channel": "CRM Query",
+      "from": "Renewals",
+      "state": "Sent",
+      "text": "3 buildings renew in the next 60 days and still need outreach."
+    },
+    {
+      "channel": "Email",
+      "from": "CRM Agent",
+      "state": "Drafted",
+      "text": "Prepared renewal outreach for Pearl Heights, City Mall, Sunrise Hospital."
+    },
+    {
+      "channel": "Modernization Coordinator",
+      "from": "Blocked jobs",
+      "state": "Sent",
+      "text": "Modernization flag: 3 jobs blocked or at risk."
+    },
+    {
+      "channel": "Modernization Coordinator",
+      "from": "Blocked jobs",
+      "state": "Sent",
+      "text": "Modernization flag: 3 jobs blocked or at risk."
+    },
+    {
+      "channel": "SMS",
+      "from": "FE-JP-204",
+      "state": "Sent",
+      "text": "On-call tech notified for PT-1007."
+    },
+    {
+      "channel": "Modernization Coordinator",
+      "from": "Blocked jobs",
+      "state": "Sent",
+      "text": "Modernization flag: 6 jobs blocked or at risk."
+    },
+    {
+      "channel": "SMS",
+      "from": "FE-JP-204",
+      "state": "Sent",
+      "text": "On-call tech notified for PT-1007."
+    },
+    {
+      "channel": "SMS",
+      "from": "FE-JP-204",
+      "state": "Sent",
+      "text": "On-call tech notified for PT-1007."
+    },
+    {
+      "channel": "SMS",
+      "from": "FE-JP-204",
+      "state": "Sent",
+      "text": "On-call tech notified for PT-1007."
+    },
+    {
+      "channel": "Modernization Coordinator",
+      "from": "Blocked jobs",
+      "state": "Sent",
+      "text": "Modernization flag: 6 jobs blocked or at risk."
+    },
+    {
+      "channel": "Email",
+      "from": "CRM Agent",
+      "state": "Drafted",
+      "text": "Prepared renewal outreach for Pearl Heights, City Mall, Sunrise Hospital."
+    },
+    {
+      "channel": "Email",
+      "from": "CRM Agent",
+      "state": "Drafted",
+      "text": "Prepared renewal outreach for Pearl Heights, City Mall, Sunrise Hospital."
+    },
+    {
+      "channel": "WhatsApp",
+      "from": "Arihant Towers",
+      "state": "Auto-answered",
+      "text": "Please confirm the next AMC visit window for Monday morning.",
+      "reply": "Routine update sent to Arihant Towers via WhatsApp: the next AMC visit is confirmed and the coordinator will share the ETA shortly.",
+      "triaged_at": "2026-05-22 20:30"
+    },
+    {
+      "channel": "Web chat",
+      "from": "City Mall",
+      "state": "Escalated",
+      "text": "Escalator 3 has stopped with passengers stuck at the landing. This looks like an emergency.",
+      "reply": "Emergency received. The on-call team has been notified and a supervisor will contact the building immediately.",
+      "triaged_at": "2026-05-22 20:30"
+    },
+    {
+      "channel": "Email",
+      "from": "Pearl Heights",
+      "state": "Auto-answered",
+      "text": "Can you share the latest ticket update and expected technician arrival time for Tower B?",
+      "reply": "Routine update sent to Pearl Heights via Email: the active service status has been acknowledged and a progress note was shared instantly.",
+      "triaged_at": "2026-05-22 20:30"
+    }
+  ],
+  "renewals": [
+    {
+      "building": "Pearl Heights",
+      "days": 12,
+      "contacted": false,
+      "value": "High",
+      "contact_email": "manager@pearlheights.example",
+      "last_draft": "Subject: FUZI maintenance renewal for Pearl Heights\n\nYour contract renews in 12 days. We can review uptime, parts coverage, and SLA options this week."
+    },
+    {
+      "building": "Arihant Towers",
+      "days": 21,
+      "contacted": true,
+      "value": "Medium",
+      "contact_email": "ops@arihanttowers.example",
+      "last_draft": ""
+    },
+    {
+      "building": "City Mall",
+      "days": 38,
+      "contacted": false,
+      "value": "High",
+      "contact_email": "facilities@citymall.example",
+      "last_draft": "Subject: FUZI maintenance renewal for City Mall\n\nYour contract renews in 38 days. We can review uptime, parts coverage, and SLA options this week."
+    },
+    {
+      "building": "Sunrise Hospital",
+      "days": 58,
+      "contacted": false,
+      "value": "High",
+      "contact_email": "engineering@sunrisehospital.example",
+      "last_draft": "Subject: FUZI maintenance renewal for Sunrise Hospital\n\nYour contract renews in 58 days. We can review uptime, parts coverage, and SLA options this week."
+    }
+  ],
+  "work_orders": [
+    {
+      "id": "WO-701",
+      "title": "Pearl Heights Tower B",
+      "urgency": "Urgent",
+      "body": "Deficiencies:\n- [Urgent] After the visit, the technician reported that the landing door lock circuit is intermittent, the sill is out of line, and passengers could get delayed if the fault repeats\n- [Urgent] Replace the D14 contact kit and roller set today\nParts needed: D14 contact kit, roller set\nPermits needed: No permit is needed",
+      "status": "Pushed",
+      "pushed_at": "2026-05-22 20:52",
+      "walkthrough_notes": "After the visit, the technician reported that the landing door lock circuit is intermittent, the sill is out of line, and passengers could get delayed if the fault repeats. Replace the D14 contact kit and roller set today. No permit is needed.",
+      "deficiencies": [
+        {
+          "summary": "After the visit, the technician reported that the landing door lock circuit is intermittent, the sill is out of line, and passengers could get delayed if the fault repeats",
+          "urgency": "Urgent"
+        },
+        {
+          "summary": "Replace the D14 contact kit and roller set today",
+          "urgency": "Urgent"
+        }
+      ],
+      "parts_needed": [
+        "D14 contact kit",
+        "roller set"
+      ],
+      "permits_needed": [
+        "No permit is needed"
+      ]
+    },
+    {
+      "id": "WO-702",
+      "title": "City Mall Escalator 3",
+      "urgency": "Medium",
+      "body": "Inspect drive cooling, clean comb plate sensors, and monitor E31 recurrence.",
+      "status": "Draft",
+      "pushed_at": "",
+      "walkthrough_notes": "Tech voice note: comb plate sensors need cleaning, drive cooling fans are noisy, and the recurrence should be monitored this week. Order a fan assembly and sensor harness. Night-access permit from mall facilities is required before work starts."
+    }
+  ],
+  "brief_history": [
+    {
+      "summary": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 11 SLA risks, 1 blocked parts orders.",
+      "details": [
+        "Fault units: FE-JP-204, FE-JP-117, FE-AJ-052",
+        "Coverage gaps: Suresh Yadav",
+        "SLA risks: PT-1013, PT-1012, PT-1011, PT-1010",
+        "Blocked parts: Mansarovar Residency (Blocked)"
+      ],
+      "created_at": "2026-05-26 06:32"
+    },
+    {
+      "summary": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 11 SLA risks, 1 blocked parts orders.",
+      "details": [
+        "Fault units: FE-JP-204, FE-JP-117, FE-AJ-052",
+        "Coverage gaps: Suresh Yadav",
+        "SLA risks: PT-1013, PT-1012, PT-1011, PT-1010",
+        "Blocked parts: Mansarovar Residency (Blocked)"
+      ],
+      "created_at": "2026-05-26 06:31"
+    },
+    {
+      "summary": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 5 SLA risks, 1 blocked parts orders.",
+      "details": [
+        "Fault units: FE-JP-204, FE-JP-117, FE-AJ-052",
+        "Coverage gaps: Suresh Yadav",
+        "SLA risks: PT-1006, PT-1005, PT-1004, PT-1001",
+        "Blocked parts: Mansarovar Residency (Blocked)"
+      ],
+      "created_at": "2026-05-22 20:36"
+    },
+    {
+      "summary": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 5 SLA risks, 6 modernization jobs blocked or at risk.",
+      "details": [
+        "Fault units: FE-JP-204, FE-JP-117, FE-AJ-052",
+        "Coverage gaps: Suresh Yadav",
+        "SLA risks: PT-1006, PT-1005, PT-1004, PT-1001",
+        "Modernization risks: Raja Park Modernization (Permit file pending fire department sign-off, At risk), Mansarovar Residency (Parts order, Blocked), Ajmer Trade Center (Rigging, At risk), Pearl Heights, Tower B (FE-JP-204 auto-monitor alert, At risk)"
+      ],
+      "created_at": "2026-05-22 20:35"
+    },
+    {
+      "summary": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 5 SLA risks, 2 blocked parts orders.",
+      "details": [
+        "Fault units: FE-JP-204, FE-JP-117, FE-AJ-052",
+        "Coverage gaps: Suresh Yadav",
+        "SLA risks: PT-1006, PT-1005, PT-1004, PT-1001",
+        "Blocked parts: Raja Park Modernization, Mansarovar Residency"
+      ],
+      "created_at": "2026-05-22 19:00"
+    },
+    {
+      "summary": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 5 SLA risks, 2 blocked parts orders.",
+      "details": [
+        "Fault units: FE-JP-204, FE-JP-117, FE-AJ-052",
+        "Coverage gaps: Suresh Yadav",
+        "SLA risks: PT-1006, PT-1005, PT-1004, PT-1001",
+        "Blocked parts: Raja Park Modernization, Mansarovar Residency"
+      ],
+      "created_at": "2026-05-22 14:50"
+    }
+  ],
+  "last_scheduled_morning_brief_date": "2026-05-26",
+  "last_scheduled_modernization_flag_date": "2026-05-26",
+  "discord_cursors": {
+    "crm_query_last_message_id": "1508566712419876895"
+  },
+  "activity_log": [
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 07:52"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 07:47"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 07:42"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 07:36"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 07:31"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 07:26"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 07:21"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 07:16"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 07:11"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 07:06"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 07:01"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 06:56"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 06:47"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 06:43"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 06:42"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 06:38"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 06:37"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 06:33"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 06:32"
+    },
+    {
+      "agent": "Morning Operations Brief",
+      "summary": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 11 SLA risks, 1 blocked parts orders.",
+      "timestamp": "2026-05-26 06:32"
+    },
+    {
+      "agent": "Modernization Project Coordinator",
+      "summary": "Modernization flag: 3 jobs blocked or at risk.",
+      "timestamp": "2026-05-26 06:31"
+    },
+    {
+      "agent": "Morning Operations Brief",
+      "summary": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 11 SLA risks, 1 blocked parts orders.",
+      "timestamp": "2026-05-26 06:31"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 06:28"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 06:27"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 06:23"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 06:21"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 06:08"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 06:08"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 06:06"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 06:03"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 06:03"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 06:01"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 05:58"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 05:58"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 05:55"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 05:53"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 05:53"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 05:50"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 05:48"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-26 05:48"
+    }
+  ],
+  "connector_status": {
+    "state": "online",
+    "last_attempt": "2026-05-26 07:52",
+    "last_error": "",
+    "last_response": "{\"ok\":true,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\n  \\\"ok\\\": true,\\n  \\\"result\\\": {\\n    \\\"messageId\\\": \\\"1508799889247568036\\\",\\n    \\\"channelId\\\": \\\"1508544170824831128\\\"\\n  }\\n}\"}],\"details\":{\"ok\":true,\"result\":{\"messageId\":\"1508799889247568036\",\"channelId\":\"1508544170824831128\"}}}}"
+  }
+}

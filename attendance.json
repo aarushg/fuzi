@@ -1,0 +1,15 @@
+[
+  {
+    "id": "ATT-0001",
+    "date": "2026-05-26",
+    "person_id": "OC-008",
+    "person_name": "Ravi Sharma",
+    "department": "Install Operations",
+    "status": "present",
+    "check_in": "09:00",
+    "check_out": "",
+    "notes": "",
+    "marked_by": "USR-001",
+    "marked_at": "2026-05-26 06:17"
+  }
+]

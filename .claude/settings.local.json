@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Start-Sleep -Seconds 2; try { $r = Invoke-WebRequest -Uri \"http://127.0.0.1:5000/portal\" -UseBasicParsing -TimeoutSec 5 -MaximumRedirection 0 -ErrorAction Stop; \"Status: $\\($r.StatusCode\\)\" } catch { $_.Exception.Message })",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\User\\\\Documents\\\\GitHub\\\\fuzi\" -Recurse -Force)",
+      "Bash(Select-Object FullName)",
+      "Bash(python -c \"import app; print\\('OK'\\)\")",
+      "Bash(pip show *)",
+      "Bash(where python *)",
+      "Bash(where python3 *)",
+      "Bash(py -3 --version)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:5000/portal/login)",
+      "Bash(netstat -ano)",
+      "PowerShell($proc = Start-Process -FilePath \"c:\\\\Users\\\\User\\\\Documents\\\\GitHub\\\\fuzi\\\\.venv\\\\Scripts\\\\python.exe\" -ArgumentList \"app.py\" -WorkingDirectory \"c:\\\\Users\\\\User\\\\Documents\\\\GitHub\\\\fuzi\" -RedirectStandardOutput \"app_run.log\" -RedirectStandardError \"app_run_err.log\" -PassThru; Start-Sleep -Seconds 4; $proc.HasExited; Get-Content \"c:\\\\Users\\\\User\\\\Documents\\\\GitHub\\\\fuzi\\\\app_run.log\", \"c:\\\\Users\\\\User\\\\Documents\\\\GitHub\\\\fuzi\\\\app_run_err.log\" -ErrorAction SilentlyContinue)",
+      "Bash(python -c ' *)",
+      "Bash(curl -s -c /tmp/fc.txt -b /tmp/fc.txt -X POST http://127.0.0.1:5000/portal/login --data-urlencode username=admin --data-urlencode password=fuzi2026 -o /dev/null -w '%{http_code}')",
+      "Bash(curl -s -c /tmp/fc.txt -b /tmp/fc.txt \"http://127.0.0.1:5000/api/portal/payments\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('payments GET ok, count:', len\\(d.get\\('payments',[]\\)\\)\\)\")",
+      "Bash(curl -s -c /tmp/fc.txt -b /tmp/fc.txt \"http://127.0.0.1:5000/api/portal/estimates\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('estimates GET ok, count:', len\\(d.get\\('estimates',[]\\)\\)\\)\")",
+      "PowerShell(& \"C:\\\\Users\\\\User\\\\Documents\\\\GitHub\\\\fuzi\\\\.venv\\\\Scripts\\\\python.exe\" \"C:/Users/User/Documents/GitHub/fuzi/docs/costing/inspect.py\")",
+      "PowerShell(& \"C:\\\\Users\\\\User\\\\Documents\\\\GitHub\\\\fuzi\\\\.venv\\\\Scripts\\\\python.exe\" \"C:/Users/User/Documents/GitHub/fuzi/docs/costing/inspect.py\" 2>&1)",
+      "Bash(.venv/Scripts/python.exe app.py)",
+      "Bash(curl -s http://127.0.0.1:5000/api/portal/estimates/calculate -X POST -H \"Content-Type: application/json\" -d '{\"capacity\":\"10-person \\(800 kg\\)\",\"num_floors\":5,\"drive_type\":\"Gearless MRL\",\"cabin_finish\":\"Standard \\(MS\\)\",\"door_type\":\"Automatic SS\",\"control_type\":\"Collective Control\",\"margin_percent\":18,\"addons\":[]}')",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "PowerShell(& \"C:\\\\Users\\\\User\\\\Documents\\\\GitHub\\\\fuzi\\\\.venv\\\\Scripts\\\\python.exe\" \"C:/Users/User/Documents/GitHub/fuzi/docs/costing/build_engine.py\" 2>&1)",
+      "Bash(python \"C:/Users/User/Documents/GitHub/fuzi/docs/costing/gen_apppy.py\")"
+    ]
+  }
+}

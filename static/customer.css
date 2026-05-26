@@ -1,0 +1,228 @@
+/* ===== FUZI Customer Portal Styles ===== */
+:root {
+  --red: #e02020; --red-dark: #b91414;
+  --ink: #11131b; --paper: #ffffff; --soft: #f3f5f8;
+  --line: #e4e7ee; --text: #2d3240; --muted: #747b8d;
+  --green: #14865f; --amber: #c47a00; --blue: #2563eb;
+  --shadow: 0 18px 60px rgba(17,19,27,.10);
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: "Inter", sans-serif; color: var(--text); background: #eef1f5; min-height: 100vh; }
+a { color: inherit; text-decoration: none; }
+button, input, select { font: inherit; }
+
+.cust-body { background: #eef1f5; }
+.cust-shell { display: flex; flex-direction: column; min-height: 100vh; }
+
+/* Header */
+.cust-header {
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+  padding: 0 2rem;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(17,19,27,.06);
+}
+.cust-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.brand-mark {
+  width: 36px; height: 36px; border-radius: 7px;
+  display: grid; place-items: center;
+  background: var(--red); color: #fff; font-weight: 900; font-size: .85rem;
+}
+.cust-header-right { display: flex; align-items: center; gap: 12px; }
+.cust-user-pill {
+  font-size: 0.84rem; font-weight: 600; color: var(--muted);
+  background: var(--soft); padding: 6px 14px; border-radius: 20px;
+  display: flex; align-items: center; gap: 7px;
+}
+
+/* Main content */
+.cust-main { flex: 1; padding: 2.5rem 2rem; max-width: 1100px; margin: 0 auto; width: 100%; }
+.cust-welcome { margin-bottom: 2rem; }
+.cust-welcome .eyebrow {
+  color: var(--red); font-size: 11px; font-weight: 900;
+  text-transform: uppercase; letter-spacing: 1.6px; margin-bottom: 6px;
+}
+.cust-welcome h1 { font-size: 1.75rem; font-weight: 800; margin-bottom: 6px; }
+.cust-welcome p { color: var(--muted); font-size: 0.9rem; }
+
+/* Tabs */
+.cust-tabs {
+  display: flex; gap: 4px; border-bottom: 1px solid var(--line);
+  margin-bottom: 2rem;
+}
+.cust-tab {
+  padding: 10px 20px; border: none; background: none; cursor: pointer;
+  font-size: 0.88rem; font-weight: 600; color: var(--muted);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: color .15s, border-color .15s; border-radius: 0;
+  display: flex; align-items: center; gap: 7px;
+}
+.cust-tab.active { color: var(--red); border-bottom-color: var(--red); }
+.cust-tab-panel {}
+
+/* Quote cards */
+.cust-quote-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.25rem;
+}
+.cust-quote-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 1.25rem 1.5rem;
+  box-shadow: 0 2px 10px rgba(17,19,27,.06);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.cust-quote-head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+}
+.cust-quote-head strong { display: block; font-weight: 700; font-size: .95rem; }
+.cust-quote-head span { font-size: .78rem; color: var(--muted); }
+.cust-quote-site { font-size: .82rem; color: var(--muted); }
+.cust-quote-price { font-size: 1.5rem; font-weight: 800; color: var(--red); }
+.cust-quote-spec {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  font-size: .75rem; color: var(--muted);
+}
+.cust-quote-spec span { display: flex; align-items: center; gap: 5px; }
+.cust-quote-valid { font-size: .75rem; color: var(--amber); font-weight: 600; }
+.cust-quote-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.cust-quote-date { font-size: .72rem; color: var(--muted); }
+
+/* Ticket list */
+.cust-ticket-list { display: flex; flex-direction: column; gap: 0; }
+.cust-ticket-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 0; border-bottom: 1px solid var(--line);
+  gap: 1rem; flex-wrap: wrap;
+}
+.cust-ticket-row:last-child { border-bottom: none; }
+.cust-ticket-left strong { display: block; font-weight: 600; font-size: .9rem; }
+.cust-ticket-left span { font-size: .78rem; color: var(--muted); }
+.cust-ticket-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: .78rem; color: var(--muted); }
+
+/* Support grid */
+.cust-support-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1.25rem;
+}
+.cust-support-card {
+  background: var(--paper); border: 1px solid var(--line); border-radius: 14px;
+  padding: 1.5rem; display: flex; flex-direction: column; align-items: center;
+  text-align: center; gap: 10px;
+}
+.cust-support-icon {
+  width: 52px; height: 52px; border-radius: 50%;
+  background: var(--soft); display: grid; place-items: center;
+  font-size: 1.2rem; color: var(--red);
+}
+.cust-support-card h3 { font-weight: 700; font-size: .95rem; }
+.cust-support-card p { font-size: .82rem; color: var(--muted); flex: 1; }
+
+/* Empty state */
+.cust-empty {
+  text-align: center; padding: 4rem 2rem; color: var(--muted);
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.cust-empty p { max-width: 360px; font-size: .9rem; }
+
+/* Action buttons (shared from portal.css baseline) */
+.action-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 16px; border: none; border-radius: 9px; cursor: pointer;
+  font-size: .84rem; font-weight: 600; background: var(--red); color: #fff;
+  text-decoration: none; transition: background .15s;
+}
+.action-btn:hover { background: var(--red-dark); }
+.action-btn.quiet { background: var(--soft); color: var(--text); border: 1px solid var(--line); }
+.action-btn.quiet:hover { background: var(--line); }
+.action-btn.small { padding: 5px 11px; font-size: .78rem; border-radius: 7px; }
+.action-btn.healthy-btn { background: var(--green); }
+.badge {
+  display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 20px;
+  font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+}
+.badge.healthy { background: #dcfce7; color: #14532d; }
+.badge.warning { background: #fef9c3; color: #713f12; }
+.badge.critical { background: #fee2e2; color: #7f1d1d; }
+.badge.info { background: #dbeafe; color: #1e3a5f; }
+.eyebrow {
+  color: var(--red); font-size: 11px; font-weight: 900;
+  text-transform: uppercase; letter-spacing: 1.6px;
+}
+
+/* Footer */
+.cust-footer {
+  text-align: center; padding: 1.5rem; font-size: .78rem; color: var(--muted);
+  border-top: 1px solid var(--line); background: var(--paper);
+}
+
+/* ===== Payment banner ===== */
+.cust-pay-banner {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+  background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px;
+  padding: 14px 20px; margin-bottom: 1.5rem;
+}
+.cust-pay-banner-left { display: flex; align-items: center; gap: 14px; }
+.cust-pay-banner-left i { font-size: 1.3rem; color: var(--amber); }
+.cust-pay-banner-left strong { display: block; font-size: .9rem; font-weight: 700; }
+.cust-pay-banner-left span { font-size: .8rem; color: var(--muted); }
+
+/* ===== Payment summary cards ===== */
+.cust-pay-summary-cards {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 2rem;
+}
+.cust-pay-card {
+  background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
+  padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: 4px;
+}
+.cust-pay-card span { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.cust-pay-card strong { font-size: 1.4rem; font-weight: 800; }
+.cust-pay-card.received strong { color: var(--green); }
+.cust-pay-card.outstanding strong { color: var(--amber); }
+
+/* ===== Payment group per estimate ===== */
+.cust-pay-group { margin-bottom: 2rem; }
+.cust-pay-group-head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 10px 0 8px; border-bottom: 2px solid var(--line); margin-bottom: 0;
+}
+.cust-pay-group-head strong { display: block; font-weight: 700; }
+.cust-pay-group-head span { font-size: .78rem; color: var(--muted); }
+
+.cust-pay-table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+.cust-pay-table th {
+  text-align: left; font-size: .7rem; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .05em;
+  padding: 8px 12px; border-bottom: 1px solid var(--line);
+}
+.cust-pay-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.cust-pay-table tr:last-child td { border-bottom: none; }
+.cust-pay-table td strong { font-weight: 700; display: block; }
+.cust-pay-table td span { font-size: .75rem; color: var(--muted); }
+.cust-pay-table td code { font-family: monospace; font-size: .78rem; background: var(--soft); padding: 1px 6px; border-radius: 4px; }
+.cust-pay-row.cust-pay-overdue td:first-child { border-left: 3px solid var(--red); }
+.cust-pay-row.cust-pay-paid td:first-child { border-left: 3px solid var(--green); }
+.cust-pay-row.cust-pay-due td:first-child { border-left: 3px solid var(--amber); }
+
+@media (max-width: 720px) {
+  .cust-main { padding: 1.5rem 1rem; }
+  .cust-header { padding: 0 1rem; }
+  .cust-quote-grid { grid-template-columns: 1fr; }
+  .cust-support-grid { grid-template-columns: 1fr; }
+  .cust-tabs { flex-wrap: wrap; }
+  .cust-pay-summary-cards { grid-template-columns: 1fr; }
+  .cust-pay-table { font-size: .75rem; }
+}

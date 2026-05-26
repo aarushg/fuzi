@@ -31,8 +31,13 @@
       <div class="login-card-head">
         <div class="login-icon"><i class="fa fa-lock"></i></div>
         <div>
+          {% if password_change_required %}
+          <h2>Rotate your password</h2>
+          <p>First-use access is blocked until {{ user_display_name }} sets a private operational password.</p>
+          {% else %}
           <h2>Welcome back</h2>
           <p>Use your portal credentials to continue.</p>
+          {% endif %}
         </div>
       </div>
 
@@ -41,6 +46,40 @@
       {% endif %}
 
       <form method="post" class="login-form">
+        {% if password_change_required %}
+        <div class="demo-note">
+          <strong>First-use security:</strong> This account must replace its temporary password before the dashboard becomes available.
+        </div>
+
+        <label for="username">Username</label>
+        <div class="input-wrap">
+          <i class="fa fa-user"></i>
+          <input id="username" name="username" type="text" value="{{ username }}" readonly />
+        </div>
+
+        <label for="current_password">Current password</label>
+        <div class="input-wrap">
+          <i class="fa fa-key"></i>
+          <input id="current_password" name="current_password" type="password" autocomplete="current-password" placeholder="Enter the temporary password" required />
+        </div>
+
+        <label for="new_password">New password</label>
+        <div class="input-wrap">
+          <i class="fa fa-shield-halved"></i>
+          <input id="new_password" name="new_password" type="password" autocomplete="new-password" placeholder="Use at least 10 characters" required />
+        </div>
+
+        <label for="confirm_password">Confirm new password</label>
+        <div class="input-wrap">
+          <i class="fa fa-check-double"></i>
+          <input id="confirm_password" name="confirm_password" type="password" autocomplete="new-password" placeholder="Repeat the new password" required />
+        </div>
+
+        <button type="submit" class="login-submit">
+          <i class="fa fa-key"></i>
+          Save new password
+        </button>
+        {% else %}
         <label for="username">Username</label>
         <div class="input-wrap">
           <i class="fa fa-user"></i>
@@ -57,11 +96,14 @@
           <i class="fa fa-arrow-right-to-bracket"></i>
           Sign in
         </button>
+        {% endif %}
       </form>
 
+      {% if not password_change_required %}
       <div class="demo-note">
         <strong>Demo access:</strong> admin / fuzi2026
       </div>
+      {% endif %}
     </section>
   </main>
 </body>

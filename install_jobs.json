@@ -47,7 +47,7 @@
     "type": "Passenger elevator",
     "crew": "Install Team 2",
     "target": "May 19",
-    "status": "Final QA",
+    "status": "Complete",
     "stages": [
       {
         "id": "planning",
@@ -75,12 +75,15 @@
       },
       {
         "id": "quality",
-        "status": "In Progress"
+        "status": "Done"
       },
       {
         "id": "care",
-        "status": "Open"
+        "status": "Done"
       }
-    ]
+    ],
+    "last_stage_update": "2026-05-22 21:10",
+    "handover_report": "Handover report for Vaishali Plaza Lift 2\nCrew: Install Team 2\nInstalled unit: Passenger elevator\nStatus: Final inspection passed\nCustomer orientation, site handover, and punch-list closure completed.",
+    "warranty_registration": "Warranty registration for Vaishali Plaza Lift 2\nUnit type: Passenger elevator\nCommissioned by: Install Team 2\nRegistered on: 2026-05-22 21:10"
   }
 ]

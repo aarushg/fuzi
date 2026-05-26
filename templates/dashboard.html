@@ -8,30 +8,36 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <link rel="stylesheet" href="{{ url_for('static', filename='portal.css') }}" />
 </head>
-<body>
+<body data-default-view="{{ data.access.selected_view }}">
   <div class="app-shell">
     <aside class="sidebar">
       <a href="/" class="side-brand">
         <span class="brand-mark">FE</span>
         <span>FUZI <strong>Ops</strong></span>
       </a>
+      {% set allowed_views = data.access.allowed_views %}
       <nav class="side-nav" aria-label="Portal navigation">
-        <button class="side-link active" data-view="overview"><i class="fa fa-gauge-high"></i> Overview</button>
-        <button class="side-link" data-view="modules"><i class="fa fa-layer-group"></i> Platform Modules</button>
-        <button class="side-link" data-view="customers"><i class="fa fa-building-user"></i> Customers</button>
-        <button class="side-link" data-view="fleet"><i class="fa fa-screwdriver-wrench"></i> Fleet Monitor</button>
-        <button class="side-link" data-view="tickets"><i class="fa fa-ticket"></i> Project Tickets</button>
-        <button class="side-link" data-view="projects"><i class="fa fa-list-check"></i> Projects</button>
-        <button class="side-link" data-view="installations"><i class="fa fa-helmet-safety"></i> Installations</button>
-        <button class="side-link" data-view="team"><i class="fa fa-users-gear"></i> Install Team</button>
-        <button class="side-link" data-view="accounts"><i class="fa fa-user-lock"></i> Team Accounts</button>
-        <button class="side-link" data-view="messages"><i class="fa fa-headset"></i> Service Agent</button>
-        <button class="side-link" data-view="renewals"><i class="fa fa-handshake"></i> Renewals</button>
-        <button class="side-link" data-view="workorders"><i class="fa fa-microphone-lines"></i> Work Orders</button>
+        {% if 'overview' in allowed_views %}<button class="side-link" data-view="overview"><i class="fa fa-gauge-high"></i> Overview</button>{% endif %}
+        {% if 'modules' in allowed_views %}<button class="side-link" data-view="modules"><i class="fa fa-layer-group"></i> Platform Modules</button>{% endif %}
+        {% if 'customers' in allowed_views %}<button class="side-link" data-view="customers"><i class="fa fa-building-user"></i> Customers</button>{% endif %}
+        {% if 'fleet' in allowed_views %}<button class="side-link" data-view="fleet"><i class="fa fa-screwdriver-wrench"></i> Fleet Monitor</button>{% endif %}
+        {% if 'tickets' in allowed_views %}<button class="side-link" data-view="tickets"><i class="fa fa-ticket"></i> Project Tickets</button>{% endif %}
+        {% if 'projects' in allowed_views %}<button class="side-link" data-view="projects"><i class="fa fa-list-check"></i> Projects</button>{% endif %}
+        {% if 'installations' in allowed_views %}<button class="side-link" data-view="installations"><i class="fa fa-helmet-safety"></i> Installations</button>{% endif %}
+        {% if 'team' in allowed_views %}<button class="side-link" data-view="team"><i class="fa fa-users-gear"></i> Install Team</button>{% endif %}
+        {% if 'accounts' in allowed_views %}<button class="side-link" data-view="accounts"><i class="fa fa-user-lock"></i> Team Accounts</button>{% endif %}
+        {% if 'messages' in allowed_views %}<button class="side-link" data-view="messages"><i class="fa fa-headset"></i> Service Agent</button>{% endif %}
+        {% if 'renewals' in allowed_views %}<button class="side-link" data-view="renewals"><i class="fa fa-handshake"></i> Renewals</button>{% endif %}
+        {% if 'workorders' in allowed_views %}<button class="side-link" data-view="workorders"><i class="fa fa-microphone-lines"></i> Work Orders</button>{% endif %}
+        {% if 'inventory' in allowed_views %}<button class="side-link" data-view="inventory"><i class="fa fa-boxes-stacked"></i> Inventory</button>{% endif %}
+        {% if 'estimator' in allowed_views %}<button class="side-link" data-view="estimator"><i class="fa fa-file-invoice-dollar"></i> Costing Estimator</button>{% endif %}
+        {% if 'orgchart' in allowed_views %}<button class="side-link" data-view="orgchart"><i class="fa fa-sitemap"></i> Staff & Attendance</button>{% endif %}
       </nav>
       <div class="connector-card">
         <div class="connector-status"><span></span> Connectors online</div>
         <p>FSM, ERP, CRM, WhatsApp, email, and web chat refresh every 5 minutes.</p>
+        {% set connector = data.get('connector_status', {'state': 'unknown', 'last_attempt': ''}) %}
+        <p>OpenClaw relay on port 18789: <strong>{{ connector.state }}</strong>{% if connector.last_attempt %} · last attempt {{ connector.last_attempt }}{% endif %}</p>
       </div>
     </aside>
 
@@ -43,24 +49,69 @@
         </div>
         <div class="top-actions">
           <div class="sync-pill"><i class="fa fa-rotate"></i> Synced <span id="syncTime">{{ synced_at }}</span></div>
-          <span class="user-pill"><i class="fa fa-user-shield"></i> {{ user }}</span>
+          <span class="user-pill"><i class="fa fa-user-shield"></i> {{ user }}{% if data.viewer.department %} · {{ data.viewer.department }}{% endif %}</span>
           <a href="{{ url_for('logout') }}" class="action-btn quiet"><i class="fa fa-right-from-bracket"></i> Logout</a>
         </div>
       </header>
 
+      {% if data.access.is_restricted %}
+      <section class="panel">
+        <div class="panel-head">
+          <h2><i class="fa fa-crosshairs"></i> Department Focus</h2>
+          <span class="panel-subtitle">{{ data.viewer.department }} workspace</span>
+        </div>
+        <p>This login opens directly into the {{ data.viewer.department }} view set so the team sees only the tools relevant to that department.</p>
+      </section>
+      {% endif %}
+
       <section class="command-band view-section active" id="view-overview">
         <div class="command-copy">
           <div class="eyebrow">24/7 agentic operations layer</div>
-          <h2>Track faults, jobs, crews, messages, parts, renewals, and handovers without chasing calls.</h2>
-          <p>The portal is now interactive: filter data, refresh live sample feeds, generate agent actions, and jump between operational views.</p>
+          <h2>One live view for fleet health, open tickets, parts stockouts, and upcoming renewals.</h2>
+          <p>FSM, ERP, and CRM roll into this dashboard every {{ data.refresh_interval_minutes }} minutes so ops can spot issues without bouncing between systems.</p>
         </div>
         <div class="brief-card">
           <div class="brief-head">
             <strong><i class="fa fa-sun"></i> Morning Operations Brief</strong>
-            <span>6:30 AM weekdays</span>
+            <span>6:30 AM daily</span>
           </div>
-          <p>4 units in fault state, 2 SLA risks, 1 coverage gap, and 3 blocked parts orders.</p>
-          <button class="action-btn" data-action="Send SMS brief" data-target="on-call tech"><i class="fa fa-paper-plane"></i> Send test brief</button>
+          <p>{{ data.dashboard_overview.fault_units|length }} units in fault/watch, {{ data.dashboard_overview.sla_risks|length }} SLA risks, {{ data.dashboard_overview.parts_stockouts|length }} parts stockouts, and {{ data.dashboard_overview.upcoming_renewals|length }} upcoming renewals.</p>
+          <button class="action-btn" data-action="Send SMS brief" data-target="daily operations recipient"><i class="fa fa-paper-plane"></i> Send test brief</button>
+        </div>
+      </section>
+
+      <section class="panel view-section active" id="view-owner-summary">
+        <div class="panel-head">
+          <h2><i class="fa fa-building-shield"></i> Owner Control Tower</h2>
+          <span class="panel-subtitle">{{ data.executive_summary.headline }}</span>
+        </div>
+        <p>{{ data.executive_summary.subheadline }}</p>
+
+        <div class="list-stack">
+          {% for item in data.executive_summary.watchlist %}
+          <div class="list-row" data-search="{{ item.title }} {{ item.detail }}" data-status="{{ item.tone }}">
+            <div>
+              <strong>{{ item.title }}</strong>
+              <span>{{ item.detail }}</span>
+            </div>
+            <mark class="badge {{ item.tone }}">{{ item.tone|title }}</mark>
+          </div>
+          {% endfor %}
+        </div>
+
+        <div class="module-grid">
+          {% for department in data.executive_summary.departments %}
+          <article class="module-card" data-search="{{ department.name }} {{ department.lead }} {{ department.status }} {{ department.detail }} {{ department.next_step }}" data-status="{{ department.tone }}">
+            <div class="module-head">
+              <div class="module-icon"><i class="fa fa-briefcase"></i></div>
+              <mark class="badge {{ department.tone }}">{{ department.status }}</mark>
+            </div>
+            <h3>{{ department.name }}</h3>
+            <p>{{ department.detail }}</p>
+            <div class="module-owner"><i class="fa fa-user-tie"></i> {{ department.lead }}</div>
+            <p><strong>Next move:</strong> {{ department.next_step }}</p>
+          </article>
+          {% endfor %}
         </div>
       </section>
 
@@ -73,6 +124,70 @@
             <p>{{ metric.detail }}</p>
           </article>
         {% endfor %}
+      </section>
+
+      <section class="panel view-section active" id="view-live-ops">
+        <div class="panel-head">
+          <h2><i class="fa fa-wave-square"></i> Live Operations Snapshot</h2>
+          <span class="panel-subtitle">FSM, ERP, and CRM sources refresh every {{ data.refresh_interval_minutes }} minutes.</span>
+        </div>
+        <div class="list-stack">
+          <div class="list-row" data-search="fleet health fault units {{ data.dashboard_overview.fault_units | map(attribute='unit') | join(' ') }}" data-status="{% if data.dashboard_overview.fault_units %}warning{% else %}healthy{% endif %}">
+            <div>
+              <strong>Fleet Health</strong>
+              <span>
+                {% if data.dashboard_overview.fault_units %}
+                Fault/watch units: {{ data.dashboard_overview.fault_units[:4] | map(attribute='unit') | join(', ') }}
+                {% else %}
+                All monitored units are healthy.
+                {% endif %}
+              </span>
+            </div>
+            <mark class="badge {% if data.dashboard_overview.fault_units %}warning{% else %}healthy{% endif %}">FSM</mark>
+          </div>
+
+          <div class="list-row" data-search="open tickets sla risks {{ data.dashboard_overview.open_tickets | map(attribute='id') | join(' ') }}" data-status="{% if data.dashboard_overview.sla_risks %}warning{% else %}info{% endif %}">
+            <div>
+              <strong>Open Tickets</strong>
+              <span>
+                {% if data.dashboard_overview.open_tickets %}
+                {{ data.dashboard_overview.open_tickets|length }} open: {{ data.dashboard_overview.open_tickets[:4] | map(attribute='id') | join(', ') }}
+                {% else %}
+                No active project tickets.
+                {% endif %}
+              </span>
+            </div>
+            <mark class="badge {% if data.dashboard_overview.sla_risks %}warning{% else %}info{% endif %}">FSM</mark>
+          </div>
+
+          <div class="list-row" data-search="parts stockouts {{ data.dashboard_overview.parts_stockouts | map(attribute='name') | join(' ') }}" data-status="{% if data.dashboard_overview.parts_stockouts %}critical{% else %}healthy{% endif %}">
+            <div>
+              <strong>Parts Stockouts</strong>
+              <span>
+                {% if data.dashboard_overview.parts_stockouts %}
+                {{ data.dashboard_overview.parts_stockouts[:3] | map(attribute='name') | join(', ') }}
+                {% else %}
+                No blocked parts orders or ERP zero-stock issues.
+                {% endif %}
+              </span>
+            </div>
+            <mark class="badge {% if data.dashboard_overview.parts_stockouts %}critical{% else %}healthy{% endif %}">ERP</mark>
+          </div>
+
+          <div class="list-row" data-search="upcoming renewals {{ data.dashboard_overview.upcoming_renewals | map(attribute='building') | join(' ') }}" data-status="{% if data.dashboard_overview.upcoming_renewals %}info{% else %}healthy{% endif %}">
+            <div>
+              <strong>Upcoming Renewals</strong>
+              <span>
+                {% if data.dashboard_overview.upcoming_renewals %}
+                {{ data.dashboard_overview.upcoming_renewals[:3] | map(attribute='building') | join(', ') }}
+                {% else %}
+                No renewals due in the next 60 days.
+                {% endif %}
+              </span>
+            </div>
+            <mark class="badge {% if data.dashboard_overview.upcoming_renewals %}info{% else %}healthy{% endif %}">CRM</mark>
+          </div>
+        </div>
       </section>
 
       <section class="toolbar">
@@ -132,7 +247,12 @@
                   </td>
                   <td>{{ customer.renewal_date or "Not set" }}</td>
                   <td><input class="customer-notes" type="text" value="{{ customer.notes }}" aria-label="Notes for {{ customer.name }}" /></td>
-                  <td><button class="action-btn small customer-save" data-customer-id="{{ customer.id }}"><i class="fa fa-check"></i> Save</button></td>
+                  <td style="white-space:nowrap">
+                    <button class="action-btn small customer-save" data-customer-id="{{ customer.id }}"><i class="fa fa-check"></i> Save</button>
+                    {% if data.viewer.role == 'admin' %}
+                    <button class="action-btn small quiet grant-portal-btn" data-customer-id="{{ customer.id }}" data-customer-name="{{ customer.name }}" data-customer-email="{{ customer.email }}" title="Grant customer portal access"><i class="fa fa-key"></i></button>
+                    {% endif %}
+                  </td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -345,6 +465,14 @@
               </div>
               <div class="progress"><span style="width: {{ job.progress }}%"></span></div>
               <div class="install-current">{{ job.progress }}% complete · Current: {{ job.current_stage }} · Target {{ job.target }}</div>
+              <p><strong>Stage guide:</strong> {{ job.current_stage_checkpoint }}</p>
+              {% if job.stage_flag %}
+              <p><strong>Flag:</strong> {{ job.stage_flag }}</p>
+              {% endif %}
+              {% if job.status == 'Complete' %}
+              <p><strong>Handover report:</strong> {{ job.handover_report }}</p>
+              <p><strong>Warranty registration:</strong> {{ job.warranty_registration }}</p>
+              {% endif %}
 
               <div class="install-stage-list">
                 {% for stage in data.install_stage_template %}
@@ -525,14 +653,18 @@
       <section class="account-workspace view-section active" id="view-accounts">
         <article class="panel account-board">
           <div class="panel-head">
-            <h2><i class="fa fa-user-lock"></i> Team Login Accounts</h2>
-            <span class="panel-subtitle">Create real portal accounts for installers, managers, and office users.</span>
+            <div>
+              <h2><i class="fa fa-user-lock"></i> Team Login Accounts</h2>
+              <span class="panel-subtitle">Create real portal accounts for installers, managers, and office users. Manager accounts become department owners in the Owner Control Tower.</span>
+            </div>
+            <button class="action-btn small" data-action="Provision Discord channels" data-target="Discord agent channels"><i class="fa fa-hashtag"></i> Provision Discord channels</button>
           </div>
           <div class="table-wrap">
             <table class="account-table">
               <thead>
                 <tr>
                   <th>User</th>
+                  <th>Department</th>
                   <th>Role</th>
                   <th>Linked Team Member</th>
                   <th>Status</th>
@@ -542,8 +674,15 @@
               </thead>
               <tbody id="accountRows">
                 {% for account in data.users %}
-                <tr data-user-id="{{ account.id }}" data-search="{{ account.username }} {{ account.display_name }} {{ account.role }} {{ account.linked_team_member }}" data-status="{{ 'active' if account.active else 'blocked' }}">
+                <tr data-user-id="{{ account.id }}" data-search="{{ account.username }} {{ account.display_name }} {{ account.department }} {{ account.role }} {{ account.linked_team_member }}" data-status="{{ 'active' if account.active else 'blocked' }}">
                   <td><strong>{{ account.display_name }}</strong><span>{{ account.username }} · {{ account.id }}</span></td>
+                  <td>
+                    <select class="account-department" aria-label="Department for {{ account.username }}">
+                      {% for department in data.department_options %}
+                      <option value="{{ department }}" {% if account.department == department %}selected{% endif %}>{{ department }}</option>
+                      {% endfor %}
+                    </select>
+                  </td>
                   <td>
                     <select class="account-role" aria-label="Role for {{ account.username }}">
                       {% for role in ["admin", "manager", "technician"] %}
@@ -590,6 +729,14 @@
 
             <div class="form-grid">
               <div>
+                <label for="accountDepartment">Department</label>
+                <select id="accountDepartment" name="department">
+                  {% for department in data.department_options %}
+                  <option value="{{ department }}" {% if department == 'Install Operations' %}selected{% endif %}>{{ department }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div>
                 <label for="accountRole">Role</label>
                 <select id="accountRole" name="role">
                   <option>technician</option>
@@ -597,6 +744,9 @@
                   <option>admin</option>
                 </select>
               </div>
+            </div>
+
+            <div class="form-grid">
               <div>
                 <label for="accountMember">Team member</label>
                 <select id="accountMember" name="linked_team_member">
@@ -641,12 +791,16 @@
         <aside class="panel view-section active" id="view-messages">
           <div class="panel-head">
             <h2><i class="fa fa-headset"></i> 24/7 Customer Service Agent</h2>
+            <button class="action-btn small" data-action="Process inbox" data-target="customer inbox">Process inbox</button>
           </div>
           <div id="messageFeed">
             {% for msg in data.messages %}
             <article class="feed-item" data-search="{{ msg.channel }} {{ msg.from }} {{ msg.state }} {{ msg.text }}">
               <div><strong>{{ msg.channel }} - {{ msg.from }}</strong><mark class="badge info">{{ msg.state }}</mark></div>
               <p>{{ msg.text }}</p>
+              {% if msg.reply %}
+              <p><strong>Reply:</strong> {{ msg.reply }}</p>
+              {% endif %}
             </article>
             {% endfor %}
           </div>
@@ -657,11 +811,17 @@
         <article class="panel view-section active" id="view-projects">
           <div class="panel-head">
             <h2><i class="fa fa-list-check"></i> Modernization Project Coordinator</h2>
+            <button class="action-btn small" data-action="Flag blockers" data-target="Elevator Modernization Management">Flag blockers</button>
           </div>
           <div id="projectList" class="list-stack">
             {% for project in data.projects %}
-            <div class="list-row" data-search="{{ project.name }} {{ project.stage }} {{ project.risk }} {{ project.owner }}" data-status="{{ project.risk|lower }}">
-              <div><strong>{{ project.name }}</strong><span>{{ project.stage }} - {{ project.owner }}</span></div>
+            <div class="list-row" data-search="{{ project.name }} {{ project.stage }} {{ project.risk }} {{ project.owner }} {{ project.permit_status }} {{ project.parts_status }} {{ project.inspection_date }} {{ project.assigned_techs | join(' ') }}" data-status="{{ project.risk|lower }}">
+              <div>
+                <strong>{{ project.name }}</strong>
+                <span>{{ project.stage }} - {{ project.owner }}</span>
+                <span>Permit: {{ project.permit_status }} | Parts: {{ project.parts_status }}</span>
+                <span>Inspection: {{ project.inspection_date }} | Techs: {{ project.assigned_techs | join(', ') }}</span>
+              </div>
               <mark class="badge {% if project.risk == 'Blocked' %}critical{% elif project.risk == 'At risk' %}warning{% else %}healthy{% endif %}">{{ project.risk }}</mark>
             </div>
             {% endfor %}
@@ -688,10 +848,36 @@
             <h2><i class="fa fa-handshake"></i> Contract Renewal CRM Agent</h2>
             <button class="action-btn small" data-action="Draft outreach" data-target="uncontacted renewals">Draft emails</button>
           </div>
+          <form id="crmQueryForm" class="inline-form">
+            <label class="sr-only" for="crmQueryQuestion">CRM question</label>
+            <input id="crmQueryQuestion" name="question" type="text" value="Which buildings renew in the next 60 days and haven't been contacted?" placeholder="Ask a CRM renewal question" />
+            <button class="action-btn small" type="submit"><i class="fa fa-paper-plane"></i> Send to chat</button>
+          </form>
+          <div class="list-stack">
+            <div class="list-row" data-search="renewals next 60 days not contacted {{ data.dashboard_overview.renewals_needing_outreach | map(attribute='building') | join(' ') }}" data-status="{% if data.dashboard_overview.renewals_needing_outreach %}warning{% else %}healthy{% endif %}">
+              <div>
+                <strong>Needs outreach in next 60 days</strong>
+                <span>
+                  {% if data.dashboard_overview.renewals_needing_outreach %}
+                  {{ data.dashboard_overview.renewals_needing_outreach[:4] | map(attribute='building') | join(', ') }}
+                  {% else %}
+                  No uncontacted renewals are due in the next 60 days.
+                  {% endif %}
+                </span>
+              </div>
+              <mark class="badge {% if data.dashboard_overview.renewals_needing_outreach %}warning{% else %}healthy{% endif %}">{{ data.dashboard_overview.renewals_needing_outreach|length }} due</mark>
+            </div>
+          </div>
           <div class="list-stack">
             {% for renewal in data.renewals %}
             <div class="list-row" data-search="{{ renewal.building }} {{ renewal.value }} renewal" data-status="{% if renewal.contacted %}healthy{% else %}warning{% endif %}">
-              <div><strong>{{ renewal.building }}</strong><span>{{ renewal.days }} days left - {{ renewal.value }} value</span></div>
+              <div>
+                <strong>{{ renewal.building }}</strong>
+                <span>{{ renewal.days }} days left - {{ renewal.value }} value</span>
+                {% if renewal.last_draft %}
+                <span>Draft ready for {{ renewal.contact_email }}</span>
+                {% endif %}
+              </div>
               <mark class="badge {% if renewal.contacted %}healthy{% else %}warning{% endif %}">{{ "Contacted" if renewal.contacted else "Needs outreach" }}</mark>
             </div>
             {% endfor %}
@@ -709,11 +895,661 @@
           <article class="workorder" data-search="{{ order.title }} {{ order.urgency }} {{ order.body }}" data-status="{{ 'critical' if order.urgency == 'Urgent' else 'warning' }}">
             <mark class="badge {{ 'critical' if order.urgency == 'Urgent' else 'warning' }}">{{ order.urgency }}</mark>
             <h3>{{ order.title }}</h3>
+            {% if order.walkthrough_notes %}
+            <p><strong>Walkthrough note:</strong> {{ order.walkthrough_notes }}</p>
+            {% endif %}
             <p>{{ order.body }}</p>
+            {% if order.parts_needed %}
+            <p><strong>Parts:</strong> {{ order.parts_needed | join(', ') }}</p>
+            {% endif %}
+            {% if order.permits_needed %}
+            <p><strong>Permits:</strong> {{ order.permits_needed | join('; ') }}</p>
+            {% endif %}
           </article>
           {% endfor %}
         </div>
       </section>
+      <section class="inventory-workspace view-section active" id="view-inventory">
+        {% set inv = data.get('inventory_insights', {}) %}
+        {% set health = inv.get('health', {'total': 0, 'in_stock': 0, 'low_stock': 0, 'out_of_stock': 0, 'ordered': 0}) %}
+
+        <div class="inv-kpi-row">
+          <div class="inv-kpi good"><span>Total Parts</span><strong>{{ health.total }}</strong><em>Full catalog</em></div>
+          <div class="inv-kpi good"><span>In Stock</span><strong>{{ health.in_stock }}</strong><em>Available</em></div>
+          <div class="inv-kpi warn"><span>Low Stock</span><strong>{{ health.low_stock }}</strong><em>At reorder point</em></div>
+          <div class="inv-kpi critical"><span>Out of Stock</span><strong>{{ health.out_of_stock }}</strong><em>Needs restock</em></div>
+          <div class="inv-kpi info"><span>Ordered</span><strong>{{ health.ordered }}</strong><em>PO raised</em></div>
+        </div>
+
+        <div class="inv-layout">
+          <div class="inv-main">
+            <article class="panel">
+              <div class="panel-head">
+                <h2><i class="fa fa-boxes-stacked"></i> Parts Inventory</h2>
+                <div class="inv-controls">
+                  <select id="invCategoryFilter" aria-label="Filter by category">
+                    <option value="all">All categories</option>
+                    {% for cat in ["Rails & Hardware","Mechanical","Cabin & Structural","Controls","Doors","Cables","Controller","Safety & Switches"] %}
+                    <option value="{{ cat }}">{{ cat }}</option>
+                    {% endfor %}
+                  </select>
+                  <select id="invStatusFilter" aria-label="Filter by status">
+                    <option value="all">All statuses</option>
+                    <option value="In Stock">In Stock</option>
+                    <option value="Low Stock">Low Stock</option>
+                    <option value="Out of Stock">Out of Stock</option>
+                    <option value="Ordered">Ordered</option>
+                  </select>
+                  <button class="action-btn small" id="invRaisePOBtn"><i class="fa fa-file-invoice-dollar"></i> Raise PO (flagged)</button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="inv-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Part Name</th>
+                      <th>Category</th>
+                      <th>Qty on Hand</th>
+                      <th>Reorder Pt.</th>
+                      <th>Unit</th>
+                      <th>Lead Time</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="inventoryRows">
+                    {% for item in data.get('inventory', []) %}
+                    {% set s = item.status %}
+                    <tr data-item-id="{{ item.id }}"
+                        data-search="{{ item.id }} {{ item.item_no }} {{ item.name }} {{ item.category }} {{ item.status }} {{ item.vendor }}"
+                        data-category="{{ item.category }}"
+                        data-inv-status="{{ s }}">
+                      <td><span class="inv-num">{{ item.item_no }}</span></td>
+                      <td><strong>{{ item.name }}</strong>{% if item.notes %}<span>{{ item.notes }}</span>{% endif %}</td>
+                      <td><span class="inv-cat">{{ item.category }}</span></td>
+                      <td class="inv-qty">{{ item.qty_on_hand }} {{ item.unit }}</td>
+                      <td>{{ item.reorder_point }}</td>
+                      <td>{{ item.unit }}</td>
+                      <td>{{ item.lead_time_days }}d</td>
+                      <td>
+                        <mark class="badge {% if s == 'Out of Stock' %}critical{% elif s == 'Low Stock' %}warning{% elif s == 'Ordered' %}info{% else %}healthy{% endif %}">
+                          {{ s }}
+                        </mark>
+                      </td>
+                      <td class="inv-actions">
+                        <button class="action-btn small inv-adjust-btn" data-item-id="{{ item.id }}" data-item-name="{{ item.name }}" data-item-unit="{{ item.unit }}" data-item-qty="{{ item.qty_on_hand }}"><i class="fa fa-plus-minus"></i> Adjust</button>
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+
+          <div class="inv-sidebar">
+            <article class="panel inv-ai-panel">
+              {% set risk = inv.get('risk_level', 'healthy') %}
+              {% set priority_actions = inv.get('priority_actions', []) %}
+              {% set shortages = inv.get('shortages', []) %}
+              {% set po_suggestions = inv.get('po_suggestions', []) %}
+              <div class="panel-head">
+                <h2><i class="fa fa-brain"></i> AI Insights</h2>
+                <mark class="badge {% if risk == 'critical' %}critical{% elif risk == 'warning' %}warning{% else %}healthy{% endif %}">
+                  {{ risk | capitalize }}
+                </mark>
+              </div>
+
+              {% for action in priority_actions %}
+              <div class="inv-action-card {{ action.priority }}">
+                <strong><i class="fa {% if action.priority == 'critical' %}fa-circle-exclamation{% elif action.priority == 'warning' %}fa-triangle-exclamation{% else %}fa-circle-check{% endif %}"></i>
+                  {{ action.priority | capitalize }}</strong>
+                <p>{{ action.action }}</p>
+                {% if action['items'] %}
+                <ul>{% for part in action['items'] %}<li>{{ part }}</li>{% endfor %}</ul>
+                {% endif %}
+              </div>
+              {% endfor %}
+
+              {% if shortages %}
+              <div class="inv-section-head">Job Impact</div>
+              {% for s in shortages %}
+              <div class="inv-shortage-row">
+                <span class="inv-shortage-part">{{ s.part }}</span>
+                <span>{{ s.job }} · {{ s.stage }}</span>
+                <mark class="badge {{ 'critical' if s.status == 'Out of Stock' else 'warning' }}">{{ s.status }}</mark>
+              </div>
+              {% endfor %}
+              {% endif %}
+
+              {% if po_suggestions %}
+              <div class="inv-section-head">PO Suggestions</div>
+              <div class="inv-po-list" id="invPOList">
+                {% for po in po_suggestions %}
+                <div class="inv-po-row">
+                  <label>
+                    <input type="checkbox" class="inv-po-check" value="{{ po.item_id }}" checked />
+                    {{ po.name }}
+                  </label>
+                  <span>Order {{ po.suggest_qty }} {{ po.unit }} · {{ po.lead_time_days }}d lead</span>
+                </div>
+                {% endfor %}
+              </div>
+              <button class="action-btn small" id="invConfirmPOBtn" style="margin-top:0.5rem;width:100%"><i class="fa fa-file-invoice-dollar"></i> Confirm PO</button>
+              {% endif %}
+            </article>
+
+            <article class="panel">
+              <div class="panel-head">
+                <h2><i class="fa fa-plus"></i> Add Part</h2>
+              </div>
+              <form id="inventoryForm" class="ticket-form">
+                <label for="invName">Part name</label>
+                <input id="invName" name="name" type="text" placeholder="Part or component name" required />
+
+                <div class="form-grid">
+                  <div>
+                    <label for="invCategory">Category</label>
+                    <select id="invCategory" name="category">
+                      {% for cat in ["Rails & Hardware","Mechanical","Cabin & Structural","Controls","Doors","Cables","Controller","Safety & Switches","Other"] %}
+                      <option>{{ cat }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div>
+                    <label for="invUnit">Unit</label>
+                    <select id="invUnit" name="unit">
+                      {% for u in ["pcs","set","unit","roll","liters","meters"] %}
+                      <option>{{ u }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-grid">
+                  <div>
+                    <label for="invQty">Qty on Hand</label>
+                    <input id="invQty" name="qty_on_hand" type="number" min="0" value="0" />
+                  </div>
+                  <div>
+                    <label for="invReorder">Reorder Point</label>
+                    <input id="invReorder" name="reorder_point" type="number" min="0" value="2" />
+                  </div>
+                </div>
+
+                <div class="form-grid">
+                  <div>
+                    <label for="invVendor">Vendor</label>
+                    <input id="invVendor" name="vendor" type="text" placeholder="Supplier name" />
+                  </div>
+                  <div>
+                    <label for="invLead">Lead Time (days)</label>
+                    <input id="invLead" name="lead_time_days" type="number" min="0" value="7" />
+                  </div>
+                </div>
+
+                <label for="invNotes">Notes</label>
+                <input id="invNotes" name="notes" type="text" placeholder="Optional notes" />
+
+                <button type="submit" class="action-btn" style="width:100%;margin-top:0.5rem">
+                  <i class="fa fa-plus"></i> Add Part
+                </button>
+              </form>
+            </article>
+          </div>
+        </div>
+
+        <div id="invAdjustModal" class="inv-modal" style="display:none">
+          <div class="inv-modal-box">
+            <h3><i class="fa fa-plus-minus"></i> Adjust Quantity — <span id="invAdjustName"></span></h3>
+            <p>Current: <strong id="invAdjustCurrent"></strong> <span id="invAdjustUnit"></span></p>
+            <div class="form-grid">
+              <div>
+                <label for="invAdjustDelta">Change (+/-)</label>
+                <input id="invAdjustDelta" type="number" value="0" />
+              </div>
+              <div>
+                <label for="invAdjustReason">Reason</label>
+                <input id="invAdjustReason" type="text" placeholder="Used for IJ-201, received PO..." />
+              </div>
+            </div>
+            <div class="inv-modal-actions">
+              <button class="action-btn" id="invAdjustConfirm"><i class="fa fa-check"></i> Confirm</button>
+              <button class="action-btn quiet" id="invAdjustCancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </section>
+      <!-- ===== Grant Portal Access Modal ===== -->
+      <div id="grantPortalModal" class="org-modal" style="display:none">
+        <div class="org-modal-box">
+          <h3><i class="fa fa-key"></i> Grant Customer Portal Access</h3>
+          <p style="font-size:.85rem;color:var(--muted)">Create a login for this customer so they can view their quotes and projects.</p>
+          <input type="hidden" id="grantCustomerId" />
+          <div class="form-grid">
+            <div>
+              <label for="grantUsername">Username</label>
+              <input id="grantUsername" type="text" placeholder="e.g. arihant.towers" />
+            </div>
+            <div>
+              <label for="grantDisplayName">Display Name</label>
+              <input id="grantDisplayName" type="text" placeholder="e.g. Arihant Towers" />
+            </div>
+          </div>
+          <div class="form-grid">
+            <div>
+              <label for="grantEmail">Email</label>
+              <input id="grantEmail" type="email" placeholder="contact@customer.com" />
+            </div>
+            <div>
+              <label for="grantTempPw">Temp Password</label>
+              <input id="grantTempPw" type="text" value="ChangeMe123!" />
+            </div>
+          </div>
+          <div id="grantResult" style="display:none;padding:10px;background:var(--soft);border-radius:8px;font-size:.83rem;margin-top:4px"></div>
+          <div class="org-modal-actions">
+            <button class="action-btn" id="grantPortalSave"><i class="fa fa-check"></i> Create Access</button>
+            <button class="action-btn quiet" id="grantPortalCancel">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Costing Estimator ===== -->
+      <section class="view-section" id="view-estimator">
+        <div class="panel-head" style="padding:1.5rem 1.5rem 0">
+          <h2><i class="fa fa-file-invoice-dollar"></i> Costing Estimator</h2>
+          <span class="panel-subtitle">Build elevator quotations and send bid reports to customers.</span>
+        </div>
+
+        <div class="org-tabs">
+          <button class="org-tab active" data-tab="est-new">New Estimate</button>
+          <button class="org-tab" data-tab="est-list">Saved Estimates</button>
+          <button class="org-tab" data-tab="est-payments">Payment Ledger</button>
+        </div>
+
+        <!-- New Estimate form -->
+        <div class="org-tab-panel" id="tab-est-new">
+          <form id="estimatorForm" class="est-form">
+            <div class="est-form-grid">
+              <!-- Left: Spec inputs -->
+              <div class="est-spec">
+                <h4 class="est-section-head"><i class="fa fa-ruler-combined"></i> Specification</h4>
+                <div class="form-grid">
+                  <div>
+                    <label for="estCustomerName">Customer / Building Name</label>
+                    <input id="estCustomerName" name="customer_name" type="text" placeholder="e.g. Arihant Towers" required />
+                  </div>
+                  <div>
+                    <label for="estSite">Site / Project Address</label>
+                    <input id="estSite" name="site" type="text" placeholder="e.g. Sector 7, Jaipur" />
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <div>
+                    <label for="estCustomerId">Link to Customer Record</label>
+                    <select id="estCustomerId" name="customer_id">
+                      <option value="">— optional —</option>
+                      {% for c in data.customers %}
+                      <option value="{{ c.id }}">{{ c.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div>
+                    <label for="estType">Elevator Type</label>
+                    <select id="estType" name="elevator_type">
+                      {% for t in data.elevator_types %}
+                      <option value="{{ t }}">{{ t }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <div>
+                    <label for="estCapacity">Capacity</label>
+                    <select id="estCapacity" name="capacity">
+                      {% for c in data.capacity_options %}
+                      <option value="{{ c }}" {{ 'selected' if '8-person' in c else '' }}>{{ c }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div>
+                    <label for="estFloors">Number of Floors / Stops</label>
+                    <input id="estFloors" name="num_floors" type="number" min="1" max="100" value="5" />
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <div>
+                    <label for="estDrive">Drive Type</label>
+                    <select id="estDrive" name="drive_type">
+                      {% for d in data.drive_options %}
+                      <option value="{{ d }}" {{ 'selected' if 'Gearless' in d else '' }}>{{ d }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div>
+                    <label for="estFinish">Cabin Construction</label>
+                    <select id="estFinish" name="cabin_finish">
+                      {% for f in data.finish_options %}
+                      <option value="{{ f }}" {{ 'selected' if 'Standard' in f else '' }}>{{ f }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <div>
+                    <label for="estDoor">Door Type</label>
+                    <select id="estDoor" name="door_type">
+                      {% for d in data.door_options %}
+                      <option value="{{ d }}" {{ 'selected' if 'Automatic SS' in d else '' }}>{{ d }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div>
+                    <label for="estControl">Control System</label>
+                    <select id="estControl" name="control_type">
+                      {% for c in data.control_options %}
+                      <option value="{{ c }}" {{ 'selected' if 'Microprocessor' in c else '' }}>{{ c }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+
+                <h4 class="est-section-head" style="margin-top:1.25rem"><i class="fa fa-plus-circle"></i> Add-ons</h4>
+                <div class="est-addons-grid">
+                  {% for addon in data.addon_options %}
+                  <label class="est-addon-check">
+                    <input type="checkbox" name="addons" value="{{ addon }}" />
+                    {{ addon }}
+                  </label>
+                  {% endfor %}
+                </div>
+              </div>
+
+              <!-- Right: Pricing summary -->
+              <div class="est-pricing">
+                <h4 class="est-section-head"><i class="fa fa-indian-rupee-sign"></i> Live Price Estimate</h4>
+                <div class="est-price-card">
+                  <div class="est-price-row"><span>Base Equipment</span><strong id="estBaseVal">₹ —</strong></div>
+                  <div class="est-price-row"><span>Add-ons</span><strong id="estAddonsVal">₹ —</strong></div>
+                  <div class="est-price-row"><span>Subtotal</span><strong id="estSubtotalVal">₹ —</strong></div>
+                  <div class="est-price-row margin-row">
+                    <span>Margin</span>
+                    <span class="margin-input-wrap">
+                      <input id="estMargin" name="margin_percent" type="number" min="0" max="100" value="20" />
+                      <em>%</em>
+                    </span>
+                  </div>
+                  <div class="est-price-row est-total-row"><span>Total Quote</span><strong id="estTotalVal">₹ —</strong></div>
+                </div>
+
+                <div style="margin-top:1rem">
+                  <label for="estEmail">Send Report To (email)</label>
+                  <input id="estEmail" name="sent_to_email" type="email" placeholder="customer@example.com" />
+                </div>
+                <div style="margin-top:0.75rem">
+                  <label for="estValidUntil">Valid Until</label>
+                  <input id="estValidUntil" name="valid_until" type="date" />
+                </div>
+                <div style="margin-top:0.75rem">
+                  <label for="estNotes">Notes / Terms</label>
+                  <textarea id="estNotes" name="notes" rows="3" placeholder="Quote valid 30 days. GST and civil work not included."></textarea>
+                </div>
+
+                <div class="est-actions">
+                  <button type="button" class="action-btn" id="estCalcBtn"><i class="fa fa-calculator"></i> Calculate</button>
+                  <button type="submit" class="action-btn" id="estSaveBtn"><i class="fa fa-floppy-disk"></i> Save Estimate</button>
+                </div>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        <!-- Saved Estimates -->
+        <div class="org-tab-panel" id="tab-est-list" style="display:none">
+          <div id="estListWrap">
+            <table class="data-table att-table est-list-table">
+              <thead>
+                <tr>
+                  <th>ID</th><th>Customer</th><th>Site</th><th>Type</th><th>Floors</th><th>Total Quote</th><th>Status</th><th>Created</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="estRows">
+                {% for est in data.estimates %}
+                <tr data-est-id="{{ est.id }}" data-search="{{ est.id }} {{ est.customer_name }} {{ est.site }} {{ est.elevator_type }} {{ est.status }}">
+                  <td><strong>{{ est.id }}</strong></td>
+                  <td>{{ est.customer_name }}</td>
+                  <td>{{ est.site }}</td>
+                  <td>{{ est.elevator_type }}</td>
+                  <td>{{ est.num_floors }}</td>
+                  <td><strong>₹{{ "{:,.0f}".format(est.total_cost) }}</strong></td>
+                  <td><mark class="badge {{ 'healthy' if est.status == 'Accepted' else 'warning' if est.status == 'Sent' else 'critical' if est.status == 'Rejected' else 'info' }}">{{ est.status }}</mark></td>
+                  <td>{{ est.created_at }}</td>
+                  <td style="white-space:nowrap">
+                    <a class="action-btn small" href="/api/portal/estimates/{{ est.id }}/report" target="_blank"><i class="fa fa-eye"></i> View</a>
+                    <button class="action-btn small est-send-btn" data-est-id="{{ est.id }}" data-est-email="{{ est.sent_to_email }}"><i class="fa fa-paper-plane"></i> Send</button>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Payment Ledger tab -->
+        <div class="org-tab-panel" id="tab-est-payments" style="display:none">
+          <div class="pay-toolbar">
+            <div>
+              <label for="payEstSelect" style="font-weight:600;margin-right:.5rem">Estimate:</label>
+              <select id="payEstSelect">
+                <option value="">— select an estimate —</option>
+                {% for est in data.estimates %}
+                <option value="{{ est.id }}">{{ est.id }} · {{ est.customer_name }} · ₹{{ "{:,.0f}".format(est.total_cost) }} · {{ est.status }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="pay-toolbar-actions" id="payToolbarActions" style="display:none">
+              <button class="action-btn quiet" id="payAutoScheduleBtn"><i class="fa fa-wand-magic-sparkles"></i> Auto-schedule</button>
+              <button class="action-btn" id="payAddBtn"><i class="fa fa-plus"></i> Add Payment</button>
+            </div>
+          </div>
+
+          <!-- Summary cards -->
+          <div id="paySummaryCards" class="pay-summary-cards" style="display:none">
+            <div class="pay-summary-card"><span>Contract Value</span><strong id="payCardContract">—</strong></div>
+            <div class="pay-summary-card received"><span>Received</span><strong id="payCardReceived">—</strong></div>
+            <div class="pay-summary-card outstanding"><span>Outstanding</span><strong id="payCardOutstanding">—</strong></div>
+            <div class="pay-summary-card overdue"><span>Overdue</span><strong id="payCardOverdue">—</strong></div>
+          </div>
+
+          <!-- Payment rows table -->
+          <div class="panel" style="padding:0;overflow:hidden;margin:0 1.5rem 1rem" id="payTableWrap" style="display:none">
+            <table class="data-table att-table pay-table">
+              <thead>
+                <tr>
+                  <th>ID</th><th>Milestone</th><th>Amount (₹)</th><th>Due Date</th><th>Status</th>
+                  <th>Paid Date</th><th>Method</th><th>Reference</th><th>Notes</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="payRows"></tbody>
+            </table>
+          </div>
+
+          <!-- Add / Edit payment form (inline) -->
+          <div id="payForm" class="pay-form" style="display:none">
+            <h4 id="payFormTitle"><i class="fa fa-plus"></i> Add Payment</h4>
+            <input type="hidden" id="payFormId" value="" />
+            <div class="form-grid">
+              <div>
+                <label for="payMilestone">Milestone / Description</label>
+                <input id="payMilestone" type="text" placeholder="e.g. Advance (30%)" />
+              </div>
+              <div>
+                <label for="payAmount">Amount (₹)</label>
+                <input id="payAmount" type="number" min="0" placeholder="e.g. 425000" />
+              </div>
+            </div>
+            <div class="form-grid">
+              <div>
+                <label for="payDueDate">Due Date</label>
+                <input id="payDueDate" type="date" />
+              </div>
+              <div>
+                <label for="payStatus">Status</label>
+                <select id="payStatus">
+                  {% for s in data.payment_statuses %}
+                  <option value="{{ s }}">{{ s }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+            <div class="form-grid">
+              <div>
+                <label for="payPaidDate">Paid Date</label>
+                <input id="payPaidDate" type="date" />
+              </div>
+              <div>
+                <label for="payMethod">Payment Method</label>
+                <select id="payMethod">
+                  <option value="">— not yet paid —</option>
+                  {% for m in data.payment_methods %}
+                  <option value="{{ m }}">{{ m }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+            <div class="form-grid">
+              <div>
+                <label for="payRef">Reference / TXN No.</label>
+                <input id="payRef" type="text" placeholder="e.g. UTR123456" />
+              </div>
+              <div>
+                <label for="payNotes">Notes</label>
+                <input id="payNotes" type="text" placeholder="Optional follow-up note" />
+              </div>
+            </div>
+            <div class="pay-form-actions">
+              <button class="action-btn" id="payFormSave"><i class="fa fa-check"></i> Save Payment</button>
+              <button class="action-btn quiet" id="payFormCancel">Cancel</button>
+            </div>
+          </div>
+
+          <p id="payEmptyMsg" style="padding:2rem 1.5rem;color:var(--muted);display:none">Select an estimate above to view or add payment records.</p>
+        </div>
+      </section>
+
+      <!-- ===== Org Chart & Attendance ===== -->
+      <section class="view-section" id="view-orgchart">
+        <div class="panel-head" style="padding:1.5rem 1.5rem 0">
+          <h2><i class="fa fa-sitemap"></i> Staff &amp; Attendance</h2>
+          <span class="panel-subtitle">Organisation chart and daily attendance register.</span>
+        </div>
+
+        <div class="org-tabs">
+          <button class="org-tab active" data-tab="org-tree">Org Chart</button>
+          <button class="org-tab" data-tab="org-attendance">Attendance</button>
+        </div>
+
+        <!-- ── Org Chart Tree ── -->
+        <div class="org-tab-panel" id="tab-org-tree">
+          {% if data.viewer.role == 'admin' %}
+          <div class="org-toolbar">
+            <button class="action-btn" id="orgAddBtn"><i class="fa fa-user-plus"></i> Add Person</button>
+          </div>
+          {% endif %}
+          <div id="orgTreeWrap" class="org-tree-wrap">
+            <!-- rendered by JS -->
+          </div>
+
+          <!-- hidden seed data for JS -->
+          <script id="orgChartData" type="application/json">{{ data.get('org_chart', []) | tojson }}</script>
+
+          <!-- Add / Edit modal -->
+          <div id="orgModal" class="org-modal" style="display:none">
+            <div class="org-modal-box">
+              <h3 id="orgModalTitle"><i class="fa fa-user-plus"></i> Add Person</h3>
+              <input type="hidden" id="orgModalId" value="" />
+              <div class="form-grid">
+                <div>
+                  <label for="orgModalName">Full Name *</label>
+                  <input id="orgModalName" type="text" placeholder="e.g. Ravi Sharma" />
+                </div>
+                <div>
+                  <label for="orgModalTitle2">Job Title *</label>
+                  <input id="orgModalTitle2" type="text" placeholder="e.g. Lead Installer" />
+                </div>
+              </div>
+              <div class="form-grid">
+                <div>
+                  <label for="orgModalDept">Department</label>
+                  <select id="orgModalDept">
+                    <option value="">— select —</option>
+                    {% for dept in data.department_options %}
+                    <option value="{{ dept }}">{{ dept }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div>
+                  <label for="orgModalReportsTo">Reports To</label>
+                  <select id="orgModalReportsTo">
+                    <option value="">— none (top level) —</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-grid">
+                <div>
+                  <label for="orgModalPhone">Phone</label>
+                  <input id="orgModalPhone" type="text" placeholder="+91 90000 1301" />
+                </div>
+                <div>
+                  <label for="orgModalEmail">Email</label>
+                  <input id="orgModalEmail" type="email" placeholder="name@fuzi.in" />
+                </div>
+              </div>
+              <div class="org-modal-actions">
+                <button class="action-btn" id="orgModalSave"><i class="fa fa-check"></i> Save</button>
+                <button class="action-btn quiet" id="orgModalCancel">Cancel</button>
+                <button class="action-btn danger" id="orgModalDelete" style="display:none"><i class="fa fa-trash"></i> Remove</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Attendance Register ── -->
+        <div class="org-tab-panel" id="tab-org-attendance" style="display:none">
+          <div class="org-toolbar att-toolbar">
+            <div>
+              <label for="attDate" style="font-weight:600;margin-right:0.5rem">Date:</label>
+              <input id="attDate" type="date" value="{{ data.attendance_today[0].date if data.attendance_today else '' }}" />
+            </div>
+            <div id="attSummary" class="att-summary"></div>
+            <button class="action-btn" id="attSaveAll"><i class="fa fa-floppy-disk"></i> Save All Changes</button>
+          </div>
+
+          <div class="panel" style="padding:0;overflow:hidden;margin:0 1.5rem 1.5rem">
+            <table class="data-table att-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Title</th>
+                  <th>Department</th>
+                  <th>Status</th>
+                  <th>Check-in</th>
+                  <th>Check-out</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody id="attRows">
+                <!-- rendered by JS -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- seed today's attendance records for JS -->
+          <script id="attendanceTodayData" type="application/json">{{ data.attendance_today | tojson }}</script>
+        </div>
+      </section>
+
     </main>
   </div>
 

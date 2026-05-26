@@ -1,0 +1,6667 @@
+{
+  "6": {
+    "lopcop_by_stops": {},
+    "guiderail_qty_by_stops": {
+      "2": 4,
+      "3": 6,
+      "4": 8
+    },
+    "floor_heights": {
+      "Pit": 1600,
+      "G to1": 3800,
+      "1 to 2": 3800,
+      "2 to 3": 3900,
+      "overhead": 4800,
+      "Total": 17900
+    },
+    "items": {
+      "Passenger/Goods": [
+        {
+          "qty_actual": " ",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 6,
+            "SS Auto Door": 2,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 14000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Stops": [
+        {
+          "qty_actual": " ",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 4,
+            "SS Auto Door": 3,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 16450,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3800
+          }
+        }
+      ],
+      "Speed": [
+        {
+          "qty_actual": 0.65,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 1,
+            "SS Auto Door": 4,
+            "MS Manual Door": 25000,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 18900,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3800
+          }
+        }
+      ],
+      "Geared/Gearless": [
+        {
+          "qty_actual": "geared",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 5,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 21350,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3900
+          }
+        }
+      ],
+      "Car Construction": [
+        {
+          "qty_actual": "ms",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 6,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 23800,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Construction": [
+        {
+          "qty_actual": "ms",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 7,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 26250,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Type": [
+        {
+          "qty_actual": "co",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 8,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 28700,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Size": [
+        {
+          "qty_actual": "centre",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 700,
+            "SS Auto Door": 9,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 31150,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Flooring": [
+        {
+          "qty_actual": "pvc",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 10,
+            "MS Manual Door": 16.216216216216218,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 33600,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Guide rail": [
+        {
+          "qty_actual": 7.16,
+          "qty": 8,
+          "unit_costs": {
+            "MS Auto Door": 5000,
+            "SS Auto Door": 5000,
+            "MS Manual Door": 5000,
+            "SS Manual Door": 5000,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          },
+          "totals": {
+            "MS Auto Door": 40000,
+            "SS Auto Door": 40000,
+            "MS Manual Door": 40000,
+            "SS Manual Door": 40000,
+            "MS Gearless Auto Door": 40000,
+            "SS Gearless Auto Door": 40000
+          }
+        }
+      ],
+      "Bracket": [
+        {
+          "qty_actual": 10.5,
+          "qty": 11,
+          "unit_costs": {
+            "MS Auto Door": 950,
+            "SS Auto Door": 950,
+            "MS Manual Door": 7200,
+            "SS Manual Door": 7200,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 10450,
+            "SS Auto Door": 10450,
+            "MS Manual Door": 10450,
+            "SS Manual Door": 10450,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        },
+        {
+          "qty_actual": 10.5,
+          "qty": 11,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 1350,
+            "SS Gearless Auto Door": 1350
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 14850,
+            "SS Gearless Auto Door": 14850
+          }
+        }
+      ],
+      "Car cabin": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 45000,
+            "SS Auto Door": 85000,
+            "MS Manual Door": 45000,
+            "SS Manual Door": 85000,
+            "MS Gearless Auto Door": 45000,
+            "SS Gearless Auto Door": 85000
+          },
+          "totals": {
+            "MS Auto Door": 45000,
+            "SS Auto Door": 85000,
+            "MS Manual Door": 45000,
+            "SS Manual Door": 85000,
+            "MS Gearless Auto Door": 45000,
+            "SS Gearless Auto Door": 85000
+          }
+        }
+      ],
+      "Overload": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 4000,
+            "SS Auto Door": 4000,
+            "MS Manual Door": 4000,
+            "SS Manual Door": 4000,
+            "MS Gearless Auto Door": 4000,
+            "SS Gearless Auto Door": 4000
+          },
+          "totals": {
+            "MS Auto Door": 4000,
+            "SS Auto Door": 4000,
+            "MS Manual Door": 4000,
+            "SS Manual Door": 4000,
+            "MS Gearless Auto Door": 4000,
+            "SS Gearless Auto Door": 4000
+          }
+        }
+      ],
+      "Cabin Packing Charges": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 2500,
+            "SS Auto Door": 2500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 2500,
+            "SS Gearless Auto Door": 2500
+          },
+          "totals": {
+            "MS Auto Door": 2500,
+            "SS Auto Door": 2500,
+            "MS Manual Door": 2500,
+            "SS Manual Door": 2500,
+            "MS Gearless Auto Door": 2500,
+            "SS Gearless Auto Door": 2500
+          }
+        }
+      ],
+      "Cabin inward Transport & local Freight": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 6000,
+            "SS Auto Door": 6000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 6000,
+            "SS Gearless Auto Door": 6000
+          },
+          "totals": {
+            "MS Auto Door": 6000,
+            "SS Auto Door": 6000,
+            "MS Manual Door": 6000,
+            "SS Manual Door": 6000,
+            "MS Gearless Auto Door": 6000,
+            "SS Gearless Auto Door": 6000
+          }
+        }
+      ],
+      "Controlller with Drive +DBR": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 39000,
+            "SS Auto Door": 39000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 39000,
+            "SS Auto Door": 39000,
+            "MS Manual Door": 39000,
+            "SS Manual Door": 39000,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Controller with Drive +DBR": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 68000,
+            "SS Gearless Auto Door": 68000
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 68000,
+            "SS Gearless Auto Door": 68000
+          }
+        }
+      ],
+      "ARD (UPS) with battery": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 13000,
+            "SS Auto Door": 13000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 13000,
+            "SS Gearless Auto Door": 13000
+          },
+          "totals": {
+            "MS Auto Door": 13000,
+            "SS Auto Door": 13000,
+            "MS Manual Door": 13000,
+            "SS Manual Door": 13000,
+            "MS Gearless Auto Door": 13000,
+            "SS Gearless Auto Door": 13000
+          }
+        }
+      ],
+      "LOP/COP": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 21900,
+            "SS Auto Door": 21900,
+            "MS Manual Door": 21900,
+            "SS Manual Door": 21900,
+            "MS Gearless Auto Door": 21900,
+            "SS Gearless Auto Door": 21900
+          },
+          "totals": {
+            "MS Auto Door": 21900,
+            "SS Auto Door": 21900,
+            "MS Manual Door": 21900,
+            "SS Manual Door": 21900,
+            "MS Gearless Auto Door": 21900,
+            "SS Gearless Auto Door": 21900
+          }
+        }
+      ],
+      "Motor": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 66500,
+            "SS Auto Door": 66500,
+            "MS Manual Door": null,
+            "SS Manual Door": 66500,
+            "MS Gearless Auto Door": 79600,
+            "SS Gearless Auto Door": 79600
+          },
+          "totals": {
+            "MS Auto Door": 66500,
+            "SS Auto Door": 66500,
+            "MS Manual Door": 66500,
+            "SS Manual Door": 66500,
+            "MS Gearless Auto Door": 79600,
+            "SS Gearless Auto Door": 79600
+          }
+        }
+      ],
+      "Motor Hosting": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 2500,
+            "SS Auto Door": 2500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 2500,
+            "SS Gearless Auto Door": 2500
+          },
+          "totals": {
+            "MS Auto Door": 2500,
+            "SS Auto Door": 2500,
+            "MS Manual Door": 2500,
+            "SS Manual Door": 2500,
+            "MS Gearless Auto Door": 2500,
+            "SS Gearless Auto Door": 2500
+          }
+        }
+      ],
+      "Rope": [
+        {
+          "qty_actual": 59.699999999999996,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 113,
+            "SS Auto Door": 113,
+            "MS Manual Door": 113,
+            "SS Manual Door": 113,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 6746.099999999999,
+            "SS Auto Door": 6746.099999999999,
+            "MS Manual Door": 6746.099999999999,
+            "SS Manual Door": 6746.099999999999,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        },
+        {
+          "qty_actual": 151.2,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 77,
+            "SS Gearless Auto Door": 77
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 11642.4,
+            "SS Gearless Auto Door": 11642.4
+          }
+        }
+      ],
+      "Cable": [
+        {
+          "qty_actual": 95.6,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 128,
+            "SS Auto Door": 128,
+            "MS Manual Door": 128,
+            "SS Manual Door": 128,
+            "MS Gearless Auto Door": 128,
+            "SS Gearless Auto Door": 128
+          },
+          "totals": {
+            "MS Auto Door": 12236.8,
+            "SS Auto Door": 12236.8,
+            "MS Manual Door": 12236.8,
+            "SS Manual Door": 12236.8,
+            "MS Gearless Auto Door": 12236.8,
+            "SS Gearless Auto Door": 12236.8
+          }
+        }
+      ],
+      "Geared/Gearless Safety": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 28000,
+            "SS Auto Door": 28000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 40000,
+            "SS Gearless Auto Door": 40000
+          },
+          "totals": {
+            "MS Auto Door": 28000,
+            "SS Auto Door": 28000,
+            "MS Manual Door": 28000,
+            "SS Manual Door": 28000,
+            "MS Gearless Auto Door": 40000,
+            "SS Gearless Auto Door": 40000
+          }
+        }
+      ],
+      "OSG with rope": [
+        {
+          "qty_actual": 37.8,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 7910.6,
+            "SS Auto Door": 7910.6,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 7910.6,
+            "SS Gearless Auto Door": 7910.6
+          },
+          "totals": {
+            "MS Auto Door": 7910.6,
+            "SS Auto Door": 7910.6,
+            "MS Manual Door": 7910.6,
+            "SS Manual Door": 7910.6,
+            "MS Gearless Auto Door": 7910.6,
+            "SS Gearless Auto Door": 7910.6
+          }
+        }
+      ],
+      "Weight counter with granite floor": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 10307.5,
+            "SS Auto Door": 10307.5,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 10307.5,
+            "SS Gearless Auto Door": 10307.5
+          },
+          "totals": {
+            "MS Auto Door": 10307.5,
+            "SS Auto Door": 10307.5,
+            "MS Manual Door": 10307.5,
+            "SS Manual Door": 10307.5,
+            "MS Gearless Auto Door": 10307.5,
+            "SS Gearless Auto Door": 10307.5
+          }
+        }
+      ],
+      "Sensor door": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 4500,
+            "SS Auto Door": 4500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 4500,
+            "SS Gearless Auto Door": 4500
+          },
+          "totals": {
+            "MS Auto Door": 4500,
+            "SS Auto Door": 4500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 4500,
+            "SS Gearless Auto Door": 4500
+          }
+        }
+      ],
+      "Wiring": [
+        {
+          "qty_actual": 1,
+          "qty": 38,
+          "unit_costs": {
+            "MS Auto Door": 52,
+            "SS Auto Door": 52,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 52,
+            "SS Gearless Auto Door": 52
+          },
+          "totals": {
+            "MS Auto Door": 1976,
+            "SS Auto Door": 1976,
+            "MS Manual Door": 1976,
+            "SS Manual Door": 1976,
+            "MS Gearless Auto Door": 1976,
+            "SS Gearless Auto Door": 1976
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 43,
+          "unit_costs": {
+            "MS Auto Door": 69,
+            "SS Auto Door": 69,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 69,
+            "SS Gearless Auto Door": 69
+          },
+          "totals": {
+            "MS Auto Door": 2967,
+            "SS Auto Door": 2967,
+            "MS Manual Door": 2967,
+            "SS Manual Door": 2967,
+            "MS Gearless Auto Door": 2967,
+            "SS Gearless Auto Door": 2967
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 175,
+          "unit_costs": {
+            "MS Auto Door": 23,
+            "SS Auto Door": 23,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 23,
+            "SS Gearless Auto Door": 23
+          },
+          "totals": {
+            "MS Auto Door": 4025,
+            "SS Auto Door": 4025,
+            "MS Manual Door": 4025,
+            "SS Manual Door": 4025,
+            "MS Gearless Auto Door": 4025,
+            "SS Gearless Auto Door": 4025
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 50,
+          "unit_costs": {
+            "MS Auto Door": 37.2,
+            "SS Auto Door": 37.2,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 37.2,
+            "SS Gearless Auto Door": 37.2
+          },
+          "totals": {
+            "MS Auto Door": 1860.0000000000002,
+            "SS Auto Door": 1860.0000000000002,
+            "MS Manual Door": 1860.0000000000002,
+            "SS Manual Door": 1860.0000000000002,
+            "MS Gearless Auto Door": 1860.0000000000002,
+            "SS Gearless Auto Door": 1860.0000000000002
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 50,
+          "unit_costs": {
+            "MS Auto Door": 27,
+            "SS Auto Door": 27,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 27,
+            "SS Gearless Auto Door": 27
+          },
+          "totals": {
+            "MS Auto Door": 1350,
+            "SS Auto Door": 1350,
+            "MS Manual Door": 1350,
+            "SS Manual Door": 1350,
+            "MS Gearless Auto Door": 1350,
+            "SS Gearless Auto Door": 1350
+          }
+        }
+      ],
+      "Car Door": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 43245,
+            "SS Auto Door": 57016,
+            "MS Manual Door": 8500,
+            "SS Manual Door": 26500,
+            "MS Gearless Auto Door": 43245,
+            "SS Gearless Auto Door": 57016
+          },
+          "totals": {
+            "MS Auto Door": 43245,
+            "SS Auto Door": 57016,
+            "MS Manual Door": 8500,
+            "SS Manual Door": 26500,
+            "MS Gearless Auto Door": 43245,
+            "SS Gearless Auto Door": 57016
+          }
+        }
+      ],
+      "Landing Door": [
+        {
+          "qty_actual": 4,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 17880,
+            "SS Auto Door": 40191,
+            "MS Manual Door": 12300,
+            "SS Manual Door": 40300,
+            "MS Gearless Auto Door": 17880,
+            "SS Gearless Auto Door": 40191
+          },
+          "totals": {
+            "MS Auto Door": 71520,
+            "SS Auto Door": 160764,
+            "MS Manual Door": 49200,
+            "SS Manual Door": 161200,
+            "MS Gearless Auto Door": 71520,
+            "SS Gearless Auto Door": 160764
+          }
+        }
+      ],
+      "OTHER": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 25000,
+            "SS Auto Door": 25000,
+            "MS Manual Door": 10000,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 25000,
+            "SS Gearless Auto Door": 25000
+          },
+          "totals": {
+            "MS Auto Door": 25000,
+            "SS Auto Door": 25000,
+            "MS Manual Door": 25000,
+            "SS Manual Door": 25000,
+            "MS Gearless Auto Door": 25000,
+            "SS Gearless Auto Door": 25000
+          }
+        }
+      ],
+      "Freight": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 5000,
+            "SS Auto Door": 5000,
+            "MS Manual Door": 10000,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          },
+          "totals": {
+            "MS Auto Door": 5000,
+            "SS Auto Door": 5000,
+            "MS Manual Door": 5000,
+            "SS Manual Door": 5000,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          }
+        }
+      ],
+      "loading & Unloading": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 5000,
+            "SS Auto Door": 5000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          },
+          "totals": {
+            "MS Auto Door": 5000,
+            "SS Auto Door": 5000,
+            "MS Manual Door": 5000,
+            "SS Manual Door": 5000,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          }
+        }
+      ],
+      "Scafolding": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 7500,
+            "SS Auto Door": 7500,
+            "MS Manual Door": 7500,
+            "SS Manual Door": 7500,
+            "MS Gearless Auto Door": 7500,
+            "SS Gearless Auto Door": 7500
+          },
+          "totals": {
+            "MS Auto Door": 7500,
+            "SS Auto Door": 7500,
+            "MS Manual Door": 7500,
+            "SS Manual Door": 7500,
+            "MS Gearless Auto Door": 7500,
+            "SS Gearless Auto Door": 7500
+          }
+        }
+      ],
+      "Installation local 10000": [
+        {
+          "qty_actual": 4,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 12000,
+            "SS Auto Door": 12000,
+            "MS Manual Door": 12000,
+            "SS Manual Door": 12000,
+            "MS Gearless Auto Door": 12000,
+            "SS Gearless Auto Door": 12000
+          },
+          "totals": {
+            "MS Auto Door": 48000,
+            "SS Auto Door": 48000,
+            "MS Manual Door": 48000,
+            "SS Manual Door": 48000,
+            "MS Gearless Auto Door": 48000,
+            "SS Gearless Auto Door": 48000
+          }
+        }
+      ],
+      "Commissioing": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 12000,
+            "SS Auto Door": 12000,
+            "MS Manual Door": 12000,
+            "SS Manual Door": 12000,
+            "MS Gearless Auto Door": 12000,
+            "SS Gearless Auto Door": 12000
+          },
+          "totals": {
+            "MS Auto Door": 12000,
+            "SS Auto Door": 12000,
+            "MS Manual Door": 12000,
+            "SS Manual Door": 12000,
+            "MS Gearless Auto Door": 12000,
+            "SS Gearless Auto Door": 12000
+          }
+        }
+      ],
+      "Warranty": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 24499.7,
+            "SS Auto Door": 31650.45,
+            "MS Manual Door": 21421.45,
+            "SS Manual Door": 29921.45,
+            "MS Gearless Auto Door": 27669.515000000003,
+            "SS Gearless Auto Door": 34820.26500000001
+          },
+          "totals": {
+            "MS Auto Door": 24499.7,
+            "SS Auto Door": 31650.45,
+            "MS Manual Door": 21421.45,
+            "SS Manual Door": 29921.45,
+            "MS Gearless Auto Door": 27669.515000000003,
+            "SS Gearless Auto Door": 34820.26500000001
+          }
+        }
+      ]
+    },
+    "install": {
+      "qty": 4,
+      "unit_costs": {
+        "MS Auto Door": 12000,
+        "SS Auto Door": 12000,
+        "MS Manual Door": 12000,
+        "SS Manual Door": 12000,
+        "MS Gearless Auto Door": 12000,
+        "SS Gearless Auto Door": 12000
+      }
+    }
+  },
+  "8": {
+    "lopcop_by_stops": {},
+    "guiderail_qty_by_stops": {
+      "2": 4,
+      "3": 6,
+      "4": 8
+    },
+    "floor_heights": {
+      "Pit": 1600,
+      "G to1": 3800,
+      "1 to 2": 3800,
+      "2 to 3": 3900,
+      "overhead": 4800,
+      "Total": 17900
+    },
+    "items": {
+      "Passenger/Goods": [
+        {
+          "qty_actual": " ",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 8,
+            "SS Auto Door": 2,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 14000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Stops": [
+        {
+          "qty_actual": " ",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 4,
+            "SS Auto Door": 3,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 16450,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3800
+          }
+        }
+      ],
+      "Speed": [
+        {
+          "qty_actual": 0.65,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 1,
+            "SS Auto Door": 4,
+            "MS Manual Door": 25000,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 18900,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3800
+          }
+        }
+      ],
+      "Geared/Gearless": [
+        {
+          "qty_actual": "geared",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 5,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 21350,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3900
+          }
+        }
+      ],
+      "Car Construction": [
+        {
+          "qty_actual": "ms",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 6,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 23800,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Construction": [
+        {
+          "qty_actual": "ms",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 7,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 26250,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Type": [
+        {
+          "qty_actual": "co",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 8,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 28700,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Size": [
+        {
+          "qty_actual": "centre",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 700,
+            "SS Auto Door": 9,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 31150,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Flooring": [
+        {
+          "qty_actual": "pvc",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 10,
+            "MS Manual Door": 16.216216216216218,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 33600,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Guide rail": [
+        {
+          "qty_actual": 7.16,
+          "qty": 8,
+          "unit_costs": {
+            "MS Auto Door": 5000,
+            "SS Auto Door": 5000,
+            "MS Manual Door": 5000,
+            "SS Manual Door": 5000,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          },
+          "totals": {
+            "MS Auto Door": 40000,
+            "SS Auto Door": 40000,
+            "MS Manual Door": 40000,
+            "SS Manual Door": 40000,
+            "MS Gearless Auto Door": 40000,
+            "SS Gearless Auto Door": 40000
+          }
+        }
+      ],
+      "Bracket": [
+        {
+          "qty_actual": 10.5,
+          "qty": 11,
+          "unit_costs": {
+            "MS Auto Door": 950,
+            "SS Auto Door": 950,
+            "MS Manual Door": 7200,
+            "SS Manual Door": 7200,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 10450,
+            "SS Auto Door": 10450,
+            "MS Manual Door": 10450,
+            "SS Manual Door": 10450,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        },
+        {
+          "qty_actual": 10.5,
+          "qty": 11,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 1350,
+            "SS Gearless Auto Door": 1350
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 14850,
+            "SS Gearless Auto Door": 14850
+          }
+        }
+      ],
+      "Car cabin": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 50000,
+            "SS Auto Door": 90000,
+            "MS Manual Door": 50000,
+            "SS Manual Door": 90000,
+            "MS Gearless Auto Door": 50000,
+            "SS Gearless Auto Door": 90000
+          },
+          "totals": {
+            "MS Auto Door": 50000,
+            "SS Auto Door": 90000,
+            "MS Manual Door": 50000,
+            "SS Manual Door": 90000,
+            "MS Gearless Auto Door": 50000,
+            "SS Gearless Auto Door": 90000
+          }
+        }
+      ],
+      "Overload": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 4000,
+            "SS Auto Door": 4000,
+            "MS Manual Door": 4000,
+            "SS Manual Door": 4000,
+            "MS Gearless Auto Door": 4000,
+            "SS Gearless Auto Door": 4000
+          },
+          "totals": {
+            "MS Auto Door": 4000,
+            "SS Auto Door": 4000,
+            "MS Manual Door": 4000,
+            "SS Manual Door": 4000,
+            "MS Gearless Auto Door": 4000,
+            "SS Gearless Auto Door": 4000
+          }
+        }
+      ],
+      "Cabin Packing Charges": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 2500,
+            "SS Auto Door": 2500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 2500,
+            "SS Gearless Auto Door": 2500
+          },
+          "totals": {
+            "MS Auto Door": 2500,
+            "SS Auto Door": 2500,
+            "MS Manual Door": 2500,
+            "SS Manual Door": 2500,
+            "MS Gearless Auto Door": 2500,
+            "SS Gearless Auto Door": 2500
+          }
+        }
+      ],
+      "Cabin inward Transport & local Freight": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 6000,
+            "SS Auto Door": 6000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 6000,
+            "SS Gearless Auto Door": 6000
+          },
+          "totals": {
+            "MS Auto Door": 6000,
+            "SS Auto Door": 6000,
+            "MS Manual Door": 6000,
+            "SS Manual Door": 6000,
+            "MS Gearless Auto Door": 6000,
+            "SS Gearless Auto Door": 6000
+          }
+        }
+      ],
+      "Controlller with Drive +DBR": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 46000,
+            "SS Auto Door": 46000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 46000,
+            "SS Auto Door": 46000,
+            "MS Manual Door": 46000,
+            "SS Manual Door": 46000,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Controller with Drive +DBR": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 71000,
+            "SS Gearless Auto Door": 71000
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 71000,
+            "SS Gearless Auto Door": 71000
+          }
+        }
+      ],
+      "ARD (UPS) with battery": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 17000,
+            "SS Auto Door": 17000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 17000,
+            "SS Gearless Auto Door": 17000
+          },
+          "totals": {
+            "MS Auto Door": 17000,
+            "SS Auto Door": 17000,
+            "MS Manual Door": 17000,
+            "SS Manual Door": 17000,
+            "MS Gearless Auto Door": 17000,
+            "SS Gearless Auto Door": 17000
+          }
+        }
+      ],
+      "LOP/COP": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 21900,
+            "SS Auto Door": 21900,
+            "MS Manual Door": 21900,
+            "SS Manual Door": 21900,
+            "MS Gearless Auto Door": 21900,
+            "SS Gearless Auto Door": 21900
+          },
+          "totals": {
+            "MS Auto Door": 21900,
+            "SS Auto Door": 21900,
+            "MS Manual Door": 21900,
+            "SS Manual Door": 21900,
+            "MS Gearless Auto Door": 21900,
+            "SS Gearless Auto Door": 21900
+          }
+        }
+      ],
+      "Motor": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 66500,
+            "SS Auto Door": 66500,
+            "MS Manual Door": null,
+            "SS Manual Door": 66500,
+            "MS Gearless Auto Door": 86200,
+            "SS Gearless Auto Door": 86200
+          },
+          "totals": {
+            "MS Auto Door": 66500,
+            "SS Auto Door": 66500,
+            "MS Manual Door": 66500,
+            "SS Manual Door": 66500,
+            "MS Gearless Auto Door": 86200,
+            "SS Gearless Auto Door": 86200
+          }
+        }
+      ],
+      "Motor Hosting": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 2500,
+            "SS Auto Door": 2500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 2500,
+            "SS Gearless Auto Door": 2500
+          },
+          "totals": {
+            "MS Auto Door": 2500,
+            "SS Auto Door": 2500,
+            "MS Manual Door": 2500,
+            "SS Manual Door": 2500,
+            "MS Gearless Auto Door": 2500,
+            "SS Gearless Auto Door": 2500
+          }
+        }
+      ],
+      "Rope": [
+        {
+          "qty_actual": 59.699999999999996,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 113,
+            "SS Auto Door": 113,
+            "MS Manual Door": 113,
+            "SS Manual Door": 113,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 6746.099999999999,
+            "SS Auto Door": 6746.099999999999,
+            "MS Manual Door": 6746.099999999999,
+            "SS Manual Door": 6746.099999999999,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        },
+        {
+          "qty_actual": 151.2,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 77,
+            "SS Gearless Auto Door": 77
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 11642.4,
+            "SS Gearless Auto Door": 11642.4
+          }
+        }
+      ],
+      "Cable": [
+        {
+          "qty_actual": 95.6,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 128,
+            "SS Auto Door": 128,
+            "MS Manual Door": 128,
+            "SS Manual Door": 128,
+            "MS Gearless Auto Door": 128,
+            "SS Gearless Auto Door": 128
+          },
+          "totals": {
+            "MS Auto Door": 12236.8,
+            "SS Auto Door": 12236.8,
+            "MS Manual Door": 12236.8,
+            "SS Manual Door": 12236.8,
+            "MS Gearless Auto Door": 12236.8,
+            "SS Gearless Auto Door": 12236.8
+          }
+        }
+      ],
+      "Geared/Gearless Safety": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 28000,
+            "SS Auto Door": 28000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 40000,
+            "SS Gearless Auto Door": 40000
+          },
+          "totals": {
+            "MS Auto Door": 28000,
+            "SS Auto Door": 28000,
+            "MS Manual Door": 28000,
+            "SS Manual Door": 28000,
+            "MS Gearless Auto Door": 40000,
+            "SS Gearless Auto Door": 40000
+          }
+        }
+      ],
+      "OSG with rope": [
+        {
+          "qty_actual": 37.8,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 7910.6,
+            "SS Auto Door": 7910.6,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 7910.6,
+            "SS Gearless Auto Door": 7910.6
+          },
+          "totals": {
+            "MS Auto Door": 7910.6,
+            "SS Auto Door": 7910.6,
+            "MS Manual Door": 7910.6,
+            "SS Manual Door": 7910.6,
+            "MS Gearless Auto Door": 7910.6,
+            "SS Gearless Auto Door": 7910.6
+          }
+        }
+      ],
+      "Weight counter with granite floor": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 10307.5,
+            "SS Auto Door": 10307.5,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 10307.5,
+            "SS Gearless Auto Door": 10307.5
+          },
+          "totals": {
+            "MS Auto Door": 10307.5,
+            "SS Auto Door": 10307.5,
+            "MS Manual Door": 10307.5,
+            "SS Manual Door": 10307.5,
+            "MS Gearless Auto Door": 10307.5,
+            "SS Gearless Auto Door": 10307.5
+          }
+        }
+      ],
+      "Sensor door": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 4500,
+            "SS Auto Door": 4500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 4500,
+            "SS Gearless Auto Door": 4500
+          },
+          "totals": {
+            "MS Auto Door": 4500,
+            "SS Auto Door": 4500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 4500,
+            "SS Gearless Auto Door": 4500
+          }
+        }
+      ],
+      "Wiring": [
+        {
+          "qty_actual": 1,
+          "qty": 38,
+          "unit_costs": {
+            "MS Auto Door": 52,
+            "SS Auto Door": 52,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 52,
+            "SS Gearless Auto Door": 52
+          },
+          "totals": {
+            "MS Auto Door": 1976,
+            "SS Auto Door": 1976,
+            "MS Manual Door": 1976,
+            "SS Manual Door": 1976,
+            "MS Gearless Auto Door": 1976,
+            "SS Gearless Auto Door": 1976
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 43,
+          "unit_costs": {
+            "MS Auto Door": 69,
+            "SS Auto Door": 69,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 69,
+            "SS Gearless Auto Door": 69
+          },
+          "totals": {
+            "MS Auto Door": 2967,
+            "SS Auto Door": 2967,
+            "MS Manual Door": 2967,
+            "SS Manual Door": 2967,
+            "MS Gearless Auto Door": 2967,
+            "SS Gearless Auto Door": 2967
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 175,
+          "unit_costs": {
+            "MS Auto Door": 23,
+            "SS Auto Door": 23,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 23,
+            "SS Gearless Auto Door": 23
+          },
+          "totals": {
+            "MS Auto Door": 4025,
+            "SS Auto Door": 4025,
+            "MS Manual Door": 4025,
+            "SS Manual Door": 4025,
+            "MS Gearless Auto Door": 4025,
+            "SS Gearless Auto Door": 4025
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 50,
+          "unit_costs": {
+            "MS Auto Door": 37.2,
+            "SS Auto Door": 37.2,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 37.2,
+            "SS Gearless Auto Door": 37.2
+          },
+          "totals": {
+            "MS Auto Door": 1860.0000000000002,
+            "SS Auto Door": 1860.0000000000002,
+            "MS Manual Door": 1860.0000000000002,
+            "SS Manual Door": 1860.0000000000002,
+            "MS Gearless Auto Door": 1860.0000000000002,
+            "SS Gearless Auto Door": 1860.0000000000002
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 50,
+          "unit_costs": {
+            "MS Auto Door": 27,
+            "SS Auto Door": 27,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 27,
+            "SS Gearless Auto Door": 27
+          },
+          "totals": {
+            "MS Auto Door": 1350,
+            "SS Auto Door": 1350,
+            "MS Manual Door": 1350,
+            "SS Manual Door": 1350,
+            "MS Gearless Auto Door": 1350,
+            "SS Gearless Auto Door": 1350
+          }
+        }
+      ],
+      "Car Door": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 43245,
+            "SS Auto Door": 57016,
+            "MS Manual Door": 8500,
+            "SS Manual Door": 26500,
+            "MS Gearless Auto Door": 43245,
+            "SS Gearless Auto Door": 57016
+          },
+          "totals": {
+            "MS Auto Door": 43245,
+            "SS Auto Door": 57016,
+            "MS Manual Door": 8500,
+            "SS Manual Door": 26500,
+            "MS Gearless Auto Door": 43245,
+            "SS Gearless Auto Door": 57016
+          }
+        }
+      ],
+      "Landing Door": [
+        {
+          "qty_actual": 4,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 17880,
+            "SS Auto Door": 40191,
+            "MS Manual Door": 12300,
+            "SS Manual Door": 36500,
+            "MS Gearless Auto Door": 17880,
+            "SS Gearless Auto Door": 40191
+          },
+          "totals": {
+            "MS Auto Door": 71520,
+            "SS Auto Door": 160764,
+            "MS Manual Door": 49200,
+            "SS Manual Door": 146000,
+            "MS Gearless Auto Door": 71520,
+            "SS Gearless Auto Door": 160764
+          }
+        }
+      ],
+      "OTHER": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 25000,
+            "SS Auto Door": 25000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 25000,
+            "SS Gearless Auto Door": 25000
+          },
+          "totals": {
+            "MS Auto Door": 25000,
+            "SS Auto Door": 25000,
+            "MS Manual Door": 25000,
+            "SS Manual Door": 25000,
+            "MS Gearless Auto Door": 25000,
+            "SS Gearless Auto Door": 25000
+          }
+        }
+      ],
+      "Freight": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 5000,
+            "SS Auto Door": 5000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          },
+          "totals": {
+            "MS Auto Door": 5000,
+            "SS Auto Door": 5000,
+            "MS Manual Door": 5000,
+            "SS Manual Door": 5000,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          }
+        }
+      ],
+      "loading & Unloading": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 5000,
+            "SS Auto Door": 5000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          },
+          "totals": {
+            "MS Auto Door": 5000,
+            "SS Auto Door": 5000,
+            "MS Manual Door": 5000,
+            "SS Manual Door": 5000,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          }
+        }
+      ],
+      "Scafolding": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 7500,
+            "SS Auto Door": 7500,
+            "MS Manual Door": 7500,
+            "SS Manual Door": 7500,
+            "MS Gearless Auto Door": 7500,
+            "SS Gearless Auto Door": 7500
+          },
+          "totals": {
+            "MS Auto Door": 7500,
+            "SS Auto Door": 7500,
+            "MS Manual Door": 7500,
+            "SS Manual Door": 7500,
+            "MS Gearless Auto Door": 7500,
+            "SS Gearless Auto Door": 7500
+          }
+        }
+      ],
+      "Installation local 10000": [
+        {
+          "qty_actual": 4,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 12000,
+            "SS Auto Door": 12000,
+            "MS Manual Door": 12000,
+            "SS Manual Door": 12000,
+            "MS Gearless Auto Door": 12000,
+            "SS Gearless Auto Door": 12000
+          },
+          "totals": {
+            "MS Auto Door": 48000,
+            "SS Auto Door": 48000,
+            "MS Manual Door": 48000,
+            "SS Manual Door": 48000,
+            "MS Gearless Auto Door": 48000,
+            "SS Gearless Auto Door": 48000
+          }
+        }
+      ],
+      "Commissioing": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 12000,
+            "SS Auto Door": 12000,
+            "MS Manual Door": 12000,
+            "SS Manual Door": 12000,
+            "MS Gearless Auto Door": 12000,
+            "SS Gearless Auto Door": 12000
+          },
+          "totals": {
+            "MS Auto Door": 12000,
+            "SS Auto Door": 12000,
+            "MS Manual Door": 12000,
+            "SS Manual Door": 12000,
+            "MS Gearless Auto Door": 12000,
+            "SS Gearless Auto Door": 12000
+          }
+        }
+      ],
+      "Warranty": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 25299.699999999997,
+            "SS Auto Door": 32450.45,
+            "MS Manual Door": 22221.449999999997,
+            "SS Manual Door": 29961.45,
+            "MS Gearless Auto Door": 28599.515000000003,
+            "SS Gearless Auto Door": 35750.26500000001
+          },
+          "totals": {
+            "MS Auto Door": 25299.699999999997,
+            "SS Auto Door": 32450.45,
+            "MS Manual Door": 22221.449999999997,
+            "SS Manual Door": 29961.45,
+            "MS Gearless Auto Door": 28599.515000000003,
+            "SS Gearless Auto Door": 35750.26500000001
+          }
+        }
+      ]
+    },
+    "install": {
+      "qty": 4,
+      "unit_costs": {
+        "MS Auto Door": 12000,
+        "SS Auto Door": 12000,
+        "MS Manual Door": 12000,
+        "SS Manual Door": 12000,
+        "MS Gearless Auto Door": 12000,
+        "SS Gearless Auto Door": 12000
+      }
+    }
+  },
+  "10": {
+    "lopcop_by_stops": {},
+    "guiderail_qty_by_stops": {
+      "2": 4,
+      "3": 6,
+      "4": 8
+    },
+    "floor_heights": {
+      "Pit": 1600,
+      "G to1": 3800,
+      "1 to 2": 3800,
+      "2 to 3": 3900,
+      "overhead": 4800,
+      "Total": 17900
+    },
+    "items": {
+      "Passenger/Goods": [
+        {
+          "qty_actual": " ",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 10,
+            "SS Auto Door": 2,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 14000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Stops": [
+        {
+          "qty_actual": " ",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 4,
+            "SS Auto Door": 3,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 16450,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3800
+          }
+        }
+      ],
+      "Speed": [
+        {
+          "qty_actual": 0.65,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 1,
+            "SS Auto Door": 4,
+            "MS Manual Door": 25000,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 18900,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3800
+          }
+        }
+      ],
+      "Geared/Gearless": [
+        {
+          "qty_actual": "geared",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 5,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 21350,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3900
+          }
+        }
+      ],
+      "Car Construction": [
+        {
+          "qty_actual": "ms",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 6,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 23800,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Construction": [
+        {
+          "qty_actual": "ms",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 7,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 26250,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Type": [
+        {
+          "qty_actual": "co",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 8,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 28700,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Size": [
+        {
+          "qty_actual": "centre",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 700,
+            "SS Auto Door": 9,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 31150,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Flooring": [
+        {
+          "qty_actual": "pvc",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 10,
+            "MS Manual Door": 16.216216216216218,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 33600,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Guide rail": [
+        {
+          "qty_actual": 7.16,
+          "qty": 8,
+          "unit_costs": {
+            "MS Auto Door": 6700,
+            "SS Auto Door": 6700,
+            "MS Manual Door": 6700,
+            "SS Manual Door": 6700,
+            "MS Gearless Auto Door": 6700,
+            "SS Gearless Auto Door": 6700
+          },
+          "totals": {
+            "MS Auto Door": 53600,
+            "SS Auto Door": 53600,
+            "MS Manual Door": 53600,
+            "SS Manual Door": 53600,
+            "MS Gearless Auto Door": 53600,
+            "SS Gearless Auto Door": 53600
+          }
+        }
+      ],
+      "Bracket": [
+        {
+          "qty_actual": 10.5,
+          "qty": 11,
+          "unit_costs": {
+            "MS Auto Door": 950,
+            "SS Auto Door": 950,
+            "MS Manual Door": 7200,
+            "SS Manual Door": 7200,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 10450,
+            "SS Auto Door": 10450,
+            "MS Manual Door": 10450,
+            "SS Manual Door": 10450,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        },
+        {
+          "qty_actual": 10.5,
+          "qty": 11,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 1550,
+            "SS Gearless Auto Door": 1550
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 17050,
+            "SS Gearless Auto Door": 17050
+          }
+        }
+      ],
+      "Car cabin": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 60000,
+            "SS Auto Door": 100000,
+            "MS Manual Door": 60000,
+            "SS Manual Door": 100000,
+            "MS Gearless Auto Door": 60000,
+            "SS Gearless Auto Door": 100000
+          },
+          "totals": {
+            "MS Auto Door": 60000,
+            "SS Auto Door": 100000,
+            "MS Manual Door": 60000,
+            "SS Manual Door": 100000,
+            "MS Gearless Auto Door": 60000,
+            "SS Gearless Auto Door": 100000
+          }
+        }
+      ],
+      "Overload": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 4000,
+            "SS Auto Door": 4000,
+            "MS Manual Door": 4000,
+            "SS Manual Door": 4000,
+            "MS Gearless Auto Door": 4000,
+            "SS Gearless Auto Door": 4000
+          },
+          "totals": {
+            "MS Auto Door": 4000,
+            "SS Auto Door": 4000,
+            "MS Manual Door": 4000,
+            "SS Manual Door": 4000,
+            "MS Gearless Auto Door": 4000,
+            "SS Gearless Auto Door": 4000
+          }
+        }
+      ],
+      "Cabin Packing Charges": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 3500,
+            "SS Auto Door": 3500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 3500,
+            "SS Gearless Auto Door": 3500
+          },
+          "totals": {
+            "MS Auto Door": 3500,
+            "SS Auto Door": 3500,
+            "MS Manual Door": 3500,
+            "SS Manual Door": 3500,
+            "MS Gearless Auto Door": 3500,
+            "SS Gearless Auto Door": 3500
+          }
+        }
+      ],
+      "Cabin inward Transport & local Freight": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 6000,
+            "SS Auto Door": 6000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 6000,
+            "SS Gearless Auto Door": 6000
+          },
+          "totals": {
+            "MS Auto Door": 6000,
+            "SS Auto Door": 6000,
+            "MS Manual Door": 6000,
+            "SS Manual Door": 6000,
+            "MS Gearless Auto Door": 6000,
+            "SS Gearless Auto Door": 6000
+          }
+        }
+      ],
+      "Controlller with Drive +DBR": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 54000,
+            "SS Auto Door": 54000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 54000,
+            "SS Auto Door": 54000,
+            "MS Manual Door": 54000,
+            "SS Manual Door": 54000,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Controller with Drive +DBR": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 71000,
+            "SS Gearless Auto Door": 71000
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 71000,
+            "SS Gearless Auto Door": 71000
+          }
+        }
+      ],
+      "ARD (UPS) with battery": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 22000,
+            "SS Auto Door": 22000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 17000,
+            "SS Gearless Auto Door": 22000
+          },
+          "totals": {
+            "MS Auto Door": 22000,
+            "SS Auto Door": 22000,
+            "MS Manual Door": 22000,
+            "SS Manual Door": 22000,
+            "MS Gearless Auto Door": 17000,
+            "SS Gearless Auto Door": 22000
+          }
+        }
+      ],
+      "LOP/COP": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 21900,
+            "SS Auto Door": 21900,
+            "MS Manual Door": 21900,
+            "SS Manual Door": 21900,
+            "MS Gearless Auto Door": 21900,
+            "SS Gearless Auto Door": 21900
+          },
+          "totals": {
+            "MS Auto Door": 21900,
+            "SS Auto Door": 21900,
+            "MS Manual Door": 21900,
+            "SS Manual Door": 21900,
+            "MS Gearless Auto Door": 21900,
+            "SS Gearless Auto Door": 21900
+          }
+        }
+      ],
+      "Motor": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 66500,
+            "SS Auto Door": 66500,
+            "MS Manual Door": null,
+            "SS Manual Door": 66500,
+            "MS Gearless Auto Door": 94000,
+            "SS Gearless Auto Door": 94000
+          },
+          "totals": {
+            "MS Auto Door": 66500,
+            "SS Auto Door": 66500,
+            "MS Manual Door": 66500,
+            "SS Manual Door": 66500,
+            "MS Gearless Auto Door": 94000,
+            "SS Gearless Auto Door": 94000
+          }
+        }
+      ],
+      "Motor Hosting": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 2500,
+            "SS Auto Door": 2500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 2500,
+            "SS Gearless Auto Door": 2500
+          },
+          "totals": {
+            "MS Auto Door": 2500,
+            "SS Auto Door": 2500,
+            "MS Manual Door": 2500,
+            "SS Manual Door": 2500,
+            "MS Gearless Auto Door": 2500,
+            "SS Gearless Auto Door": 2500
+          }
+        }
+      ],
+      "Rope": [
+        {
+          "qty_actual": 79.6,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 113,
+            "SS Auto Door": 113,
+            "MS Manual Door": 113,
+            "SS Manual Door": 113,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 8994.8,
+            "SS Auto Door": 8994.8,
+            "MS Manual Door": 8994.8,
+            "SS Manual Door": 8994.8,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        },
+        {
+          "qty_actual": 189,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 77,
+            "SS Gearless Auto Door": 77
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 14553,
+            "SS Gearless Auto Door": 14553
+          }
+        }
+      ],
+      "Cable": [
+        {
+          "qty_actual": 95.6,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 128,
+            "SS Auto Door": 128,
+            "MS Manual Door": 128,
+            "SS Manual Door": 128,
+            "MS Gearless Auto Door": 128,
+            "SS Gearless Auto Door": 128
+          },
+          "totals": {
+            "MS Auto Door": 12236.8,
+            "SS Auto Door": 12236.8,
+            "MS Manual Door": 12236.8,
+            "SS Manual Door": 12236.8,
+            "MS Gearless Auto Door": 12236.8,
+            "SS Gearless Auto Door": 12236.8
+          }
+        }
+      ],
+      "Geared/Gearless Safety": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 35000,
+            "SS Auto Door": 35000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 50000,
+            "SS Gearless Auto Door": 50000
+          },
+          "totals": {
+            "MS Auto Door": 35000,
+            "SS Auto Door": 35000,
+            "MS Manual Door": 35000,
+            "SS Manual Door": 35000,
+            "MS Gearless Auto Door": 50000,
+            "SS Gearless Auto Door": 50000
+          }
+        }
+      ],
+      "OSG with rope": [
+        {
+          "qty_actual": 47.25,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 8638.25,
+            "SS Auto Door": 8638.25,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 8638.25,
+            "SS Gearless Auto Door": 8638.25
+          },
+          "totals": {
+            "MS Auto Door": 8638.25,
+            "SS Auto Door": 8638.25,
+            "MS Manual Door": 8638.25,
+            "SS Manual Door": 8638.25,
+            "MS Gearless Auto Door": 8638.25,
+            "SS Gearless Auto Door": 8638.25
+          }
+        }
+      ],
+      "Weight counter with granite floor": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 15314,
+            "SS Auto Door": 15314,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 15314,
+            "SS Gearless Auto Door": 15314
+          },
+          "totals": {
+            "MS Auto Door": 15314,
+            "SS Auto Door": 15314,
+            "MS Manual Door": 15314,
+            "SS Manual Door": 15314,
+            "MS Gearless Auto Door": 15314,
+            "SS Gearless Auto Door": 15314
+          }
+        }
+      ],
+      "Sensor door": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 4500,
+            "SS Auto Door": 4500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 4500,
+            "SS Gearless Auto Door": 4500
+          },
+          "totals": {
+            "MS Auto Door": 4500,
+            "SS Auto Door": 4500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 4500,
+            "SS Gearless Auto Door": 4500
+          }
+        }
+      ],
+      "Wiring": [
+        {
+          "qty_actual": 1,
+          "qty": 38,
+          "unit_costs": {
+            "MS Auto Door": 52,
+            "SS Auto Door": 52,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 52,
+            "SS Gearless Auto Door": 52
+          },
+          "totals": {
+            "MS Auto Door": 1976,
+            "SS Auto Door": 1976,
+            "MS Manual Door": 1976,
+            "SS Manual Door": 1976,
+            "MS Gearless Auto Door": 1976,
+            "SS Gearless Auto Door": 1976
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 43,
+          "unit_costs": {
+            "MS Auto Door": 69,
+            "SS Auto Door": 69,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 69,
+            "SS Gearless Auto Door": 69
+          },
+          "totals": {
+            "MS Auto Door": 2967,
+            "SS Auto Door": 2967,
+            "MS Manual Door": 2967,
+            "SS Manual Door": 2967,
+            "MS Gearless Auto Door": 2967,
+            "SS Gearless Auto Door": 2967
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 175,
+          "unit_costs": {
+            "MS Auto Door": 23,
+            "SS Auto Door": 23,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 23,
+            "SS Gearless Auto Door": 23
+          },
+          "totals": {
+            "MS Auto Door": 4025,
+            "SS Auto Door": 4025,
+            "MS Manual Door": 4025,
+            "SS Manual Door": 4025,
+            "MS Gearless Auto Door": 4025,
+            "SS Gearless Auto Door": 4025
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 50,
+          "unit_costs": {
+            "MS Auto Door": 37.2,
+            "SS Auto Door": 37.2,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 37.2,
+            "SS Gearless Auto Door": 37.2
+          },
+          "totals": {
+            "MS Auto Door": 1860.0000000000002,
+            "SS Auto Door": 1860.0000000000002,
+            "MS Manual Door": 1860.0000000000002,
+            "SS Manual Door": 1860.0000000000002,
+            "MS Gearless Auto Door": 1860.0000000000002,
+            "SS Gearless Auto Door": 1860.0000000000002
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 50,
+          "unit_costs": {
+            "MS Auto Door": 27,
+            "SS Auto Door": 27,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 27,
+            "SS Gearless Auto Door": 27
+          },
+          "totals": {
+            "MS Auto Door": 1350,
+            "SS Auto Door": 1350,
+            "MS Manual Door": 1350,
+            "SS Manual Door": 1350,
+            "MS Gearless Auto Door": 1350,
+            "SS Gearless Auto Door": 1350
+          }
+        }
+      ],
+      "Car Door": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 43245,
+            "SS Auto Door": 57016,
+            "MS Manual Door": 8500,
+            "SS Manual Door": 26500,
+            "MS Gearless Auto Door": 43245,
+            "SS Gearless Auto Door": 57016
+          },
+          "totals": {
+            "MS Auto Door": 43245,
+            "SS Auto Door": 57016,
+            "MS Manual Door": 8500,
+            "SS Manual Door": 26500,
+            "MS Gearless Auto Door": 43245,
+            "SS Gearless Auto Door": 57016
+          }
+        }
+      ],
+      "Landing Door": [
+        {
+          "qty_actual": 4,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 17880,
+            "SS Auto Door": 40191,
+            "MS Manual Door": 12300,
+            "SS Manual Door": 36500,
+            "MS Gearless Auto Door": 17880,
+            "SS Gearless Auto Door": 40191
+          },
+          "totals": {
+            "MS Auto Door": 71520,
+            "SS Auto Door": 160764,
+            "MS Manual Door": 49200,
+            "SS Manual Door": 146000,
+            "MS Gearless Auto Door": 71520,
+            "SS Gearless Auto Door": 160764
+          }
+        }
+      ],
+      "OTHER": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 25000,
+            "SS Auto Door": 25000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 25000,
+            "SS Gearless Auto Door": 25000
+          },
+          "totals": {
+            "MS Auto Door": 25000,
+            "SS Auto Door": 25000,
+            "MS Manual Door": 25000,
+            "SS Manual Door": 25000,
+            "MS Gearless Auto Door": 25000,
+            "SS Gearless Auto Door": 25000
+          }
+        }
+      ],
+      "Freight": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 5000,
+            "SS Auto Door": 5000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          },
+          "totals": {
+            "MS Auto Door": 5000,
+            "SS Auto Door": 5000,
+            "MS Manual Door": 5000,
+            "SS Manual Door": 5000,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          }
+        }
+      ],
+      "loading & Unloading": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 5000,
+            "SS Auto Door": 5000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          },
+          "totals": {
+            "MS Auto Door": 5000,
+            "SS Auto Door": 5000,
+            "MS Manual Door": 5000,
+            "SS Manual Door": 5000,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          }
+        }
+      ],
+      "Scafolding": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 7500,
+            "SS Auto Door": 7500,
+            "MS Manual Door": 7500,
+            "SS Manual Door": 7500,
+            "MS Gearless Auto Door": 7500,
+            "SS Gearless Auto Door": 7500
+          },
+          "totals": {
+            "MS Auto Door": 7500,
+            "SS Auto Door": 7500,
+            "MS Manual Door": 7500,
+            "SS Manual Door": 7500,
+            "MS Gearless Auto Door": 7500,
+            "SS Gearless Auto Door": 7500
+          }
+        }
+      ],
+      "Installation local 10000": [
+        {
+          "qty_actual": 4,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 12000,
+            "SS Auto Door": 12000,
+            "MS Manual Door": 12000,
+            "SS Manual Door": 12000,
+            "MS Gearless Auto Door": 12000,
+            "SS Gearless Auto Door": 12000
+          },
+          "totals": {
+            "MS Auto Door": 48000,
+            "SS Auto Door": 48000,
+            "MS Manual Door": 48000,
+            "SS Manual Door": 48000,
+            "MS Gearless Auto Door": 48000,
+            "SS Gearless Auto Door": 48000
+          }
+        }
+      ],
+      "Commissioing": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 12000,
+            "SS Auto Door": 12000,
+            "MS Manual Door": 12000,
+            "SS Manual Door": 12000,
+            "MS Gearless Auto Door": 12000,
+            "SS Gearless Auto Door": 12000
+          },
+          "totals": {
+            "MS Auto Door": 12000,
+            "SS Auto Door": 12000,
+            "MS Manual Door": 12000,
+            "SS Manual Door": 12000,
+            "MS Gearless Auto Door": 12000,
+            "SS Gearless Auto Door": 12000
+          }
+        }
+      ],
+      "Warranty": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 27928.8425,
+            "SS Auto Door": 35079.5925,
+            "MS Manual Door": 24850.5925,
+            "SS Manual Door": 32590.5925,
+            "MS Gearless Auto Door": 31261.752500000002,
+            "SS Gearless Auto Door": 38662.5025
+          },
+          "totals": {
+            "MS Auto Door": 27928.8425,
+            "SS Auto Door": 35079.5925,
+            "MS Manual Door": 24850.5925,
+            "SS Manual Door": 32590.5925,
+            "MS Gearless Auto Door": 31261.752500000002,
+            "SS Gearless Auto Door": 38662.5025
+          }
+        }
+      ]
+    },
+    "install": {
+      "qty": 4,
+      "unit_costs": {
+        "MS Auto Door": 12000,
+        "SS Auto Door": 12000,
+        "MS Manual Door": 12000,
+        "SS Manual Door": 12000,
+        "MS Gearless Auto Door": 12000,
+        "SS Gearless Auto Door": 12000
+      }
+    }
+  },
+  "13": {
+    "lopcop_by_stops": {},
+    "guiderail_qty_by_stops": {
+      "2": 4,
+      "3": 6,
+      "4": 8
+    },
+    "floor_heights": {
+      "Pit": 1600,
+      "G to1": 3800,
+      "1 to 2": 3800,
+      "2 to 3": 3900,
+      "overhead": 4800,
+      "Total": 17900,
+      " ": 13000
+    },
+    "items": {
+      "Passenger/Goods": [
+        {
+          "qty_actual": " ",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 13,
+            "SS Auto Door": 2,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 14000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Stops": [
+        {
+          "qty_actual": " ",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 4,
+            "SS Auto Door": 3,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 16450,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3800
+          }
+        }
+      ],
+      "Speed": [
+        {
+          "qty_actual": 0.65,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 1,
+            "SS Auto Door": 4,
+            "MS Manual Door": 25000,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 18900,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3800
+          }
+        }
+      ],
+      "Geared/Gearless": [
+        {
+          "qty_actual": "geared",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 5,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 21350,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3900
+          }
+        }
+      ],
+      "Car Construction": [
+        {
+          "qty_actual": "ms",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 6,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 23800,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Construction": [
+        {
+          "qty_actual": "ms",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 7,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 26250,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Type": [
+        {
+          "qty_actual": "co",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 8,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 28700,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Size": [
+        {
+          "qty_actual": "centre",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 700,
+            "SS Auto Door": 9,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 31150,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Flooring": [
+        {
+          "qty_actual": "pvc",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 10,
+            "MS Manual Door": 16.216216216216218,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 33600,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Guide rail": [
+        {
+          "qty_actual": 7.16,
+          "qty": 8,
+          "unit_costs": {
+            "MS Auto Door": 8200,
+            "SS Auto Door": 8200,
+            "MS Manual Door": 8200,
+            "SS Manual Door": 8200,
+            "MS Gearless Auto Door": 8200,
+            "SS Gearless Auto Door": 8200
+          },
+          "totals": {
+            "MS Auto Door": 65600,
+            "SS Auto Door": 65600,
+            "MS Manual Door": 65600,
+            "SS Manual Door": 65600,
+            "MS Gearless Auto Door": 65600,
+            "SS Gearless Auto Door": 65600
+          }
+        }
+      ],
+      "Bracket": [
+        {
+          "qty_actual": 10.5,
+          "qty": 11,
+          "unit_costs": {
+            "MS Auto Door": 1950,
+            "SS Auto Door": 1950,
+            "MS Manual Door": 7200,
+            "SS Manual Door": 7200,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 21450,
+            "SS Auto Door": 21450,
+            "MS Manual Door": 21450,
+            "SS Manual Door": 21450,
+            "MS Gearless Auto Door": 21450,
+            "SS Gearless Auto Door": 21450
+          }
+        }
+      ],
+      "Car cabin": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 85000,
+            "SS Auto Door": 120000,
+            "MS Manual Door": 85000,
+            "SS Manual Door": 120000,
+            "MS Gearless Auto Door": 85000,
+            "SS Gearless Auto Door": 120000
+          },
+          "totals": {
+            "MS Auto Door": 85000,
+            "SS Auto Door": 120000,
+            "MS Manual Door": 85000,
+            "SS Manual Door": 120000,
+            "MS Gearless Auto Door": 85000,
+            "SS Gearless Auto Door": 120000
+          }
+        }
+      ],
+      "Overload": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 13000,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 13000,
+            "SS Auto Door": 13000,
+            "MS Manual Door": 13000,
+            "SS Manual Door": 13000,
+            "MS Gearless Auto Door": 13000,
+            "SS Gearless Auto Door": 13000
+          }
+        }
+      ],
+      "Cabin Packing Charges": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 3500,
+            "SS Auto Door": 3500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 3500,
+            "SS Gearless Auto Door": 3500
+          },
+          "totals": {
+            "MS Auto Door": 3500,
+            "SS Auto Door": 3500,
+            "MS Manual Door": 3500,
+            "SS Manual Door": 3500,
+            "MS Gearless Auto Door": 3500,
+            "SS Gearless Auto Door": 3500
+          }
+        }
+      ],
+      "Cabin inward Transport & local Freight": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 6000,
+            "SS Auto Door": 6000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 6000,
+            "SS Gearless Auto Door": 6000
+          },
+          "totals": {
+            "MS Auto Door": 6000,
+            "SS Auto Door": 6000,
+            "MS Manual Door": 6000,
+            "SS Manual Door": 6000,
+            "MS Gearless Auto Door": 6000,
+            "SS Gearless Auto Door": 6000
+          }
+        }
+      ],
+      "Controlller with Drive +DBR": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 64000,
+            "SS Auto Door": 64000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 64000,
+            "SS Auto Door": 64000,
+            "MS Manual Door": 64000,
+            "SS Manual Door": 64000,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Controller with Drive +DBR": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 85000,
+            "SS Gearless Auto Door": 85000
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 85000,
+            "SS Gearless Auto Door": 85000
+          }
+        }
+      ],
+      "ARD (UPS) with battery": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 26500,
+            "SS Auto Door": 26500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 17000,
+            "SS Gearless Auto Door": 26500
+          },
+          "totals": {
+            "MS Auto Door": 26500,
+            "SS Auto Door": 26500,
+            "MS Manual Door": 26500,
+            "SS Manual Door": 26500,
+            "MS Gearless Auto Door": 17000,
+            "SS Gearless Auto Door": 26500
+          }
+        }
+      ],
+      "LOP/COP": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 21900,
+            "SS Auto Door": 21900,
+            "MS Manual Door": 21900,
+            "SS Manual Door": 21900,
+            "MS Gearless Auto Door": 21900,
+            "SS Gearless Auto Door": 21900
+          },
+          "totals": {
+            "MS Auto Door": 21900,
+            "SS Auto Door": 21900,
+            "MS Manual Door": 21900,
+            "SS Manual Door": 21900,
+            "MS Gearless Auto Door": 21900,
+            "SS Gearless Auto Door": 21900
+          }
+        }
+      ],
+      "Motor": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 66500,
+            "SS Auto Door": 66500,
+            "MS Manual Door": null,
+            "SS Manual Door": 66500,
+            "MS Gearless Auto Door": 120000,
+            "SS Gearless Auto Door": 120000
+          },
+          "totals": {
+            "MS Auto Door": 66500,
+            "SS Auto Door": 66500,
+            "MS Manual Door": 66500,
+            "SS Manual Door": 66500,
+            "MS Gearless Auto Door": 120000,
+            "SS Gearless Auto Door": 120000
+          }
+        }
+      ],
+      "Motor Hosting": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 10000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          },
+          "totals": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 10000,
+            "MS Manual Door": 10000,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          }
+        }
+      ],
+      "Rope": [
+        {
+          "qty_actual": 79.6,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 113,
+            "SS Auto Door": 113,
+            "MS Manual Door": 113,
+            "SS Manual Door": 113,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 8994.8,
+            "SS Auto Door": 8994.8,
+            "MS Manual Door": 8994.8,
+            "SS Manual Door": 8994.8,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        },
+        {
+          "qty_actual": 226.79999999999998,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 77,
+            "SS Gearless Auto Door": 77
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 17463.6,
+            "SS Gearless Auto Door": 17463.6
+          }
+        }
+      ],
+      "Cable": [
+        {
+          "qty_actual": 95.6,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 128,
+            "SS Auto Door": 128,
+            "MS Manual Door": 128,
+            "SS Manual Door": 128,
+            "MS Gearless Auto Door": 128,
+            "SS Gearless Auto Door": 128
+          },
+          "totals": {
+            "MS Auto Door": 12236.8,
+            "SS Auto Door": 12236.8,
+            "MS Manual Door": 12236.8,
+            "SS Manual Door": 12236.8,
+            "MS Gearless Auto Door": 12236.8,
+            "SS Gearless Auto Door": 12236.8
+          }
+        }
+      ],
+      "Geared/Gearless Safety": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 80000,
+            "SS Auto Door": 80000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 80000,
+            "SS Gearless Auto Door": 80000
+          },
+          "totals": {
+            "MS Auto Door": 80000,
+            "SS Auto Door": 80000,
+            "MS Manual Door": 80000,
+            "SS Manual Door": 80000,
+            "MS Gearless Auto Door": 80000,
+            "SS Gearless Auto Door": 80000
+          }
+        }
+      ],
+      "OSG with rope": [
+        {
+          "qty_actual": 56.699999999999996,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 9365.9,
+            "SS Auto Door": 9365.9,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 9365.9,
+            "SS Gearless Auto Door": 9365.9
+          },
+          "totals": {
+            "MS Auto Door": 9365.9,
+            "SS Auto Door": 9365.9,
+            "MS Manual Door": 9365.9,
+            "SS Manual Door": 9365.9,
+            "MS Gearless Auto Door": 9365.9,
+            "SS Gearless Auto Door": 9365.9
+          }
+        }
+      ],
+      "Weight counter with granite floor": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 18755,
+            "SS Auto Door": 18755,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 18755,
+            "SS Gearless Auto Door": 18755
+          },
+          "totals": {
+            "MS Auto Door": 18755,
+            "SS Auto Door": 18755,
+            "MS Manual Door": 18755,
+            "SS Manual Door": 18755,
+            "MS Gearless Auto Door": 18755,
+            "SS Gearless Auto Door": 18755
+          }
+        }
+      ],
+      "Sensor door": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 4500,
+            "SS Auto Door": 4500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 4500,
+            "SS Gearless Auto Door": 4500
+          },
+          "totals": {
+            "MS Auto Door": 4500,
+            "SS Auto Door": 4500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 4500,
+            "SS Gearless Auto Door": 4500
+          }
+        }
+      ],
+      "Wiring": [
+        {
+          "qty_actual": 1,
+          "qty": 38,
+          "unit_costs": {
+            "MS Auto Door": 52,
+            "SS Auto Door": 52,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 52,
+            "SS Gearless Auto Door": 52
+          },
+          "totals": {
+            "MS Auto Door": 1976,
+            "SS Auto Door": 1976,
+            "MS Manual Door": 1976,
+            "SS Manual Door": 1976,
+            "MS Gearless Auto Door": 1976,
+            "SS Gearless Auto Door": 1976
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 43,
+          "unit_costs": {
+            "MS Auto Door": 69,
+            "SS Auto Door": 69,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 69,
+            "SS Gearless Auto Door": 69
+          },
+          "totals": {
+            "MS Auto Door": 2967,
+            "SS Auto Door": 2967,
+            "MS Manual Door": 2967,
+            "SS Manual Door": 2967,
+            "MS Gearless Auto Door": 2967,
+            "SS Gearless Auto Door": 2967
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 175,
+          "unit_costs": {
+            "MS Auto Door": 23,
+            "SS Auto Door": 23,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 23,
+            "SS Gearless Auto Door": 23
+          },
+          "totals": {
+            "MS Auto Door": 4025,
+            "SS Auto Door": 4025,
+            "MS Manual Door": 4025,
+            "SS Manual Door": 4025,
+            "MS Gearless Auto Door": 4025,
+            "SS Gearless Auto Door": 4025
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 50,
+          "unit_costs": {
+            "MS Auto Door": 37.2,
+            "SS Auto Door": 37.2,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 37.2,
+            "SS Gearless Auto Door": 37.2
+          },
+          "totals": {
+            "MS Auto Door": 1860.0000000000002,
+            "SS Auto Door": 1860.0000000000002,
+            "MS Manual Door": 1860.0000000000002,
+            "SS Manual Door": 1860.0000000000002,
+            "MS Gearless Auto Door": 1860.0000000000002,
+            "SS Gearless Auto Door": 1860.0000000000002
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 50,
+          "unit_costs": {
+            "MS Auto Door": 27,
+            "SS Auto Door": 27,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 27,
+            "SS Gearless Auto Door": 27
+          },
+          "totals": {
+            "MS Auto Door": 1350,
+            "SS Auto Door": 1350,
+            "MS Manual Door": 1350,
+            "SS Manual Door": 1350,
+            "MS Gearless Auto Door": 1350,
+            "SS Gearless Auto Door": 1350
+          }
+        }
+      ],
+      "Car Door": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 44864,
+            "SS Auto Door": 60994,
+            "MS Manual Door": 8500,
+            "SS Manual Door": 26500,
+            "MS Gearless Auto Door": 44864,
+            "SS Gearless Auto Door": 60994
+          },
+          "totals": {
+            "MS Auto Door": 44864,
+            "SS Auto Door": 60994,
+            "MS Manual Door": 8500,
+            "SS Manual Door": 26500,
+            "MS Gearless Auto Door": 44864,
+            "SS Gearless Auto Door": 60994
+          }
+        }
+      ],
+      "Landing Door": [
+        {
+          "qty_actual": 4,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 18754,
+            "SS Auto Door": 41731,
+            "MS Manual Door": 12300,
+            "SS Manual Door": 36500,
+            "MS Gearless Auto Door": 18754,
+            "SS Gearless Auto Door": 43731
+          },
+          "totals": {
+            "MS Auto Door": 75016,
+            "SS Auto Door": 166924,
+            "MS Manual Door": 49200,
+            "SS Manual Door": 146000,
+            "MS Gearless Auto Door": 75016,
+            "SS Gearless Auto Door": 174924
+          }
+        }
+      ],
+      "OTHER": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 25000,
+            "SS Auto Door": 25000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 25000,
+            "SS Gearless Auto Door": 25000
+          },
+          "totals": {
+            "MS Auto Door": 25000,
+            "SS Auto Door": 25000,
+            "MS Manual Door": 25000,
+            "SS Manual Door": 25000,
+            "MS Gearless Auto Door": 25000,
+            "SS Gearless Auto Door": 25000
+          }
+        }
+      ],
+      "Freight": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 7000,
+            "SS Auto Door": 7000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 7000,
+            "SS Gearless Auto Door": 7000
+          },
+          "totals": {
+            "MS Auto Door": 7000,
+            "SS Auto Door": 7000,
+            "MS Manual Door": 5000,
+            "SS Manual Door": 5000,
+            "MS Gearless Auto Door": 7000,
+            "SS Gearless Auto Door": 7000
+          }
+        }
+      ],
+      "loading & Unloading": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 7000,
+            "SS Auto Door": 7000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 7000,
+            "SS Gearless Auto Door": 7000
+          },
+          "totals": {
+            "MS Auto Door": 7000,
+            "SS Auto Door": 7000,
+            "MS Manual Door": 7000,
+            "SS Manual Door": 7000,
+            "MS Gearless Auto Door": 7000,
+            "SS Gearless Auto Door": 7000
+          }
+        }
+      ],
+      "Scafolding": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 7500,
+            "MS Manual Door": 7500,
+            "SS Manual Door": 7500,
+            "MS Gearless Auto Door": 7500,
+            "SS Gearless Auto Door": 7500
+          },
+          "totals": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 7500,
+            "MS Manual Door": 7500,
+            "SS Manual Door": 7500,
+            "MS Gearless Auto Door": 7500,
+            "SS Gearless Auto Door": 7500
+          }
+        }
+      ],
+      "Installation local 10000": [
+        {
+          "qty_actual": 4,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 14000,
+            "SS Auto Door": 14000,
+            "MS Manual Door": 14000,
+            "SS Manual Door": 14000,
+            "MS Gearless Auto Door": 14000,
+            "SS Gearless Auto Door": 14000
+          },
+          "totals": {
+            "MS Auto Door": 56000,
+            "SS Auto Door": 56000,
+            "MS Manual Door": 56000,
+            "SS Manual Door": 56000,
+            "MS Gearless Auto Door": 56000,
+            "SS Gearless Auto Door": 56000
+          }
+        }
+      ],
+      "Commissioing": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 12000,
+            "SS Auto Door": 12000,
+            "MS Manual Door": 12000,
+            "SS Manual Door": 12000,
+            "MS Gearless Auto Door": 12000,
+            "SS Gearless Auto Door": 12000
+          },
+          "totals": {
+            "MS Auto Door": 12000,
+            "SS Auto Door": 12000,
+            "MS Manual Door": 12000,
+            "SS Manual Door": 12000,
+            "MS Gearless Auto Door": 12000,
+            "SS Gearless Auto Door": 12000
+          }
+        }
+      ],
+      "Warranty": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 34918.025,
+            "SS Auto Door": 41944.925,
+            "MS Manual Door": 31359.025,
+            "SS Manual Door": 38849.025,
+            "MS Gearless Auto Door": 38216.465,
+            "SS Gearless Auto Door": 46243.365
+          },
+          "totals": {
+            "MS Auto Door": 34918.025,
+            "SS Auto Door": 41944.925,
+            "MS Manual Door": 31359.025,
+            "SS Manual Door": 38849.025,
+            "MS Gearless Auto Door": 38216.465,
+            "SS Gearless Auto Door": 46243.365
+          }
+        }
+      ]
+    },
+    "install": {
+      "qty": 4,
+      "unit_costs": {
+        "MS Auto Door": 14000,
+        "SS Auto Door": 14000,
+        "MS Manual Door": 14000,
+        "SS Manual Door": 14000,
+        "MS Gearless Auto Door": 14000,
+        "SS Gearless Auto Door": 14000
+      }
+    }
+  },
+  "15": {
+    "lopcop_by_stops": {},
+    "guiderail_qty_by_stops": {
+      "2": 4,
+      "3": 6,
+      "4": 8
+    },
+    "floor_heights": {
+      "Pit": 1600,
+      "G to1": 3800,
+      "1 to 2": 3800,
+      "2 to 3": 3900,
+      "overhead": 4800,
+      "Total": 17900,
+      " ": 13000
+    },
+    "items": {
+      "Passenger/Goods": [
+        {
+          "qty_actual": " ",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 15,
+            "SS Auto Door": 2,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 14000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Stops": [
+        {
+          "qty_actual": " ",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 4,
+            "SS Auto Door": 3,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 16450,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3800
+          }
+        }
+      ],
+      "Speed": [
+        {
+          "qty_actual": 0.65,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 1,
+            "SS Auto Door": 4,
+            "MS Manual Door": 25000,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 18900,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3800
+          }
+        }
+      ],
+      "Geared/Gearless": [
+        {
+          "qty_actual": "geared",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 5,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 21350,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3900
+          }
+        }
+      ],
+      "Car Construction": [
+        {
+          "qty_actual": "ms",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 6,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 23800,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Construction": [
+        {
+          "qty_actual": "ms",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 7,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 26250,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Type": [
+        {
+          "qty_actual": "co",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 8,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 28700,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Size": [
+        {
+          "qty_actual": "centre",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 700,
+            "SS Auto Door": 9,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 31150,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Flooring": [
+        {
+          "qty_actual": "pvc",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 10,
+            "MS Manual Door": 16.216216216216218,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 33600,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Guide rail": [
+        {
+          "qty_actual": 7.16,
+          "qty": 8,
+          "unit_costs": {
+            "MS Auto Door": 8200,
+            "SS Auto Door": 8200,
+            "MS Manual Door": 8200,
+            "SS Manual Door": 8200,
+            "MS Gearless Auto Door": 8200,
+            "SS Gearless Auto Door": 8200
+          },
+          "totals": {
+            "MS Auto Door": 65600,
+            "SS Auto Door": 65600,
+            "MS Manual Door": 65600,
+            "SS Manual Door": 65600,
+            "MS Gearless Auto Door": 65600,
+            "SS Gearless Auto Door": 65600
+          }
+        }
+      ],
+      "Bracket": [
+        {
+          "qty_actual": 10.5,
+          "qty": 11,
+          "unit_costs": {
+            "MS Auto Door": 1950,
+            "SS Auto Door": 1950,
+            "MS Manual Door": 7200,
+            "SS Manual Door": 7200,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 21450,
+            "SS Auto Door": 21450,
+            "MS Manual Door": 21450,
+            "SS Manual Door": 21450,
+            "MS Gearless Auto Door": 21450,
+            "SS Gearless Auto Door": 21450
+          }
+        }
+      ],
+      "Car cabin": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 85000,
+            "SS Auto Door": 130000,
+            "MS Manual Door": 85000,
+            "SS Manual Door": 130000,
+            "MS Gearless Auto Door": 85000,
+            "SS Gearless Auto Door": 130000
+          },
+          "totals": {
+            "MS Auto Door": 85000,
+            "SS Auto Door": 130000,
+            "MS Manual Door": 85000,
+            "SS Manual Door": 130000,
+            "MS Gearless Auto Door": 85000,
+            "SS Gearless Auto Door": 130000
+          }
+        }
+      ],
+      "Overload": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 13000,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 13000,
+            "SS Auto Door": 13000,
+            "MS Manual Door": 13000,
+            "SS Manual Door": 13000,
+            "MS Gearless Auto Door": 13000,
+            "SS Gearless Auto Door": 13000
+          }
+        }
+      ],
+      "Cabin Packing Charges": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 3500,
+            "SS Auto Door": 3500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 3500,
+            "SS Gearless Auto Door": 3500
+          },
+          "totals": {
+            "MS Auto Door": 3500,
+            "SS Auto Door": 3500,
+            "MS Manual Door": 3500,
+            "SS Manual Door": 3500,
+            "MS Gearless Auto Door": 3500,
+            "SS Gearless Auto Door": 3500
+          }
+        }
+      ],
+      "Cabin inward Transport & local Freight": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 6000,
+            "SS Auto Door": 6000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 6000,
+            "SS Gearless Auto Door": 6000
+          },
+          "totals": {
+            "MS Auto Door": 6000,
+            "SS Auto Door": 6000,
+            "MS Manual Door": 6000,
+            "SS Manual Door": 6000,
+            "MS Gearless Auto Door": 6000,
+            "SS Gearless Auto Door": 6000
+          }
+        }
+      ],
+      "Controlller with Drive +DBR": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 64000,
+            "SS Auto Door": 64000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 64000,
+            "SS Auto Door": 64000,
+            "MS Manual Door": 64000,
+            "SS Manual Door": 64000,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Controller with Drive +DBR": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 85000,
+            "SS Gearless Auto Door": 85000
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 85000,
+            "SS Gearless Auto Door": 85000
+          }
+        }
+      ],
+      "ARD (UPS) with battery": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 26500,
+            "SS Auto Door": 26500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 17000,
+            "SS Gearless Auto Door": 26500
+          },
+          "totals": {
+            "MS Auto Door": 26500,
+            "SS Auto Door": 26500,
+            "MS Manual Door": 26500,
+            "SS Manual Door": 26500,
+            "MS Gearless Auto Door": 17000,
+            "SS Gearless Auto Door": 26500
+          }
+        }
+      ],
+      "LOP/COP": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 21900,
+            "SS Auto Door": 21900,
+            "MS Manual Door": 21900,
+            "SS Manual Door": 21900,
+            "MS Gearless Auto Door": 21900,
+            "SS Gearless Auto Door": 21900
+          },
+          "totals": {
+            "MS Auto Door": 21900,
+            "SS Auto Door": 21900,
+            "MS Manual Door": 21900,
+            "SS Manual Door": 21900,
+            "MS Gearless Auto Door": 21900,
+            "SS Gearless Auto Door": 21900
+          }
+        }
+      ],
+      "Motor": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 66500,
+            "SS Auto Door": 66500,
+            "MS Manual Door": null,
+            "SS Manual Door": 66500,
+            "MS Gearless Auto Door": 120000,
+            "SS Gearless Auto Door": 120000
+          },
+          "totals": {
+            "MS Auto Door": 66500,
+            "SS Auto Door": 66500,
+            "MS Manual Door": 66500,
+            "SS Manual Door": 66500,
+            "MS Gearless Auto Door": 120000,
+            "SS Gearless Auto Door": 120000
+          }
+        }
+      ],
+      "Motor Hosting": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 10000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          },
+          "totals": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 10000,
+            "MS Manual Door": 10000,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          }
+        }
+      ],
+      "Rope": [
+        {
+          "qty_actual": 79.6,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 113,
+            "SS Auto Door": 113,
+            "MS Manual Door": 113,
+            "SS Manual Door": 113,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 8994.8,
+            "SS Auto Door": 8994.8,
+            "MS Manual Door": 8994.8,
+            "SS Manual Door": 8994.8,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        },
+        {
+          "qty_actual": 264.59999999999997,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 77,
+            "SS Gearless Auto Door": 77
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 20374.199999999997,
+            "SS Gearless Auto Door": 20374.199999999997
+          }
+        }
+      ],
+      "Cable": [
+        {
+          "qty_actual": 95.6,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 128,
+            "SS Auto Door": 128,
+            "MS Manual Door": 128,
+            "SS Manual Door": 128,
+            "MS Gearless Auto Door": 128,
+            "SS Gearless Auto Door": 128
+          },
+          "totals": {
+            "MS Auto Door": 12236.8,
+            "SS Auto Door": 12236.8,
+            "MS Manual Door": 12236.8,
+            "SS Manual Door": 12236.8,
+            "MS Gearless Auto Door": 12236.8,
+            "SS Gearless Auto Door": 12236.8
+          }
+        }
+      ],
+      "Geared/Gearless Safety": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 80000,
+            "SS Auto Door": 80000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 80000,
+            "SS Gearless Auto Door": 80000
+          },
+          "totals": {
+            "MS Auto Door": 80000,
+            "SS Auto Door": 80000,
+            "MS Manual Door": 80000,
+            "SS Manual Door": 80000,
+            "MS Gearless Auto Door": 80000,
+            "SS Gearless Auto Door": 80000
+          }
+        }
+      ],
+      "OSG with rope": [
+        {
+          "qty_actual": 66.14999999999999,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 10093.55,
+            "SS Auto Door": 10093.55,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 10093.55,
+            "SS Gearless Auto Door": 10093.55
+          },
+          "totals": {
+            "MS Auto Door": 10093.55,
+            "SS Auto Door": 10093.55,
+            "MS Manual Door": 10093.55,
+            "SS Manual Door": 10093.55,
+            "MS Gearless Auto Door": 10093.55,
+            "SS Gearless Auto Door": 10093.55
+          }
+        }
+      ],
+      "Weight counter with granite floor": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 23017.5,
+            "SS Auto Door": 23017.5,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 23017.5,
+            "SS Gearless Auto Door": 23017.5
+          },
+          "totals": {
+            "MS Auto Door": 23017.5,
+            "SS Auto Door": 23017.5,
+            "MS Manual Door": 23017.5,
+            "SS Manual Door": 23017.5,
+            "MS Gearless Auto Door": 23017.5,
+            "SS Gearless Auto Door": 23017.5
+          }
+        }
+      ],
+      "Sensor door": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 4500,
+            "SS Auto Door": 4500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 4500,
+            "SS Gearless Auto Door": 4500
+          },
+          "totals": {
+            "MS Auto Door": 4500,
+            "SS Auto Door": 4500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 4500,
+            "SS Gearless Auto Door": 4500
+          }
+        }
+      ],
+      "Wiring": [
+        {
+          "qty_actual": 1,
+          "qty": 38,
+          "unit_costs": {
+            "MS Auto Door": 52,
+            "SS Auto Door": 52,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 52,
+            "SS Gearless Auto Door": 52
+          },
+          "totals": {
+            "MS Auto Door": 1976,
+            "SS Auto Door": 1976,
+            "MS Manual Door": 1976,
+            "SS Manual Door": 1976,
+            "MS Gearless Auto Door": 1976,
+            "SS Gearless Auto Door": 1976
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 43,
+          "unit_costs": {
+            "MS Auto Door": 69,
+            "SS Auto Door": 69,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 69,
+            "SS Gearless Auto Door": 69
+          },
+          "totals": {
+            "MS Auto Door": 2967,
+            "SS Auto Door": 2967,
+            "MS Manual Door": 2967,
+            "SS Manual Door": 2967,
+            "MS Gearless Auto Door": 2967,
+            "SS Gearless Auto Door": 2967
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 175,
+          "unit_costs": {
+            "MS Auto Door": 23,
+            "SS Auto Door": 23,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 23,
+            "SS Gearless Auto Door": 23
+          },
+          "totals": {
+            "MS Auto Door": 4025,
+            "SS Auto Door": 4025,
+            "MS Manual Door": 4025,
+            "SS Manual Door": 4025,
+            "MS Gearless Auto Door": 4025,
+            "SS Gearless Auto Door": 4025
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 50,
+          "unit_costs": {
+            "MS Auto Door": 37.2,
+            "SS Auto Door": 37.2,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 37.2,
+            "SS Gearless Auto Door": 37.2
+          },
+          "totals": {
+            "MS Auto Door": 1860.0000000000002,
+            "SS Auto Door": 1860.0000000000002,
+            "MS Manual Door": 1860.0000000000002,
+            "SS Manual Door": 1860.0000000000002,
+            "MS Gearless Auto Door": 1860.0000000000002,
+            "SS Gearless Auto Door": 1860.0000000000002
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 50,
+          "unit_costs": {
+            "MS Auto Door": 27,
+            "SS Auto Door": 27,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 27,
+            "SS Gearless Auto Door": 27
+          },
+          "totals": {
+            "MS Auto Door": 1350,
+            "SS Auto Door": 1350,
+            "MS Manual Door": 1350,
+            "SS Manual Door": 1350,
+            "MS Gearless Auto Door": 1350,
+            "SS Gearless Auto Door": 1350
+          }
+        }
+      ],
+      "Car Door": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 44864,
+            "SS Auto Door": 60995,
+            "MS Manual Door": 8500,
+            "SS Manual Door": 26500,
+            "MS Gearless Auto Door": 44864,
+            "SS Gearless Auto Door": 60995
+          },
+          "totals": {
+            "MS Auto Door": 44864,
+            "SS Auto Door": 60995,
+            "MS Manual Door": 8500,
+            "SS Manual Door": 26500,
+            "MS Gearless Auto Door": 44864,
+            "SS Gearless Auto Door": 60995
+          }
+        }
+      ],
+      "Landing Door": [
+        {
+          "qty_actual": 4,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 18754,
+            "SS Auto Door": 41731,
+            "MS Manual Door": 12300,
+            "SS Manual Door": 36500,
+            "MS Gearless Auto Door": 18754,
+            "SS Gearless Auto Door": 41731
+          },
+          "totals": {
+            "MS Auto Door": 75016,
+            "SS Auto Door": 166924,
+            "MS Manual Door": 49200,
+            "SS Manual Door": 146000,
+            "MS Gearless Auto Door": 75016,
+            "SS Gearless Auto Door": 166924
+          }
+        }
+      ],
+      "OTHER": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 25000,
+            "SS Auto Door": 25000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 25000,
+            "SS Gearless Auto Door": 25000
+          },
+          "totals": {
+            "MS Auto Door": 25000,
+            "SS Auto Door": 25000,
+            "MS Manual Door": 25000,
+            "SS Manual Door": 25000,
+            "MS Gearless Auto Door": 25000,
+            "SS Gearless Auto Door": 25000
+          }
+        }
+      ],
+      "Freight": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 7000,
+            "SS Auto Door": 7000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 7000,
+            "SS Gearless Auto Door": 7000
+          },
+          "totals": {
+            "MS Auto Door": 7000,
+            "SS Auto Door": 7000,
+            "MS Manual Door": 5000,
+            "SS Manual Door": 5000,
+            "MS Gearless Auto Door": 7000,
+            "SS Gearless Auto Door": 7000
+          }
+        }
+      ],
+      "loading & Unloading": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 7000,
+            "SS Auto Door": 7000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 7000,
+            "SS Gearless Auto Door": 7000
+          },
+          "totals": {
+            "MS Auto Door": 7000,
+            "SS Auto Door": 7000,
+            "MS Manual Door": 7000,
+            "SS Manual Door": 7000,
+            "MS Gearless Auto Door": 7000,
+            "SS Gearless Auto Door": 7000
+          }
+        }
+      ],
+      "Scafolding": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 7500,
+            "MS Manual Door": 7500,
+            "SS Manual Door": 7500,
+            "MS Gearless Auto Door": 7500,
+            "SS Gearless Auto Door": 7500
+          },
+          "totals": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 7500,
+            "MS Manual Door": 7500,
+            "SS Manual Door": 7500,
+            "MS Gearless Auto Door": 7500,
+            "SS Gearless Auto Door": 7500
+          }
+        }
+      ],
+      "Installation local 10000": [
+        {
+          "qty_actual": 4,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 14000,
+            "SS Auto Door": 14000,
+            "MS Manual Door": 14000,
+            "SS Manual Door": 14000,
+            "MS Gearless Auto Door": 14000,
+            "SS Gearless Auto Door": 14000
+          },
+          "totals": {
+            "MS Auto Door": 56000,
+            "SS Auto Door": 56000,
+            "MS Manual Door": 56000,
+            "SS Manual Door": 56000,
+            "MS Gearless Auto Door": 56000,
+            "SS Gearless Auto Door": 56000
+          }
+        }
+      ],
+      "Commissioing": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 12000,
+            "SS Auto Door": 12000,
+            "MS Manual Door": 12000,
+            "SS Manual Door": 12000,
+            "MS Gearless Auto Door": 12000,
+            "SS Gearless Auto Door": 12000
+          },
+          "totals": {
+            "MS Auto Door": 12000,
+            "SS Auto Door": 12000,
+            "MS Manual Door": 12000,
+            "SS Manual Door": 12000,
+            "MS Gearless Auto Door": 12000,
+            "SS Gearless Auto Door": 12000
+          }
+        }
+      ],
+      "Warranty": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 35167.532499999994,
+            "SS Auto Door": 42694.482500000006,
+            "MS Manual Door": 31608.532499999998,
+            "SS Manual Door": 39598.5325,
+            "MS Gearless Auto Door": 38611.5025,
+            "SS Gearless Auto Door": 46738.45250000001
+          },
+          "totals": {
+            "MS Auto Door": 35167.532499999994,
+            "SS Auto Door": 42694.482500000006,
+            "MS Manual Door": 31608.532499999998,
+            "SS Manual Door": 39598.5325,
+            "MS Gearless Auto Door": 38611.5025,
+            "SS Gearless Auto Door": 46738.45250000001
+          }
+        }
+      ]
+    },
+    "install": {
+      "qty": 4,
+      "unit_costs": {
+        "MS Auto Door": 14000,
+        "SS Auto Door": 14000,
+        "MS Manual Door": 14000,
+        "SS Manual Door": 14000,
+        "MS Gearless Auto Door": 14000,
+        "SS Gearless Auto Door": 14000
+      }
+    }
+  },
+  "20": {
+    "lopcop_by_stops": {},
+    "guiderail_qty_by_stops": {
+      "2": 4,
+      "3": 6,
+      "4": 8
+    },
+    "floor_heights": {
+      "Pit": 1600,
+      "G to1": 3800,
+      "1 to 2": 3800,
+      "2 to 3": 3900,
+      "overhead": 4800,
+      "Total": 17900,
+      " ": 13000
+    },
+    "items": {
+      "Passenger/Goods": [
+        {
+          "qty_actual": " ",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 20,
+            "SS Auto Door": 2,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 14000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Stops": [
+        {
+          "qty_actual": " ",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 4,
+            "SS Auto Door": 3,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 16450,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3800
+          }
+        }
+      ],
+      "Speed": [
+        {
+          "qty_actual": 0.65,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 1,
+            "SS Auto Door": 4,
+            "MS Manual Door": 25000,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 18900,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3800
+          }
+        }
+      ],
+      "Geared/Gearless": [
+        {
+          "qty_actual": "geared",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 5,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 21350,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3900
+          }
+        }
+      ],
+      "Car Construction": [
+        {
+          "qty_actual": "ms",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 6,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 23800,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Construction": [
+        {
+          "qty_actual": "ms",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 7,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 26250,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Type": [
+        {
+          "qty_actual": "co",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 8,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 28700,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Size": [
+        {
+          "qty_actual": "centre",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 700,
+            "SS Auto Door": 9,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 31150,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Flooring": [
+        {
+          "qty_actual": "pvc",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 10,
+            "MS Manual Door": 16.216216216216218,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 33600,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Guide rail": [
+        {
+          "qty_actual": 7.16,
+          "qty": 8,
+          "unit_costs": {
+            "MS Auto Door": 9200,
+            "SS Auto Door": 9200,
+            "MS Manual Door": 9200,
+            "SS Manual Door": 9200,
+            "MS Gearless Auto Door": 9200,
+            "SS Gearless Auto Door": 9200
+          },
+          "totals": {
+            "MS Auto Door": 73600,
+            "SS Auto Door": 73600,
+            "MS Manual Door": 73600,
+            "SS Manual Door": 73600,
+            "MS Gearless Auto Door": 73600,
+            "SS Gearless Auto Door": 73600
+          }
+        }
+      ],
+      "Bracket": [
+        {
+          "qty_actual": 10.5,
+          "qty": 11,
+          "unit_costs": {
+            "MS Auto Door": 1950,
+            "SS Auto Door": 1950,
+            "MS Manual Door": 7200,
+            "SS Manual Door": 7200,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 21450,
+            "SS Auto Door": 21450,
+            "MS Manual Door": 21450,
+            "SS Manual Door": 21450,
+            "MS Gearless Auto Door": 21450,
+            "SS Gearless Auto Door": 21450
+          }
+        }
+      ],
+      "Car cabin": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 95000,
+            "SS Auto Door": 130000,
+            "MS Manual Door": 95000,
+            "SS Manual Door": 130000,
+            "MS Gearless Auto Door": 95000,
+            "SS Gearless Auto Door": 130000
+          },
+          "totals": {
+            "MS Auto Door": 95000,
+            "SS Auto Door": 130000,
+            "MS Manual Door": 95000,
+            "SS Manual Door": 130000,
+            "MS Gearless Auto Door": 95000,
+            "SS Gearless Auto Door": 130000
+          }
+        }
+      ],
+      "Overload": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 13000,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 13000,
+            "SS Auto Door": 13000,
+            "MS Manual Door": 13000,
+            "SS Manual Door": 13000,
+            "MS Gearless Auto Door": 13000,
+            "SS Gearless Auto Door": 13000
+          }
+        }
+      ],
+      "Cabin Packing Charges": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 3500,
+            "SS Auto Door": 3500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 3500,
+            "SS Gearless Auto Door": 3500
+          },
+          "totals": {
+            "MS Auto Door": 3500,
+            "SS Auto Door": 3500,
+            "MS Manual Door": 3500,
+            "SS Manual Door": 3500,
+            "MS Gearless Auto Door": 3500,
+            "SS Gearless Auto Door": 3500
+          }
+        }
+      ],
+      "Cabin inward Transport & local Freight": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 6000,
+            "SS Auto Door": 6000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 6000,
+            "SS Gearless Auto Door": 6000
+          },
+          "totals": {
+            "MS Auto Door": 6000,
+            "SS Auto Door": 6000,
+            "MS Manual Door": 6000,
+            "SS Manual Door": 6000,
+            "MS Gearless Auto Door": 6000,
+            "SS Gearless Auto Door": 6000
+          }
+        }
+      ],
+      "Controlller with Drive +DBR": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 64000,
+            "SS Auto Door": 64000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 64000,
+            "SS Auto Door": 64000,
+            "MS Manual Door": 64000,
+            "SS Manual Door": 64000,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Controller with Drive +DBR": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 107000,
+            "SS Gearless Auto Door": 107000
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 107000,
+            "SS Gearless Auto Door": 107000
+          }
+        }
+      ],
+      "ARD (UPS) with battery": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 33000,
+            "SS Auto Door": 33000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 26500,
+            "SS Gearless Auto Door": 33000
+          },
+          "totals": {
+            "MS Auto Door": 33000,
+            "SS Auto Door": 33000,
+            "MS Manual Door": 33000,
+            "SS Manual Door": 33000,
+            "MS Gearless Auto Door": 26500,
+            "SS Gearless Auto Door": 33000
+          }
+        }
+      ],
+      "LOP/COP": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 21900,
+            "SS Auto Door": 21900,
+            "MS Manual Door": 21900,
+            "SS Manual Door": 21900,
+            "MS Gearless Auto Door": 21900,
+            "SS Gearless Auto Door": 21900
+          },
+          "totals": {
+            "MS Auto Door": 21900,
+            "SS Auto Door": 21900,
+            "MS Manual Door": 21900,
+            "SS Manual Door": 21900,
+            "MS Gearless Auto Door": 21900,
+            "SS Gearless Auto Door": 21900
+          }
+        }
+      ],
+      "Motor": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 66500,
+            "SS Auto Door": 66500,
+            "MS Manual Door": null,
+            "SS Manual Door": 66500,
+            "MS Gearless Auto Door": 148000,
+            "SS Gearless Auto Door": 148000
+          },
+          "totals": {
+            "MS Auto Door": 66500,
+            "SS Auto Door": 66500,
+            "MS Manual Door": 66500,
+            "SS Manual Door": 66500,
+            "MS Gearless Auto Door": 148000,
+            "SS Gearless Auto Door": 148000
+          }
+        }
+      ],
+      "Motor Hosting": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 10000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          },
+          "totals": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 10000,
+            "MS Manual Door": 10000,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          }
+        }
+      ],
+      "Rope": [
+        {
+          "qty_actual": 99.5,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 113,
+            "SS Auto Door": 113,
+            "MS Manual Door": 113,
+            "SS Manual Door": 113,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 11243.5,
+            "SS Auto Door": 11243.5,
+            "MS Manual Door": 11243.5,
+            "SS Manual Door": 11243.5,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        },
+        {
+          "qty_actual": 302.4,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 96,
+            "SS Gearless Auto Door": 96
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 29030.399999999998,
+            "SS Gearless Auto Door": 29030.399999999998
+          }
+        }
+      ],
+      "Cable": [
+        {
+          "qty_actual": 95.6,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 128,
+            "SS Auto Door": 128,
+            "MS Manual Door": 128,
+            "SS Manual Door": 128,
+            "MS Gearless Auto Door": 128,
+            "SS Gearless Auto Door": 128
+          },
+          "totals": {
+            "MS Auto Door": 12236.8,
+            "SS Auto Door": 12236.8,
+            "MS Manual Door": 12236.8,
+            "SS Manual Door": 12236.8,
+            "MS Gearless Auto Door": 12236.8,
+            "SS Gearless Auto Door": 12236.8
+          }
+        }
+      ],
+      "Geared/Gearless Safety": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 90000,
+            "SS Auto Door": 90000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 90000,
+            "SS Gearless Auto Door": 90000
+          },
+          "totals": {
+            "MS Auto Door": 90000,
+            "SS Auto Door": 90000,
+            "MS Manual Door": 90000,
+            "SS Manual Door": 90000,
+            "MS Gearless Auto Door": 90000,
+            "SS Gearless Auto Door": 90000
+          }
+        }
+      ],
+      "OSG with rope": [
+        {
+          "qty_actual": 75.6,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 12257.599999999999,
+            "SS Auto Door": 12257.599999999999,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 12257.599999999999,
+            "SS Gearless Auto Door": 12257.599999999999
+          },
+          "totals": {
+            "MS Auto Door": 12257.599999999999,
+            "SS Auto Door": 12257.599999999999,
+            "MS Manual Door": 12257.599999999999,
+            "SS Manual Door": 12257.599999999999,
+            "MS Gearless Auto Door": 12257.599999999999,
+            "SS Gearless Auto Door": 12257.599999999999
+          }
+        }
+      ],
+      "Weight counter with granite floor": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 29062.5,
+            "SS Auto Door": 29062.5,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 29062.5,
+            "SS Gearless Auto Door": 29062.5
+          },
+          "totals": {
+            "MS Auto Door": 29062.5,
+            "SS Auto Door": 29062.5,
+            "MS Manual Door": 29062.5,
+            "SS Manual Door": 29062.5,
+            "MS Gearless Auto Door": 29062.5,
+            "SS Gearless Auto Door": 29062.5
+          }
+        }
+      ],
+      "Sensor door": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 4500,
+            "SS Auto Door": 4500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 4500,
+            "SS Gearless Auto Door": 4500
+          },
+          "totals": {
+            "MS Auto Door": 4500,
+            "SS Auto Door": 4500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 4500,
+            "SS Gearless Auto Door": 4500
+          }
+        }
+      ],
+      "Wiring": [
+        {
+          "qty_actual": 1,
+          "qty": 38,
+          "unit_costs": {
+            "MS Auto Door": 52,
+            "SS Auto Door": 52,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 52,
+            "SS Gearless Auto Door": 52
+          },
+          "totals": {
+            "MS Auto Door": 1976,
+            "SS Auto Door": 1976,
+            "MS Manual Door": 1976,
+            "SS Manual Door": 1976,
+            "MS Gearless Auto Door": 1976,
+            "SS Gearless Auto Door": 1976
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 43,
+          "unit_costs": {
+            "MS Auto Door": 69,
+            "SS Auto Door": 69,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 69,
+            "SS Gearless Auto Door": 69
+          },
+          "totals": {
+            "MS Auto Door": 2967,
+            "SS Auto Door": 2967,
+            "MS Manual Door": 2967,
+            "SS Manual Door": 2967,
+            "MS Gearless Auto Door": 2967,
+            "SS Gearless Auto Door": 2967
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 175,
+          "unit_costs": {
+            "MS Auto Door": 23,
+            "SS Auto Door": 23,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 23,
+            "SS Gearless Auto Door": 23
+          },
+          "totals": {
+            "MS Auto Door": 4025,
+            "SS Auto Door": 4025,
+            "MS Manual Door": 4025,
+            "SS Manual Door": 4025,
+            "MS Gearless Auto Door": 4025,
+            "SS Gearless Auto Door": 4025
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 50,
+          "unit_costs": {
+            "MS Auto Door": 37.2,
+            "SS Auto Door": 37.2,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 37.2,
+            "SS Gearless Auto Door": 37.2
+          },
+          "totals": {
+            "MS Auto Door": 1860.0000000000002,
+            "SS Auto Door": 1860.0000000000002,
+            "MS Manual Door": 1860.0000000000002,
+            "SS Manual Door": 1860.0000000000002,
+            "MS Gearless Auto Door": 1860.0000000000002,
+            "SS Gearless Auto Door": 1860.0000000000002
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 50,
+          "unit_costs": {
+            "MS Auto Door": 27,
+            "SS Auto Door": 27,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 27,
+            "SS Gearless Auto Door": 27
+          },
+          "totals": {
+            "MS Auto Door": 1350,
+            "SS Auto Door": 1350,
+            "MS Manual Door": 1350,
+            "SS Manual Door": 1350,
+            "MS Gearless Auto Door": 1350,
+            "SS Gearless Auto Door": 1350
+          }
+        }
+      ],
+      "Car Door": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 55737,
+            "SS Auto Door": 60406,
+            "MS Manual Door": 8500,
+            "SS Manual Door": 26500,
+            "MS Gearless Auto Door": 55737,
+            "SS Gearless Auto Door": 60406
+          },
+          "totals": {
+            "MS Auto Door": 55737,
+            "SS Auto Door": 60406,
+            "MS Manual Door": 8500,
+            "SS Manual Door": 26500,
+            "MS Gearless Auto Door": 55737,
+            "SS Gearless Auto Door": 60406
+          }
+        }
+      ],
+      "Landing Door": [
+        {
+          "qty_actual": 4,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 25045,
+            "SS Auto Door": 33700,
+            "MS Manual Door": 12300,
+            "SS Manual Door": 36500,
+            "MS Gearless Auto Door": 25045,
+            "SS Gearless Auto Door": 33700
+          },
+          "totals": {
+            "MS Auto Door": 100180,
+            "SS Auto Door": 134800,
+            "MS Manual Door": 49200,
+            "SS Manual Door": 146000,
+            "MS Gearless Auto Door": 100180,
+            "SS Gearless Auto Door": 134800
+          }
+        }
+      ],
+      "OTHER": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 30000,
+            "SS Auto Door": 30000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 30000,
+            "SS Gearless Auto Door": 30000
+          },
+          "totals": {
+            "MS Auto Door": 30000,
+            "SS Auto Door": 30000,
+            "MS Manual Door": 30000,
+            "SS Manual Door": 30000,
+            "MS Gearless Auto Door": 30000,
+            "SS Gearless Auto Door": 30000
+          }
+        }
+      ],
+      "Freight": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 10000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 10000,
+            "SS Gearless Auto Door": 10000
+          },
+          "totals": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 10000,
+            "MS Manual Door": 5000,
+            "SS Manual Door": 5000,
+            "MS Gearless Auto Door": 10000,
+            "SS Gearless Auto Door": 10000
+          }
+        }
+      ],
+      "loading & Unloading": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 10000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 10000,
+            "SS Gearless Auto Door": 10000
+          },
+          "totals": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 10000,
+            "MS Manual Door": 10000,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 10000,
+            "SS Gearless Auto Door": 10000
+          }
+        }
+      ],
+      "Scafolding": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 7500,
+            "MS Manual Door": 7500,
+            "SS Manual Door": 7500,
+            "MS Gearless Auto Door": 7500,
+            "SS Gearless Auto Door": 7500
+          },
+          "totals": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 7500,
+            "MS Manual Door": 7500,
+            "SS Manual Door": 7500,
+            "MS Gearless Auto Door": 7500,
+            "SS Gearless Auto Door": 7500
+          }
+        }
+      ],
+      "Installation local 10000": [
+        {
+          "qty_actual": 4,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 17500,
+            "SS Auto Door": 17500,
+            "MS Manual Door": 17500,
+            "SS Manual Door": 17500,
+            "MS Gearless Auto Door": 17500,
+            "SS Gearless Auto Door": 17500
+          },
+          "totals": {
+            "MS Auto Door": 70000,
+            "SS Auto Door": 70000,
+            "MS Manual Door": 70000,
+            "SS Manual Door": 70000,
+            "MS Gearless Auto Door": 70000,
+            "SS Gearless Auto Door": 70000
+          }
+        }
+      ],
+      "Commissioing": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 12000,
+            "SS Auto Door": 12000,
+            "MS Manual Door": 12000,
+            "SS Manual Door": 12000,
+            "MS Gearless Auto Door": 12000,
+            "SS Gearless Auto Door": 12000
+          },
+          "totals": {
+            "MS Auto Door": 12000,
+            "SS Auto Door": 12000,
+            "MS Manual Door": 12000,
+            "SS Manual Door": 12000,
+            "MS Gearless Auto Door": 12000,
+            "SS Gearless Auto Door": 12000
+          }
+        }
+      ],
+      "Warranty": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 39767.270000000004,
+            "SS Auto Door": 43356.72,
+            "MS Manual Door": 34256.420000000006,
+            "SS Manual Door": 41746.420000000006,
+            "MS Gearless Auto Door": 46181.615000000005,
+            "SS Gearless Auto Door": 50221.065
+          },
+          "totals": {
+            "MS Auto Door": 39767.270000000004,
+            "SS Auto Door": 43356.72,
+            "MS Manual Door": 34256.420000000006,
+            "SS Manual Door": 41746.420000000006,
+            "MS Gearless Auto Door": 46181.615000000005,
+            "SS Gearless Auto Door": 50221.065
+          }
+        }
+      ]
+    },
+    "install": {
+      "qty": 4,
+      "unit_costs": {
+        "MS Auto Door": 17500,
+        "SS Auto Door": 17500,
+        "MS Manual Door": 17500,
+        "SS Manual Door": 17500,
+        "MS Gearless Auto Door": 17500,
+        "SS Gearless Auto Door": 17500
+      }
+    }
+  },
+  "26": {
+    "lopcop_by_stops": {},
+    "guiderail_qty_by_stops": {
+      "2": 4,
+      "3": 6,
+      "4": 8
+    },
+    "floor_heights": {
+      "Pit": 1600,
+      "G to1": 3800,
+      "1 to 2": 3800,
+      "2 to 3": 3900,
+      "overhead": 4800,
+      "Total": 17900,
+      " ": 13000
+    },
+    "items": {
+      "Passenger/Goods": [
+        {
+          "qty_actual": " ",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 26,
+            "SS Auto Door": 2,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 14000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Stops": [
+        {
+          "qty_actual": " ",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 4,
+            "SS Auto Door": 3,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 16450,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3800
+          }
+        }
+      ],
+      "Speed": [
+        {
+          "qty_actual": 0.65,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 1,
+            "SS Auto Door": 4,
+            "MS Manual Door": 25000,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 18900,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3800
+          }
+        }
+      ],
+      "Geared/Gearless": [
+        {
+          "qty_actual": "geared",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 5,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 21350,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": 3900
+          }
+        }
+      ],
+      "Car Construction": [
+        {
+          "qty_actual": "ms",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 6,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 23800,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Construction": [
+        {
+          "qty_actual": "ms",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 7,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 26250,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Type": [
+        {
+          "qty_actual": "co",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 8,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 28700,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Door Size": [
+        {
+          "qty_actual": "centre",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 700,
+            "SS Auto Door": 9,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 31150,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Flooring": [
+        {
+          "qty_actual": "pvc",
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": 10,
+            "MS Manual Door": 16.216216216216218,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": 33600,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Guide rail": [
+        {
+          "qty_actual": 7.16,
+          "qty": 8,
+          "unit_costs": {
+            "MS Auto Door": 9200,
+            "SS Auto Door": 9200,
+            "MS Manual Door": 9200,
+            "SS Manual Door": 9200,
+            "MS Gearless Auto Door": 9200,
+            "SS Gearless Auto Door": 9200
+          },
+          "totals": {
+            "MS Auto Door": 73600,
+            "SS Auto Door": 73600,
+            "MS Manual Door": 73600,
+            "SS Manual Door": 73600,
+            "MS Gearless Auto Door": 73600,
+            "SS Gearless Auto Door": 73600
+          }
+        }
+      ],
+      "Bracket": [
+        {
+          "qty_actual": 10.5,
+          "qty": 11,
+          "unit_costs": {
+            "MS Auto Door": 2350,
+            "SS Auto Door": 2350,
+            "MS Manual Door": 7200,
+            "SS Manual Door": 7200,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 25850,
+            "SS Auto Door": 25850,
+            "MS Manual Door": 25850,
+            "SS Manual Door": 25850,
+            "MS Gearless Auto Door": 25850,
+            "SS Gearless Auto Door": 25850
+          }
+        }
+      ],
+      "Car cabin": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 115000,
+            "SS Auto Door": 150000,
+            "MS Manual Door": 115000,
+            "SS Manual Door": 150000,
+            "MS Gearless Auto Door": 115000,
+            "SS Gearless Auto Door": 150000
+          },
+          "totals": {
+            "MS Auto Door": 115000,
+            "SS Auto Door": 150000,
+            "MS Manual Door": 115000,
+            "SS Manual Door": 150000,
+            "MS Gearless Auto Door": 115000,
+            "SS Gearless Auto Door": 150000
+          }
+        }
+      ],
+      "Overload": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 13000,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 13000,
+            "SS Auto Door": 13000,
+            "MS Manual Door": 13000,
+            "SS Manual Door": 13000,
+            "MS Gearless Auto Door": 13000,
+            "SS Gearless Auto Door": 13000
+          }
+        }
+      ],
+      "Cabin Packing Charges": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 3500,
+            "SS Auto Door": 3500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 3500,
+            "SS Gearless Auto Door": 3500
+          },
+          "totals": {
+            "MS Auto Door": 3500,
+            "SS Auto Door": 3500,
+            "MS Manual Door": 3500,
+            "SS Manual Door": 3500,
+            "MS Gearless Auto Door": 3500,
+            "SS Gearless Auto Door": 3500
+          }
+        }
+      ],
+      "Cabin inward Transport & local Freight": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 6000,
+            "SS Auto Door": 6000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 6000,
+            "SS Gearless Auto Door": 6000
+          },
+          "totals": {
+            "MS Auto Door": 6000,
+            "SS Auto Door": 6000,
+            "MS Manual Door": 6000,
+            "SS Manual Door": 6000,
+            "MS Gearless Auto Door": 6000,
+            "SS Gearless Auto Door": 6000
+          }
+        }
+      ],
+      "Controlller with Drive +DBR": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 64000,
+            "SS Auto Door": 64000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 64000,
+            "SS Auto Door": 64000,
+            "MS Manual Door": 64000,
+            "SS Manual Door": 64000,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        }
+      ],
+      "Controller with Drive +DBR": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 129000,
+            "SS Gearless Auto Door": 129000
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 129000,
+            "SS Gearless Auto Door": 129000
+          }
+        }
+      ],
+      "ARD (UPS) with battery": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 33000,
+            "SS Auto Door": 33000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 33000,
+            "SS Gearless Auto Door": 33000
+          },
+          "totals": {
+            "MS Auto Door": 33000,
+            "SS Auto Door": 33000,
+            "MS Manual Door": 33000,
+            "SS Manual Door": 33000,
+            "MS Gearless Auto Door": 33000,
+            "SS Gearless Auto Door": 33000
+          }
+        }
+      ],
+      "LOP/COP": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 21900,
+            "SS Auto Door": 21900,
+            "MS Manual Door": 21900,
+            "SS Manual Door": 21900,
+            "MS Gearless Auto Door": 21900,
+            "SS Gearless Auto Door": 21900
+          },
+          "totals": {
+            "MS Auto Door": 21900,
+            "SS Auto Door": 21900,
+            "MS Manual Door": 21900,
+            "SS Manual Door": 21900,
+            "MS Gearless Auto Door": 21900,
+            "SS Gearless Auto Door": 21900
+          }
+        }
+      ],
+      "Motor": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 66500,
+            "SS Auto Door": 66500,
+            "MS Manual Door": null,
+            "SS Manual Door": 66500,
+            "MS Gearless Auto Door": 148000,
+            "SS Gearless Auto Door": 148000
+          },
+          "totals": {
+            "MS Auto Door": 66500,
+            "SS Auto Door": 66500,
+            "MS Manual Door": 66500,
+            "SS Manual Door": 66500,
+            "MS Gearless Auto Door": 148000,
+            "SS Gearless Auto Door": 148000
+          }
+        }
+      ],
+      "Motor Hosting": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 10000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          },
+          "totals": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 10000,
+            "MS Manual Door": 10000,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 5000,
+            "SS Gearless Auto Door": 5000
+          }
+        }
+      ],
+      "Rope": [
+        {
+          "qty_actual": 99.5,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 113,
+            "SS Auto Door": 113,
+            "MS Manual Door": 113,
+            "SS Manual Door": 113,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          },
+          "totals": {
+            "MS Auto Door": 11243.5,
+            "SS Auto Door": 11243.5,
+            "MS Manual Door": 11243.5,
+            "SS Manual Door": 11243.5,
+            "MS Gearless Auto Door": null,
+            "SS Gearless Auto Door": null
+          }
+        },
+        {
+          "qty_actual": 302.4,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 96,
+            "SS Gearless Auto Door": 96
+          },
+          "totals": {
+            "MS Auto Door": null,
+            "SS Auto Door": null,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 29030.399999999998,
+            "SS Gearless Auto Door": 29030.399999999998
+          }
+        }
+      ],
+      "Cable": [
+        {
+          "qty_actual": 95.6,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 128,
+            "SS Auto Door": 128,
+            "MS Manual Door": 128,
+            "SS Manual Door": 128,
+            "MS Gearless Auto Door": 128,
+            "SS Gearless Auto Door": 128
+          },
+          "totals": {
+            "MS Auto Door": 12236.8,
+            "SS Auto Door": 12236.8,
+            "MS Manual Door": 12236.8,
+            "SS Manual Door": 12236.8,
+            "MS Gearless Auto Door": 12236.8,
+            "SS Gearless Auto Door": 12236.8
+          }
+        }
+      ],
+      "Geared/Gearless Safety": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 115000,
+            "SS Auto Door": 115000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 115000,
+            "SS Gearless Auto Door": 115000
+          },
+          "totals": {
+            "MS Auto Door": 115000,
+            "SS Auto Door": 115000,
+            "MS Manual Door": 115000,
+            "SS Manual Door": 115000,
+            "MS Gearless Auto Door": 115000,
+            "SS Gearless Auto Door": 115000
+          }
+        }
+      ],
+      "OSG with rope": [
+        {
+          "qty_actual": 75.6,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 12257.599999999999,
+            "SS Auto Door": 12257.599999999999,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 12257.599999999999,
+            "SS Gearless Auto Door": 12257.599999999999
+          },
+          "totals": {
+            "MS Auto Door": 12257.599999999999,
+            "SS Auto Door": 12257.599999999999,
+            "MS Manual Door": 12257.599999999999,
+            "SS Manual Door": 12257.599999999999,
+            "MS Gearless Auto Door": 12257.599999999999,
+            "SS Gearless Auto Door": 12257.599999999999
+          }
+        }
+      ],
+      "Weight counter with granite floor": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 34875,
+            "SS Auto Door": 34875,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 34875,
+            "SS Gearless Auto Door": 34875
+          },
+          "totals": {
+            "MS Auto Door": 34875,
+            "SS Auto Door": 34875,
+            "MS Manual Door": 34875,
+            "SS Manual Door": 34875,
+            "MS Gearless Auto Door": 34875,
+            "SS Gearless Auto Door": 34875
+          }
+        }
+      ],
+      "Sensor door": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 4500,
+            "SS Auto Door": 4500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 4500,
+            "SS Gearless Auto Door": 4500
+          },
+          "totals": {
+            "MS Auto Door": 4500,
+            "SS Auto Door": 4500,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 4500,
+            "SS Gearless Auto Door": 4500
+          }
+        }
+      ],
+      "Wiring": [
+        {
+          "qty_actual": 1,
+          "qty": 38,
+          "unit_costs": {
+            "MS Auto Door": 52,
+            "SS Auto Door": 52,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 52,
+            "SS Gearless Auto Door": 52
+          },
+          "totals": {
+            "MS Auto Door": 1976,
+            "SS Auto Door": 1976,
+            "MS Manual Door": 1976,
+            "SS Manual Door": 1976,
+            "MS Gearless Auto Door": 1976,
+            "SS Gearless Auto Door": 1976
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 43,
+          "unit_costs": {
+            "MS Auto Door": 69,
+            "SS Auto Door": 69,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 69,
+            "SS Gearless Auto Door": 69
+          },
+          "totals": {
+            "MS Auto Door": 2967,
+            "SS Auto Door": 2967,
+            "MS Manual Door": 2967,
+            "SS Manual Door": 2967,
+            "MS Gearless Auto Door": 2967,
+            "SS Gearless Auto Door": 2967
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 175,
+          "unit_costs": {
+            "MS Auto Door": 23,
+            "SS Auto Door": 23,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 23,
+            "SS Gearless Auto Door": 23
+          },
+          "totals": {
+            "MS Auto Door": 4025,
+            "SS Auto Door": 4025,
+            "MS Manual Door": 4025,
+            "SS Manual Door": 4025,
+            "MS Gearless Auto Door": 4025,
+            "SS Gearless Auto Door": 4025
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 50,
+          "unit_costs": {
+            "MS Auto Door": 37.2,
+            "SS Auto Door": 37.2,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 37.2,
+            "SS Gearless Auto Door": 37.2
+          },
+          "totals": {
+            "MS Auto Door": 1860.0000000000002,
+            "SS Auto Door": 1860.0000000000002,
+            "MS Manual Door": 1860.0000000000002,
+            "SS Manual Door": 1860.0000000000002,
+            "MS Gearless Auto Door": 1860.0000000000002,
+            "SS Gearless Auto Door": 1860.0000000000002
+          }
+        },
+        {
+          "qty_actual": 1,
+          "qty": 50,
+          "unit_costs": {
+            "MS Auto Door": 27,
+            "SS Auto Door": 27,
+            "MS Manual Door": null,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 27,
+            "SS Gearless Auto Door": 27
+          },
+          "totals": {
+            "MS Auto Door": 1350,
+            "SS Auto Door": 1350,
+            "MS Manual Door": 1350,
+            "SS Manual Door": 1350,
+            "MS Gearless Auto Door": 1350,
+            "SS Gearless Auto Door": 1350
+          }
+        }
+      ],
+      "Car Door": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 55737,
+            "SS Auto Door": 60406,
+            "MS Manual Door": 8500,
+            "SS Manual Door": 26500,
+            "MS Gearless Auto Door": 55737,
+            "SS Gearless Auto Door": 60406
+          },
+          "totals": {
+            "MS Auto Door": 55737,
+            "SS Auto Door": 60406,
+            "MS Manual Door": 8500,
+            "SS Manual Door": 26500,
+            "MS Gearless Auto Door": 55737,
+            "SS Gearless Auto Door": 60406
+          }
+        }
+      ],
+      "Landing Door": [
+        {
+          "qty_actual": 4,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 25045,
+            "SS Auto Door": 33700,
+            "MS Manual Door": 12300,
+            "SS Manual Door": 36500,
+            "MS Gearless Auto Door": 25045,
+            "SS Gearless Auto Door": 33700
+          },
+          "totals": {
+            "MS Auto Door": 100180,
+            "SS Auto Door": 134800,
+            "MS Manual Door": 49200,
+            "SS Manual Door": 146000,
+            "MS Gearless Auto Door": 100180,
+            "SS Gearless Auto Door": 134800
+          }
+        }
+      ],
+      "OTHER": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 30000,
+            "SS Auto Door": 30000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 30000,
+            "SS Gearless Auto Door": 30000
+          },
+          "totals": {
+            "MS Auto Door": 30000,
+            "SS Auto Door": 30000,
+            "MS Manual Door": 30000,
+            "SS Manual Door": 30000,
+            "MS Gearless Auto Door": 30000,
+            "SS Gearless Auto Door": 30000
+          }
+        }
+      ],
+      "Freight": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 10000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 10000,
+            "SS Gearless Auto Door": 10000
+          },
+          "totals": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 10000,
+            "MS Manual Door": 5000,
+            "SS Manual Door": 5000,
+            "MS Gearless Auto Door": 10000,
+            "SS Gearless Auto Door": 10000
+          }
+        }
+      ],
+      "loading & Unloading": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 10000,
+            "MS Manual Door": null,
+            "SS Manual Door": null,
+            "MS Gearless Auto Door": 10000,
+            "SS Gearless Auto Door": 10000
+          },
+          "totals": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 10000,
+            "MS Manual Door": 10000,
+            "SS Manual Door": 10000,
+            "MS Gearless Auto Door": 10000,
+            "SS Gearless Auto Door": 10000
+          }
+        }
+      ],
+      "Scafolding": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 7500,
+            "MS Manual Door": 7500,
+            "SS Manual Door": 7500,
+            "MS Gearless Auto Door": 7500,
+            "SS Gearless Auto Door": 7500
+          },
+          "totals": {
+            "MS Auto Door": 10000,
+            "SS Auto Door": 7500,
+            "MS Manual Door": 7500,
+            "SS Manual Door": 7500,
+            "MS Gearless Auto Door": 7500,
+            "SS Gearless Auto Door": 7500
+          }
+        }
+      ],
+      "Installation local 10000": [
+        {
+          "qty_actual": 4,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 20000,
+            "SS Auto Door": 20000,
+            "MS Manual Door": 20000,
+            "SS Manual Door": 20000,
+            "MS Gearless Auto Door": 20000,
+            "SS Gearless Auto Door": 20000
+          },
+          "totals": {
+            "MS Auto Door": 80000,
+            "SS Auto Door": 80000,
+            "MS Manual Door": 80000,
+            "SS Manual Door": 80000,
+            "MS Gearless Auto Door": 80000,
+            "SS Gearless Auto Door": 80000
+          }
+        }
+      ],
+      "Commissioing": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 12000,
+            "SS Auto Door": 12000,
+            "MS Manual Door": 12000,
+            "SS Manual Door": 12000,
+            "MS Gearless Auto Door": 12000,
+            "SS Gearless Auto Door": 12000
+          },
+          "totals": {
+            "MS Auto Door": 12000,
+            "SS Auto Door": 12000,
+            "MS Manual Door": 12000,
+            "SS Manual Door": 12000,
+            "MS Gearless Auto Door": 12000,
+            "SS Gearless Auto Door": 12000
+          }
+        }
+      ],
+      "Warranty": [
+        {
+          "qty_actual": 1,
+          "qty": null,
+          "unit_costs": {
+            "MS Auto Door": 42527.895000000004,
+            "SS Auto Door": 46117.345,
+            "MS Manual Door": 37017.045000000006,
+            "SS Manual Door": 44507.045000000006,
+            "MS Gearless Auto Door": 50367.240000000005,
+            "SS Gearless Auto Door": 54081.69
+          },
+          "totals": {
+            "MS Auto Door": 42527.895000000004,
+            "SS Auto Door": 46117.345,
+            "MS Manual Door": 37017.045000000006,
+            "SS Manual Door": 44507.045000000006,
+            "MS Gearless Auto Door": 50367.240000000005,
+            "SS Gearless Auto Door": 54081.69
+          }
+        }
+      ]
+    },
+    "install": {
+      "qty": 4,
+      "unit_costs": {
+        "MS Auto Door": 20000,
+        "SS Auto Door": 20000,
+        "MS Manual Door": 20000,
+        "SS Manual Door": 20000,
+        "MS Gearless Auto Door": 20000,
+        "SS Gearless Auto Door": 20000
+      }
+    }
+  }
+}

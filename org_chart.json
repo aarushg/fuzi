@@ -1,0 +1,112 @@
+[
+  {
+    "id": "OC-001",
+    "name": "Portal Administrator",
+    "title": "Managing Director",
+    "department": "Executive Office",
+    "reports_to": null,
+    "user_id": "USR-001",
+    "phone": "",
+    "email": ""
+  },
+  {
+    "id": "OC-002",
+    "name": "Service Control Manager",
+    "title": "Head of Service Control",
+    "department": "Service Control",
+    "reports_to": "OC-001",
+    "user_id": "USR-006",
+    "phone": "",
+    "email": ""
+  },
+  {
+    "id": "OC-003",
+    "name": "Project Office Manager",
+    "title": "Head of Project Office",
+    "department": "Project Office",
+    "reports_to": "OC-001",
+    "user_id": "USR-007",
+    "phone": "",
+    "email": ""
+  },
+  {
+    "id": "OC-004",
+    "name": "Install Operations Manager",
+    "title": "Head of Install Operations",
+    "department": "Install Operations",
+    "reports_to": "OC-001",
+    "user_id": "USR-008",
+    "phone": "",
+    "email": ""
+  },
+  {
+    "id": "OC-005",
+    "name": "Stores & Procurement Manager",
+    "title": "Head of Stores & Procurement",
+    "department": "Stores & Procurement",
+    "reports_to": "OC-001",
+    "user_id": "USR-009",
+    "phone": "",
+    "email": ""
+  },
+  {
+    "id": "OC-006",
+    "name": "Sales & Renewals Manager",
+    "title": "Head of Sales & Renewals",
+    "department": "Sales & Renewals",
+    "reports_to": "OC-001",
+    "user_id": "USR-010",
+    "phone": "",
+    "email": ""
+  },
+  {
+    "id": "OC-007",
+    "name": "Customer Success Manager",
+    "title": "Head of Customer Success",
+    "department": "Customer Success",
+    "reports_to": "OC-001",
+    "user_id": "USR-011",
+    "phone": "",
+    "email": ""
+  },
+  {
+    "id": "OC-008",
+    "name": "Ravi Sharma",
+    "title": "Lead Installer",
+    "department": "Install Operations",
+    "reports_to": "OC-004",
+    "user_id": "USR-002",
+    "phone": "+91 90000 1301",
+    "email": ""
+  },
+  {
+    "id": "OC-009",
+    "name": "Nadeem Khan",
+    "title": "Electrical Technician",
+    "department": "Install Operations",
+    "reports_to": "OC-004",
+    "user_id": "USR-003",
+    "phone": "+91 90000 1302",
+    "email": ""
+  },
+  {
+    "id": "OC-010",
+    "name": "Pawan Meena",
+    "title": "Door & Safety Specialist",
+    "department": "Install Operations",
+    "reports_to": "OC-004",
+    "user_id": "USR-004",
+    "phone": "+91 90000 1303",
+    "email": ""
+  },
+  {
+    "id": "OC-011",
+    "name": "Suresh Yadav",
+    "title": "Installation Helper",
+    "department": "Install Operations",
+    "reports_to": "OC-004",
+    "user_id": "USR-005",
+    "phone": "+91 90000 1304",
+    "email": ""
+  }
+]

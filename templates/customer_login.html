@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FUZI Elevators — Customer Portal</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='portal.css') }}" />
+</head>
+<body class="login-body">
+  <main class="login-shell">
+    <section class="login-hero">
+      <a href="/" class="login-brand">
+        <span class="brand-mark">FE</span>
+        <span>FUZI <strong>Elevators</strong></span>
+      </a>
+      <div>
+        <div class="eyebrow">Customer Portal</div>
+        <h1>Your elevator projects, quotes and support — in one place.</h1>
+        <p>View your quotations, track installation progress, manage service requests, and communicate with our team.</p>
+      </div>
+      <div class="login-signal">
+        <span><i class="fa fa-circle"></i> Quotes online</span>
+        <span><i class="fa fa-circle"></i> Projects live</span>
+        <span><i class="fa fa-circle"></i> Support ready</span>
+      </div>
+    </section>
+
+    <section class="login-card" aria-label="Customer portal login">
+      <div class="login-card-head">
+        <div class="login-icon"><i class="fa fa-building-user"></i></div>
+        <div>
+          {% if password_change_required %}
+          <h2>Set your password</h2>
+          <p>Please create a private password before accessing your portal.</p>
+          {% else %}
+          <h2>Sign in</h2>
+          <p>Enter your customer portal credentials to continue.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if error %}
+        <div class="form-alert"><i class="fa fa-triangle-exclamation"></i> {{ error }}</div>
+      {% endif %}
+
+      <form method="post" class="login-form">
+        {% if password_change_required %}
+        <label for="username">Username</label>
+        <div class="input-wrap">
+          <i class="fa fa-user"></i>
+          <input id="username" name="username" type="text" value="{{ username }}" readonly />
+        </div>
+        <label for="current_password">Temporary password</label>
+        <div class="input-wrap">
+          <i class="fa fa-lock"></i>
+          <input id="current_password" name="current_password" type="password" placeholder="Enter the temporary password" required />
+        </div>
+        <label for="new_password">New password</label>
+        <div class="input-wrap">
+          <i class="fa fa-key"></i>
+          <input id="new_password" name="new_password" type="password" placeholder="At least 8 characters" required minlength="8" />
+        </div>
+        <label for="confirm_password">Confirm new password</label>
+        <div class="input-wrap">
+          <i class="fa fa-key"></i>
+          <input id="confirm_password" name="confirm_password" type="password" placeholder="Repeat new password" required />
+        </div>
+        <button class="login-btn" type="submit"><i class="fa fa-check"></i> Set password and sign in</button>
+        {% else %}
+        <label for="username">Username</label>
+        <div class="input-wrap">
+          <i class="fa fa-user"></i>
+          <input id="username" name="username" type="text" placeholder="Your portal username" required autocomplete="username" />
+        </div>
+        <label for="password">Password</label>
+        <div class="input-wrap">
+          <i class="fa fa-lock"></i>
+          <input id="password" name="password" type="password" placeholder="Your password" required autocomplete="current-password" />
+        </div>
+        <button class="login-btn" type="submit"><i class="fa fa-right-to-bracket"></i> Sign in</button>
+        {% endif %}
+      </form>
+
+      <p class="login-footer-note">
+        <a href="/portal/login" style="color:var(--muted)"><i class="fa fa-building-shield"></i> Staff portal login</a>
+      </p>
+    </section>
+  </main>
+</body>
+</html>

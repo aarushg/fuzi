@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FUZI Customer Portal — {{ customer_user.display_name }}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='portal.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='customer.css') }}" />
+</head>
+<body class="cust-body">
+  <div class="cust-shell">
+
+    <header class="cust-header">
+      <a href="/" class="cust-brand">
+        <span class="brand-mark">FE</span>
+        <span>FUZI <strong>Elevators</strong></span>
+      </a>
+      <div class="cust-header-right">
+        <span class="cust-user-pill"><i class="fa fa-building-user"></i> {{ customer_user.display_name }}</span>
+        <a href="/customer/logout" class="action-btn quiet"><i class="fa fa-right-from-bracket"></i> Sign out</a>
+      </div>
+    </header>
+
+    <main class="cust-main">
+      <div class="cust-welcome">
+        <div class="eyebrow">Customer Portal</div>
+        <h1>Welcome, {{ customer.name or customer_user.display_name }}</h1>
+        {% if customer %}
+        <p>{{ customer.segment or 'Elevator' }} client · {{ customer.address or '' }}{% if customer.renewal_date %} · AMC renewal {{ customer.renewal_date }}{% endif %}</p>
+        {% endif %}
+      </div>
+
+      <!-- Payment summary banner (if any outstanding) -->
+      {% if total_outstanding > 0 %}
+      <div class="cust-pay-banner">
+        <div class="cust-pay-banner-left">
+          <i class="fa fa-indian-rupee-sign"></i>
+          <div>
+            <strong>Payment summary</strong>
+            <span>Contract value ₹{{ "{:,.0f}".format(total_contract) }} &nbsp;·&nbsp; Received ₹{{ "{:,.0f}".format(total_received) }} &nbsp;·&nbsp; Outstanding ₹{{ "{:,.0f}".format(total_outstanding) }}</span>
+          </div>
+        </div>
+        <button class="action-btn quiet small cust-tab-trigger" data-cust-tab="cust-payments">View payment details</button>
+      </div>
+      {% endif %}
+
+      <!-- Tab navigation -->
+      <nav class="cust-tabs">
+        <button class="cust-tab active" data-cust-tab="cust-quotes"><i class="fa fa-file-invoice-dollar"></i> My Quotes</button>
+        <button class="cust-tab" data-cust-tab="cust-payments"><i class="fa fa-money-bill-wave"></i> Payments</button>
+        <button class="cust-tab" data-cust-tab="cust-projects"><i class="fa fa-helmet-safety"></i> My Projects</button>
+        <button class="cust-tab" data-cust-tab="cust-support"><i class="fa fa-headset"></i> Support</button>
+      </nav>
+
+      <!-- Quotes Tab -->
+      <div class="cust-tab-panel" id="cust-quotes">
+        {% if estimates %}
+        <div class="cust-quote-grid">
+          {% for est in estimates %}
+          <article class="cust-quote-card">
+            <div class="cust-quote-head">
+              <div>
+                <strong>{{ est.id }}</strong>
+                <span>{{ est.elevator_type }} · {{ est.num_floors }} floors</span>
+              </div>
+              <mark class="badge {{ 'healthy' if est.status == 'Accepted' else 'warning' if est.status == 'Sent' else 'critical' if est.status == 'Rejected' else 'info' }}">{{ est.status }}</mark>
+            </div>
+            <div class="cust-quote-site">{{ est.site or est.customer_name }}</div>
+            <div class="cust-quote-price">₹{{ "{:,.0f}".format(est.total_cost) }}</div>
+            <div class="cust-quote-spec">
+              <span><i class="fa fa-gear"></i> {{ est.drive_type }}</span>
+              <span><i class="fa fa-palette"></i> {{ est.cabin_finish }} finish</span>
+              <span><i class="fa fa-door-open"></i> {{ est.door_type }}</span>
+            </div>
+            {% if est.valid_until %}<div class="cust-quote-valid">Valid until {{ est.valid_until }}</div>{% endif %}
+            <div class="cust-quote-actions">
+              <a class="action-btn small" href="/customer/quote/{{ est.id }}" target="_blank"><i class="fa fa-eye"></i> View Full Report</a>
+              {% if est.status == 'Sent' %}
+              <form method="post" action="/customer/quote/{{ est.id }}/respond" style="display:inline">
+                <button class="action-btn small healthy-btn" name="action" value="accept"><i class="fa fa-check"></i> Accept</button>
+                <button class="action-btn small quiet" name="action" value="reject"><i class="fa fa-xmark"></i> Decline</button>
+              </form>
+              {% endif %}
+            </div>
+            <div class="cust-quote-date">Prepared {{ est.created_at }}</div>
+          </article>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="cust-empty">
+          <i class="fa fa-file-invoice-dollar fa-2x"></i>
+          <p>No quotations yet. Your project manager will share quotes here once your requirements are confirmed.</p>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Payments Tab -->
+      <div class="cust-tab-panel" id="cust-payments" style="display:none">
+        {% if payments %}
+        <!-- Summary cards -->
+        <div class="cust-pay-summary-cards">
+          <div class="cust-pay-card neutral">
+            <span>Total Contract Value</span>
+            <strong>₹{{ "{:,.0f}".format(total_contract) }}</strong>
+          </div>
+          <div class="cust-pay-card received">
+            <span>Amount Received</span>
+            <strong>₹{{ "{:,.0f}".format(total_received) }}</strong>
+          </div>
+          <div class="cust-pay-card outstanding">
+            <span>Balance Outstanding</span>
+            <strong>₹{{ "{:,.0f}".format(total_outstanding) }}</strong>
+          </div>
+        </div>
+
+        <!-- Group by estimate -->
+        {% set seen_estimates = [] %}
+        {% for est in estimates %}
+        {% set est_payments = payments | selectattr("estimate_id", "eq", est.id) | list %}
+        {% if est_payments %}
+        <div class="cust-pay-group">
+          <div class="cust-pay-group-head">
+            <div>
+              <strong>{{ est.id }} — {{ est.site or est.customer_name }}</strong>
+              <span>{{ est.elevator_type }} · {{ est.num_floors }} floors · Total ₹{{ "{:,.0f}".format(est.total_cost) }}</span>
+            </div>
+            <mark class="badge {{ 'healthy' if est.status == 'Accepted' else 'warning' }}">{{ est.status }}</mark>
+          </div>
+          <table class="cust-pay-table">
+            <thead>
+              <tr><th>Milestone</th><th>Amount</th><th>Due Date</th><th>Status</th><th>Paid Date</th><th>Method / Ref</th></tr>
+            </thead>
+            <tbody>
+              {% for pay in est_payments %}
+              <tr class="cust-pay-row cust-pay-{{ pay.status | lower }}">
+                <td><strong>{{ pay.milestone }}</strong>{% if pay.notes %}<span>{{ pay.notes }}</span>{% endif %}</td>
+                <td><strong>₹{{ "{:,.0f}".format(pay.amount) }}</strong></td>
+                <td>{{ pay.due_date or "—" }}</td>
+                <td>
+                  <mark class="badge {{ 'healthy' if pay.status == 'Paid' else 'critical' if pay.status == 'Overdue' else 'warning' if pay.status == 'Partial' else 'info' if pay.status == 'Waived' else 'warning' }}">
+                    {{ pay.status }}
+                  </mark>
+                </td>
+                <td>{{ pay.paid_date or "—" }}</td>
+                <td>{{ pay.payment_method or "" }}{% if pay.reference %} · <code>{{ pay.reference }}</code>{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+        {% endfor %}
+
+        {% else %}
+        <div class="cust-empty">
+          <i class="fa fa-money-bill-wave fa-2x"></i>
+          <p>No payment records yet. Your project manager will add payment milestones once your quote is confirmed.</p>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Projects Tab -->
+      <div class="cust-tab-panel" id="cust-projects" style="display:none">
+        {% if tickets %}
+        <div class="cust-ticket-list">
+          {% for ticket in tickets %}
+          <div class="cust-ticket-row">
+            <div class="cust-ticket-left">
+              <strong>{{ ticket.title }}</strong>
+              <span>{{ ticket.project }} · {{ ticket.id }}</span>
+            </div>
+            <div class="cust-ticket-meta">
+              <mark class="badge {{ 'warning' if ticket.priority == 'High' else 'info' }}">{{ ticket.priority }}</mark>
+              <mark class="badge {{ 'critical' if ticket.status == 'Blocked' else 'healthy' if ticket.status == 'Closed' else 'warning' }}">{{ ticket.status }}</mark>
+              <span>Due: {{ ticket.due }}</span>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="cust-empty">
+          <i class="fa fa-helmet-safety fa-2x"></i>
+          <p>No project activity yet. Your installation progress and project milestones will appear here.</p>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Support Tab -->
+      <div class="cust-tab-panel" id="cust-support" style="display:none">
+        <div class="cust-support-grid">
+          <div class="cust-support-card">
+            <div class="cust-support-icon"><i class="fa fa-phone"></i></div>
+            <h3>Call Us</h3>
+            <p>Reach our operations team directly for urgent support or site emergencies.</p>
+            <a class="action-btn" href="tel:+919001234567"><i class="fa fa-phone"></i> +91 90012 34567</a>
+          </div>
+          <div class="cust-support-card">
+            <div class="cust-support-icon"><i class="fa fa-envelope"></i></div>
+            <h3>Email Support</h3>
+            <p>For non-urgent queries, warranty questions, or documentation requests.</p>
+            <a class="action-btn" href="mailto:support@fuzielevators.com"><i class="fa fa-envelope"></i> support@fuzielevators.com</a>
+          </div>
+          <div class="cust-support-card">
+            <div class="cust-support-icon"><i class="fa fa-whatsapp fab"></i></div>
+            <h3>WhatsApp</h3>
+            <p>Quick updates and real-time communication with the field team.</p>
+            <a class="action-btn" href="https://wa.me/919001234567" target="_blank"><i class="fab fa-whatsapp"></i> Open WhatsApp</a>
+          </div>
+          <div class="cust-support-card">
+            <div class="cust-support-icon"><i class="fa fa-file-pdf"></i></div>
+            <h3>Documents</h3>
+            <p>Download your warranty cards, AMC contracts, and service records.</p>
+            <a class="action-btn quiet" href="/"><i class="fa fa-download"></i> Coming soon</a>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer class="cust-footer">
+      <p>© 2026 FUZI Classic Elevators · Customer Portal · <a href="/portal/login">Staff login</a></p>
+    </footer>
+  </div>
+
+  <script>
+    function switchCustTab(tabId) {
+      document.querySelectorAll(".cust-tab").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".cust-tab-panel").forEach(p => p.style.display = "none");
+      const activeTab = document.querySelector(`.cust-tab[data-cust-tab="${tabId}"]`);
+      if (activeTab) activeTab.classList.add("active");
+      const panel = document.getElementById(tabId);
+      if (panel) panel.style.display = "block";
+    }
+    document.querySelectorAll(".cust-tab").forEach(btn => {
+      btn.addEventListener("click", () => switchCustTab(btn.dataset.custTab));
+    });
+    document.querySelectorAll(".cust-tab-trigger").forEach(btn => {
+      btn.addEventListener("click", () => switchCustTab(btn.dataset.custTab));
+    });
+  </script>
+</body>
+</html>

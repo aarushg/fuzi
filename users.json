@@ -8,7 +8,8 @@
     "active": true,
     "must_change_password": false,
     "password_hash": "scrypt:32768:8:1$LGAV2c5rGFJfNoRX$8915b56671fde7cb24359934089484044061e5cde297513869a02aa871e0b3985d3f2a06561e235ff6b4c414da154360fcf651e6e441f3c2da74e1b8adcae12b",
-    "created_at": "2026-05-16 14:50"
+    "created_at": "2026-05-16 14:50",
+    "department": "Executive Office"
   },
   {
     "id": "USR-002",
@@ -19,7 +20,8 @@
     "active": true,
     "must_change_password": true,
     "password_hash": "scrypt:32768:8:1$UjZMguf0CAb8PpHE$93d2c8478781e08f661134f42d3bd5a7c1b0af461ed3c829231c962ac65dcc5bfc62a6a3cbfcb1468da0e7b4e00d7bed2d0ea638b3482d99f96c395a30425a2e",
-    "created_at": "2026-05-16 14:50"
+    "created_at": "2026-05-16 14:50",
+    "department": "Install Operations"
   },
   {
     "id": "USR-003",
@@ -30,7 +32,8 @@
     "active": true,
     "must_change_password": true,
     "password_hash": "scrypt:32768:8:1$Xd6mWEOgZ4kDWuIs$83c0884308b194ec36aa253a34abb34ed0244f1a9c1bdc679de887a2b5c8a47e42827e3c2c6398be2c24dffce5b24c5b3acc696a0831148f5df4e14538e5be59",
-    "created_at": "2026-05-16 14:50"
+    "created_at": "2026-05-16 14:50",
+    "department": "Install Operations"
   },
   {
     "id": "USR-004",
@@ -41,7 +44,8 @@
     "active": true,
     "must_change_password": true,
     "password_hash": "scrypt:32768:8:1$nhpor9dWuq3koO9U$9fb6c28ee93d22963ae69b24eca21f02acf3b13376d634e3ee1ef7e8b56ce01dba651b51f96868e085556a590098303e4f64226428b2cc4a235a6681c18c8c57",
-    "created_at": "2026-05-16 14:50"
+    "created_at": "2026-05-16 14:50",
+    "department": "Install Operations"
   },
   {
     "id": "USR-005",
@@ -52,6 +56,79 @@
     "active": true,
     "must_change_password": true,
     "password_hash": "scrypt:32768:8:1$9G1VxH1X4cLKSzjr$8c50f836b5a9672e226458d4508c3eb84f1bb7dba47e624f93177aea5c317f77cb25e77ca14309462f318b6628b2aa120f1da4fa1ce5d6b02187be2713c9301b",
-    "created_at": "2026-05-16 14:50"
+    "created_at": "2026-05-16 14:50",
+    "department": "Install Operations"
+  },
+  {
+    "id": "USR-006",
+    "username": "service.control.manager",
+    "display_name": "Service Control Manager",
+    "role": "manager",
+    "department": "Service Control",
+    "linked_team_member": "",
+    "active": true,
+    "must_change_password": true,
+    "password_hash": "scrypt:32768:8:1$LsgbjMpXAZZvyjp2$ae370bcd4edefd63c5b61817925c07302917239613c4a40b513610d3fd3c0f595b986a26ac9e32c9cd188d0d56e2e729535b70427be7250a6bcf37af26691907",
+    "created_at": "2026-05-23 08:10"
+  },
+  {
+    "id": "USR-007",
+    "username": "project.office.manager",
+    "display_name": "Project Office Manager",
+    "role": "manager",
+    "department": "Project Office",
+    "linked_team_member": "",
+    "active": true,
+    "must_change_password": true,
+    "password_hash": "scrypt:32768:8:1$KCzrc5vMuan7STFA$8579dc8765db3be72ac41676575c02fd5ff20a280c2b3655aa8c4f5936ee09cb52d3f45ed57d2d873ecc6fbb67e799427908078d3dc50102e4fd4a0ee94a436f",
+    "created_at": "2026-05-23 08:10"
+  },
+  {
+    "id": "USR-008",
+    "username": "install.ops.manager",
+    "display_name": "Install Operations Manager",
+    "role": "manager",
+    "department": "Install Operations",
+    "linked_team_member": "",
+    "active": true,
+    "must_change_password": true,
+    "password_hash": "scrypt:32768:8:1$fxw4CzVJ2utSt1jI$ba4c248347af2807f0a2bd70e8f267ff4e1a97309ffec21b741bcb92a8e7afc7def41a40eaf17cdcbf6b5bff8227a27f114842fb92b1ef0731f8807b146eab05",
+    "created_at": "2026-05-23 08:10"
+  },
+  {
+    "id": "USR-009",
+    "username": "stores.procurement.manager",
+    "display_name": "Stores & Procurement Manager",
+    "role": "manager",
+    "department": "Stores & Procurement",
+    "linked_team_member": "",
+    "active": true,
+    "must_change_password": true,
+    "password_hash": "scrypt:32768:8:1$EXjtwdLyMcybKYpo$cdd35aeb092f19af8acb01d2fa77e919763fd9a4d2757c6d691850bddf86aadf3ac09eff823247dc0d8fe0a0435cd76c5a54f598426a943cf6bf9c3f9d82e2fb",
+    "created_at": "2026-05-23 08:10"
+  },
+  {
+    "id": "USR-010",
+    "username": "sales.renewals.manager",
+    "display_name": "Sales & Renewals Manager",
+    "role": "manager",
+    "department": "Sales & Renewals",
+    "linked_team_member": "",
+    "active": true,
+    "must_change_password": true,
+    "password_hash": "scrypt:32768:8:1$BpR8cv0oWlqqhDeq$cd1091c00ba4ee6d1bf0ed07fc5c4cb92f2e7d10b1ac30f7792486cac8ddea0803535dacfa1046119b87767cc7bc8edffdfcb6325b0c63c382698c58a9b19d83",
+    "created_at": "2026-05-23 08:10"
+  },
+  {
+    "id": "USR-011",
+    "username": "customer.success.manager",
+    "display_name": "Customer Success Manager",
+    "role": "manager",
+    "department": "Customer Success",
+    "linked_team_member": "",
+    "active": true,
+    "must_change_password": true,
+    "password_hash": "scrypt:32768:8:1$xT8EAdXGigeP9G7x$b04e68c1c71ddd84e5d24cf87722371e55376794b5ce46924e430967393ab0638624729584faf9d7987ff63a53f5c39959213b1295eaec7d53205f7302b92fbb",
+    "created_at": "2026-05-23 08:10"
   }
 ]

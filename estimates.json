@@ -1,0 +1,30 @@
+[
+  {
+    "id": "EST-001",
+    "customer_id": "",
+    "customer_name": "Arihant Towers",
+    "site": "Sector 7, Jaipur",
+    "elevator_type": "Residential MRL",
+    "capacity": "8-person (630 kg)",
+    "num_floors": 10,
+    "drive_type": "Gearless MRL",
+    "cabin_finish": "Standard",
+    "door_type": "Automatic SS",
+    "control_type": "Microprocessor",
+    "addons": [
+      "ARD / Rescue Device"
+    ],
+    "base_cost": 1163076,
+    "addons_cost": 25000,
+    "subtotal": 1188076,
+    "margin_percent": 20.0,
+    "total_cost": 1425691,
+    "notes": "Quote valid 30 days.",
+    "status": "Draft",
+    "sent_to_email": "",
+    "sent_at": "",
+    "valid_until": "",
+    "created_by": "USR-001",
+    "created_at": "2026-05-26 06:37"
+  }
+]
