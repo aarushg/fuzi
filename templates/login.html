@@ -103,6 +103,40 @@
       <div class="demo-note">
         <strong>Demo access:</strong> admin / fuzi2026
       </div>
+      {% if login_accounts %}
+      <div class="login-account-shortcuts" aria-label="Quick login accounts">
+        <div class="login-account-heading">
+          <strong>Other accounts</strong>
+          <span>Click an account to fill the login form.</span>
+        </div>
+        <div class="login-account-grid">
+          {% for account in login_accounts %}
+          <button
+            type="button"
+            class="login-account-pill"
+            data-username="{{ account.username }}"
+            data-password="{{ account.demo_password }}"
+          >
+            <span>{{ account.display_name }}</span>
+            <small>{{ account.department }} · {{ account.role }}</small>
+          </button>
+          {% endfor %}
+        </div>
+      </div>
+      <script>
+        document.querySelectorAll(".login-account-pill").forEach((button) => {
+          button.addEventListener("click", () => {
+            const username = document.getElementById("username");
+            const password = document.getElementById("password");
+            if (username) username.value = button.dataset.username || "";
+            if (password) {
+              password.value = button.dataset.password || "";
+              if (!password.value) password.focus();
+            }
+          });
+        });
+      </script>
+      {% endif %}
       {% endif %}
     </section>
   </main>

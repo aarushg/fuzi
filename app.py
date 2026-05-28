@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from functools import wraps
+import hashlib
 import json
 import math
 import os
@@ -10,12 +11,14 @@ import re
 import socket
 import subprocess
 import threading
-from typing import Any
+from typing import Any, Callable
 from urllib import error as urllib_error
 from urllib import parse as urllib_parse
 from urllib import request as urllib_request
+import zipfile
+from xml.sax.saxutils import escape as xml_escape
 
-from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, session, url_for
+from flask import Flask, jsonify, redirect, render_template, request, send_file, send_from_directory, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 
@@ -40,10 +43,14 @@ OPERATIONS_STATE_FILE = BASE_DIR / "operations_state.json"
 ORG_CHART_FILE = BASE_DIR / "org_chart.json"
 ATTENDANCE_FILE = BASE_DIR / "attendance.json"
 ESTIMATES_FILE = BASE_DIR / "estimates.json"
+OFFER_TEMPLATE_FILE = BASE_DIR / "docs" / "offer" / "13683-DeepakKhanna.doc"
+GENERATED_OFFERS_DIR = BASE_DIR / "docs" / "generated_offers"
 CUSTOMER_USERS_FILE = BASE_DIR / "customer_users.json"
 PAYMENTS_FILE = BASE_DIR / "payments.json"
 SALES_INQUIRIES_FILE = BASE_DIR / "sales_inquiries.json"
+SALES_ADMIN_PANEL_FILE = BASE_DIR / "sales_admin_panel.json"
 BREAKDOWNS_FILE = BASE_DIR / "breakdowns.json"
+BREAKDOWN_DISPATCH_CLAIMS_DIR = BASE_DIR / ".runtime" / "breakdown-dispatch-claims"
 SERVICE_RECORDS_FILE = BASE_DIR / "service_records.json"
 GAD_RECORDS_FILE = BASE_DIR / "gad_records.json"
 COMMISSIONINGS_FILE = BASE_DIR / "commissionings.json"
@@ -55,6 +62,7 @@ SMTP_PORT = int(os.environ.get("FUZI_SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("FUZI_SMTP_USER", "")
 SMTP_PASS = os.environ.get("FUZI_SMTP_PASS", "")
 SMTP_FROM = os.environ.get("FUZI_SMTP_FROM", SMTP_USER)
+CEO_EMAIL = os.environ.get("FUZI_CEO_EMAIL", "")
 OPENCLAW_URL = os.environ.get("FUZI_OPENCLAW_URL", "http://127.0.0.1:18789/")
 OPENCLAW_TIMEOUT = float(os.environ.get("FUZI_OPENCLAW_TIMEOUT", "4"))
 OPENCLAW_CONFIG_FILE = Path.home() / ".openclaw" / "openclaw.json"
@@ -68,8 +76,11 @@ OPENCLAW_MORNING_BRIEF_PHONE = os.environ.get("FUZI_OPENCLAW_MORNING_BRIEF_PHONE
 OPENCLAW_ALLOWED_COMMAND = ("openclaw", "dashboard", "--no-open")
 MONITOR_INTERVAL_SECONDS = max(int(os.environ.get("FUZI_MONITOR_INTERVAL", "300")), 15)
 DISCORD_POLL_INTERVAL_SECONDS = max(int(os.environ.get("FUZI_DISCORD_POLL_INTERVAL", "15")), 15)
+DISCORD_LISTENER_LOCK_PORT = int(os.environ.get("FUZI_DISCORD_LISTENER_LOCK_PORT", "15377"))
+DISCORD_OUTBOUND_DEDUPE_RETENTION_MINUTES = max(int(os.environ.get("FUZI_DISCORD_OUTBOUND_DEDUPE_RETENTION_MINUTES", "120")), 1)
 REFRESH_INTERVAL_MINUTES = max(math.ceil(MONITOR_INTERVAL_SECONDS / 60), 1)
 STATE_LOCK = threading.Lock()
+DISCORD_LISTENER_LOCK_SOCKET: socket.socket | None = None
 AGENT_TARGET_ENV_KEYS = {
     "Self-Healing Fleet Monitor": "FUZI_OPENCLAW_TARGET_FLEET_MONITOR",
     "Modernization Project Coordinator": "FUZI_OPENCLAW_TARGET_MODERNIZATION_COORDINATOR",
@@ -147,6 +158,69 @@ DISCORD_AGENT_CHANNEL_SPECS = [
         "topic": "Live install progress, overdue stages, final inspection notices, handovers, and warranty registration.",
     },
 ]
+BUSINESS_DISCORD_CHANNEL_SPECS = [
+    {
+        "agent": "FUZI Breakdown",
+        "env_key": "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL",
+        "name": "fuzi-breakdown",
+        "topic": "Live breakdown calls, trapped-passenger escalations, dispatch updates, and closeout status.",
+    },
+    {
+        "agent": "FUZI Breakdown Report PDF",
+        "env_key": "FUZI_OPENCLAW_TARGET_BREAKDOWN_REPORT_PDF",
+        "name": "fuzi-breakdown-report-pdf",
+        "topic": "Resolved breakdown summaries and report-ready updates for PDF or customer documentation workflows.",
+    },
+    {
+        "agent": "FUZI Service 2 Month",
+        "env_key": "FUZI_OPENCLAW_TARGET_SERVICE_TWO_MONTH",
+        "name": "fuzi-service-2-month",
+        "topic": "Bi-monthly preventive service scheduling, next-visit reminders, and service queue updates.",
+    },
+    {
+        "agent": "FUZI Service Report",
+        "env_key": "FUZI_OPENCLAW_TARGET_SERVICE_REPORT",
+        "name": "fuzi-service-report",
+        "topic": "Completed service findings, follow-up actions, and technician service report summaries.",
+    },
+    {
+        "agent": "New Site Visit Offer",
+        "env_key": "FUZI_OPENCLAW_TARGET_NEW_SITE_VISIT_OFFER",
+        "name": "new-site-visit-offer",
+        "topic": "New site visits, offer discussions, quotation follow-up, and linked proposal activity.",
+    },
+    {
+        "agent": "Modernization Site Visit",
+        "env_key": "FUZI_OPENCLAW_TARGET_MOD_SITE_VISIT",
+        "name": "mod-site-visit",
+        "topic": "Modernization visit findings, blockers, project-office follow-up, and site review notes.",
+    },
+    {
+        "agent": "FUZI Metrics",
+        "env_key": "FUZI_OPENCLAW_TARGET_METRICS_CHANNEL",
+        "name": "fuzi-metrics",
+        "topic": "Marketing and ops metrics such as flyers, ads, appointments, and active staff coverage.",
+    },
+    {
+        "agent": "Engineer Attendance",
+        "env_key": "FUZI_OPENCLAW_TARGET_ENGINEER_ATTENDANCE",
+        "name": "engineer-attendance",
+        "topic": "Engineer attendance, check-ins, late starts, site presence, and proof-of-work activity.",
+    },
+    {
+        "agent": "Install Locations Customers",
+        "env_key": "FUZI_OPENCLAW_TARGET_INSTALL_LOCATION_CUSTOMERS",
+        "name": "install-locations-customers",
+        "topic": "Installation destinations, customer site details, install progress locations, and address handoff notes.",
+    },
+    {
+        "agent": "FUZI Elevator Catalog",
+        "env_key": "FUZI_OPENCLAW_TARGET_ELEVATOR_CATALOG",
+        "name": "fuzi-elevator-catalog",
+        "topic": "Elevator catalog references, product page pointers, material options, and offer-linked catalog guidance.",
+    },
+]
+RUNTIME_MANAGED_OPENCLAW_ENV_KEYS.update(spec["env_key"] for spec in BUSINESS_DISCORD_CHANNEL_SPECS)
 RUNTIME_STATE = {
     "scheduler_started": False,
     "discord_listener_started": False,
@@ -693,7 +767,8 @@ def default_operations_state() -> dict[str, Any]:
                 "brief_history": [],
                 "last_scheduled_morning_brief_date": "",
                 "last_scheduled_modernization_flag_date": "",
-                "discord_cursors": {"crm_query_last_message_id": ""},
+                "discord_cursors": {"crm_query_last_message_id": "", "breakdown_last_message_id": ""},
+                "discord_sent_messages": [],
                 "activity_log": [],
                 "connector_status": {"state": "idle", "last_attempt": "", "last_error": "", "last_response": ""},
             }
@@ -992,6 +1067,37 @@ def save_users() -> None:
 USERS = load_users()
 
 
+def login_account_shortcuts() -> list[dict[str, str]]:
+    shortcuts: list[dict[str, str]] = []
+    active_users = [user for user in USERS if user.get("active", True)]
+    active_users.sort(
+        key=lambda user: (
+            0 if str(user.get("username", "")).lower() == PORTAL_USER.lower() else 1,
+            str(user.get("department", "")),
+            str(user.get("display_name", user.get("username", ""))),
+        )
+    )
+    for user in active_users:
+        username = str(user.get("username", "")).strip()
+        if not username:
+            continue
+        demo_password = ""
+        if username.lower() == PORTAL_USER.lower():
+            demo_password = PORTAL_PASSWORD
+        elif user.get("must_change_password"):
+            demo_password = "ChangeMe123!"
+        shortcuts.append(
+            {
+                "username": username,
+                "display_name": str(user.get("display_name", username)),
+                "department": str(user.get("department", "")),
+                "role": str(user.get("role", "technician")).title(),
+                "demo_password": demo_password,
+            }
+        )
+    return shortcuts
+
+
 def load_customers() -> list[dict[str, Any]]:
     if not CUSTOMERS_FILE.exists():
         CUSTOMERS_FILE.write_text(json.dumps([], indent=2))
@@ -1175,6 +1281,12 @@ def next_org_node_id() -> str:
 
 
 ORG_CHART: list[dict[str, Any]] = load_org_chart()
+
+
+def refresh_org_chart() -> list[dict[str, Any]]:
+    global ORG_CHART
+    ORG_CHART = load_org_chart()
+    return ORG_CHART
 
 
 def load_attendance() -> list[dict[str, Any]]:
@@ -1789,31 +1901,31 @@ EXCEL_CAPACITY_ORDER: list[int] = [6, 8, 10, 13, 15, 20, 26]
 
 ELEVATOR_TYPES: list[str] = ["Passenger", "Goods", "Dumbwaiter"]
 PASSENGER_CAPACITY_OPTIONS: list[str] = [
-    "1-person (80 kg)", "2-person (160 kg)", "3-person (240 kg)",
-    "6-person (480 kg)", "8-person (630 kg)", "10-person (800 kg)",
-    "13-person (1000 kg)", "15-person (1200 kg)", "16-person (1275 kg)",
-    "20-person (1600 kg)", "26-person (2000 kg)",
+    "1 Passenger", "2 Passengers", "3 Passengers",
+    "6 Passengers", "8 Passengers", "10 Passengers",
+    "13 Passengers", "15 Passengers", "16 Passengers",
+    "20 Passengers", "26 Passengers",
 ]
 GOODS_CAPACITY_OPTIONS: list[str] = [
     "500 kg", "1000 kg", "1500 kg", "2000 kg",
     "2500 kg", "3000 kg", "4000 kg", "5000 kg",
 ]
 CAPACITY_OPTIONS: list[str] = PASSENGER_CAPACITY_OPTIONS  # backwards compat alias
-SPEED_OPTIONS: list[str] = ["0.65 m/s", "1.0 m/s", "1.25 m/s", "1.5 m/s", "1.75 m/s", "2.0 m/s"]
+SPEED_OPTIONS: list[str] = ["0.65 mps", "1 mps", "1.25 mps", "1.5 mps", "1.75 mps", "2 mps"]
 MOTOR_OPTIONS: list[str] = ["Gearless", "Geared", "Hydraulic", "Vacuum"]
 DRIVE_OPTIONS: list[str] = MOTOR_OPTIONS  # backwards compat alias
 FINISH_OPTIONS: list[str] = ["Mild Steel", "Stainless Steel", "Golden", "Rose Gold"]
 DOOR_OPTIONS: list[str] = ["Automatic", "Manual"]
 DOOR_CONSTRUCTION_OPTIONS: list[str] = ["Mild Steel", "Stainless Steel", "Golden", "Rose Gold"]
 DOOR_PANEL_OPTIONS: list[int] = [1, 2, 3, 4]
-DOOR_OPENING_TYPE_OPTIONS: list[str] = ["Center Opening", "Side Opening"]
+DOOR_OPENING_TYPE_OPTIONS: list[str] = ["Center", "Side"]
 DOOR_VISION_OPTIONS: list[str] = ["Non Vision", "Small Vision", "Big Vision", "Full Vision"]
 DOOR_WIDTH_OPTIONS: list[int] = [700, 800, 900, 1000, 1100, 1200, 1300, 1400]
 DOOR_HEIGHT_OPTIONS: list[int] = [2000, 2100, 2200, 2300, 2400]
 DOOR_ARRANGEMENT_OPTIONS: list[str] = [
-    "All Same Side", "One Floor Reverse Opening", "One Floor Both Sides",
+    "All Are Same Side", "One Floor Reverse Opening", "One Floor Both Side Opening",
 ]
-MAKE_OPTIONS: list[str] = ["Fuzi", "Wittur German Kit", "PVE", "Fuzi PWD BSR 2025"]
+MAKE_OPTIONS: list[str] = ["Fuzi", "Wittur German Kit", "PVE", "Fuzi IS 17900", "Fuzi PWD BSR 2025"]
 CONTROL_OPTIONS: list[str] = ["Basic Relay", "Collective Control", "Microprocessor", "Smart IoT"]
 CONTROL_SURCHARGE: dict[str, int] = {
     "Basic Relay": 0, "Collective Control": 0, "Microprocessor": 35000, "Smart IoT": 75000,
@@ -1849,7 +1961,7 @@ def calculate_full_breakdown(data: dict) -> dict:
     import re as _re
 
     # ── 1. Resolve capacity and config ────────────────────────────────────────
-    raw = str(data.get("capacity", "8-person (630 kg)"))
+    raw = str(data.get("capacity", "6 Passengers"))
     m_pax = _re.match(r"(\d+)[- ]person", raw)
     m_kg = _re.match(r"(\d+)\s*kg", raw.strip())
     if m_pax:
@@ -2114,6 +2226,306 @@ COMMISSIONINGS: list = _load_module(COMMISSIONINGS_FILE, [])
 FACTORY_JOBS: list = _load_module(FACTORY_JOBS_FILE, [])
 TENDERS: list = _load_module(TENDERS_FILE, [])
 DEPT_COMMS: list = _load_module(DEPT_COMMS_FILE, [])
+SALES_ADMIN_PANEL: list = _load_module(SALES_ADMIN_PANEL_FILE, [])
+
+SALES_ADMIN_NUMERIC_FIELDS = (
+    "site_visited_count",
+    "units_received_wip_count",
+    "inquiries_lost_count",
+    "orders_lost_count",
+    "units_lost_warranty_count",
+    "units_lost_amc_count",
+    "orders_completed_in_loss_count",
+    "maintenance_completed_in_loss_count",
+)
+
+SALES_ADMIN_AMOUNT_FIELDS = (
+    "amc_payment_next_10_year",
+)
+
+
+def parse_iso_date(value: Any) -> date | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if "T" in text:
+        text = text.split("T", 1)[0]
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def fiscal_year_bounds(reference: date) -> tuple[date, date, str]:
+    start_year = reference.year if reference.month >= 4 else reference.year - 1
+    fy_start = date(start_year, 4, 1)
+    fy_end = date(start_year + 1, 3, 31)
+    label = f"FY {start_year}-{str(start_year + 1)[-2:]}"
+    return fy_start, fy_end, label
+
+
+def _to_float(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _to_non_negative_int(value: Any) -> int:
+    try:
+        return max(int(float(value or 0)), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _date_in_window(value: date | None, start: date, end: date) -> bool:
+    return bool(value and start <= value <= end)
+
+
+def _record_date(record: dict[str, Any], *keys: str) -> date | None:
+    for key in keys:
+        parsed = parse_iso_date(record.get(key))
+        if parsed:
+            return parsed
+    return None
+
+
+def _contract_type(record: dict[str, Any]) -> str:
+    merged = " ".join(str(record.get(k, "")) for k in ("contract_type", "service_type", "contract", "notes")).lower()
+    if "amc" in merged:
+        return "AMC"
+    if "warranty" in merged or "warrenty" in merged:
+        return "Warranty"
+    return ""
+
+
+def _payment_is_amc(payment: dict[str, Any]) -> bool:
+    merged = " ".join(str(payment.get(k, "")) for k in ("milestone", "notes", "reference")).lower()
+    return "amc" in merged or "maintenance" in merged
+
+
+def _estimate_is_loss(estimate: dict[str, Any]) -> bool:
+    if estimate.get("loss_order"):
+        return True
+    quoted = _to_float(estimate.get("total_cost"))
+    actual = _to_float(estimate.get("actual_cost") or estimate.get("final_cost") or estimate.get("delivered_cost"))
+    return quoted > 0 and actual > quoted
+
+
+def _service_is_loss(record: dict[str, Any]) -> bool:
+    if record.get("maintenance_loss"):
+        return True
+    amc_amount = _to_float(record.get("amc_amount") or record.get("contract_amount"))
+    man_hours = _to_float(record.get("man_hours_cost") or record.get("labour_cost"))
+    spares = _to_float(record.get("spare_parts_cost") or record.get("bill_total"))
+    return amc_amount > 0 and (man_hours + spares) > amc_amount
+
+
+def _normalize_sales_admin_entry(payload: dict[str, Any], actor: str) -> dict[str, Any]:
+    normalized: dict[str, Any] = {
+        "date": str(payload.get("date", "")).strip(),
+        "major_competitor": str(payload.get("major_competitor", "")).strip(),
+        "notes": str(payload.get("notes", "")).strip(),
+        "updated_by": actor,
+        "updated_at": now_stamp(),
+    }
+    for field in SALES_ADMIN_NUMERIC_FIELDS:
+        normalized[field] = _to_non_negative_int(payload.get(field))
+    for field in SALES_ADMIN_AMOUNT_FIELDS:
+        normalized[field] = round(max(_to_float(payload.get(field)), 0.0), 2)
+    return normalized
+
+
+def _manual_sales_adjustments(start: date, end: date) -> dict[str, Any]:
+    entries = [entry for entry in SALES_ADMIN_PANEL if _date_in_window(parse_iso_date(entry.get("date")), start, end)]
+    totals = {field: 0 for field in SALES_ADMIN_NUMERIC_FIELDS}
+    totals.update({field: 0.0 for field in SALES_ADMIN_AMOUNT_FIELDS})
+    competitor_counts: dict[str, int] = {}
+    for entry in entries:
+        for field in SALES_ADMIN_NUMERIC_FIELDS:
+            totals[field] += _to_non_negative_int(entry.get(field))
+        for field in SALES_ADMIN_AMOUNT_FIELDS:
+            totals[field] += max(_to_float(entry.get(field)), 0.0)
+        competitor = str(entry.get("major_competitor", "")).strip()
+        if competitor:
+            competitor_counts[competitor] = competitor_counts.get(competitor, 0) + 1
+    top_competitor = ""
+    if competitor_counts:
+        top_competitor = max(competitor_counts.items(), key=lambda item: item[1])[0]
+    totals["major_competitor"] = top_competitor
+    return totals
+
+
+def _sales_metrics_window(start: date, end: date, today: date) -> dict[str, Any]:
+    inquiry_rows = [
+        row for row in SALES_INQUIRIES
+        if _date_in_window(_record_date(row, "received_date", "created_at", "last_followup"), start, end)
+    ]
+    offers_submitted = [
+        row for row in ESTIMATES
+        if row.get("status") in {"Sent", "Accepted", "Draft"}
+        and _date_in_window(_record_date(row, "sent_at", "created_at"), start, end)
+    ]
+    units_wip = [
+        row for row in INSTALL_JOBS
+        if str(row.get("status", "")).lower() not in {"completed", "closed", "delivered"}
+        and _date_in_window(_record_date(row, "start_date", "created_at", "target_date"), start, end)
+    ]
+
+    inquiry_lost_statuses = {"lost", "lost inquiry", "lost before offer", "inquiry lost"}
+    order_lost_statuses = {"order lost", "lost after offer", "bid lost"}
+
+    site_visited_count = 0
+    inquiry_lost_count = 0
+    order_lost_count = 0
+    competitor_counter: dict[str, int] = {}
+    for row in inquiry_rows:
+        status = str(row.get("status", "")).strip().lower()
+        if status in {"follow-up", "order received", "closed", "site visited"}:
+            site_visited_count += 1
+        if status in inquiry_lost_statuses:
+            inquiry_lost_count += 1
+        if status in order_lost_statuses or ("lost" in status and str(row.get("linked_estimate", "")).strip()):
+            order_lost_count += 1
+        if "lost" in status:
+            competitor = str(row.get("major_competitor") or row.get("competitor") or row.get("lost_to") or "").strip()
+            if competitor:
+                competitor_counter[competitor] = competitor_counter.get(competitor, 0) + 1
+
+    warranty_units: set[str] = set()
+    amc_units: set[str] = set()
+    units_lost_warranty_count = 0
+    units_lost_amc_count = 0
+    for row in BREAKDOWNS + SERVICE_RECORDS:
+        row_date = _record_date(row, "completed_date", "service_date", "reported_at", "created_at")
+        if not _date_in_window(row_date, start, end):
+            continue
+        contract = _contract_type(row)
+        unit = str(row.get("unit") or row.get("elevator_ref") or row.get("id") or "").strip()
+        status_text = " ".join(str(row.get(k, "")) for k in ("status", "resolution", "notes")).lower()
+        if contract == "Warranty" and unit:
+            warranty_units.add(unit)
+        if contract == "AMC" and unit:
+            amc_units.add(unit)
+        if contract == "Warranty" and "lost" in status_text:
+            units_lost_warranty_count += 1
+        if contract == "AMC" and "lost" in status_text:
+            units_lost_amc_count += 1
+
+    amc_payment_received_till_now = 0.0
+    amc_payment_to_be_received_year = 0.0
+    new_elevator_payment_received = 0.0
+    new_elevator_payment_pending = 0.0
+    for payment in PAYMENTS:
+        amount = max(_to_float(payment.get("amount")), 0.0)
+        status = str(payment.get("status", "")).strip().lower()
+        due_date = parse_iso_date(payment.get("due_date"))
+        paid_date = parse_iso_date(payment.get("paid_date"))
+        in_due_window = _date_in_window(due_date, start, end)
+        is_paid = status == "paid"
+        if _payment_is_amc(payment):
+            if is_paid and paid_date and paid_date <= today and _date_in_window(paid_date, start, end):
+                amc_payment_received_till_now += amount
+            if in_due_window and not is_paid:
+                amc_payment_to_be_received_year += amount
+        else:
+            if is_paid and _date_in_window(paid_date, start, end):
+                new_elevator_payment_received += amount
+            if in_due_window and not is_paid:
+                new_elevator_payment_pending += amount
+
+    order_loss_count = len(
+        [
+            row for row in ESTIMATES
+            if _date_in_window(_record_date(row, "created_at", "sent_at"), start, end)
+            and _estimate_is_loss(row)
+        ]
+    )
+    maintenance_loss_count = len(
+        [
+            row for row in SERVICE_RECORDS
+            if str(row.get("status", "")).lower() == "completed"
+            and _date_in_window(_record_date(row, "completed_date", "service_date", "completed_at"), start, end)
+            and _service_is_loss(row)
+        ]
+    )
+
+    top_competitor = max(competitor_counter.items(), key=lambda item: item[1])[0] if competitor_counter else ""
+
+    return {
+        "inquiries_received": len(inquiry_rows),
+        "site_visited": site_visited_count,
+        "offers_submitted": len(offers_submitted),
+        "units_received_wip": len(units_wip),
+        "elevators_in_warranty": len(warranty_units),
+        "elevators_in_amc": len(amc_units),
+        "total_elevators_in_service": len(warranty_units | amc_units),
+        "inquiries_lost": inquiry_lost_count,
+        "orders_lost": order_lost_count,
+        "major_competitor": top_competitor,
+        "units_lost_warranty": units_lost_warranty_count,
+        "units_lost_amc": units_lost_amc_count,
+        "amc_payment_received_till_now": round(amc_payment_received_till_now, 2),
+        "amc_payment_to_be_received_year": round(amc_payment_to_be_received_year, 2),
+        "new_elevator_payment_received": round(new_elevator_payment_received, 2),
+        "new_elevator_payment_pending": round(new_elevator_payment_pending, 2),
+        "amc_payment_next_10_year": round((amc_payment_received_till_now + amc_payment_to_be_received_year) * 10, 2),
+        "orders_completed_in_loss": order_loss_count,
+        "maintenance_completed_in_loss": maintenance_loss_count,
+    }
+
+
+def build_sales_admin_panel(selected_date_text: str | None = None) -> dict[str, Any]:
+    today = datetime.now().date()
+    selected_date = parse_iso_date(selected_date_text) or today
+    fy_start, fy_end, fy_label = fiscal_year_bounds(selected_date)
+
+    fy_metrics = _sales_metrics_window(fy_start, fy_end, today)
+    day_metrics = _sales_metrics_window(selected_date, selected_date, today)
+
+    fy_manual = _manual_sales_adjustments(fy_start, fy_end)
+    day_manual = _manual_sales_adjustments(selected_date, selected_date)
+
+    for source, manual in ((fy_metrics, fy_manual), (day_metrics, day_manual)):
+        source["site_visited"] += manual["site_visited_count"]
+        source["units_received_wip"] += manual["units_received_wip_count"]
+        source["inquiries_lost"] += manual["inquiries_lost_count"]
+        source["orders_lost"] += manual["orders_lost_count"]
+        source["units_lost_warranty"] += manual["units_lost_warranty_count"]
+        source["units_lost_amc"] += manual["units_lost_amc_count"]
+        source["orders_completed_in_loss"] += manual["orders_completed_in_loss_count"]
+        source["maintenance_completed_in_loss"] += manual["maintenance_completed_in_loss_count"]
+        if manual["amc_payment_next_10_year"] > 0:
+            source["amc_payment_next_10_year"] = round(manual["amc_payment_next_10_year"], 2)
+        if not source["major_competitor"]:
+            source["major_competitor"] = manual.get("major_competitor", "")
+
+    selected_entry = next(
+        (entry for entry in SALES_ADMIN_PANEL if parse_iso_date(entry.get("date")) == selected_date),
+        {
+            "date": selected_date.isoformat(),
+            **{field: 0 for field in SALES_ADMIN_NUMERIC_FIELDS},
+            **{field: 0.0 for field in SALES_ADMIN_AMOUNT_FIELDS},
+            "major_competitor": "",
+            "notes": "",
+        },
+    )
+
+    return {
+        "selected_date": selected_date.isoformat(),
+        "fiscal_year": {
+            "start": fy_start.isoformat(),
+            "end": fy_end.isoformat(),
+            "label": fy_label,
+        },
+        "metrics": {
+            "financial_year": fy_metrics,
+            "selected_date": day_metrics,
+        },
+        "entry": selected_entry,
+    }
 
 
 def next_payment_id() -> str:
@@ -2145,32 +2557,410 @@ def payment_summary(estimate_id: str) -> dict[str, Any]:
 PAYMENTS: list[dict[str, Any]] = load_payments()
 
 
+def send_plain_email(to_email: str, subject: str, body: str) -> dict[str, Any]:
+    if not to_email:
+        return {"ok": False, "message": "No recipient configured."}
+    if not SMTP_HOST:
+        return {"ok": True, "method": "pending", "to": to_email, "subject": subject}
+    import smtplib
+    from email.mime.text import MIMEText
+    try:
+        msg = MIMEText(body, "plain")
+        msg["Subject"] = subject
+        msg["From"] = SMTP_FROM
+        msg["To"] = to_email
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as srv:
+            srv.starttls()
+            if SMTP_USER:
+                srv.login(SMTP_USER, SMTP_PASS)
+            srv.sendmail(SMTP_FROM, [to_email], msg.as_string())
+        return {"ok": True, "method": "smtp", "to": to_email}
+    except Exception as exc:
+        return {"ok": False, "message": str(exc)}
+
+
+def estimate_customer_record(estimate: dict[str, Any]) -> dict[str, Any]:
+    customer_id = str(estimate.get("customer_id", "")).strip()
+    if customer_id:
+        found = find_customer(customer_id)
+        if found:
+            return found
+    name = str(estimate.get("customer_name", "")).strip().lower()
+    if name:
+        found = next((customer for customer in CUSTOMERS if str(customer.get("name", "")).strip().lower() == name), None)
+        if found:
+            return found
+    return {}
+
+
+def fiscal_year_label(today: date | None = None) -> str:
+    today = today or date.today()
+    start = today.year if today.month >= 4 else today.year - 1
+    return f"{start}-{str(start + 1)[-2:]}"
+
+
+def estimate_ref_no(estimate: dict[str, Any]) -> str:
+    suffix = str(estimate.get("id", "")).replace("EST-", "")
+    return f"FUZI/Classic/{fiscal_year_label()}/{suffix}"
+
+
+def offer_docx_path(estimate: dict[str, Any]) -> Path:
+    GENERATED_OFFERS_DIR.mkdir(parents=True, exist_ok=True)
+    safe_id = re.sub(r"[^A-Za-z0-9_-]+", "-", str(estimate.get("id", "offer"))).strip("-") or "offer"
+    return GENERATED_OFFERS_DIR / f"{safe_id}-offer.docx"
+
+
+def offer_pdf_path(estimate: dict[str, Any]) -> Path:
+    GENERATED_OFFERS_DIR.mkdir(parents=True, exist_ok=True)
+    safe_id = re.sub(r"[^A-Za-z0-9_-]+", "-", str(estimate.get("id", "offer"))).strip("-") or "offer"
+    return GENERATED_OFFERS_DIR / f"{safe_id}-offer.pdf"
+
+
+def offer_lines(estimate: dict[str, Any]) -> list[str]:
+    customer = estimate_customer_record(estimate)
+    customer_name = estimate.get("customer_name") or customer.get("name", "")
+    site = estimate.get("site") or customer.get("address", "")
+    phone = customer.get("phone", "")
+    capacity = estimate.get("capacity", "")
+    stops = estimate.get("num_floors", "")
+    total_cost = _to_float(estimate.get("total_cost", 0))
+    valid_until = estimate.get("valid_until") or "30 days from issue"
+    addons = ", ".join(estimate.get("addons", [])) or "As per standard FUZI specification"
+    remarks = [estimate.get("remark_1", ""), estimate.get("remark_2", ""), estimate.get("remark_3", "")]
+    remarks = ", ".join(str(item).strip() for item in remarks if str(item).strip()) or estimate.get("notes", "")
+    return [
+        "FUZI Classic Elevators Pvt. Ltd.",
+        f"Ref. No. {estimate_ref_no(estimate)}",
+        f"Dated: {date.today().strftime('%B %d, %Y')}",
+        "",
+        customer_name,
+        site,
+        f"# {phone}" if phone else "",
+        "",
+        f"Subject: Supply, Installation, Testing, Commissioning and complete handing over of 01 nos. Elevator for your site at {site}.",
+        "Reference: Personal discussions and site visit reference.",
+        "",
+        "Dear Sir,",
+        "This refers to aforementioned subject in line to SITC of one no. elevator. Further, we thank you for extending your valued enquiry to us. We have pleasure to submit our offer for supply, installation, testing and commissioning and complete handing over of FUZI brand Elevator in the building at the above address.",
+        "",
+        "ANNEXURE- I",
+        "TECHNICAL SPECIFICATIONS SHEET",
+        f"Service: {estimate.get('elevator_type', 'Passenger')}",
+        "No. of Elevators: One (01) no.",
+        f"Capacity: {capacity}",
+        f"Speed: {estimate.get('speed', '1.0 Meter Per Second')}",
+        f"Control: {estimate.get('control_type', '')}",
+        f"Motor: {estimate.get('drive_type', '')}",
+        f"Floors & Opening: {stops} stops / openings",
+        f"Door Opening Type: {estimate.get('door_type', '')}",
+        f"Door Opening Size: {estimate.get('door_width_mm', '')}mm x {estimate.get('door_height_mm', '')}mm",
+        f"Hoist-way Size: Pit {estimate.get('pit_depth_mm', '')}mm, overhead {estimate.get('overhead_mm', '')}mm",
+        f"Elevator Car: {estimate.get('cabin_finish', '')}",
+        f"Hoist-way Entrance: {estimate.get('door_construction', '')}",
+        f"Other Features: {addons}",
+        f"Remarks / Accessories: {remarks}",
+        "",
+        "Price:",
+        f"Our price for One number {capacity} {estimate.get('drive_type', '')} Elevator for {stops} stops as per Annexure-I will be @ Rs. {total_cost:,.2f}.",
+        "",
+        "The above offer is Inclusive of:",
+        "Installation charges along with 12 months warranty from the date of handing over.",
+        "Freight up to the site.",
+        "",
+        "The above offer is Exclusive of:",
+        "Architrave work at all floors. Separating channel work, if applicable. GST @18%.",
+        "",
+        "Payment Terms:",
+        "40% of the contract value advance along with the order.",
+        "50% of the contract value on intimation of material readiness at factory.",
+        "10% of the contract value along with all taxes at the time of handing over of lift.",
+        "",
+        "Delivery & Installation Schedule:",
+        "GAD will be submitted within ten days from receipt of confirmed written order along with advance payment. Material and installation schedule will proceed as per payment clearance and site readiness.",
+        "",
+        "Maintenance:",
+        "Our offer includes 12 months free maintenance at site including all parts excluding consumables parts such as fan, blower, bulb, tube light, battery and PVC flooring etc.",
+        "",
+        "Customer Scope of Work:",
+        "Lift pit, shaft lighting, shaft whitewash, load hook, power supply, earthing, store space, and all civil work shall be in customer scope as per GAD.",
+        "",
+        f"Offer Validity: {valid_until}",
+        "",
+        "Thanking you with warm regards,",
+        "Yours Truly,",
+        "For FUZI Classic Elevators Pvt Ltd",
+        "(Authorized Signatory)",
+        "",
+        "360, Guru Nanak Pura, Raja Park, Jaipur, Rajasthan, India-302004 | Toll Free-18001028421 | Mobile-09928019671 | atulsinghal@fuzielevators.com",
+    ]
+
+
+def word_para(text: str, style: str = "Normal") -> str:
+    text = xml_escape(str(text or ""))
+    return f'<w:p><w:pPr><w:pStyle w:val="{style}"/></w:pPr><w:r><w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
+
+
+def word_table(rows: list[tuple[str, str]]) -> str:
+    cells = []
+    for label, value in rows:
+        cells.append(
+            "<w:tr>"
+            f"<w:tc><w:tcPr><w:tcW w:w=\"2800\" w:type=\"dxa\"/></w:tcPr>{word_para(label)}</w:tc>"
+            f"<w:tc><w:tcPr><w:tcW w:w=\"6000\" w:type=\"dxa\"/></w:tcPr>{word_para(value)}</w:tc>"
+            "</w:tr>"
+        )
+    return (
+        '<w:tbl><w:tblPr><w:tblW w:w="8800" w:type="dxa"/>'
+        '<w:tblBorders><w:top w:val="single" w:sz="4" w:color="CCCCCC"/>'
+        '<w:left w:val="single" w:sz="4" w:color="CCCCCC"/>'
+        '<w:bottom w:val="single" w:sz="4" w:color="CCCCCC"/>'
+        '<w:right w:val="single" w:sz="4" w:color="CCCCCC"/>'
+        '<w:insideH w:val="single" w:sz="4" w:color="CCCCCC"/>'
+        '<w:insideV w:val="single" w:sz="4" w:color="CCCCCC"/></w:tblBorders></w:tblPr>'
+        '<w:tblGrid><w:gridCol w:w="2800"/><w:gridCol w:w="6000"/></w:tblGrid>'
+        + "".join(cells)
+        + "</w:tbl>"
+    )
+
+
+def generate_offer_docx(estimate: dict[str, Any]) -> Path:
+    customer = estimate_customer_record(estimate)
+    customer_name = estimate.get("customer_name") or customer.get("name", "")
+    site = estimate.get("site") or customer.get("address", "")
+    phone = customer.get("phone", "")
+    capacity = estimate.get("capacity", "")
+    stops = estimate.get("num_floors", "")
+    total_cost = _to_float(estimate.get("total_cost", 0))
+    valid_until = estimate.get("valid_until") or "30 days from issue"
+    addons = ", ".join(estimate.get("addons", [])) or "As per standard FUZI specification"
+    remarks = [estimate.get("remark_1", ""), estimate.get("remark_2", ""), estimate.get("remark_3", "")]
+    remarks = ", ".join(str(item).strip() for item in remarks if str(item).strip()) or estimate.get("notes", "")
+    path = offer_docx_path(estimate)
+
+    body = [
+        word_para("FUZI Classic Elevators Pvt. Ltd.", "Title"),
+        word_para(f"Ref. No. {estimate_ref_no(estimate)}"),
+        word_para(f"Dated: {date.today().strftime('%B %d, %Y')}"),
+        word_para(customer_name),
+        word_para(site),
+        word_para(f"# {phone}" if phone else ""),
+        word_para(
+            f"Subject: Supply, Installation, Testing, Commissioning and complete handing over of 01 nos. Elevator for your site at {site}."
+        ),
+        word_para("Reference: Personal discussions and site visit reference."),
+        word_para("Dear Sir,"),
+        word_para(
+            "This refers to aforementioned subject in line to SITC of one no. elevator. Further, we thank you for extending your valued enquiry to us. We have pleasure to submit our offer for supply, installation, testing and commissioning and complete handing over of FUZI brand Elevator in the building at the above address."
+        ),
+        word_para("ANNEXURE- I", "Heading1"),
+        word_para("TECHNICAL SPECIFICATIONS SHEET", "Heading1"),
+        word_table(
+            [
+                ("Service", estimate.get("elevator_type", "Passenger")),
+                ("No. of Elevators", "One (01) no."),
+                ("Capacity", capacity),
+                ("Speed", estimate.get("speed", "1.0 Meter Per Second")),
+                ("Control", estimate.get("control_type", "")),
+                ("Motor", estimate.get("drive_type", "")),
+                ("Floors & Opening", f"{stops} stops / openings"),
+                ("Door Opening Type", estimate.get("door_type", "")),
+                ("Door Opening Size", f"{estimate.get('door_width_mm', '')}mm (width) x {estimate.get('door_height_mm', '')}mm (height)"),
+                ("Hoist-way Size Available", f"Pit {estimate.get('pit_depth_mm', '')}mm, overhead {estimate.get('overhead_mm', '')}mm"),
+                ("Elevator Car", estimate.get("cabin_finish", "")),
+                ("Hoist-way Entrance", estimate.get("door_construction", "")),
+                ("Other Features", addons),
+                ("Remarks / Accessories", remarks),
+            ]
+        ),
+        word_para("Price:", "Heading1"),
+        word_para(
+            f"Our price for One number {capacity} {estimate.get('drive_type', '')} Elevator for {stops} stops as per Annexure-I will be @ Rs. {total_cost:,.2f}."
+        ),
+        word_para("The above offer is Inclusive of:", "Heading2"),
+        word_para("Installation charges along with 12 months warranty from the date of handing over."),
+        word_para("Freight up to the site."),
+        word_para("The above offer is Exclusive of:", "Heading2"),
+        word_para("Architrave work at all floors. Separating channel work, if applicable. GST @18%."),
+        word_para("Payment Terms:", "Heading2"),
+        word_para("40% of the contract value advance along with the order."),
+        word_para("50% of the contract value on intimation of material readiness at factory."),
+        word_para("10% of the contract value along with all taxes at the time of handing over of lift."),
+        word_para("Delivery & Installation Schedule:", "Heading2"),
+        word_para("GAD will be submitted within ten days from receipt of confirmed written order along with advance payment. Material and installation schedule will proceed as per payment clearance and site readiness."),
+        word_para("Maintenance:", "Heading2"),
+        word_para("Our offer includes 12 months free maintenance at site including all parts excluding consumables parts such as fan, blower, bulb, tube light, battery and PVC flooring etc."),
+        word_para("Customer Scope of Work:", "Heading2"),
+        word_para("Lift pit, shaft lighting, shaft whitewash, load hook, power supply, earthing, store space, and all civil work shall be in customer scope as per GAD."),
+        word_para(f"Offer Validity: {valid_until}"),
+        word_para("Thanking you with warm regards,"),
+        word_para("Yours Truly,"),
+        word_para("For FUZI Classic Elevators Pvt Ltd"),
+        word_para("(Authorized Signatory)"),
+        word_para("360, Guru Nanak Pura, Raja Park, Jaipur, Rajasthan, India-302004 | Toll Free-18001028421 | Mobile-09928019671 | atulsinghal@fuzielevators.com"),
+    ]
+
+    document_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        "<w:body>"
+        + "".join(body)
+        + '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1080" w:right="1080" w:bottom="1080" w:left="1080" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>'
+        + "</w:body></w:document>"
+    )
+    styles_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/><w:sz w:val="22"/></w:rPr></w:style>'
+        '<w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:rPr><w:b/><w:sz w:val="32"/></w:rPr></w:style>'
+        '<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:rPr><w:b/><w:sz w:val="26"/></w:rPr></w:style>'
+        '<w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:rPr><w:b/><w:sz w:val="24"/></w:rPr></w:style>'
+        "</w:styles>"
+    )
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
+        "</Types>"
+    )
+    rels = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+        "</Relationships>"
+    )
+    doc_rels = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+        "</Relationships>"
+    )
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as docx:
+        docx.writestr("[Content_Types].xml", content_types)
+        docx.writestr("_rels/.rels", rels)
+        docx.writestr("word/_rels/document.xml.rels", doc_rels)
+        docx.writestr("word/document.xml", document_xml)
+        docx.writestr("word/styles.xml", styles_xml)
+    estimate["offer_docx"] = str(path.relative_to(BASE_DIR))
+    estimate["offer_template"] = str(OFFER_TEMPLATE_FILE.relative_to(BASE_DIR))
+    return path
+
+
+def pdf_escape(text: str) -> str:
+    return str(text).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def wrap_pdf_line(text: str, width: int = 95) -> list[str]:
+    words = str(text or "").split()
+    if not words:
+        return [""]
+    lines: list[str] = []
+    current = words[0]
+    for word in words[1:]:
+        if len(current) + len(word) + 1 <= width:
+            current += " " + word
+        else:
+            lines.append(current)
+            current = word
+    lines.append(current)
+    return lines
+
+
+def generate_offer_pdf(estimate: dict[str, Any]) -> Path:
+    path = offer_pdf_path(estimate)
+    wrapped: list[str] = []
+    for line in offer_lines(estimate):
+        wrapped.extend(wrap_pdf_line(line))
+
+    pages: list[list[str]] = []
+    current: list[str] = []
+    max_lines = 54
+    for line in wrapped:
+        if len(current) >= max_lines:
+            pages.append(current)
+            current = []
+        current.append(line)
+    if current:
+        pages.append(current)
+
+    objects: list[str] = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "",
+    ]
+    page_refs: list[str] = []
+    next_obj = 3
+    for page in pages:
+        page_obj = next_obj
+        content_obj = next_obj + 1
+        next_obj += 2
+        page_refs.append(f"{page_obj} 0 R")
+        stream_lines = ["BT", "/F1 10 Tf", "50 760 Td", "14 TL"]
+        for index, line in enumerate(page):
+            if index:
+                stream_lines.append("T*")
+            stream_lines.append(f"({pdf_escape(line)}) Tj")
+        stream_lines.append("ET")
+        stream = "\n".join(stream_lines)
+        objects.append(f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 {next_obj} 0 R >> >> /Contents {content_obj} 0 R >>")
+        objects.append(f"<< /Length {len(stream.encode('latin-1', errors='replace'))} >>\nstream\n{stream}\nendstream")
+    font_obj = next_obj
+    objects[1] = f"<< /Type /Pages /Kids [{' '.join(page_refs)}] /Count {len(page_refs)} >>"
+    objects.append("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+
+    pdf = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for idx, obj in enumerate(objects, start=1):
+        offsets.append(len(pdf))
+        pdf.extend(f"{idx} 0 obj\n{obj}\nendobj\n".encode("latin-1", errors="replace"))
+    xref_pos = len(pdf)
+    pdf.extend(f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode("ascii"))
+    for offset in offsets[1:]:
+        pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    pdf.extend(f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n".encode("ascii"))
+    path.write_bytes(bytes(pdf))
+    estimate["offer_pdf"] = str(path.relative_to(BASE_DIR))
+    estimate["offer_template"] = str(OFFER_TEMPLATE_FILE.relative_to(BASE_DIR))
+    return path
+
+
 def send_estimate_email(estimate: dict) -> dict[str, Any]:
     """Send estimate report via SMTP if configured, otherwise return mailto info."""
     import smtplib
+    from email.mime.base import MIMEBase
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
+    from email import encoders
     to_email = estimate.get("sent_to_email", "")
     if not to_email:
         return {"ok": False, "message": "No recipient email on estimate."}
+    if not estimate.get("offer_approved"):
+        return {"ok": False, "message": "Approve the offer PDF before sending it."}
     html_body = _estimate_html_report(estimate)
     subject = f"FUZI Elevators — Quotation {estimate['id']} for {estimate.get('site', estimate.get('customer_name', ''))}"
+    offer_path = generate_offer_pdf(estimate)
     if SMTP_HOST:
         try:
-            msg = MIMEMultipart("alternative")
+            msg = MIMEMultipart("mixed")
             msg["Subject"] = subject
             msg["From"] = SMTP_FROM
             msg["To"] = to_email
             msg.attach(MIMEText(html_body, "html"))
+            attachment = MIMEBase("application", "pdf")
+            attachment.set_payload(offer_path.read_bytes())
+            encoders.encode_base64(attachment)
+            attachment.add_header("Content-Disposition", "attachment", filename=offer_path.name)
+            msg.attach(attachment)
             with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as srv:
                 srv.starttls()
                 if SMTP_USER:
                     srv.login(SMTP_USER, SMTP_PASS)
                 srv.sendmail(SMTP_FROM, [to_email], msg.as_string())
-            return {"ok": True, "method": "smtp", "to": to_email}
+            return {"ok": True, "method": "smtp", "to": to_email, "offer_pdf": f"/api/portal/estimates/{estimate['id']}/offer.pdf"}
         except Exception as exc:
             return {"ok": False, "message": str(exc)}
-    return {"ok": True, "method": "mailto", "to": to_email, "subject": subject}
+    return {"ok": True, "method": "mailto", "to": to_email, "subject": subject, "offer_pdf": f"/api/portal/estimates/{estimate['id']}/offer.pdf"}
 
 
 def _bom_section(estimate: dict) -> str:
@@ -2367,6 +3157,16 @@ def inventory_ai_insights() -> dict[str, Any]:
 
 def now_stamp() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+def parse_now_stamp(value: str) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.strptime(text, "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
 
 
 def append_activity(agent: str, summary: str) -> None:
@@ -2651,32 +3451,51 @@ def load_openclaw_discord_token() -> str:
     return ""
 
 
-def discord_api_json(method: str, path: str, payload: dict[str, Any] | None = None, reason: str = "") -> dict[str, Any]:
-    token = load_openclaw_discord_token()
-    if not token:
-        raise RuntimeError("Discord token is not configured in ~/.openclaw/openclaw.json.")
-
-    endpoint = f"https://discord.com/api/v10{path}"
-    headers = {
-        "Authorization": f"Bot {token}",
-        "Content-Type": "application/json",
-        "User-Agent": "FUZI/1.0",
+def build_openclaw_message_read_payload(target: str, limit: int) -> dict[str, Any]:
+    return {
+        "tool": "message",
+        "action": "read",
+        "agentId": OPENCLAW_AGENT_ID,
+        "agent_id": OPENCLAW_AGENT_ID,
+        "args": {
+            "channel": "discord",
+            "target": target,
+            "limit": max(int(limit or 1), 1),
+        },
+        "sessionKey": "fuzi-operations",
     }
-    if reason:
-        headers["X-Audit-Log-Reason"] = reason
 
-    data = None if payload is None else json.dumps(payload).encode("utf-8")
-    request_obj = urllib_request.Request(endpoint, data=data, headers=headers, method=method)
-    try:
-        with urllib_request.urlopen(request_obj, timeout=20) as response:
-            body = response.read().decode("utf-8", errors="replace")
-            return json.loads(body) if body else {}
-    except urllib_error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        detail = body or exc.reason
-        raise RuntimeError(f"Discord API {method} {path} failed with {exc.code}: {detail}") from exc
-    except urllib_error.URLError as exc:
-        raise RuntimeError(f"Discord API {method} {path} failed: {getattr(exc, 'reason', exc)}") from exc
+
+def extract_openclaw_messages(result: dict[str, Any]) -> list[dict[str, Any]]:
+    payload = result.get("json") if isinstance(result, dict) else None
+    outer_result = payload.get("result") if isinstance(payload, dict) else None
+    details = outer_result.get("details") if isinstance(outer_result, dict) else None
+    messages = details.get("messages") if isinstance(details, dict) else None
+    if isinstance(messages, list):
+        return [message for message in messages if isinstance(message, dict)]
+
+    content_items = outer_result.get("content") if isinstance(outer_result, dict) else None
+    if not isinstance(content_items, list):
+        return []
+    for item in content_items:
+        text = item.get("text") if isinstance(item, dict) else None
+        if not isinstance(text, str) or not text.strip():
+            continue
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict) and isinstance(parsed.get("messages"), list):
+            return [message for message in parsed["messages"] if isinstance(message, dict)]
+    return []
+
+
+def openclaw_read_discord_messages(target: str, limit: int = 10) -> list[dict[str, Any]]:
+    return resolve_injected_discord_gateway().read_messages(target, limit)
+
+
+def discord_api_json(method: str, path: str, payload: dict[str, Any] | None = None, reason: str = "") -> dict[str, Any]:
+    return resolve_injected_discord_gateway().api_json(method, path, payload, reason)
 
 
 def discord_channel_id_from_target(target: str) -> str:
@@ -2702,13 +3521,32 @@ def discord_message_is_human(message: dict[str, Any]) -> bool:
     return bool(str(message.get("content", "")).strip())
 
 
+def acquire_discord_listener_lock() -> bool:
+    global DISCORD_LISTENER_LOCK_SOCKET
+    if DISCORD_LISTENER_LOCK_SOCKET is not None:
+        return True
+
+    mutex_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            mutex_socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        mutex_socket.bind(("127.0.0.1", DISCORD_LISTENER_LOCK_PORT))
+        mutex_socket.listen(1)
+    except OSError:
+        mutex_socket.close()
+        return False
+
+    DISCORD_LISTENER_LOCK_SOCKET = mutex_socket
+    return True
+
+
 def poll_crm_query_discord_channel() -> None:
     target = resolve_openclaw_runtime_value("FUZI_OPENCLAW_TARGET_CRM_QUERY", "")
-    channel_id = discord_channel_id_from_target(target)
-    if not channel_id:
+    if not str(target).strip():
         return
 
-    messages = discord_api_json("GET", f"/channels/{channel_id}/messages?limit=10")
+    gateway = resolve_injected_discord_gateway()
+    messages = gateway.read_messages(target, limit=10)
     if not isinstance(messages, list):
         return
 
@@ -2739,12 +3577,242 @@ def poll_crm_query_discord_channel() -> None:
         save_operations_state()
 
 
+def parse_breakdown_dispatch_message(content: str) -> dict[str, str] | None:
+    text = re.sub(r"\s+", " ", str(content or "")).strip()
+    if not text:
+        return None
+
+    # Typical inbound format from field teams: "981 Place Exists Location Name".
+    unit_match = re.search(r"\b(?:unit|lift|elevator|ref|id)?\s*[:#-]?\s*([A-Za-z0-9-]{2,})\b", text, re.IGNORECASE)
+    if not unit_match:
+        return None
+
+    unit = unit_match.group(1).strip()
+    remainder = text[unit_match.end():].strip(" -:,")
+    if not remainder and unit_match.start() == 0:
+        parts = text.split(" ", 1)
+        remainder = parts[1].strip() if len(parts) > 1 else ""
+
+    location = re.sub(r"(?i)^(place exists|location name|location|place|site)\s*[:\-]*\s*", "", remainder).strip()
+    if not location:
+        return None
+
+    return {
+        "unit": unit,
+        "location": location,
+        "raw": text,
+    }
+
+
+def next_available_breakdown_engineer() -> dict[str, Any] | None:
+    def availability_rank(member: dict[str, Any]) -> tuple[int, str]:
+        availability = str(member.get("availability", "")).strip().lower()
+        if availability == "available":
+            return (0, str(member.get("name", "")))
+        if "available" in availability:
+            return (1, str(member.get("name", "")))
+        if availability == "on site":
+            return (3, str(member.get("name", "")))
+        if availability in {"off duty", "leave"}:
+            return (9, str(member.get("name", "")))
+        return (4, str(member.get("name", "")))
+
+    candidates = [member for member in INSTALL_TEAM if availability_rank(member)[0] < 9]
+    if not candidates:
+        return None
+    candidates.sort(key=availability_rank)
+    return candidates[0]
+
+
+def post_breakdown_assignment_message(
+    summary: str,
+    details: list[str] | None = None,
+    event_type: str = "breakdown-dispatch",
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    message_summary = str(summary or "").strip()
+    if not message_summary:
+        return
+    send_business_channel_update(
+        "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL",
+        message_summary,
+        details or [],
+        event_type=event_type,
+        metadata=metadata,
+    )
+
+
+def breakdown_exists_for_source_message(source_message_id: str) -> bool:
+    normalized = str(source_message_id or "").strip()
+    if not normalized:
+        return False
+    return any(str(item.get("source_message_id", "")).strip() == normalized for item in BREAKDOWNS)
+
+
+def claim_breakdown_source_message(source_message_id: str) -> bool:
+    normalized = str(source_message_id or "").strip()
+    if not normalized:
+        return False
+    BREAKDOWN_DISPATCH_CLAIMS_DIR.mkdir(parents=True, exist_ok=True)
+    claim_path = BREAKDOWN_DISPATCH_CLAIMS_DIR / f"{normalized}.claim"
+    try:
+        file_descriptor = os.open(str(claim_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+
+    with os.fdopen(file_descriptor, "w", encoding="utf-8") as handle:
+        handle.write(now_stamp())
+    return True
+
+
+def _largest_discord_message_id(*values: Any) -> str:
+    message_ids = [str(value or "").strip() for value in values]
+    numeric_ids = [message_id for message_id in message_ids if message_id.isdigit()]
+    if not numeric_ids:
+        return ""
+    return max(numeric_ids, key=int)
+
+
+def highest_breakdown_source_message_id() -> str:
+    return _largest_discord_message_id(
+        *[
+            item.get("source_message_id", "")
+            for item in BREAKDOWNS
+            if str(item.get("source_channel", "")).strip().lower() == "discord"
+        ]
+    )
+
+
+def synchronize_breakdown_cursor() -> str:
+    persisted_cursor = highest_breakdown_source_message_id()
+    with STATE_LOCK:
+        cursors = OPERATIONS_STATE.setdefault("discord_cursors", {})
+        current_cursor = str(cursors.get("breakdown_last_message_id", "")).strip()
+        effective_cursor = _largest_discord_message_id(current_cursor, persisted_cursor)
+        if effective_cursor and effective_cursor != current_cursor:
+            cursors["breakdown_last_message_id"] = effective_cursor
+            save_operations_state()
+        return effective_cursor or current_cursor
+
+
+def process_breakdown_discord_message(message: dict[str, Any]) -> None:
+    parsed = parse_breakdown_dispatch_message(str(message.get("content", "")))
+    if parsed is None:
+        return
+
+    source_message_id = str(message.get("id", "")).strip()
+    if breakdown_exists_for_source_message(source_message_id):
+        return
+    if not claim_breakdown_source_message(source_message_id):
+        return
+
+    engineer = next_available_breakdown_engineer()
+    if engineer is None:
+        post_breakdown_assignment_message(
+            f"Breakdown message {message.get('id', '')} could not be assigned.",
+            [
+                f"Unit: {parsed['unit']}.",
+                f"Site: {parsed['location']}.",
+                "Scheduled engineer: Unassigned (No available engineer).",
+            ],
+        )
+        return
+
+    now = datetime.now().isoformat()
+    assigned_engineer_id = str(engineer.get("id", "")).strip()
+    assigned_engineer_name = str(engineer.get("name", "")).strip()
+    assigned_engineer_shift = str(engineer.get("shift", "")).strip()
+    assigned_engineer_availability = "On Site"
+    record = {
+        "id": _next_id(BREAKDOWNS, "BRK"),
+        "unit": parsed["unit"],
+        "elevator_ref": parsed["unit"],
+        "customer": "Discord Breakdown",
+        "site": parsed["location"],
+        "reported_at": now,
+        "attended_at": None,
+        "resolved_at": None,
+        "closed_at": None,
+        "technician": assigned_engineer_name,
+        "scheduled_engineer_id": assigned_engineer_id,
+        "scheduled_engineer_name": assigned_engineer_name,
+        "engineer_availability": assigned_engineer_availability,
+        "engineer_shift": assigned_engineer_shift,
+        "engineer_current_job": "",
+        "scheduled_visit_at": "",
+        "fault": f"Inbound Discord report for unit {parsed['unit']} at {parsed['location']}.",
+        "contract_type": "Unknown",
+        "resolution": "",
+        "priority": "High",
+        "status": "Open",
+        "source_channel": "discord",
+        "source_message_id": source_message_id,
+        "source_message": parsed["raw"],
+        "source_author": str(message.get("author", {}).get("username", "")).strip(),
+        "created_at": now,
+    }
+
+    engineer["current_job"] = record["id"]
+    engineer["availability"] = assigned_engineer_availability
+    save_install_team()
+
+    record["engineer_current_job"] = str(engineer.get("current_job", "")).strip()
+    BREAKDOWNS.append(record)
+    _save_module(BREAKDOWNS_FILE, BREAKDOWNS)
+
+    post_breakdown_assignment_message(
+        f"Breakdown {record['id']} assigned from Discord message {source_message_id or 'unknown'}.",
+        [
+            f"Unit: {parsed['unit']}.",
+            f"Site: {parsed['location']}.",
+            f"Fault: {record.get('fault', 'Not specified') or 'Not specified'}.",
+            f"Priority: {record.get('priority', 'High')}.",
+            f"Scheduled engineer: {assigned_engineer_name or 'Unassigned'} ({assigned_engineer_availability}).",
+            f"Technician: {record.get('technician', 'Unassigned') or 'Unassigned'}.",
+        ],
+        metadata={"breakdown_id": record.get("id", "")},
+    )
+
+
+def poll_breakdown_discord_channel() -> None:
+    target = resolve_openclaw_runtime_value("FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL", "")
+    if not str(target).strip():
+        return
+
+    gateway = resolve_injected_discord_gateway()
+    messages = gateway.read_messages(target, limit=15)
+    if not isinstance(messages, list):
+        return
+
+    last_message_id = synchronize_breakdown_cursor()
+
+    new_messages = [
+        message
+        for message in sorted(messages, key=discord_message_sort_key)
+        if discord_message_is_human(message)
+        and (not last_message_id or discord_message_sort_key(message) > int(last_message_id))
+    ]
+
+    if not new_messages:
+        return
+
+    newest_seen_id = last_message_id
+    for message in new_messages:
+        newest_seen_id = str(message.get("id", newest_seen_id)).strip() or newest_seen_id
+        process_breakdown_discord_message(message)
+
+    with STATE_LOCK:
+        OPERATIONS_STATE.setdefault("discord_cursors", {})["breakdown_last_message_id"] = newest_seen_id
+        save_operations_state()
+
+
 def ensure_discord_agent_channels(guild_id: str) -> dict[str, Any]:
     if not guild_id.strip():
         raise RuntimeError("Set FUZI_DISCORD_GUILD_ID to the Discord server ID before provisioning agent channels.")
 
     reason = "Provision FUZI operational agent channels"
-    channels = discord_api_json("GET", f"/guilds/{guild_id}/channels")
+    gateway = resolve_injected_discord_gateway()
+    channels = gateway.api_json("GET", f"/guilds/{guild_id}/channels")
     if not isinstance(channels, list):
         raise RuntimeError("Discord did not return a channel list for the target guild.")
 
@@ -2761,7 +3829,7 @@ def ensure_discord_agent_channels(guild_id: str) -> dict[str, Any]:
             None,
         )
     if category is None:
-        category = discord_api_json(
+        category = gateway.api_json(
             "POST",
             f"/guilds/{guild_id}/channels",
             {
@@ -2777,7 +3845,8 @@ def ensure_discord_agent_channels(guild_id: str) -> dict[str, Any]:
         "FUZI_DISCORD_GUILD_ID": guild_id.strip(),
         "FUZI_DISCORD_AGENT_CATEGORY_ID": str(category.get("id", "")).strip(),
     }
-    for spec in DISCORD_AGENT_CHANNEL_SPECS:
+    all_specs = [*DISCORD_AGENT_CHANNEL_SPECS, *BUSINESS_DISCORD_CHANNEL_SPECS]
+    for spec in all_specs:
         existing_target = env_values.get(spec["env_key"], "").strip()
         existing_id = existing_target.removeprefix("channel:") if existing_target.startswith("channel:") else existing_target
         channel = None
@@ -2797,7 +3866,7 @@ def ensure_discord_agent_channels(guild_id: str) -> dict[str, Any]:
                 None,
             )
         if channel is None:
-            channel = discord_api_json(
+            channel = gateway.api_json(
                 "POST",
                 f"/guilds/{guild_id}/channels",
                 {
@@ -2826,7 +3895,7 @@ def ensure_discord_agent_channels(guild_id: str) -> dict[str, Any]:
                 "name": spec["name"],
                 "target": updated_env[spec["env_key"]],
             }
-            for spec in DISCORD_AGENT_CHANNEL_SPECS
+            for spec in all_specs
         ],
     }
 
@@ -3034,6 +4103,16 @@ def resolve_whatsapp_backend_target_for_payload(request_payload: dict[str, Any])
 
 
 def build_openclaw_message_payload(channel: str, target: str, message: str, request_payload: dict[str, Any]) -> dict[str, Any]:
+    metadata = {
+        "source": request_payload.get("source", "fuzi-operations-portal"),
+        "event_type": request_payload.get("event_type", ""),
+        "timestamp": request_payload.get("timestamp", ""),
+    }
+    for key, value in request_payload.items():
+        if key in {"source", "event_type", "timestamp"}:
+            continue
+        metadata[key] = value
+
     return {
         "tool": "message",
         "action": "send",
@@ -3045,12 +4124,14 @@ def build_openclaw_message_payload(channel: str, target: str, message: str, requ
             "message": message,
         },
         "sessionKey": "fuzi-operations",
-        "metadata": {
-            "source": request_payload.get("source", "fuzi-operations-portal"),
-            "event_type": request_payload.get("event_type", ""),
-            "timestamp": request_payload.get("timestamp", ""),
-        },
+        "metadata": metadata,
     }
+
+
+def build_openclaw_discord_send_payload(target: str, message: str, request_payload: dict[str, Any]) -> dict[str, Any]:
+    payload = build_openclaw_message_payload("discord", target, message, request_payload)
+    payload.pop("sessionKey", None)
+    return payload
 
 
 class OpenClawMessageBackend:
@@ -3061,6 +4142,70 @@ class OpenClawMessageBackend:
                 build_openclaw_message_payload(channel, target, message, request_payload),
             )
         )
+
+
+class InjectedDiscordGateway:
+    def __init__(self, invoke_json: Callable[[str, dict[str, Any]], dict[str, Any]], token_loader: Callable[[], str]):
+        self.invoke_json = invoke_json
+        self.token_loader = token_loader
+
+    def send_message(self, target: str, message: str, request_payload: dict[str, Any]) -> dict[str, Any]:
+        normalized_target = str(target or "").strip()
+        if not normalized_target:
+            return {
+                "ok": False,
+                "status": None,
+                "error": "Discord target is required.",
+                "url": build_openclaw_endpoint("/tools/invoke"),
+            }
+        return annotate_openclaw_result(
+            self.invoke_json(
+                "/tools/invoke",
+                build_openclaw_discord_send_payload(normalized_target, message, request_payload),
+            )
+        )
+
+    def read_messages(self, target: str, limit: int = 10) -> list[dict[str, Any]]:
+        normalized_target = str(target or "").strip()
+        if not normalized_target:
+            return []
+
+        result = annotate_openclaw_result(
+            self.invoke_json(
+                "/tools/invoke",
+                build_openclaw_message_read_payload(normalized_target, limit),
+            )
+        )
+        if not result.get("ok"):
+            return []
+        return extract_openclaw_messages(result)
+
+    def api_json(self, method: str, path: str, payload: dict[str, Any] | None = None, reason: str = "") -> dict[str, Any]:
+        token = self.token_loader()
+        if not token:
+            raise RuntimeError("Discord token is not configured in ~/.openclaw/openclaw.json.")
+
+        endpoint = f"https://discord.com/api/v10{path}"
+        headers = {
+            "Authorization": f"Bot {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "FUZI/1.0",
+        }
+        if reason:
+            headers["X-Audit-Log-Reason"] = reason
+
+        data = None if payload is None else json.dumps(payload).encode("utf-8")
+        request_obj = urllib_request.Request(endpoint, data=data, headers=headers, method=method)
+        try:
+            with urllib_request.urlopen(request_obj, timeout=20) as response:
+                body = response.read().decode("utf-8", errors="replace")
+                return json.loads(body) if body else {}
+        except urllib_error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            detail = body or exc.reason
+            raise RuntimeError(f"Discord API {method} {path} failed with {exc.code}: {detail}") from exc
+        except urllib_error.URLError as exc:
+            raise RuntimeError(f"Discord API {method} {path} failed: {getattr(exc, 'reason', exc)}") from exc
 
 
 class InjectedWhatsAppTransport:
@@ -3096,6 +4241,13 @@ def resolve_injected_whatsapp_transport() -> InjectedWhatsAppTransport:
         backend=OpenClawMessageBackend(),
         backend_channel=resolve_whatsapp_backend_channel(),
         backend_target=resolve_whatsapp_backend_target(),
+    )
+
+
+def resolve_injected_discord_gateway() -> InjectedDiscordGateway:
+    return InjectedDiscordGateway(
+        invoke_json=post_openclaw_json,
+        token_loader=load_openclaw_discord_token,
     )
 
 
@@ -3281,6 +4433,51 @@ def annotate_openclaw_result(result: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def build_discord_outbound_dedupe_key(
+    env_key: str,
+    target: str,
+    event_type: str,
+    message: str,
+    metadata: dict[str, Any] | None = None,
+) -> str:
+    metadata = metadata or {}
+    stable_fields = [
+        field
+        for field in (
+            "breakdown_id",
+            "source_message_id",
+            "work_order_id",
+            "attendance_id",
+            "record_id",
+            "ticket_id",
+        )
+        if str(metadata.get(field, "")).strip()
+    ]
+    basis: dict[str, Any] = {
+        "env_key": env_key,
+        "target": target,
+        "event_type": event_type,
+    }
+    if stable_fields:
+        basis["metadata"] = {field: str(metadata.get(field, "")).strip() for field in stable_fields}
+    else:
+        basis["message"] = message
+    encoded = json.dumps(basis, sort_keys=True, ensure_ascii=True)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def prune_recent_discord_sent_messages(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    cutoff = datetime.now().timestamp() - (DISCORD_OUTBOUND_DEDUPE_RETENTION_MINUTES * 60)
+    retained: list[dict[str, Any]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        sent_at = parse_now_stamp(str(entry.get("sent_at", "")))
+        if sent_at is None or sent_at.timestamp() >= cutoff:
+            retained.append(entry)
+    return retained[:200]
+
+
 def send_openclaw_event(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     request_payload = {
         "source": "fuzi-operations-portal",
@@ -3302,6 +4499,8 @@ def send_openclaw_event(event_type: str, payload: dict[str, Any]) -> dict[str, A
                 "error": f"OpenClaw channel '{channel}' is not configured. Available channels: {', '.join(configured_channels)}.",
                 "url": build_openclaw_endpoint("/tools/invoke"),
             }
+        elif channel == "discord":
+            result = resolve_injected_discord_gateway().send_message(target, message_text, request_payload)
         else:
             result = OpenClawMessageBackend().send_message(channel, target, message_text, request_payload)
     elif event_requires_openclaw_delivery(event_type):
@@ -3328,6 +4527,143 @@ def send_openclaw_event(event_type: str, payload: dict[str, Any]) -> dict[str, A
         }
         save_operations_state()
     return result
+
+
+def send_business_channel_update(
+    env_key: str,
+    summary: str,
+    details: list[str] | None = None,
+    event_type: str = "business-update",
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    target = resolve_openclaw_runtime_value(env_key, "")
+    if not target:
+        return {
+            "ok": True,
+            "status": 204,
+            "body": f"No target configured for {env_key}.",
+            "url": build_openclaw_endpoint("/tools/invoke"),
+        }
+
+    lines = [summary.strip()]
+    for detail in (details or [])[:6]:
+        cleaned = str(detail).strip()
+        if cleaned:
+            lines.append(f"- {cleaned}")
+    message = "\n".join(line for line in lines if line)
+    metadata_payload = dict(metadata or {})
+    request_payload = {
+        "source": "fuzi-operations-portal",
+        "event_type": event_type,
+        "timestamp": now_stamp(),
+        **metadata_payload,
+    }
+    dedupe_key = build_discord_outbound_dedupe_key(env_key, target, event_type, message, metadata_payload)
+    with STATE_LOCK:
+        sent_messages = prune_recent_discord_sent_messages(OPERATIONS_STATE.setdefault("discord_sent_messages", []))
+        duplicate = next((item for item in sent_messages if str(item.get("key", "")) == dedupe_key), None)
+        if duplicate is not None:
+            result = {
+                "ok": True,
+                "status": 208,
+                "body": f"Duplicate Discord message suppressed for {env_key}.",
+                "url": build_openclaw_endpoint("/tools/invoke"),
+                "deduplicated": True,
+            }
+            OPERATIONS_STATE["discord_sent_messages"] = sent_messages
+            OPERATIONS_STATE["connector_status"] = {
+                "state": "online",
+                "last_attempt": now_stamp(),
+                "last_error": "",
+                "last_response": result.get("body", ""),
+            }
+            save_operations_state()
+            return result
+
+        sent_messages.insert(
+            0,
+            {
+                "key": dedupe_key,
+                "target": target,
+                "env_key": env_key,
+                "event_type": event_type,
+                "sent_at": now_stamp(),
+                "state": "pending",
+            },
+        )
+        OPERATIONS_STATE["discord_sent_messages"] = sent_messages
+        save_operations_state()
+
+    result = resolve_injected_discord_gateway().send_message(target, message, request_payload)
+    with STATE_LOCK:
+        sent_messages = prune_recent_discord_sent_messages(OPERATIONS_STATE.setdefault("discord_sent_messages", []))
+        pending = next((item for item in sent_messages if str(item.get("key", "")) == dedupe_key), None)
+        if result.get("ok"):
+            if pending is None:
+                sent_messages.insert(
+                    0,
+                    {
+                        "key": dedupe_key,
+                        "target": target,
+                        "env_key": env_key,
+                        "event_type": event_type,
+                        "sent_at": now_stamp(),
+                        "state": "sent",
+                    },
+                )
+            else:
+                pending["state"] = "sent"
+                pending["sent_at"] = now_stamp()
+        else:
+            sent_messages = [item for item in sent_messages if str(item.get("key", "")) != dedupe_key]
+
+        OPERATIONS_STATE["discord_sent_messages"] = sent_messages
+        OPERATIONS_STATE["connector_status"] = {
+            "state": "online" if result["ok"] else "error",
+            "last_attempt": now_stamp(),
+            "last_error": result.get("error", ""),
+            "last_response": result.get("body", "") or str(result.get("status", "")),
+        }
+        save_operations_state()
+    return result
+
+
+def send_metrics_channel_snapshot(reason: str) -> dict[str, Any]:
+    open_inquiries = [item for item in SALES_INQUIRIES if item.get("status") not in {"Order Received", "Closed"}]
+    offers_sent = [item for item in ESTIMATES if item.get("status") in {"Sent", "Accepted"}]
+    scheduled_appointments = [item for item in SALES_INQUIRIES if item.get("next_followup")]
+    active_staff = [user for user in USERS if user.get("active", True)]
+    summary = f"FUZI metrics update: {len(open_inquiries)} active lead{'s' if len(open_inquiries) != 1 else ''}, {len(offers_sent)} offer{'s' if len(offers_sent) != 1 else ''} sent, and {len(scheduled_appointments)} scheduled appointment{'s' if len(scheduled_appointments) != 1 else ''}."
+    details = [
+        f"Reason: {reason}",
+        f"Flyer and ad pipeline: {len(open_inquiries)} leads are still open for follow-up.",
+        f"Appointments queued: {len(scheduled_appointments)} with follow-up dates assigned.",
+        f"Active staff coverage: {len(active_staff)} enabled portal user{'s' if len(active_staff) != 1 else ''}.",
+    ]
+    return send_business_channel_update("FUZI_OPENCLAW_TARGET_METRICS_CHANNEL", summary, details, event_type="metrics-update")
+
+
+def send_catalog_channel_snapshot(context: str, estimate: dict[str, Any] | None = None) -> dict[str, Any]:
+    catalog_pages = [
+        "catalog.html",
+        "residential-elevators.html",
+        "commercial-elevators.html",
+        "hospital-elevators.html",
+        "hotel-elevators.html",
+        "industrial-elevators.html",
+        "parallel-escalator.html",
+        "step-type-escalator.html",
+        "crisscross-escalator.html",
+        "capsule-elevators.html",
+    ]
+    summary = "FUZI elevator catalog is ready with the main catalog, product pages, and elevator options for offer follow-up."
+    details = [f"Context: {context}"]
+    if estimate:
+        details.append(f"Offer: {estimate.get('customer_name', 'Customer')} - {estimate.get('elevator_type', 'Elevator')} at {estimate.get('site', 'site pending')}.")
+        details.append(f"Spec: {estimate.get('capacity', '')}, {estimate.get('drive_type', '')}, {estimate.get('door_type', '')}.".strip())
+    details.append("Catalog pages: " + ", ".join(catalog_pages[:6]))
+    details.append("Material catalog is available in the portal estimator and inventory sections.")
+    return send_business_channel_update("FUZI_OPENCLAW_TARGET_ELEVATOR_CATALOG", summary, details, event_type="catalog-update")
 
 
 def create_auto_ticket(project: str, title: str, owner: str, priority: str, due: str, notes: str) -> dict[str, Any]:
@@ -3535,6 +4871,12 @@ def send_modernization_flag(trigger: str) -> dict[str, Any]:
             "summary": flag["summary"],
             "details": flag["details"],
         },
+    )
+    send_business_channel_update(
+        "FUZI_OPENCLAW_TARGET_MOD_SITE_VISIT",
+        flag["summary"],
+        [f"Trigger: {trigger}", *flag["details"]],
+        event_type="modernization-site-visit",
     )
     with STATE_LOCK:
         if trigger == "scheduled" and delivery["ok"] and flag["flagged_projects"]:
@@ -4048,13 +5390,17 @@ def discord_listener_loop() -> None:
             poll_crm_query_discord_channel()
         except Exception:
             pass
+        try:
+            poll_breakdown_discord_channel()
+        except Exception:
+            pass
         threading.Event().wait(DISCORD_POLL_INTERVAL_SECONDS)
 
 
 def ensure_background_monitor() -> None:
     with STATE_LOCK:
         start_scheduler = not RUNTIME_STATE["scheduler_started"]
-        start_discord_listener = not RUNTIME_STATE["discord_listener_started"]
+        start_discord_listener = not RUNTIME_STATE["discord_listener_started"] and acquire_discord_listener_lock()
         if start_scheduler:
             RUNTIME_STATE["scheduler_started"] = True
         if start_discord_listener:
@@ -4063,6 +5409,7 @@ def ensure_background_monitor() -> None:
         thread = threading.Thread(target=background_monitor_loop, name="fuzi-agent-monitor", daemon=True)
         thread.start()
     if start_discord_listener:
+        synchronize_breakdown_cursor()
         thread = threading.Thread(target=discord_listener_loop, name="fuzi-discord-listener", daemon=True)
         thread.start()
 
@@ -4198,6 +5545,7 @@ def admin_required(view):
 
 def portal_data() -> dict[str, Any]:
     run_agent_cycle("portal-data")
+    org_chart = refresh_org_chart()
     with STATE_LOCK:
         ensure_customer_service_inbox_messages()
         ensure_work_order_defaults()
@@ -4249,7 +5597,7 @@ def portal_data() -> dict[str, Any]:
         "viewer": public_user(normalize_user_record(viewer)),
         "access": access,
         "department_options": DEPARTMENT_OPTIONS,
-        "org_chart": ORG_CHART,
+        "org_chart": org_chart,
         "attendance_today": [r for r in ATTENDANCE if r.get("date") == datetime.now().strftime("%Y-%m-%d")],
         "estimates": ESTIMATES,
         "payments": PAYMENTS,
@@ -4274,6 +5622,7 @@ def portal_data() -> dict[str, Any]:
         "addon_options": list(ADDON_COSTS.keys()),
         "customer_users": [_public_customer_user(u) for u in CUSTOMER_USERS],
         "sales_inquiries": SALES_INQUIRIES,
+        "sales_admin_panel": build_sales_admin_panel(),
         "breakdowns": BREAKDOWNS,
         "service_records": SERVICE_RECORDS,
         "gad_records": GAD_RECORDS,
@@ -4376,7 +5725,7 @@ def login():
                 return redirect(next_url)
             return redirect(url_for("dashboard", view=access["default_view"]))
         error = "Invalid username or password."
-    return render_template("login.html", error=error)
+    return render_template("login.html", error=error, login_accounts=login_account_shortcuts())
 
 
 @app.route("/portal/force-password-change", methods=["GET", "POST"])
@@ -4524,6 +5873,18 @@ def update_install_stage(job_id: str, stage_id: str):
     with STATE_LOCK:
         sync_installation_snapshot(job)
         save_operations_state()
+
+    send_business_channel_update(
+        "FUZI_OPENCLAW_TARGET_INSTALL_LOCATION_CUSTOMERS",
+        f"Install location update for {job.get('site', job_id)}.",
+        [
+            f"Job {job_id} is now {job.get('status', 'In Progress')}.",
+            f"Stage: {install_stage_guidance(stage_id).get('name', stage_id)} marked {status}.",
+            f"Crew: {job.get('crew', 'Unassigned')}.",
+            f"Target date: {job.get('target', 'TBD')}.",
+        ],
+        event_type="install-location-update",
+    )
 
     if job["status"] == "Complete":
         delivery = send_openclaw_event(
@@ -4697,6 +6058,16 @@ def create_customer():
     }
     CUSTOMERS.insert(0, customer)
     save_customers()
+    send_business_channel_update(
+        "FUZI_OPENCLAW_TARGET_INSTALL_LOCATION_CUSTOMERS",
+        f"Customer site added for {customer['name']}.",
+        [
+            f"Address: {customer.get('address', 'Not provided') or 'Not provided'}.",
+            f"Contact: {customer.get('contact_person', 'Not provided') or 'Not provided'}.",
+            f"Segment: {customer.get('segment', 'Not specified') or 'Not specified'}.",
+        ],
+        event_type="customer-location-update",
+    )
     return jsonify({"ok": True, "customer": customer, "message": f"{name} saved."})
 
 
@@ -4716,6 +6087,16 @@ def update_customer(customer_id: str):
             customer[field] = value
     customer["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
     save_customers()
+    send_business_channel_update(
+        "FUZI_OPENCLAW_TARGET_INSTALL_LOCATION_CUSTOMERS",
+        f"Customer site updated for {customer['name']}.",
+        [
+            f"Address: {customer.get('address', 'Not provided') or 'Not provided'}.",
+            f"Status: {customer.get('status', 'Active') or 'Active'}.",
+            f"Renewal date: {customer.get('renewal_date', 'Not set') or 'Not set'}.",
+        ],
+        event_type="customer-location-update",
+    )
     return jsonify({"ok": True, "customer": customer, "message": f"{customer['name']} updated."})
 
 
@@ -4995,6 +6376,14 @@ def calculate_estimate_api():
 @login_required
 def create_estimate():
     payload = request.get_json(silent=True) or {}
+    linked_customer = find_customer(str(payload.get("customer_id", "")).strip()) if payload.get("customer_id") else None
+    if linked_customer:
+        if not payload.get("customer_name"):
+            payload["customer_name"] = linked_customer.get("name", "")
+        if not payload.get("site"):
+            payload["site"] = linked_customer.get("address", "")
+        if not payload.get("sent_to_email"):
+            payload["sent_to_email"] = linked_customer.get("email", "")
     costs = calculate_estimate(payload)
     viewer = current_user() or {}
     estimate = {
@@ -5002,13 +6391,28 @@ def create_estimate():
         "customer_id": payload.get("customer_id", ""),
         "customer_name": payload.get("customer_name", "").strip(),
         "site": payload.get("site", "").strip(),
-        "elevator_type": payload.get("elevator_type", "Residential MRL"),
-        "capacity": payload.get("capacity", "8-person (630 kg)"),
+        "elevator_type": payload.get("elevator_type", "Passenger"),
+        "capacity": payload.get("capacity", "6 Passengers"),
         "num_floors": int(payload.get("num_floors", 2)),
-        "drive_type": payload.get("drive_type", "Gearless MRL"),
-        "cabin_finish": payload.get("cabin_finish", "Standard"),
-        "door_type": payload.get("door_type", "Automatic SS"),
-        "control_type": payload.get("control_type", "Microprocessor"),
+        "drive_type": payload.get("drive_type", payload.get("motor_type", "Gearless")),
+        "cabin_finish": payload.get("cabin_finish", "Stainless Steel"),
+        "door_type": payload.get("door_type", "Automatic"),
+        "door_construction": payload.get("door_construction", ""),
+        "door_panels": payload.get("door_panels", ""),
+        "door_opening_type": payload.get("door_opening_type", ""),
+        "door_vision": payload.get("door_vision", ""),
+        "door_width_mm": payload.get("door_width_mm", ""),
+        "door_height_mm": payload.get("door_height_mm", ""),
+        "door_arrangement": payload.get("door_arrangement", ""),
+        "floor_height_mm": payload.get("floor_height_mm", ""),
+        "pit_depth_mm": payload.get("pit_depth_mm", ""),
+        "overhead_mm": payload.get("overhead_mm", ""),
+        "speed": payload.get("speed", ""),
+        "make": payload.get("make", "Fuzi"),
+        "control_type": payload.get("control_type", "Collective Control"),
+        "remark_1": payload.get("remark_1", ""),
+        "remark_2": payload.get("remark_2", ""),
+        "remark_3": payload.get("remark_3", ""),
         "addons": payload.get("addons", []),
         "base_cost": costs["base_cost"],
         "addons_cost": costs["addons_cost"],
@@ -5020,11 +6424,26 @@ def create_estimate():
         "sent_to_email": payload.get("sent_to_email", "").strip(),
         "sent_at": "",
         "valid_until": payload.get("valid_until", ""),
+        "offer_approved": False,
+        "offer_approved_at": "",
+        "offer_approved_by": "",
         "created_by": viewer.get("id", ""),
         "created_at": now_stamp(),
     }
     ESTIMATES.append(estimate)
     save_estimates()
+    send_business_channel_update(
+        "FUZI_OPENCLAW_TARGET_NEW_SITE_VISIT_OFFER",
+        f"Draft offer prepared for {estimate.get('customer_name', 'customer')}.",
+        [
+            f"Estimate {estimate.get('id', 'Draft')} for {estimate.get('elevator_type', 'elevator')} at {estimate.get('site', 'site pending')}.",
+            f"Draft value: {estimate.get('total_cost', 0)}.",
+            f"Capacity and drive: {estimate.get('capacity', '')}, {estimate.get('drive_type', '')}.".strip(),
+        ],
+        event_type="estimate-draft",
+    )
+    send_metrics_channel_snapshot("estimate-created")
+    send_catalog_channel_snapshot("estimate-created", estimate)
     return jsonify({"ok": True, "estimate": estimate})
 
 
@@ -5038,6 +6457,10 @@ def update_estimate(est_id: str):
     for field in ("status", "notes", "sent_to_email", "valid_until", "margin_percent"):
         if field in payload:
             est[field] = payload[field]
+            if field != "status":
+                est["offer_approved"] = False
+                est["offer_approved_at"] = ""
+                est["offer_approved_by"] = ""
     if "margin_percent" in payload:
         costs = calculate_estimate({**est, "margin_percent": payload["margin_percent"]})
         est.update(costs)
@@ -5054,6 +6477,58 @@ def estimate_html_report(est_id: str):
     return _estimate_html_report(est), 200, {"Content-Type": "text/html"}
 
 
+@app.get("/api/portal/estimates/<est_id>/offer.docx")
+@login_required
+def estimate_offer_docx(est_id: str):
+    est = next((e for e in ESTIMATES if e.get("id") == est_id), None)
+    if est is None:
+        return "Estimate not found.", 404
+    path = generate_offer_docx(est)
+    save_estimates()
+    return send_file(
+        path,
+        as_attachment=True,
+        download_name=path.name,
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+
+@app.get("/api/portal/estimates/<est_id>/offer.pdf")
+@login_required
+def estimate_offer_pdf(est_id: str):
+    est = next((e for e in ESTIMATES if e.get("id") == est_id), None)
+    if est is None:
+        return "Estimate not found.", 404
+    path = generate_offer_pdf(est)
+    save_estimates()
+    return send_file(
+        path,
+        as_attachment=False,
+        download_name=path.name,
+        mimetype="application/pdf",
+    )
+
+
+@app.post("/api/portal/estimates/<est_id>/approve-offer")
+@login_required
+def approve_estimate_offer(est_id: str):
+    est = next((e for e in ESTIMATES if e.get("id") == est_id), None)
+    if est is None:
+        return jsonify({"ok": False, "message": "Estimate not found."}), 404
+    generate_offer_docx(est)
+    generate_offer_pdf(est)
+    est["offer_approved"] = True
+    est["offer_approved_at"] = now_stamp()
+    est["offer_approved_by"] = session.get("portal_user", "")
+    save_estimates()
+    return jsonify({
+        "ok": True,
+        "message": "Offer PDF approved. It is ready to send.",
+        "offer_pdf": f"/api/portal/estimates/{est_id}/offer.pdf",
+        "estimate": est,
+    })
+
+
 @app.post("/api/portal/estimates/<est_id>/send")
 @login_required
 def send_estimate(est_id: str):
@@ -5063,11 +6538,30 @@ def send_estimate(est_id: str):
     payload = request.get_json(silent=True) or {}
     if payload.get("email"):
         est["sent_to_email"] = payload["email"]
+    if payload.get("customer_id"):
+        customer = find_customer(str(payload["customer_id"]).strip())
+        if customer:
+            est["customer_id"] = customer.get("id", "")
+            est["customer_name"] = est.get("customer_name") or customer.get("name", "")
+            est["site"] = est.get("site") or customer.get("address", "")
+            est["sent_to_email"] = est.get("sent_to_email") or customer.get("email", "")
     result = send_estimate_email(est)
     if result.get("ok"):
         est["status"] = "Sent"
         est["sent_at"] = now_stamp()
         save_estimates()
+        send_business_channel_update(
+            "FUZI_OPENCLAW_TARGET_NEW_SITE_VISIT_OFFER",
+            f"Offer sent for {est.get('customer_name', 'customer')}.",
+            [
+                f"Estimate {est.get('id', est_id)} for {est.get('elevator_type', 'elevator')} at {est.get('site', 'site pending')}.",
+                f"Total value: {est.get('total_cost', 0)}.",
+                f"Sent to: {est.get('sent_to_email', 'email pending')}.",
+            ],
+            event_type="new-site-offer",
+        )
+        send_metrics_channel_snapshot("estimate-sent")
+        send_catalog_channel_snapshot("offer-sent", est)
     return jsonify({**result, "estimate": est})
 
 
@@ -5147,6 +6641,38 @@ def list_sales_inquiries():
     return jsonify({"ok": True, "inquiries": SALES_INQUIRIES})
 
 
+@app.get("/api/portal/sales/admin-panel")
+@login_required
+def get_sales_admin_panel():
+    selected_date = request.args.get("date", "")
+    return jsonify({"ok": True, "panel": build_sales_admin_panel(selected_date)})
+
+
+@app.post("/api/portal/sales/admin-panel")
+@login_required
+def save_sales_admin_panel():
+    payload = request.get_json(silent=True) or {}
+    selected_date = parse_iso_date(payload.get("date"))
+    if not selected_date:
+        return jsonify({"ok": False, "message": "A valid date (YYYY-MM-DD) is required."}), 400
+
+    actor = session.get("portal_user", "system")
+    normalized = _normalize_sales_admin_entry(payload, actor)
+    normalized["date"] = selected_date.isoformat()
+
+    existing = next((row for row in SALES_ADMIN_PANEL if parse_iso_date(row.get("date")) == selected_date), None)
+    if existing is None:
+        normalized["id"] = _next_id(SALES_ADMIN_PANEL, "SAP")
+        SALES_ADMIN_PANEL.append(normalized)
+        saved = normalized
+    else:
+        existing.update(normalized)
+        saved = existing
+
+    _save_module(SALES_ADMIN_PANEL_FILE, SALES_ADMIN_PANEL)
+    return jsonify({"ok": True, "entry": saved, "panel": build_sales_admin_panel(saved.get("date"))})
+
+
 @app.post("/api/portal/sales/inquiries")
 @login_required
 def create_sales_inquiry():
@@ -5171,6 +6697,17 @@ def create_sales_inquiry():
     }
     SALES_INQUIRIES.append(record)
     _save_module(SALES_INQUIRIES_FILE, SALES_INQUIRIES)
+    send_business_channel_update(
+        "FUZI_OPENCLAW_TARGET_NEW_SITE_VISIT_OFFER",
+        f"New site visit lead captured for {record.get('customer', 'customer')}.",
+        [
+            f"Site: {record.get('site', 'Not provided') or 'Not provided'}.",
+            f"Requirement: {record.get('requirement', 'Not provided') or 'Not provided'}.",
+            f"Next follow-up: {record.get('next_followup', 'Not scheduled') or 'Not scheduled'}.",
+        ],
+        event_type="new-site-visit",
+    )
+    send_metrics_channel_snapshot("sales-inquiry-created")
     return jsonify({"ok": True, "item": record, "data": SALES_INQUIRIES}), 201
 
 
@@ -5196,6 +6733,17 @@ def update_sales_inquiry(inquiry_id: str):
         if "status" in p or "notes" in p:
             rec["last_followup"] = datetime.utcnow().isoformat()[:10]
     _save_module(SALES_INQUIRIES_FILE, SALES_INQUIRIES)
+    send_business_channel_update(
+        "FUZI_OPENCLAW_TARGET_NEW_SITE_VISIT_OFFER",
+        f"Site visit follow-up updated for {rec.get('customer', 'customer')}.",
+        [
+            f"Status: {rec.get('status', 'Updated')}.",
+            f"Next follow-up: {rec.get('next_followup', 'Not scheduled') or 'Not scheduled'}.",
+            f"Linked estimate: {rec.get('linked_estimate', 'None') or 'None'}.",
+        ],
+        event_type="new-site-followup",
+    )
+    send_metrics_channel_snapshot("sales-inquiry-updated")
     return jsonify({"ok": True, "item": rec, "data": SALES_INQUIRIES})
 
 
@@ -5207,11 +6755,31 @@ def list_breakdowns():
     return jsonify({"ok": True, "breakdowns": BREAKDOWNS})
 
 
+@app.get("/api/portal/install-team")
+@login_required
+def list_install_team():
+    return jsonify({"ok": True, "members": INSTALL_TEAM})
+
+
+def _install_member(member_id: str) -> dict[str, Any] | None:
+    normalized = str(member_id or "").strip()
+    if not normalized:
+        return None
+    return next((member for member in INSTALL_TEAM if str(member.get("id", "")).strip() == normalized), None)
+
+
 @app.post("/api/portal/breakdown")
 @login_required
 def create_breakdown():
     p, _, user = _dept_payload()
     now = datetime.utcnow().isoformat()
+    scheduled_engineer_id = str(p.get("scheduled_engineer_id", "")).strip()
+    engineer = _install_member(scheduled_engineer_id)
+    scheduled_engineer_name = str(p.get("scheduled_engineer_name", "")).strip() or (engineer.get("name", "") if engineer else "")
+    engineer_availability = str(p.get("engineer_availability", "")).strip() or (engineer.get("availability", "") if engineer else "")
+    engineer_shift = str(p.get("engineer_shift", "")).strip() or (engineer.get("shift", "") if engineer else "")
+    engineer_current_job = str(p.get("engineer_current_job", "")).strip() or (engineer.get("current_job", "") if engineer else "")
+    scheduled_visit_at = str(p.get("scheduled_visit_at", "")).strip()
     record = {
         "id": _next_id(BREAKDOWNS, "BRK"),
         "unit": p.get("unit", p.get("elevator_ref", "")),
@@ -5222,7 +6790,13 @@ def create_breakdown():
         "attended_at": None,
         "resolved_at": None,
         "closed_at": None,
-        "technician": p.get("technician", user),
+        "technician": p.get("technician", scheduled_engineer_name or user),
+        "scheduled_engineer_id": scheduled_engineer_id,
+        "scheduled_engineer_name": scheduled_engineer_name,
+        "engineer_availability": engineer_availability,
+        "engineer_shift": engineer_shift,
+        "engineer_current_job": engineer_current_job,
+        "scheduled_visit_at": scheduled_visit_at,
         "fault": p.get("fault", ""),
         "contract_type": p.get("contract_type", "Warranty"),
         "resolution": "",
@@ -5232,6 +6806,18 @@ def create_breakdown():
     }
     BREAKDOWNS.append(record)
     _save_module(BREAKDOWNS_FILE, BREAKDOWNS)
+    send_business_channel_update(
+        "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL",
+        f"Breakdown {record['id']} opened for {record.get('customer', record.get('unit', 'site'))}.",
+        [
+            f"Unit: {record.get('unit', 'Unknown')}.",
+            f"Fault: {record.get('fault', 'Not specified') or 'Not specified'}.",
+            f"Priority: {record.get('priority', 'High')}.",
+            f"Scheduled engineer: {record.get('scheduled_engineer_name', 'Unassigned') or 'Unassigned'} ({record.get('engineer_availability', 'Unknown') or 'Unknown'}).",
+            f"Technician: {record.get('technician', 'Unassigned') or 'Unassigned'}.",
+        ],
+        event_type="breakdown-opened",
+    )
     return jsonify({"ok": True, "item": record, "data": BREAKDOWNS}), 201
 
 
@@ -5249,6 +6835,10 @@ def update_breakdown(brk_id: str):
         rec["attended_at"] = rec["attended_at"] or now
         if p.get("technician"):
             rec["technician"] = p["technician"]
+        elif rec.get("scheduled_engineer_name"):
+            rec["technician"] = rec.get("scheduled_engineer_name")
+        if p.get("engineer_availability"):
+            rec["engineer_availability"] = p.get("engineer_availability")
     elif action == "resolve":
         rec["status"] = "Resolved"
         rec["resolved_at"] = rec["resolved_at"] or now
@@ -5257,10 +6847,44 @@ def update_breakdown(brk_id: str):
         rec["status"] = "Closed"
         rec["closed_at"] = rec["closed_at"] or now
     else:
-        for k in ("fault", "resolution", "technician", "priority", "notes"):
+        for k in (
+            "fault",
+            "resolution",
+            "technician",
+            "priority",
+            "notes",
+            "scheduled_engineer_id",
+            "scheduled_engineer_name",
+            "engineer_availability",
+            "engineer_shift",
+            "engineer_current_job",
+            "scheduled_visit_at",
+        ):
             if k in p:
                 rec[k] = p[k]
     _save_module(BREAKDOWNS_FILE, BREAKDOWNS)
+    send_business_channel_update(
+        "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL",
+        f"Breakdown {rec['id']} is now {rec.get('status', 'Updated')}.",
+        [
+            f"Unit: {rec.get('unit', 'Unknown')}.",
+            f"Technician: {rec.get('technician', 'Unassigned') or 'Unassigned'}.",
+            f"Resolution: {rec.get('resolution', 'Pending') or 'Pending'}.",
+        ],
+        event_type="breakdown-status",
+    )
+    if rec.get("status") in {"Resolved", "Closed"}:
+        send_business_channel_update(
+            "FUZI_OPENCLAW_TARGET_BREAKDOWN_REPORT_PDF",
+            f"Breakdown report ready for {rec['id']}.",
+            [
+                f"Customer: {rec.get('customer', 'Unknown')} at {rec.get('site', 'Unknown site')}.",
+                f"Fault: {rec.get('fault', 'Not specified') or 'Not specified'}.",
+                f"Resolution: {rec.get('resolution', 'Pending') or 'Pending'}.",
+                f"Closed status: {rec.get('status', 'Open')}.",
+            ],
+            event_type="breakdown-report",
+        )
     return jsonify({"ok": True, "item": rec, "data": BREAKDOWNS})
 
 
@@ -5270,6 +6894,159 @@ def update_breakdown(brk_id: str):
 @login_required
 def list_service_records():
     return jsonify({"ok": True, "records": SERVICE_RECORDS})
+
+
+def parse_service_parts(parts: Any) -> list[dict[str, Any]]:
+    if isinstance(parts, list):
+        rows = [part for part in parts if isinstance(part, dict)]
+    elif isinstance(parts, str):
+        rows = []
+        for line in parts.splitlines():
+            cols = [col.strip() for col in line.split("|")]
+            if not any(cols):
+                continue
+            rows.append(
+                {
+                    "part_number": cols[0] if len(cols) > 0 else "",
+                    "description": cols[1] if len(cols) > 1 else "",
+                    "quantity": cols[2] if len(cols) > 2 else "",
+                    "bill_amount": cols[3] if len(cols) > 3 else "",
+                }
+            )
+    else:
+        rows = []
+
+    normalized: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            qty: Any = float(row.get("quantity", 0) or 0)
+            qty = int(qty) if qty.is_integer() else qty
+        except (TypeError, ValueError, AttributeError):
+            qty = row.get("quantity", "")
+        try:
+            bill_amount: Any = float(row.get("bill_amount", 0) or 0)
+        except (TypeError, ValueError):
+            bill_amount = 0
+        normalized.append(
+            {
+                "part_number": str(row.get("part_number", "")).strip(),
+                "description": str(row.get("description", "")).strip(),
+                "quantity": qty,
+                "bill_amount": bill_amount,
+            }
+        )
+    return normalized
+
+
+def service_bill_total(parts: list[dict[str, Any]]) -> float:
+    total = 0.0
+    for part in parts:
+        try:
+            total += float(part.get("bill_amount", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def find_or_create_service_customer(record: dict[str, Any]) -> dict[str, Any] | None:
+    customer_id = str(record.get("customer_id", "")).strip()
+    if customer_id:
+        found = find_customer(customer_id)
+        if found:
+            return found
+
+    customer_name = str(record.get("customer", "")).strip()
+    if not customer_name:
+        return None
+    normalized = customer_name.lower()
+    found = next((customer for customer in CUSTOMERS if str(customer.get("name", "")).strip().lower() == normalized), None)
+    if found:
+        record["customer_id"] = found.get("id", "")
+        return found
+
+    customer = {
+        "id": next_customer_id(),
+        "name": customer_name,
+        "contact_person": "",
+        "phone": "",
+        "email": "",
+        "address": record.get("location", record.get("site", "")),
+        "segment": "Service",
+        "status": "Active",
+        "renewal_date": "",
+        "notes": "Created from service report.",
+        "service_history": [],
+        "created_at": now_stamp(),
+    }
+    CUSTOMERS.append(customer)
+    record["customer_id"] = customer["id"]
+    return customer
+
+
+def sync_service_report_to_customer(record: dict[str, Any]) -> None:
+    customer = find_or_create_service_customer(record)
+    if not customer:
+        return
+    history = customer.setdefault("service_history", [])
+    summary = {
+        "id": record.get("id", ""),
+        "job_number": record.get("job_number", record.get("id", "")),
+        "contract_type": record.get("contract_type", ""),
+        "date": record.get("service_date", record.get("completed_date", "")),
+        "start_time": record.get("start_time", ""),
+        "finish_time": record.get("finish_time", ""),
+        "technician": record.get("technician", ""),
+        "location": record.get("location", record.get("site", "")),
+        "action_taken": record.get("action_taken", ""),
+        "required_actions": record.get("required_actions", ""),
+        "customer_comments": record.get("customer_comments", ""),
+        "parts_used": record.get("parts_used", []),
+        "bill_total": record.get("bill_total", 0),
+        "status": record.get("status", ""),
+        "recorded_at": record.get("completed_at", now_stamp()),
+    }
+    existing_index = next((idx for idx, item in enumerate(history) if item.get("id") == summary["id"]), None)
+    if existing_index is None:
+        history.insert(0, summary)
+    else:
+        history[existing_index] = summary
+    save_customers()
+
+
+def service_report_text(record: dict[str, Any]) -> str:
+    part_lines = []
+    for part in record.get("parts_used", []):
+        part_lines.append(
+            f"- {part.get('part_number', '')} | {part.get('description', '')} | Qty {part.get('quantity', '')} | Bill {part.get('bill_amount', 0)}"
+        )
+    return "\n".join(
+        [
+            f"Service Report: {record.get('job_number', record.get('id', ''))}",
+            f"Record ID: {record.get('id', '')}",
+            f"Contract Type: {record.get('contract_type', '')}",
+            f"Customer: {record.get('customer', '')}",
+            f"Location: {record.get('location', record.get('site', ''))}",
+            f"Unit: {record.get('unit', '')}",
+            f"Date: {record.get('service_date', record.get('completed_date', ''))}",
+            f"Start Time: {record.get('start_time', '')}",
+            f"Finish Time: {record.get('finish_time', '')}",
+            f"Technician Assigned: {record.get('technician', '')}",
+            f"Breakdown Comments: {record.get('breakdown_comments', '')}",
+            f"Action Taken: {record.get('action_taken', '')}",
+            f"Required Actions: {record.get('required_actions', '')}",
+            f"Customer Comments: {record.get('customer_comments', '')}",
+            "Parts Used:",
+            *(part_lines or ["- None"]),
+            f"Bill Total: {record.get('bill_total', 0)}",
+        ]
+    )
+
+
+def notify_ceo_service_report(record: dict[str, Any]) -> dict[str, Any]:
+    subject = f"FUZI Service Report {record.get('job_number', record.get('id', ''))} - {record.get('customer', '')}"
+    delivery = send_plain_email(CEO_EMAIL, subject, service_report_text(record))
+    record["ceo_delivery"] = delivery
+    return delivery
 
 
 @app.post("/api/portal/service")
@@ -5282,17 +7059,32 @@ def create_service_record():
         next_date = (datetime.fromisoformat(sched) + timedelta(days=60)).strftime("%Y-%m-%d") if sched else ""
     except ValueError:
         next_date = ""
+    parts_used = parse_service_parts(p.get("parts_used", []))
+    contract_type = p.get("contract_type", p.get("service_type", "AMC"))
     record = {
         "id": _next_id(SERVICE_RECORDS, "SVC"),
+        "job_number": p.get("job_number", ""),
+        "customer_id": p.get("customer_id", ""),
         "unit": p.get("unit", p.get("elevator_ref", "")),
         "elevator_ref": p.get("elevator_ref", p.get("unit", "")),
         "customer": p.get("customer", ""),
-        "site": p.get("site", ""),
+        "site": p.get("site", p.get("location", "")),
+        "location": p.get("location", p.get("site", "")),
+        "contract_type": contract_type,
         "scheduled_date": sched,
+        "service_date": p.get("service_date", sched),
+        "start_time": p.get("start_time", ""),
+        "finish_time": p.get("finish_time", ""),
         "completed_date": None,
         "completed_at": None,
         "technician": p.get("technician", user),
-        "service_type": p.get("service_type", "Bi-Monthly"),
+        "service_type": contract_type,
+        "breakdown_comments": p.get("breakdown_comments", ""),
+        "action_taken": p.get("action_taken", ""),
+        "required_actions": p.get("required_actions", ""),
+        "customer_comments": p.get("customer_comments", ""),
+        "parts_used": parts_used,
+        "bill_total": service_bill_total(parts_used),
         "findings": p.get("notes", ""),
         "next_service_date": next_date,
         "status": "Scheduled",
@@ -5300,6 +7092,16 @@ def create_service_record():
     }
     SERVICE_RECORDS.append(record)
     _save_module(SERVICE_RECORDS_FILE, SERVICE_RECORDS)
+    send_business_channel_update(
+        "FUZI_OPENCLAW_TARGET_SERVICE_TWO_MONTH",
+        f"Bi-monthly service scheduled for {record.get('customer', record.get('unit', 'site'))}.",
+        [
+            f"Scheduled date: {record.get('scheduled_date', 'Not set') or 'Not set'}.",
+            f"Next service date: {record.get('next_service_date', 'Not set') or 'Not set'}.",
+            f"Technician: {record.get('technician', 'Unassigned') or 'Unassigned'}.",
+        ],
+        event_type="service-scheduled",
+    )
     return jsonify({"ok": True, "item": record, "data": SERVICE_RECORDS}), 201
 
 
@@ -5311,20 +7113,77 @@ def update_service_record(svc_id: str):
     if not rec:
         return jsonify({"ok": False, "message": "Not found"}), 404
     from datetime import timedelta
+    report_fields = (
+        "job_number",
+        "customer_id",
+        "unit",
+        "elevator_ref",
+        "customer",
+        "site",
+        "location",
+        "contract_type",
+        "service_date",
+        "start_time",
+        "finish_time",
+        "scheduled_date",
+        "technician",
+        "breakdown_comments",
+        "action_taken",
+        "required_actions",
+        "customer_comments",
+        "findings",
+        "status",
+    )
+    for key in report_fields:
+        if key in p:
+            rec[key] = p[key]
+    if "contract_type" in p:
+        rec["service_type"] = p["contract_type"]
+    if "parts_used" in p:
+        rec["parts_used"] = parse_service_parts(p.get("parts_used", []))
+        rec["bill_total"] = service_bill_total(rec["parts_used"])
     if p.get("action") == "complete":
         rec["status"] = "Completed"
-        rec["completed_date"] = datetime.utcnow().isoformat()[:10]
+        rec["completed_date"] = p.get("service_date") or datetime.utcnow().isoformat()[:10]
         rec["completed_at"] = datetime.utcnow().isoformat()
-        rec["findings"] = p.get("notes", p.get("findings", ""))
+        rec["findings"] = p.get("notes", p.get("findings", rec.get("findings", "")))
+        rec["job_number"] = rec.get("job_number") or rec.get("id", "")
+        rec["location"] = rec.get("location") or rec.get("site", "")
+        rec["service_date"] = rec.get("service_date") or rec["completed_date"]
         try:
             rec["next_service_date"] = (datetime.utcnow() + timedelta(days=60)).strftime("%Y-%m-%d")
         except Exception:
             pass
     else:
-        for k in ("scheduled_date", "technician", "service_type", "findings", "status"):
-            if k in p:
-                rec[k] = p[k]
+        rec["bill_total"] = service_bill_total(rec.get("parts_used", []))
+    if rec.get("status") == "Completed":
+        sync_service_report_to_customer(rec)
+        notify_ceo_service_report(rec)
     _save_module(SERVICE_RECORDS_FILE, SERVICE_RECORDS)
+    send_business_channel_update(
+        "FUZI_OPENCLAW_TARGET_SERVICE_TWO_MONTH",
+        f"Service schedule update for {rec.get('customer', rec.get('unit', 'site'))}.",
+        [
+            f"Status: {rec.get('status', 'Updated')}.",
+            f"Next service date: {rec.get('next_service_date', 'Not set') or 'Not set'}.",
+            f"Technician: {rec.get('technician', 'Unassigned') or 'Unassigned'}.",
+        ],
+        event_type="service-schedule-update",
+    )
+    if rec.get("status") == "Completed":
+        send_business_channel_update(
+            "FUZI_OPENCLAW_TARGET_SERVICE_REPORT",
+            f"Service report completed for {rec.get('customer', rec.get('unit', 'site'))}.",
+            [
+                f"Job number: {rec.get('job_number', rec.get('id', ''))}.",
+                f"Contract type: {rec.get('contract_type', 'AMC')}.",
+                f"Completed date: {rec.get('completed_date', 'Today') or 'Today'}.",
+                f"Technician: {rec.get('technician', 'Unassigned') or 'Unassigned'}.",
+                f"Action taken: {rec.get('action_taken', rec.get('findings', 'No action recorded')) or 'No action recorded'}.",
+                f"Bill total: {rec.get('bill_total', 0)}.",
+            ],
+            event_type="service-report",
+        )
     return jsonify({"ok": True, "item": rec, "data": SERVICE_RECORDS})
 
 
@@ -5661,6 +7520,20 @@ def customer_dashboard():
     my_tickets = [t for t in PROJECT_TICKETS if customer_id and customer_id in t.get("notes", "")]
     customer_rec = next((c for c in CUSTOMERS if c.get("id") == customer_id), {})
     my_payments = [p for p in PAYMENTS if p.get("customer_id") == customer_id]
+    customer_name = str(customer_rec.get("name", "")).strip().lower()
+    my_service_records = [
+        s for s in SERVICE_RECORDS
+        if s.get("status") == "Completed"
+        and (
+            (customer_id and s.get("customer_id") == customer_id)
+            or (customer_name and str(s.get("customer", "")).strip().lower() == customer_name)
+        )
+    ]
+    if customer_rec.get("service_history"):
+        known_ids = {s.get("id") for s in my_service_records}
+        for item in customer_rec.get("service_history", []):
+            if item.get("id") not in known_ids:
+                my_service_records.append(item)
     est_ids = {e["id"] for e in my_estimates}
     my_payment_summaries = {eid: payment_summary(eid) for eid in est_ids}
     total_contract = sum(e.get("total_cost", 0) for e in my_estimates)
@@ -5671,6 +7544,7 @@ def customer_dashboard():
                            customer=customer_rec,
                            estimates=my_estimates,
                            tickets=my_tickets,
+                           service_records=my_service_records,
                            payments=my_payments,
                            payment_summaries=my_payment_summaries,
                            total_contract=total_contract,
@@ -5825,13 +7699,14 @@ def customer_logout():
 @app.get("/api/portal/org-chart")
 @login_required
 def get_org_chart():
-    return jsonify({"ok": True, "org_chart": ORG_CHART})
+    return jsonify({"ok": True, "org_chart": refresh_org_chart()})
 
 
 @app.post("/api/portal/org-chart")
 @login_required
 @admin_required
 def create_org_node():
+    refresh_org_chart()
     payload = request.get_json(silent=True) or {}
     name = payload.get("name", "").strip()
     if not name:
@@ -5855,6 +7730,7 @@ def create_org_node():
 @login_required
 @admin_required
 def update_org_node(node_id: str):
+    refresh_org_chart()
     node = next((n for n in ORG_CHART if n.get("id") == node_id), None)
     if node is None:
         return jsonify({"ok": False, "message": "Node not found."}), 404
@@ -5873,6 +7749,7 @@ def update_org_node(node_id: str):
 @admin_required
 def delete_org_node(node_id: str):
     global ORG_CHART
+    refresh_org_chart()
     node = next((n for n in ORG_CHART if n.get("id") == node_id), None)
     if node is None:
         return jsonify({"ok": False, "message": "Node not found."}), 404
@@ -5921,6 +7798,17 @@ def mark_attendance():
         existing["marked_by"] = viewer.get("id", "")
         existing["marked_at"] = now_stamp()
         save_attendance()
+        send_business_channel_update(
+            "FUZI_OPENCLAW_TARGET_ENGINEER_ATTENDANCE",
+            f"Attendance updated for {existing.get('person_name', 'engineer')}.",
+            [
+                f"Date: {existing.get('date', date)}.",
+                f"Status: {existing.get('status', 'present')}.",
+                f"Check-in/out: {existing.get('check_in', '-') or '-'} to {existing.get('check_out', '-') or '-'}.",
+            ],
+            event_type="attendance-update",
+        )
+        send_metrics_channel_snapshot("attendance-updated")
         return jsonify({"ok": True, "record": existing})
     record = {
         "id": next_attendance_id(),
@@ -5937,6 +7825,17 @@ def mark_attendance():
     }
     ATTENDANCE.append(record)
     save_attendance()
+    send_business_channel_update(
+        "FUZI_OPENCLAW_TARGET_ENGINEER_ATTENDANCE",
+        f"Attendance marked for {record.get('person_name', 'engineer')}.",
+        [
+            f"Date: {record.get('date', date)}.",
+            f"Status: {record.get('status', 'present')}.",
+            f"Department: {record.get('department', 'Unknown')}.",
+        ],
+        event_type="attendance-update",
+    )
+    send_metrics_channel_snapshot("attendance-marked")
     return jsonify({"ok": True, "record": record})
 
 
@@ -5958,9 +7857,19 @@ def update_attendance(record_id: str):
     record["marked_by"] = viewer.get("id", "")
     record["marked_at"] = now_stamp()
     save_attendance()
+    send_business_channel_update(
+        "FUZI_OPENCLAW_TARGET_ENGINEER_ATTENDANCE",
+        f"Attendance updated for {record.get('person_name', 'engineer')}.",
+        [
+            f"Date: {record.get('date', 'Today')}.",
+            f"Status: {record.get('status', 'present')}.",
+            f"Check-in/out: {record.get('check_in', '-') or '-'} to {record.get('check_out', '-') or '-'}.",
+        ],
+        event_type="attendance-update",
+    )
+    send_metrics_channel_snapshot("attendance-patched")
     return jsonify({"ok": True, "record": record})
 
 
 if __name__ == "__main__":
-    ensure_background_monitor()
     app.run(debug=True, port=5000, use_reloader=False)

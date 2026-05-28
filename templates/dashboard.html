@@ -1204,7 +1204,7 @@
                     <select id="estCustomerId" name="customer_id">
                       <option value="">— optional —</option>
                       {% for c in data.customers %}
-                      <option value="{{ c.id }}">{{ c.name }}</option>
+                      <option value="{{ c.id }}" data-name="{{ c.name }}" data-address="{{ c.address or '' }}" data-email="{{ c.email or '' }}">{{ c.name }}</option>
                       {% endfor %}
                     </select>
                   </div>
@@ -1233,7 +1233,7 @@
                     <label for="estCapacityPax">Capacity (Passengers)</label>
                     <select id="estCapacityPax" name="capacity">
                       {% for c in data.capacity_options %}
-                      <option value="{{ c }}" {{ 'selected' if '8-person' in c else '' }}>{{ c }}</option>
+                      <option value="{{ c }}" {{ 'selected' if c == '6 Passengers' else '' }}>{{ c }}</option>
                       {% endfor %}
                     </select>
                   </div>
@@ -1259,7 +1259,7 @@
                     <label for="estSpeed">Speed</label>
                     <select id="estSpeed" name="speed">
                       {% for s in data.speed_options %}
-                      <option value="{{ s }}" {{ 'selected' if s == '1.0 m/s' else '' }}>{{ s }}</option>
+                      <option value="{{ s }}" {{ 'selected' if s == '1 mps' else '' }}>{{ s }}</option>
                       {% endfor %}
                     </select>
                   </div>
@@ -1346,7 +1346,7 @@
                     <label for="estDoorOpeningType">Opening Type</label>
                     <select id="estDoorOpeningType" name="door_opening_type">
                       {% for o in data.door_opening_type_options %}
-                      <option value="{{ o }}" {{ 'selected' if 'Center' in o else '' }}>{{ o }}</option>
+                      <option value="{{ o }}" {{ 'selected' if o == 'Center' else '' }}>{{ o }}</option>
                       {% endfor %}
                     </select>
                   </div>
@@ -1364,7 +1364,7 @@
                     <label for="estDoorArrangement">Floor Arrangement</label>
                     <select id="estDoorArrangement" name="door_arrangement">
                       {% for a in data.door_arrangement_options %}
-                      <option value="{{ a }}" {{ 'selected' if a == 'All Same Side' else '' }}>{{ a }}</option>
+                      <option value="{{ a }}" {{ 'selected' if a == 'All Are Same Side' else '' }}>{{ a }}</option>
                       {% endfor %}
                     </select>
                   </div>
@@ -1416,10 +1416,7 @@
                     <label for="estRemark3">Remark 3</label>
                     <input id="estRemark3" name="remark_3" type="text" placeholder="Accessory or note..." />
                   </div>
-                  <div>
-                    <label for="estRemark4">Remark 4</label>
-                    <input id="estRemark4" name="remark_4" type="text" placeholder="Accessory or note..." />
-                  </div>
+                  <div></div>
                 </div>
 
               </div>
@@ -1485,7 +1482,10 @@
                   <td>{{ est.created_at }}</td>
                   <td style="white-space:nowrap">
                     <a class="action-btn small" href="/api/portal/estimates/{{ est.id }}/report" target="_blank"><i class="fa fa-eye"></i> View</a>
-                    <button class="action-btn small est-send-btn" data-est-id="{{ est.id }}" data-est-email="{{ est.sent_to_email }}"><i class="fa fa-paper-plane"></i> Send</button>
+                    <a class="action-btn small quiet" href="/api/portal/estimates/{{ est.id }}/offer.docx"><i class="fa fa-file-word"></i> Edit</a>
+                    <a class="action-btn small quiet" href="/api/portal/estimates/{{ est.id }}/offer.pdf" target="_blank"><i class="fa fa-file-pdf"></i> PDF</a>
+                    <button class="action-btn small est-approve-btn {{ 'healthy-btn' if est.offer_approved else '' }}" data-est-id="{{ est.id }}"><i class="fa fa-check"></i> {{ 'Approved' if est.offer_approved else 'Approve' }}</button>
+                    <button class="action-btn small est-send-btn" data-est-id="{{ est.id }}" data-est-email="{{ est.sent_to_email }}" data-est-approved="{{ 'true' if est.offer_approved else 'false' }}"><i class="fa fa-paper-plane"></i> Send PDF</button>
                   </td>
                 </tr>
                 {% endfor %}
@@ -1704,17 +1704,100 @@
           </div>
 
           <!-- seed today's attendance records for JS -->
-          <script id="attendanceTodayData" type="application/json">{{ data.attendance_today | tojson }}</script>
+          <script id="attendanceTodayData" type="application/json">{{ data.get('attendance_today', []) | tojson }}</script>
         </div>
       </section>
 
       <!-- ===== Sales & Inquiries ===== -->
       <section class="view-section" id="view-sales">
         <div class="panel-head" style="padding:1.5rem 1.5rem 0">
-          <h2><i class="fa fa-chart-line"></i> Sales &amp; Inquiries</h2>
-          <p class="sub">Track new inquiries, follow-up pipeline, and orders received.</p>
+          <h2><i class="fa fa-chart-line"></i> Sales Admin Panel</h2>
+          <p class="sub">Financial-year sales KPIs (April 1 to March 31) with date-based drilldown and admin input.</p>
         </div>
+
+        <div class="sales-admin-shell" style="padding:1rem 1.5rem 0">
+          <div class="sales-admin-toolbar">
+            <div>
+              <label for="salesAdminDate" style="font-weight:700;display:block;margin-bottom:0.35rem">Date</label>
+              <input id="salesAdminDate" type="date" class="form-input" />
+            </div>
+            <div class="sales-admin-fy" id="salesAdminFYLabel">FY</div>
+            <div style="display:flex;gap:0.5rem;align-items:end">
+              <button class="action-btn small" id="salesAdminRefreshBtn"><i class="fa fa-rotate"></i> Refresh</button>
+              <button class="action-btn small" id="salesAdminSaveBtn"><i class="fa fa-floppy-disk"></i> Save Admin Data</button>
+            </div>
+          </div>
+
+          <div class="table-wrap" style="margin-top:0.75rem">
+            <table class="data-table" id="salesAdminMetricsTable">
+              <thead>
+                <tr>
+                  <th>Sales KPI</th>
+                  <th>Financial Year</th>
+                  <th>Selected Date</th>
+                </tr>
+              </thead>
+              <tbody id="salesAdminMetricsRows"></tbody>
+            </table>
+          </div>
+
+          <div class="sales-admin-entry" style="margin-top:0.9rem">
+            <h3 style="font-size:1rem;color:var(--ink);margin-bottom:0.55rem">Admin Entry For Selected Date</h3>
+            <div class="form-grid">
+              <div>
+                <label for="salesAdminSiteVisited">Number of Site Visited (manual)</label>
+                <input id="salesAdminSiteVisited" type="number" min="0" class="form-input" />
+              </div>
+              <div>
+                <label for="salesAdminUnitsWip">Elevator Units Received - WIP (manual)</label>
+                <input id="salesAdminUnitsWip" type="number" min="0" class="form-input" />
+              </div>
+              <div>
+                <label for="salesAdminInquiriesLost">Inquiry Lost Count (manual)</label>
+                <input id="salesAdminInquiriesLost" type="number" min="0" class="form-input" />
+              </div>
+              <div>
+                <label for="salesAdminOrdersLost">Order Lost Count (manual)</label>
+                <input id="salesAdminOrdersLost" type="number" min="0" class="form-input" />
+              </div>
+            </div>
+            <div class="form-grid">
+              <div>
+                <label for="salesAdminCompetitor">Major Competitor (lost bids)</label>
+                <input id="salesAdminCompetitor" type="text" class="form-input" placeholder="Competitor name" />
+              </div>
+              <div>
+                <label for="salesAdminLostWarranty">Units Lost From Warranty (manual)</label>
+                <input id="salesAdminLostWarranty" type="number" min="0" class="form-input" />
+              </div>
+              <div>
+                <label for="salesAdminLostAmc">Units Lost From AMC (manual)</label>
+                <input id="salesAdminLostAmc" type="number" min="0" class="form-input" />
+              </div>
+              <div>
+                <label for="salesAdminAmc10Year">AMC Payment For Next 10 Years (manual override)</label>
+                <input id="salesAdminAmc10Year" type="number" min="0" step="0.01" class="form-input" />
+              </div>
+            </div>
+            <div class="form-grid">
+              <div>
+                <label for="salesAdminOrderLoss">New Orders Completed In Loss (manual)</label>
+                <input id="salesAdminOrderLoss" type="number" min="0" class="form-input" />
+              </div>
+              <div>
+                <label for="salesAdminMaintLoss">Maintenance Completed In Loss (manual)</label>
+                <input id="salesAdminMaintLoss" type="number" min="0" class="form-input" />
+              </div>
+              <div style="grid-column: span 2">
+                <label for="salesAdminNotes">Notes</label>
+                <input id="salesAdminNotes" type="text" class="form-input" placeholder="Optional sales admin notes" />
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div style="padding:1rem 1.5rem">
+          <h3 style="font-size:1rem;color:var(--ink);margin-bottom:0.55rem">Sales Inquiries</h3>
           <button class="btn-primary" onclick="openSalesModal()"><i class="fa fa-plus"></i> New Inquiry</button>
         </div>
         <div class="table-wrap" style="padding:0 1.5rem 1.5rem">
@@ -1742,7 +1825,8 @@
             </div>
           </div>
         </div>
-        <script id="salesInquiriesData" type="application/json">{{ data.sales_inquiries | tojson }}</script>
+        <script id="salesInquiriesData" type="application/json">{{ data.get('sales_inquiries', []) | tojson }}</script>
+        <script id="salesAdminPanelData" type="application/json">{{ data.get('sales_admin_panel', {}) | tojson }}</script>
       </section>
 
       <!-- ===== Installation Dept ===== -->
@@ -1781,9 +1865,15 @@
         <div style="padding:1rem 1.5rem">
           <button class="btn-primary" onclick="openBreakdownModal()"><i class="fa fa-plus"></i> Log Breakdown</button>
         </div>
+        <div class="table-wrap" style="padding:0 1.5rem 1rem">
+          <table class="data-table" id="breakdownEngineerAvailabilityTable">
+            <thead><tr><th>Engineer</th><th>Availability</th><th>Shift</th><th>Current Job</th><th>Update Task</th></tr></thead>
+            <tbody id="breakdownEngineerAvailabilityRows"></tbody>
+          </table>
+        </div>
         <div class="table-wrap" style="padding:0 1.5rem 1.5rem">
           <table class="data-table" id="breakdownTable">
-            <thead><tr><th>ID</th><th>Unit</th><th>Customer</th><th>Reported</th><th>Attended</th><th>Closed</th><th>Status</th><th>Actions</th></tr></thead>
+            <thead><tr><th>ID</th><th>Unit</th><th>Customer</th><th>Engineer</th><th>Scheduled Visit</th><th>Reported</th><th>Attended</th><th>Closed</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody id="breakdownRows"></tbody>
           </table>
         </div>
@@ -1802,6 +1892,15 @@
                   <option value="Chargeable">Chargeable</option>
                 </select>
               </label>
+              <div class="form-grid">
+                <label>Engineer Schedule
+                  <select id="brkEngineer" class="form-select"></select>
+                </label>
+                <label>Scheduled Visit Date &amp; Time
+                  <input id="brkScheduleAt" class="form-input" type="datetime-local" />
+                </label>
+              </div>
+              <div id="brkEngineerAvailability" style="font-size:12px;color:var(--muted);margin-top:-0.35rem"></div>
             </div>
             <div class="modal-foot">
               <button class="btn-ghost" onclick="closeBreakdownModal()">Cancel</button>
@@ -1809,7 +1908,8 @@
             </div>
           </div>
         </div>
-        <script id="breakdownsData" type="application/json">{{ data.breakdowns | tojson }}</script>
+        <script id="breakdownsData" type="application/json">{{ data.get('breakdowns', []) | tojson }}</script>
+        <script id="breakdownEngineersData" type="application/json">{{ data.get('install_team', []) | tojson }}</script>
       </section>
 
       <!-- ===== Service ===== -->
@@ -1823,19 +1923,42 @@
         </div>
         <div class="table-wrap" style="padding:0 1.5rem 1.5rem">
           <table class="data-table" id="serviceTable">
-            <thead><tr><th>ID</th><th>Unit</th><th>Customer</th><th>Scheduled</th><th>Technician</th><th>Status</th><th>Completed</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Job</th><th>Unit</th><th>Customer</th><th>Contract</th><th>Visit</th><th>Technician</th><th>Status</th><th>Bill</th><th>Actions</th></tr></thead>
             <tbody id="serviceRows"></tbody>
           </table>
         </div>
         <div id="serviceModal" class="modal-overlay" style="display:none">
           <div class="modal-card">
-            <div class="modal-head"><h3>Schedule Service</h3><button class="modal-close" onclick="closeServiceModal()">&times;</button></div>
+            <div class="modal-head"><h3>Service Report</h3><button class="modal-close" onclick="closeServiceModal()">&times;</button></div>
             <div class="modal-body">
-              <label>Unit / Lift ID<input id="svcUnit" class="form-input" placeholder="Lift unit ID or serial"></label>
-              <label>Customer<input id="svcCustomer" class="form-input" placeholder="Customer name"></label>
-              <label>Scheduled Date<input id="svcDate" class="form-input" type="date"></label>
-              <label>Technician<input id="svcTech" class="form-input" placeholder="Assigned technician"></label>
-              <label>Notes<textarea id="svcNotes" class="form-textarea" rows="2"></textarea></label>
+              <div class="form-grid">
+                <label>Job Number<input id="svcJobNumber" class="form-input" placeholder="Job number"></label>
+                <label>Contract Type
+                  <select id="svcContractType" class="form-select">
+                    <option>CAMC</option>
+                    <option>AMC</option>
+                    <option>Warranty</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-grid">
+                <label>Unit / Lift ID<input id="svcUnit" class="form-input" placeholder="Lift unit ID or serial"></label>
+                <label>Customer<input id="svcCustomer" class="form-input" placeholder="Customer name"></label>
+              </div>
+              <label>Location<input id="svcLocation" class="form-input" placeholder="Customer site / location"></label>
+              <div class="form-grid">
+                <label>Service Date<input id="svcDate" class="form-input" type="date"></label>
+                <label>Technician Assigned<input id="svcTech" class="form-input" placeholder="Assigned technician"></label>
+              </div>
+              <div class="form-grid">
+                <label>Start Time<input id="svcStartTime" class="form-input" type="time"></label>
+                <label>Finish Time<input id="svcFinishTime" class="form-input" type="time"></label>
+              </div>
+              <label>Breakdown Comments Given<textarea id="svcBreakdownComments" class="form-textarea" rows="2"></textarea></label>
+              <label>Action Taken<textarea id="svcActionTaken" class="form-textarea" rows="2"></textarea></label>
+              <label>Required Actions<textarea id="svcRequiredActions" class="form-textarea" rows="2"></textarea></label>
+              <label>Customer Comments<textarea id="svcCustomerComments" class="form-textarea" rows="2"></textarea></label>
+              <label>Parts Used / Bill<textarea id="svcPartsUsed" class="form-textarea" rows="3" placeholder="Part number | Description | Quantity | Bill amount"></textarea></label>
             </div>
             <div class="modal-foot">
               <button class="btn-ghost" onclick="closeServiceModal()">Cancel</button>
@@ -1843,7 +1966,7 @@
             </div>
           </div>
         </div>
-        <script id="serviceRecordsData" type="application/json">{{ data.service_records | tojson }}</script>
+        <script id="serviceRecordsData" type="application/json">{{ data.get('service_records', []) | tojson }}</script>
       </section>
 
       <!-- ===== GAD ===== -->
@@ -1881,7 +2004,7 @@
             </div>
           </div>
         </div>
-        <script id="gadRecordsData" type="application/json">{{ data.gad_records | tojson }}</script>
+        <script id="gadRecordsData" type="application/json">{{ data.get('gad_records', []) | tojson }}</script>
       </section>
 
       <!-- ===== Finance / Accounts ===== -->
@@ -1941,7 +2064,7 @@
             </div>
           </div>
         </div>
-        <script id="commissioningsData" type="application/json">{{ data.commissionings | tojson }}</script>
+        <script id="commissioningsData" type="application/json">{{ data.get('commissionings', []) | tojson }}</script>
       </section>
 
       <!-- ===== Back Office ===== -->
@@ -2004,7 +2127,7 @@
             </div>
           </div>
         </div>
-        <script id="tendersData" type="application/json">{{ data.tenders | tojson }}</script>
+        <script id="tendersData" type="application/json">{{ data.get('tenders', []) | tojson }}</script>
       </section>
 
       <!-- ===== Factory ===== -->
@@ -2047,7 +2170,7 @@
             </div>
           </div>
         </div>
-        <script id="factoryJobsData" type="application/json">{{ data.factory_jobs | tojson }}</script>
+        <script id="factoryJobsData" type="application/json">{{ data.get('factory_jobs', []) | tojson }}</script>
       </section>
 
       <!-- ===== Inter-Department Communications ===== -->
@@ -2077,8 +2200,8 @@
             </div>
           </div>
         </div>
-        <script id="deptCommsData" type="application/json">{{ data.dept_comms | tojson }}</script>
-        <script id="userDeptData" type="application/json">{{ data.user_dept | tojson }}</script>
+        <script id="deptCommsData" type="application/json">{{ data.get('dept_comms', []) | tojson }}</script>
+        <script id="userDeptData" type="application/json">{{ data.get('user_dept', '') | tojson }}</script>
       </section>
 
     </main>

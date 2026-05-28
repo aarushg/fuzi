@@ -114,6 +114,43 @@ button, input, select { font: inherit; }
 .cust-ticket-left span { font-size: .78rem; color: var(--muted); }
 .cust-ticket-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: .78rem; color: var(--muted); }
 
+/* Service history */
+.cust-service-list { display: grid; gap: 1rem; }
+.cust-service-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 1.25rem 1.5rem;
+  box-shadow: 0 2px 10px rgba(17,19,27,.06);
+  display: grid;
+  gap: 12px;
+}
+.cust-service-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.cust-service-head strong { display: block; font-weight: 750; }
+.cust-service-head span { color: var(--muted); font-size: .78rem; }
+.cust-service-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: var(--muted);
+  font-size: .8rem;
+}
+.cust-service-meta span { display: inline-flex; align-items: center; gap: 6px; }
+.cust-service-card p { font-size: .84rem; line-height: 1.55; }
+.cust-service-card p strong { color: var(--ink); }
+.cust-service-parts { margin-top: 4px; }
+.cust-service-total {
+  justify-self: end;
+  font-size: .86rem;
+  font-weight: 800;
+  color: var(--red);
+}
+
 /* Support grid */
 .cust-support-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1.25rem;
@@ -223,6 +260,7 @@ button, input, select { font: inherit; }
   .cust-quote-grid { grid-template-columns: 1fr; }
   .cust-support-grid { grid-template-columns: 1fr; }
   .cust-tabs { flex-wrap: wrap; }
+  .cust-service-head { flex-direction: column; }
   .cust-pay-summary-cards { grid-template-columns: 1fr; }
   .cust-pay-table { font-size: .75rem; }
 }

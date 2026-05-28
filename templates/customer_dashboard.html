@@ -51,6 +51,7 @@
         <button class="cust-tab active" data-cust-tab="cust-quotes"><i class="fa fa-file-invoice-dollar"></i> My Quotes</button>
         <button class="cust-tab" data-cust-tab="cust-payments"><i class="fa fa-money-bill-wave"></i> Payments</button>
         <button class="cust-tab" data-cust-tab="cust-projects"><i class="fa fa-helmet-safety"></i> My Projects</button>
+        <button class="cust-tab" data-cust-tab="cust-service"><i class="fa fa-screwdriver-wrench"></i> Service</button>
         <button class="cust-tab" data-cust-tab="cust-support"><i class="fa fa-headset"></i> Support</button>
       </nav>
 
@@ -183,6 +184,54 @@
         <div class="cust-empty">
           <i class="fa fa-helmet-safety fa-2x"></i>
           <p>No project activity yet. Your installation progress and project milestones will appear here.</p>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Service Tab -->
+      <div class="cust-tab-panel" id="cust-service" style="display:none">
+        {% if service_records %}
+        <div class="cust-service-list">
+          {% for svc in service_records %}
+          <article class="cust-service-card">
+            <div class="cust-service-head">
+              <div>
+                <strong>{{ svc.job_number or svc.id }}</strong>
+                <span>{{ svc.contract_type or svc.service_type }} · {{ svc.date or svc.service_date or svc.completed_date }}</span>
+              </div>
+              <mark class="badge healthy">{{ svc.status or 'Completed' }}</mark>
+            </div>
+            <div class="cust-service-meta">
+              <span><i class="fa fa-location-dot"></i> {{ svc.location or svc.site or customer.address or 'Site' }}</span>
+              <span><i class="fa fa-user-gear"></i> {{ svc.technician }}</span>
+              {% if svc.start_time or svc.finish_time %}<span><i class="fa fa-clock"></i> {{ svc.start_time or '' }}{% if svc.finish_time %} - {{ svc.finish_time }}{% endif %}</span>{% endif %}
+            </div>
+            {% if svc.action_taken %}<p><strong>Action taken:</strong> {{ svc.action_taken }}</p>{% endif %}
+            {% if svc.required_actions %}<p><strong>Required actions:</strong> {{ svc.required_actions }}</p>{% endif %}
+            {% if svc.customer_comments %}<p><strong>Customer comments:</strong> {{ svc.customer_comments }}</p>{% endif %}
+            {% if svc.parts_used %}
+            <table class="cust-pay-table cust-service-parts">
+              <thead><tr><th>Part No.</th><th>Part</th><th>Qty</th><th>Bill</th></tr></thead>
+              <tbody>
+                {% for part in svc.parts_used %}
+                <tr>
+                  <td>{{ part.part_number or '—' }}</td>
+                  <td>{{ part.description or '—' }}</td>
+                  <td>{{ part.quantity or '—' }}</td>
+                  <td>₹{{ "{:,.0f}".format(part.bill_amount or 0) }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            <div class="cust-service-total">Bill total ₹{{ "{:,.0f}".format(svc.bill_total or 0) }}</div>
+            {% endif %}
+          </article>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="cust-empty">
+          <i class="fa fa-screwdriver-wrench fa-2x"></i>
+          <p>No completed service reports yet. Completed AMC, CAMC, and warranty visits will appear here.</p>
         </div>
         {% endif %}
       </div>

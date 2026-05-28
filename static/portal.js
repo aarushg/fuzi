@@ -650,6 +650,16 @@ function orgInitials(name) {
 function orgDeptColor(dept) {
   const map = {
     "Executive Office": "#e02020",
+    "Sales": "#0891b2",
+    "Installation": "#c47a00",
+    "Breakdown": "#dc2626",
+    "Service": "#2563eb",
+    "GAD": "#7c3aed",
+    "Accounts": "#14865f",
+    "Commissioning": "#9333ea",
+    "Back Office": "#64748b",
+    "Tender": "#b45309",
+    "Factory": "#0f766e",
     "Service Control": "#2563eb",
     "Project Office": "#7c3aed",
     "Install Operations": "#c47a00",
@@ -919,6 +929,7 @@ const estAddonsVal = document.getElementById("estAddonsVal");
 const estSubtotalVal = document.getElementById("estSubtotalVal");
 const estTotalVal = document.getElementById("estTotalVal");
 const estMargin = document.getElementById("estMargin");
+const estCustomerId = document.getElementById("estCustomerId");
 
 function fmtINR(n) {
   return "₹" + Math.round(n).toLocaleString("en-IN");
@@ -954,7 +965,6 @@ function collectEstimatorPayload() {
     remark_1: fd.get("remark_1") || "",
     remark_2: fd.get("remark_2") || "",
     remark_3: fd.get("remark_3") || "",
-    remark_4: fd.get("remark_4") || "",
     addons,
     margin_percent: parseFloat(fd.get("margin_percent") || "20"),
     sent_to_email: fd.get("sent_to_email") || "",
@@ -994,6 +1004,19 @@ if (estimatorForm) {
   estimatorForm.querySelectorAll('input[name="addons"]').forEach(el => el.addEventListener("change", calculateEstimate));
 }
 
+if (estCustomerId) {
+  estCustomerId.addEventListener("change", () => {
+    const opt = estCustomerId.selectedOptions[0];
+    if (!opt || !opt.value) return;
+    const name = document.getElementById("estCustomerName");
+    const site = document.getElementById("estSite");
+    const email = document.getElementById("estEmail");
+    if (name && !name.value.trim()) name.value = opt.dataset.name || "";
+    if (site && !site.value.trim()) site.value = opt.dataset.address || "";
+    if (email && !email.value.trim()) email.value = opt.dataset.email || "";
+  });
+}
+
 // Capacity toggle: show passenger or goods capacity based on elevator type
 (function() {
   const typeEl = document.getElementById("estType");
@@ -1028,10 +1051,33 @@ if (estimatorForm) {
   });
 }
 
-// Estimate send buttons
+// Estimate offer approval and send buttons
+document.querySelectorAll(".est-approve-btn").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    const estId = btn.dataset.estId;
+    const ok = window.confirm("Approve this offer PDF for sending? Review or edit the Word offer before approving.");
+    if (!ok) return;
+    const resp = await fetch(`/api/portal/estimates/${estId}/approve-offer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      showToast(data.message || "Approval failed.");
+      return;
+    }
+    showToast(data.message || "Offer approved.");
+    window.setTimeout(() => window.location.reload(), 800);
+  });
+});
+
 document.querySelectorAll(".est-send-btn").forEach(btn => {
   btn.addEventListener("click", async () => {
     const estId = btn.dataset.estId;
+    if (btn.dataset.estApproved !== "true") {
+      showToast("Approve the offer PDF before sending.");
+      return;
+    }
     let email = btn.dataset.estEmail || "";
     if (!email) email = window.prompt("Enter recipient email for this estimate:");
     if (!email) return;
@@ -1041,11 +1087,12 @@ document.querySelectorAll(".est-send-btn").forEach(btn => {
     const data = await resp.json();
     if (data.ok && data.method === "mailto") {
       const subject = encodeURIComponent(`FUZI Elevators — Quotation ${estId}`);
-      const body = encodeURIComponent(`Please find your elevator quotation attached. View the full report at: ${window.location.origin}/api/portal/estimates/${estId}/report`);
+      const offerUrl = data.offer_pdf ? `${window.location.origin}${data.offer_pdf}` : `${window.location.origin}/api/portal/estimates/${estId}/offer.pdf`;
+      const body = encodeURIComponent(`Please find your approved elevator quotation PDF.\n\nApproved offer PDF: ${offerUrl}\nFull report: ${window.location.origin}/api/portal/estimates/${estId}/report`);
       window.open(`mailto:${email}?subject=${subject}&body=${body}`);
-      showToast("Email client opened. Estimate marked as Sent.");
+      showToast("Email client opened with the approved PDF link. Estimate marked as Sent.");
     } else if (data.ok) {
-      showToast(`Report sent to ${email}.`);
+      showToast(`Approved offer PDF sent to ${email}.`);
     } else {
       showToast(data.message || "Send failed.");
     }
@@ -1298,6 +1345,16 @@ function parseDeptData(id) {
   try { return el ? JSON.parse(el.textContent) : []; } catch { return []; }
 }
 
+function parseDeptObject(id) {
+  const el = document.getElementById(id);
+  try {
+    const parsed = el ? JSON.parse(el.textContent) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function fmtDate(iso) {
   if (!iso) return "—";
   return iso.replace("T", " ").substring(0, 16);
@@ -1322,6 +1379,169 @@ async function deptPatch(url, body) {
   if (data.ok) { showToast(data.message || "Updated."); return data; }
   showToast(data.error || "Error updating.");
   return null;
+}
+
+async function refreshBreakdownRows() {
+  const dataEl = document.getElementById("breakdownsData");
+  if (!dataEl) return;
+  try {
+    const resp = await fetch("/api/portal/breakdown");
+    const data = await resp.json();
+    if (!data.ok || !Array.isArray(data.breakdowns)) return;
+    dataEl.textContent = JSON.stringify(data.breakdowns);
+    renderBreakdownRows(data.breakdowns);
+  } catch {
+    // Keep the current table visible if the refresh fails.
+  }
+}
+
+async function refreshBreakdownEngineers() {
+  const dataEl = document.getElementById("breakdownEngineersData");
+  if (!dataEl) return;
+  try {
+    const resp = await fetch("/api/portal/install-team");
+    const data = await resp.json();
+    if (!data.ok || !Array.isArray(data.members)) return;
+    breakdownEngineersCache = data.members;
+    dataEl.textContent = JSON.stringify(data.members);
+    renderBreakdownEngineerAvailabilityRows();
+    renderBreakdownEngineerOptions();
+  } catch {
+    // Keep the current engineer state visible if the refresh fails.
+  }
+}
+
+async function refreshBreakdownModule() {
+  await Promise.all([refreshBreakdownEngineers(), refreshBreakdownRows()]);
+}
+
+// ===== Sales Admin Panel =====
+const SALES_ADMIN_METRIC_DEFS = [
+  { key: "inquiries_received", label: "Number of Inquiry Received", type: "count" },
+  { key: "site_visited", label: "Number of Site Visited", type: "count" },
+  { key: "offers_submitted", label: "Number of Offer Submitted", type: "count" },
+  { key: "units_received_wip", label: "Number of Elevator Units Received (WIP)", type: "count" },
+  { key: "elevators_in_warranty", label: "Number of Elevators in Warranty", type: "count" },
+  { key: "elevators_in_amc", label: "Number of Elevators in AMC", type: "count" },
+  { key: "total_elevators_in_service", label: "Total Elevators in Service (Warranty + AMC)", type: "count" },
+  { key: "inquiries_lost", label: "Number of Inquiry Lost", type: "count" },
+  { key: "orders_lost", label: "Number of Order Lost", type: "count" },
+  { key: "major_competitor", label: "Major Competitor For Lost Bid", type: "text" },
+  { key: "units_lost_warranty", label: "Number of Units Lost From Warranty", type: "count" },
+  { key: "units_lost_amc", label: "Number of Units Lost From AMC", type: "count" },
+  { key: "amc_payment_received_till_now", label: "AMC Payment Received Till Now", type: "amount" },
+  { key: "amc_payment_to_be_received_year", label: "AMC Payment To Be Received This Year", type: "amount" },
+  { key: "new_elevator_payment_received", label: "New Elevator Payment Received", type: "amount" },
+  { key: "new_elevator_payment_pending", label: "New Elevator Payment Yet To Be Received", type: "amount" },
+  { key: "amc_payment_next_10_year", label: "AMC Payment For Next 10 Years", type: "amount" },
+  { key: "orders_completed_in_loss", label: "New Orders Completed In Loss", type: "count" },
+  { key: "maintenance_completed_in_loss", label: "Maintenance Completed In Loss", type: "count" },
+];
+
+function fmtSalesMetric(value, type) {
+  if (type === "amount") {
+    const num = Number(value || 0);
+    return `₹${Math.round(num).toLocaleString("en-IN")}`;
+  }
+  if (type === "count") {
+    return String(Number(value || 0));
+  }
+  return value ? escapeHtml(String(value)) : "—";
+}
+
+function fillSalesAdminEntryForm(entry) {
+  const setVal = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.value = value ?? "";
+  };
+  setVal("salesAdminSiteVisited", entry.site_visited_count || 0);
+  setVal("salesAdminUnitsWip", entry.units_received_wip_count || 0);
+  setVal("salesAdminInquiriesLost", entry.inquiries_lost_count || 0);
+  setVal("salesAdminOrdersLost", entry.orders_lost_count || 0);
+  setVal("salesAdminCompetitor", entry.major_competitor || "");
+  setVal("salesAdminLostWarranty", entry.units_lost_warranty_count || 0);
+  setVal("salesAdminLostAmc", entry.units_lost_amc_count || 0);
+  setVal("salesAdminAmc10Year", entry.amc_payment_next_10_year || 0);
+  setVal("salesAdminOrderLoss", entry.orders_completed_in_loss_count || 0);
+  setVal("salesAdminMaintLoss", entry.maintenance_completed_in_loss_count || 0);
+  setVal("salesAdminNotes", entry.notes || "");
+}
+
+function renderSalesAdminPanel(panel) {
+  const dateInput = document.getElementById("salesAdminDate");
+  const fyLabel = document.getElementById("salesAdminFYLabel");
+  const rows = document.getElementById("salesAdminMetricsRows");
+  if (!rows) return;
+
+  const fy = (panel && panel.metrics && panel.metrics.financial_year) || {};
+  const day = (panel && panel.metrics && panel.metrics.selected_date) || {};
+
+  if (dateInput && panel && panel.selected_date) dateInput.value = panel.selected_date;
+  if (fyLabel && panel && panel.fiscal_year) {
+    fyLabel.textContent = `${panel.fiscal_year.label}: ${panel.fiscal_year.start} to ${panel.fiscal_year.end}`;
+  }
+
+  rows.innerHTML = SALES_ADMIN_METRIC_DEFS.map((metric) => {
+    const fyVal = fmtSalesMetric(fy[metric.key], metric.type);
+    const dayVal = fmtSalesMetric(day[metric.key], metric.type);
+    return `<tr>
+      <td>${metric.label}</td>
+      <td>${fyVal}</td>
+      <td>${dayVal}</td>
+    </tr>`;
+  }).join("");
+
+  fillSalesAdminEntryForm((panel && panel.entry) || {});
+}
+
+function salesAdminPayload() {
+  const val = (id) => document.getElementById(id)?.value ?? "";
+  return {
+    date: val("salesAdminDate"),
+    site_visited_count: Number(val("salesAdminSiteVisited") || 0),
+    units_received_wip_count: Number(val("salesAdminUnitsWip") || 0),
+    inquiries_lost_count: Number(val("salesAdminInquiriesLost") || 0),
+    orders_lost_count: Number(val("salesAdminOrdersLost") || 0),
+    major_competitor: val("salesAdminCompetitor").trim(),
+    units_lost_warranty_count: Number(val("salesAdminLostWarranty") || 0),
+    units_lost_amc_count: Number(val("salesAdminLostAmc") || 0),
+    amc_payment_next_10_year: Number(val("salesAdminAmc10Year") || 0),
+    orders_completed_in_loss_count: Number(val("salesAdminOrderLoss") || 0),
+    maintenance_completed_in_loss_count: Number(val("salesAdminMaintLoss") || 0),
+    notes: val("salesAdminNotes").trim(),
+  };
+}
+
+async function refreshSalesAdminPanel() {
+  const dateInput = document.getElementById("salesAdminDate");
+  const date = dateInput ? dateInput.value : "";
+  const resp = await fetch(`/api/portal/sales/admin-panel?date=${encodeURIComponent(date || "")}`);
+  const data = await resp.json();
+  if (!data.ok) {
+    showToast(data.message || "Unable to load Sales Admin panel.");
+    return;
+  }
+  renderSalesAdminPanel(data.panel);
+}
+
+async function saveSalesAdminPanelEntry() {
+  const payload = salesAdminPayload();
+  if (!payload.date) {
+    showToast("Select a date before saving Sales Admin data.");
+    return;
+  }
+  const resp = await fetch("/api/portal/sales/admin-panel", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await resp.json();
+  if (!data.ok) {
+    showToast(data.message || "Unable to save Sales Admin data.");
+    return;
+  }
+  showToast("Sales Admin data saved.");
+  renderSalesAdminPanel(data.panel);
 }
 
 // ===== Sales Inquiries =====
@@ -1352,30 +1572,153 @@ async function submitSalesInquiry() {
   };
   if (!body.customer) { showToast("Customer name is required."); return; }
   const res = await deptPost("/api/portal/sales/inquiries", body);
-  if (res) { closeSalesModal(); renderSalesRows(res.data); }
+  if (res) { closeSalesModal(); renderSalesRows(res.data); refreshSalesAdminPanel(); }
 }
 
 async function salesFollowUp(id) {
   const res = await deptPatch(`/api/portal/sales/inquiries/${id}`, { action: "followup" });
-  if (res) renderSalesRows(res.data);
+  if (res) { renderSalesRows(res.data); refreshSalesAdminPanel(); }
 }
 
 async function salesOrderReceived(id) {
   const res = await deptPatch(`/api/portal/sales/inquiries/${id}`, { action: "order_received" });
-  if (res) renderSalesRows(res.data);
+  if (res) { renderSalesRows(res.data); refreshSalesAdminPanel(); }
 }
 
 // ===== Breakdown =====
-function openBreakdownModal() { document.getElementById("breakdownModal").style.display = "flex"; }
+function openBreakdownModal() {
+  renderBreakdownEngineerOptions();
+  const scheduleInput = document.getElementById("brkScheduleAt");
+  if (scheduleInput && !scheduleInput.value) {
+    const nextHour = new Date();
+    nextHour.setMinutes(0, 0, 0);
+    nextHour.setHours(nextHour.getHours() + 1);
+    scheduleInput.value = toDateTimeLocalValue(nextHour.toISOString());
+  }
+  document.getElementById("breakdownModal").style.display = "flex";
+}
 function closeBreakdownModal() { document.getElementById("breakdownModal").style.display = "none"; }
+
+let breakdownEngineersCache = null;
+
+function availableBreakdownEngineers() {
+  if (Array.isArray(breakdownEngineersCache)) return breakdownEngineersCache;
+  const members = parseDeptData("breakdownEngineersData");
+  breakdownEngineersCache = Array.isArray(members) ? members : [];
+  return breakdownEngineersCache;
+}
+
+function resolveBreakdownEngineer(record) {
+  const members = availableBreakdownEngineers();
+  const byId = (record.scheduled_engineer_id || "").toString().trim();
+  if (byId) {
+    const foundById = members.find((member) => (member.id || "").toString().trim() === byId);
+    if (foundById) return foundById;
+  }
+  const byName = ((record.scheduled_engineer_name || record.technician || "").toString().trim()).toLowerCase();
+  if (byName) {
+    const foundByName = members.find((member) => ((member.name || "").toString().trim()).toLowerCase() === byName);
+    if (foundByName) return foundByName;
+  }
+  return null;
+}
+
+function renderBreakdownEngineerAvailabilityRows() {
+  const tbody = document.getElementById("breakdownEngineerAvailabilityRows");
+  if (!tbody) return;
+  const members = availableBreakdownEngineers();
+  if (!members.length) {
+    tbody.innerHTML = '<tr><td colspan="5">No engineer availability data found.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = members.map((member) => `<tr>
+    <td>${escapeHtml(member.name || member.id || "Engineer")}</td>
+    <td>${escapeHtml(member.availability || "Unknown")}</td>
+    <td>${escapeHtml(member.shift || "Not set")}</td>
+    <td>${escapeHtml(member.current_job || "Unassigned")}</td>
+    <td>
+      <div style="display:flex;gap:0.4rem;align-items:center;min-width:190px">
+        <input class="form-input brk-eng-task" data-member-id="${escapeHtml(member.id || "")}" value="${escapeHtml(member.current_job || "")}" placeholder="Set current task" style="margin-top:0;padding:6px 8px;min-width:120px" />
+        <button class="btn-xs brk-eng-save" data-member-id="${escapeHtml(member.id || "")}">Save</button>
+      </div>
+    </td>
+  </tr>`).join("");
+}
+
+async function saveBreakdownEngineerTask(memberId) {
+  const input = document.querySelector(`.brk-eng-task[data-member-id="${memberId}"]`);
+  if (!input) return;
+  const currentJob = input.value.trim();
+  const resp = await fetch(`/api/portal/install-team/${memberId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current_job: currentJob }),
+  });
+  const data = await resp.json();
+  if (!data.ok) {
+    showToast(data.message || "Unable to update engineer task.");
+    return;
+  }
+  const members = availableBreakdownEngineers();
+  const index = members.findIndex((member) => (member.id || "") === memberId);
+  if (index >= 0) {
+    members[index] = data.member;
+  }
+  renderBreakdownEngineerAvailabilityRows();
+  renderBreakdownEngineerOptions();
+  updateBreakdownEngineerAvailability();
+  showToast(`${data.member.name} current task updated.`);
+}
+
+function renderBreakdownEngineerOptions() {
+  const engineerSelect = document.getElementById("brkEngineer");
+  if (!engineerSelect) return;
+  const members = availableBreakdownEngineers();
+  engineerSelect.innerHTML = [
+    '<option value="">Unassigned</option>',
+    ...members.map((member) => {
+      const label = `${member.name || member.id || "Engineer"} (${member.availability || "Unknown"})`;
+      return `<option value="${escapeHtml(member.id || "")}" data-name="${escapeHtml(member.name || "")}" data-availability="${escapeHtml(member.availability || "")}" data-shift="${escapeHtml(member.shift || "")}" data-current-job="${escapeHtml(member.current_job || "")}">${escapeHtml(label)}</option>`;
+    }),
+  ].join("");
+  updateBreakdownEngineerAvailability();
+}
+
+function updateBreakdownEngineerAvailability() {
+  const engineerSelect = document.getElementById("brkEngineer");
+  const info = document.getElementById("brkEngineerAvailability");
+  if (!engineerSelect || !info) return;
+  const selected = engineerSelect.options[engineerSelect.selectedIndex];
+  if (!selected || !selected.value) {
+    info.textContent = "No engineer assigned yet.";
+    return;
+  }
+  const availability = selected.dataset.availability || "Unknown";
+  const shift = selected.dataset.shift || "Not set";
+  const currentJob = selected.dataset.currentJob || "Unassigned";
+  info.textContent = `Availability: ${availability} | Shift: ${shift} | Current job: ${currentJob}`;
+}
+
+function toDateTimeLocalValue(value) {
+  if (!value) return "";
+  const normalized = String(value).replace("Z", "");
+  if (normalized.includes("T")) return normalized.slice(0, 16);
+  return "";
+}
 
 function renderBreakdownRows(records) {
   const tbody = document.getElementById("breakdownRows");
   if (!tbody) return;
-  const map = { "Open": "badge-warn", "Attended": "badge-info", "Closed": "badge-success" };
+  const map = { "Open": "badge-warn", "Attended": "badge-info", "Resolved": "badge-info", "Closed": "badge-success" };
   tbody.innerHTML = records.map(r => `<tr>
     <td>${r.id}</td><td>${r.unit || "—"}</td><td>${r.customer || "—"}</td>
-    <td>${fmtDate(r.reported_at)}</td><td>${fmtDate(r.attended_at)}</td>
+    <td>${(() => {
+      const resolved = resolveBreakdownEngineer(r);
+      const name = r.scheduled_engineer_name || r.technician || (resolved ? resolved.name : "") || "—";
+      const availability = r.engineer_availability || (resolved ? resolved.availability : "") || "Unknown";
+      return `${escapeHtml(name)}<span>${escapeHtml(availability)}</span>`;
+    })()}</td>
+    <td>${fmtDate(r.scheduled_visit_at)}</td><td>${fmtDate(r.reported_at)}</td><td>${fmtDate(r.attended_at)}</td>
     <td>${fmtDate(r.closed_at)}</td><td>${statusBadge(r.status, map)}</td>
     <td>
       ${r.status === "Open" ? `<button class="btn-xs" onclick="brkAttend('${r.id}')">Attend</button>` : ""}
@@ -1386,12 +1729,23 @@ function renderBreakdownRows(records) {
 }
 
 async function submitBreakdown() {
+  const engineerSelect = document.getElementById("brkEngineer");
+  const selected = engineerSelect ? engineerSelect.options[engineerSelect.selectedIndex] : null;
   const body = {
     unit: document.getElementById("brkUnit").value.trim(),
     customer: document.getElementById("brkCustomer").value.trim(),
     site: document.getElementById("brkSite").value.trim(),
     fault: document.getElementById("brkFault").value.trim(),
     contract_type: document.getElementById("brkWarranty").value,
+    scheduled_engineer_id: engineerSelect ? engineerSelect.value : "",
+    scheduled_engineer_name: selected ? (selected.dataset.name || "") : "",
+    engineer_availability: selected ? (selected.dataset.availability || "") : "",
+    engineer_shift: selected ? (selected.dataset.shift || "") : "",
+    engineer_current_job: selected ? (selected.dataset.currentJob || "") : "",
+    scheduled_visit_at: (() => {
+      const raw = document.getElementById("brkScheduleAt")?.value || "";
+      return raw ? `${raw}:00` : "";
+    })(),
   };
   if (!body.unit) { showToast("Unit ID is required."); return; }
   const res = await deptPost("/api/portal/breakdown", body);
@@ -1399,7 +1753,13 @@ async function submitBreakdown() {
 }
 
 async function brkAttend(id) {
-  const res = await deptPatch(`/api/portal/breakdown/${id}`, { action: "attend" });
+  const engineerSelect = document.getElementById("brkEngineer");
+  const selected = engineerSelect ? engineerSelect.options[engineerSelect.selectedIndex] : null;
+  const res = await deptPatch(`/api/portal/breakdown/${id}`, {
+    action: "attend",
+    technician: selected ? (selected.dataset.name || "") : "",
+    engineer_availability: selected ? (selected.dataset.availability || "") : "",
+  });
   if (res) renderBreakdownRows(res.data);
 }
 
@@ -1447,6 +1807,114 @@ async function svcComplete(id) {
   const notes = window.prompt("Service completion notes:");
   const res = await deptPatch(`/api/portal/service/${id}`, { action: "complete", notes: notes || "" });
   if (res) renderServiceRows(res.data);
+}
+
+let activeServiceId = "";
+let serviceSaveMode = "save";
+
+function closeServiceModal() {
+  document.getElementById("serviceModal").style.display = "none";
+  activeServiceId = "";
+  serviceSaveMode = "save";
+}
+
+function partsToText(parts) {
+  return (parts || []).map(part => [
+    part.part_number || "",
+    part.description || "",
+    part.quantity || "",
+    part.bill_amount || "",
+  ].join(" | ")).join("\n");
+}
+
+function collectServiceForm(action) {
+  return {
+    action,
+    job_number: document.getElementById("svcJobNumber").value.trim(),
+    contract_type: document.getElementById("svcContractType").value,
+    unit: document.getElementById("svcUnit").value.trim(),
+    elevator_ref: document.getElementById("svcUnit").value.trim(),
+    customer: document.getElementById("svcCustomer").value.trim(),
+    site: document.getElementById("svcLocation").value.trim(),
+    location: document.getElementById("svcLocation").value.trim(),
+    scheduled_date: document.getElementById("svcDate").value,
+    service_date: document.getElementById("svcDate").value,
+    start_time: document.getElementById("svcStartTime").value,
+    finish_time: document.getElementById("svcFinishTime").value,
+    technician: document.getElementById("svcTech").value.trim(),
+    breakdown_comments: document.getElementById("svcBreakdownComments").value.trim(),
+    action_taken: document.getElementById("svcActionTaken").value.trim(),
+    required_actions: document.getElementById("svcRequiredActions").value.trim(),
+    customer_comments: document.getElementById("svcCustomerComments").value.trim(),
+    parts_used: document.getElementById("svcPartsUsed").value.trim(),
+  };
+}
+
+function fillServiceForm(record) {
+  document.getElementById("svcJobNumber").value = record.job_number || record.id || "";
+  document.getElementById("svcContractType").value = record.contract_type || record.service_type || "AMC";
+  document.getElementById("svcUnit").value = record.unit || record.elevator_ref || "";
+  document.getElementById("svcCustomer").value = record.customer || "";
+  document.getElementById("svcLocation").value = record.location || record.site || "";
+  document.getElementById("svcDate").value = record.service_date || record.scheduled_date || "";
+  document.getElementById("svcStartTime").value = record.start_time || "";
+  document.getElementById("svcFinishTime").value = record.finish_time || "";
+  document.getElementById("svcTech").value = record.technician || "";
+  document.getElementById("svcBreakdownComments").value = record.breakdown_comments || "";
+  document.getElementById("svcActionTaken").value = record.action_taken || record.findings || "";
+  document.getElementById("svcRequiredActions").value = record.required_actions || "";
+  document.getElementById("svcCustomerComments").value = record.customer_comments || "";
+  document.getElementById("svcPartsUsed").value = partsToText(record.parts_used);
+}
+
+function renderServiceRows(records) {
+  const tbody = document.getElementById("serviceRows");
+  if (!tbody) return;
+  const map = { "Scheduled": "badge-info", "Completed": "badge-success", "Overdue": "badge-warn" };
+  window.serviceRecordsCache = records;
+  tbody.innerHTML = records.map(r => `<tr>
+    <td><strong>${escapeHtml(r.job_number || r.id)}</strong><span>${escapeHtml(r.id)}</span></td>
+    <td>${escapeHtml(r.unit || "-")}</td>
+    <td>${escapeHtml(r.customer || "-")}<span>${escapeHtml(r.location || r.site || "")}</span></td>
+    <td>${escapeHtml(r.contract_type || r.service_type || "-")}</td>
+    <td>${escapeHtml(r.service_date || r.scheduled_date || "-")}<span>${escapeHtml(`${r.start_time || ""}${r.finish_time ? " - " + r.finish_time : ""}`)}</span></td>
+    <td>${escapeHtml(r.technician || "-")}</td>
+    <td>${statusBadge(r.status, map)}</td>
+    <td>${escapeHtml(String(r.bill_total || 0))}</td>
+    <td>
+      <button class="btn-xs" onclick="svcEdit('${escapeHtml(r.id)}')">Edit</button>
+      ${r.status !== "Completed" ? `<button class="btn-xs" onclick="svcComplete('${escapeHtml(r.id)}')">Complete</button>` : ""}
+    </td>
+  </tr>`).join("");
+}
+
+async function submitService() {
+  const body = collectServiceForm(serviceSaveMode === "complete" ? "complete" : activeServiceId ? "update" : undefined);
+  if (!body.unit) { showToast("Unit ID is required."); return; }
+  if (!body.customer) { showToast("Customer name is required."); return; }
+  if (body.action === "complete" && !body.action_taken) { showToast("Action taken is required before completion."); return; }
+  const res = activeServiceId
+    ? await deptPatch(`/api/portal/service/${activeServiceId}`, body)
+    : await deptPost("/api/portal/service", body);
+  if (res) { closeServiceModal(); renderServiceRows(res.data); }
+}
+
+function svcEdit(id) {
+  const record = (window.serviceRecordsCache || []).find(item => item.id === id);
+  if (!record) return;
+  activeServiceId = id;
+  serviceSaveMode = "save";
+  fillServiceForm(record);
+  openServiceModal();
+}
+
+async function svcComplete(id) {
+  const record = (window.serviceRecordsCache || []).find(item => item.id === id);
+  if (!record) return;
+  activeServiceId = id;
+  serviceSaveMode = "complete";
+  fillServiceForm(record);
+  openServiceModal();
 }
 
 // ===== GAD =====
@@ -1641,6 +2109,9 @@ async function sendCommsMessage() {
 // Init all department module tables from embedded JSON
 (function initDeptModules() {
   renderSalesRows(parseDeptData("salesInquiriesData"));
+  renderSalesAdminPanel(parseDeptObject("salesAdminPanelData"));
+  renderBreakdownEngineerAvailabilityRows();
+  renderBreakdownEngineerOptions();
   renderBreakdownRows(parseDeptData("breakdownsData"));
   renderServiceRows(parseDeptData("serviceRecordsData"));
   renderGADRows(parseDeptData("gadRecordsData"));
@@ -1648,7 +2119,18 @@ async function sendCommsMessage() {
   renderFactoryRows(parseDeptData("factoryJobsData"));
   renderTenderRows(parseDeptData("tendersData"));
   renderCommsList(parseDeptData("deptCommsData"));
+  refreshBreakdownModule();
 })();
+
+document.getElementById("salesAdminRefreshBtn")?.addEventListener("click", refreshSalesAdminPanel);
+document.getElementById("salesAdminSaveBtn")?.addEventListener("click", saveSalesAdminPanelEntry);
+document.getElementById("salesAdminDate")?.addEventListener("change", refreshSalesAdminPanel);
+document.getElementById("brkEngineer")?.addEventListener("change", updateBreakdownEngineerAvailability);
+document.getElementById("breakdownEngineerAvailabilityRows")?.addEventListener("click", (event) => {
+  const button = event.target.closest(".brk-eng-save");
+  if (!button) return;
+  saveBreakdownEngineerTask(button.dataset.memberId || "");
+});
 
 function viewInstallJob(id) { switchView("installations"); }
 
@@ -1714,6 +2196,10 @@ const initialView = document.body.dataset.defaultView || "overview";
 if (document.querySelector(`.side-link[data-view="${initialView}"]`) || initialView === "overview") {
   switchView(initialView);
 }
+
+window.setInterval(() => {
+  refreshBreakdownModule();
+}, 15000);
 
 window.setInterval(() => {
   refreshFeed();

@@ -183,6 +183,48 @@
       "text": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 11 SLA risks, 1 blocked parts orders."
     },
     {
+      "channel": "SMS",
+      "from": "Operations Bot",
+      "state": "Delivery failed",
+      "text": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 11 SLA risks, 1 blocked parts orders."
+    },
+    {
+      "channel": "Modernization Coordinator",
+      "from": "Blocked jobs",
+      "state": "Sent",
+      "text": "Modernization flag: 3 jobs blocked or at risk."
+    },
+    {
+      "channel": "SMS",
+      "from": "Operations Bot",
+      "state": "Delivery failed",
+      "text": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 11 SLA risks, 1 blocked parts orders."
+    },
+    {
+      "channel": "Modernization Coordinator",
+      "from": "Blocked jobs",
+      "state": "Sent",
+      "text": "Modernization flag: 3 jobs blocked or at risk."
+    },
+    {
+      "channel": "Modernization Coordinator",
+      "from": "Blocked jobs",
+      "state": "Sent",
+      "text": "Modernization flag: 3 jobs blocked or at risk."
+    },
+    {
+      "channel": "SMS",
+      "from": "Operations Bot",
+      "state": "Sent",
+      "text": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 11 SLA risks, 1 blocked parts orders."
+    },
+    {
+      "channel": "SMS",
+      "from": "Operations Bot",
+      "state": "Sent",
+      "text": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 11 SLA risks, 1 blocked parts orders."
+    },
+    {
       "channel": "Modernization Coordinator",
       "from": "Blocked jobs",
       "state": "Sent",
@@ -235,48 +277,6 @@
       "from": "Blocked jobs",
       "state": "Sent",
       "text": "Modernization flag: 3 jobs blocked or at risk."
-    },
-    {
-      "channel": "Modernization Coordinator",
-      "from": "Blocked jobs",
-      "state": "Sent",
-      "text": "Modernization flag: 3 jobs blocked or at risk."
-    },
-    {
-      "channel": "SMS",
-      "from": "FE-JP-204",
-      "state": "Sent",
-      "text": "On-call tech notified for PT-1007."
-    },
-    {
-      "channel": "Modernization Coordinator",
-      "from": "Blocked jobs",
-      "state": "Sent",
-      "text": "Modernization flag: 6 jobs blocked or at risk."
-    },
-    {
-      "channel": "SMS",
-      "from": "FE-JP-204",
-      "state": "Sent",
-      "text": "On-call tech notified for PT-1007."
-    },
-    {
-      "channel": "SMS",
-      "from": "FE-JP-204",
-      "state": "Sent",
-      "text": "On-call tech notified for PT-1007."
-    },
-    {
-      "channel": "SMS",
-      "from": "FE-JP-204",
-      "state": "Sent",
-      "text": "On-call tech notified for PT-1007."
-    },
-    {
-      "channel": "Modernization Coordinator",
-      "from": "Blocked jobs",
-      "state": "Sent",
-      "text": "Modernization flag: 6 jobs blocked or at risk."
     },
     {
       "channel": "Email",
@@ -395,6 +395,46 @@
         "SLA risks: PT-1013, PT-1012, PT-1011, PT-1010",
         "Blocked parts: Mansarovar Residency (Blocked)"
       ],
+      "created_at": "2026-05-28 06:30"
+    },
+    {
+      "summary": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 11 SLA risks, 1 blocked parts orders.",
+      "details": [
+        "Fault units: FE-JP-204, FE-JP-117, FE-AJ-052",
+        "Coverage gaps: Suresh Yadav",
+        "SLA risks: PT-1013, PT-1012, PT-1011, PT-1010",
+        "Blocked parts: Mansarovar Residency (Blocked)"
+      ],
+      "created_at": "2026-05-28 06:30"
+    },
+    {
+      "summary": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 11 SLA risks, 1 blocked parts orders.",
+      "details": [
+        "Fault units: FE-JP-204, FE-JP-117, FE-AJ-052",
+        "Coverage gaps: Suresh Yadav",
+        "SLA risks: PT-1013, PT-1012, PT-1011, PT-1010",
+        "Blocked parts: Mansarovar Residency (Blocked)"
+      ],
+      "created_at": "2026-05-28 06:30"
+    },
+    {
+      "summary": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 11 SLA risks, 1 blocked parts orders.",
+      "details": [
+        "Fault units: FE-JP-204, FE-JP-117, FE-AJ-052",
+        "Coverage gaps: Suresh Yadav",
+        "SLA risks: PT-1013, PT-1012, PT-1011, PT-1010",
+        "Blocked parts: Mansarovar Residency (Blocked)"
+      ],
+      "created_at": "2026-05-27 06:32"
+    },
+    {
+      "summary": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 11 SLA risks, 1 blocked parts orders.",
+      "details": [
+        "Fault units: FE-JP-204, FE-JP-117, FE-AJ-052",
+        "Coverage gaps: Suresh Yadav",
+        "SLA risks: PT-1013, PT-1012, PT-1011, PT-1010",
+        "Blocked parts: Mansarovar Residency (Blocked)"
+      ],
       "created_at": "2026-05-26 06:32"
     },
     {
@@ -448,217 +488,219 @@
       "created_at": "2026-05-22 14:50"
     }
   ],
-  "last_scheduled_morning_brief_date": "2026-05-26",
-  "last_scheduled_modernization_flag_date": "2026-05-26",
+  "last_scheduled_morning_brief_date": "2026-05-28",
+  "last_scheduled_modernization_flag_date": "2026-05-28",
   "discord_cursors": {
-    "crm_query_last_message_id": "1508566712419876895"
+    "crm_query_last_message_id": "1508566712419876895",
+    "breakdown_last_message_id": "1509332302621052928"
   },
+  "discord_sent_messages": [],
   "activity_log": [
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 14:14"
+      "timestamp": "2026-05-28 06:40"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 14:09"
+      "timestamp": "2026-05-28 06:40"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 14:04"
+      "timestamp": "2026-05-28 06:40"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 13:59"
+      "timestamp": "2026-05-28 06:40"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 13:54"
+      "timestamp": "2026-05-28 06:40"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 13:49"
+      "timestamp": "2026-05-28 06:34"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 13:44"
+      "timestamp": "2026-05-28 06:34"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 13:39"
+      "timestamp": "2026-05-28 06:34"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 13:34"
+      "timestamp": "2026-05-28 06:34"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 07:52"
+      "timestamp": "2026-05-28 06:31"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 07:47"
+      "timestamp": "2026-05-28 06:30"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 07:42"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 07:36"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 07:31"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 07:26"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 07:21"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 07:16"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 07:11"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 07:06"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 07:01"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 06:56"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 06:47"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 06:43"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 06:42"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 06:38"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 06:37"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 06:33"
-    },
-    {
-      "agent": "Live Operations Dashboard",
-      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 06:32"
+      "timestamp": "2026-05-28 06:30"
     },
     {
       "agent": "Morning Operations Brief",
       "summary": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 11 SLA risks, 1 blocked parts orders.",
-      "timestamp": "2026-05-26 06:32"
+      "timestamp": "2026-05-28 06:30"
+    },
+    {
+      "agent": "Morning Operations Brief",
+      "summary": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 11 SLA risks, 1 blocked parts orders.",
+      "timestamp": "2026-05-28 06:30"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-28 06:30"
     },
     {
       "agent": "Modernization Project Coordinator",
       "summary": "Modernization flag: 3 jobs blocked or at risk.",
-      "timestamp": "2026-05-26 06:31"
+      "timestamp": "2026-05-28 06:30"
     },
     {
       "agent": "Morning Operations Brief",
       "summary": "FUZI brief: 3 units in fault/watch, 1 coverage gaps, 11 SLA risks, 1 blocked parts orders.",
-      "timestamp": "2026-05-26 06:31"
+      "timestamp": "2026-05-28 06:30"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 06:28"
+      "timestamp": "2026-05-28 06:29"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 06:27"
+      "timestamp": "2026-05-28 06:29"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 06:23"
+      "timestamp": "2026-05-28 06:29"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 06:21"
+      "timestamp": "2026-05-28 06:29"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 06:08"
+      "timestamp": "2026-05-28 06:25"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 06:08"
+      "timestamp": "2026-05-28 06:24"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 06:06"
+      "timestamp": "2026-05-28 06:24"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 06:03"
+      "timestamp": "2026-05-28 06:24"
     },
     {
       "agent": "Live Operations Dashboard",
       "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
-      "timestamp": "2026-05-26 06:03"
+      "timestamp": "2026-05-28 06:24"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-28 06:20"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-28 06:19"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-28 06:19"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-28 06:19"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-28 06:19"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-28 06:14"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-28 06:14"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-28 06:14"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-28 06:14"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-28 06:14"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-28 06:09"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-28 06:09"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-28 06:09"
+    },
+    {
+      "agent": "Live Operations Dashboard",
+      "summary": "Snapshot sent with 3 fleet alerts and 12 open tickets",
+      "timestamp": "2026-05-28 06:09"
     }
   ],
   "connector_status": {
     "state": "online",
-    "last_attempt": "2026-05-26 14:14",
+    "last_attempt": "2026-05-28 06:40",
     "last_error": "",
-    "last_response": "{\"ok\":true,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\n  \\\"ok\\\": true,\\n  \\\"result\\\": {\\n    \\\"messageId\\\": \\\"1508896150546284696\\\",\\n    \\\"channelId\\\": \\\"1508544170824831128\\\"\\n  }\\n}\"}],\"details\":{\"ok\":true,\"result\":{\"messageId\":\"1508896150546284696\",\"channelId\":\"1508544170824831128\"}}}}"
+    "last_response": "{\"ok\":true,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\n  \\\"ok\\\": true,\\n  \\\"result\\\": {\\n    \\\"messageId\\\": \\\"1509506670982594621\\\",\\n    \\\"channelId\\\": \\\"1508544170824831128\\\"\\n  }\\n}\"}],\"details\":{\"ok\":true,\"result\":{\"messageId\":\"1509506670982594621\",\"channelId\":\"1508544170824831128\"}}}}"
   }
 }

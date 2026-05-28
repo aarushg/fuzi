@@ -1,0 +1,225 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2432" height="934" viewBox="0 0 2432 934">
+<style>
+    .title{font:700 28px Arial, sans-serif;fill:#17324d}
+    .subtitle{font:400 13px Arial, sans-serif;fill:#536575}
+    .group-title{font:700 14px Arial, sans-serif;fill:#ffffff;letter-spacing:.4px}
+    .name{font:700 13px Arial, sans-serif;fill:#17324d}
+    .detail{font:400 11px Arial, sans-serif;fill:#415466}
+    .line{stroke:#8ba3b9;stroke-width:1.4;fill:none}
+    </style>
+<rect width="100%" height="100%" fill="#f6f8fb"/>
+<text class="title" x="1216.0" y="30" text-anchor="middle">Fuzi Organization Chart</text>
+<text class="subtitle" x="1216.0" y="51" text-anchor="middle">Based on Fuzi Staff Name &amp; Mobile No.</text>
+<rect x="1076.0" y="76" width="280" height="65" rx="8" fill="#e9f2ff" stroke="#1f5c99" stroke-width="1.5"/>
+<text class="name" x="1216.0" y="94" text-anchor="middle">Atul Singhal</text>
+<text class="detail" x="1216.0" y="110" text-anchor="middle">Director CEO</text>
+<text class="detail" x="1216.0" y="126" text-anchor="middle">9928019671</text>
+<path class="line" d="M 1216.0 141 V 176"/>
+<path class="line" d="M 160.0 176 H 2272.0"/>
+<path class="line" d="M 160.0 176 V 196"/>
+<rect x="40" y="205" width="240" height="34" rx="8" fill="#1f5c99"/>
+<text class="group-title" x="160.0" y="227" text-anchor="middle">Sales</text>
+<rect x="40" y="251" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="160.0" y="269" text-anchor="middle">Anita Boylla</text>
+<text class="detail" x="160.0" y="285" text-anchor="middle">Sales</text>
+<text class="detail" x="160.0" y="301" text-anchor="middle">9773313461</text>
+<rect x="40" y="328" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="160.0" y="346" text-anchor="middle">Pankaj Jangam</text>
+<text class="detail" x="160.0" y="362" text-anchor="middle">PVE Sales</text>
+<text class="detail" x="160.0" y="378" text-anchor="middle">9680906370</text>
+<path class="line" d="M 160.0 316 V 328"/>
+<path class="line" d="M 424.0 176 V 196"/>
+<rect x="304" y="205" width="240" height="34" rx="8" fill="#357960"/>
+<text class="group-title" x="424.0" y="227" text-anchor="middle">Installation</text>
+<rect x="304" y="251" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="424.0" y="269" text-anchor="middle">Ashwani Kumar</text>
+<text class="detail" x="424.0" y="285" text-anchor="middle">Installation Supervisor</text>
+<text class="detail" x="424.0" y="301" text-anchor="middle">9001339933</text>
+<rect x="304" y="328" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="424.0" y="346" text-anchor="middle">Ankush Sharma</text>
+<text class="detail" x="424.0" y="362" text-anchor="middle">Site Visit Engineer</text>
+<text class="detail" x="424.0" y="378" text-anchor="middle">9773313464</text>
+<path class="line" d="M 424.0 316 V 328"/>
+<rect x="304" y="405" width="240" height="82" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="424.0" y="423" text-anchor="middle">Bhawani Shankar</text>
+<text class="detail" x="424.0" y="439" text-anchor="middle">Kumawat</text>
+<text class="detail" x="424.0" y="455" text-anchor="middle">Installation Engineer</text>
+<text class="detail" x="424.0" y="471" text-anchor="middle">9001290147</text>
+<path class="line" d="M 424.0 393 V 405"/>
+<rect x="304" y="499" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="424.0" y="517" text-anchor="middle">Rajesh Kumawat</text>
+<text class="detail" x="424.0" y="533" text-anchor="middle">Installation Engineer</text>
+<text class="detail" x="424.0" y="549" text-anchor="middle">9001290148</text>
+<path class="line" d="M 424.0 487 V 499"/>
+<rect x="304" y="576" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="424.0" y="594" text-anchor="middle">Shiv Dayal Yadav</text>
+<text class="detail" x="424.0" y="610" text-anchor="middle">Installation Helper</text>
+<text class="detail" x="424.0" y="626" text-anchor="middle">9929705450</text>
+<path class="line" d="M 424.0 564 V 576"/>
+<rect x="304" y="653" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="424.0" y="671" text-anchor="middle">Iqbal Khan</text>
+<text class="detail" x="424.0" y="687" text-anchor="middle">Installation Helper</text>
+<text class="detail" x="424.0" y="703" text-anchor="middle">9571118082</text>
+<path class="line" d="M 424.0 641 V 653"/>
+<rect x="304" y="730" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="424.0" y="748" text-anchor="middle">Ansar Khan</text>
+<text class="detail" x="424.0" y="764" text-anchor="middle">Installation Helper</text>
+<text class="detail" x="424.0" y="780" text-anchor="middle">9929705093</text>
+<path class="line" d="M 424.0 718 V 730"/>
+<rect x="304" y="807" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="424.0" y="825" text-anchor="middle">Shahwaj Mallik</text>
+<text class="detail" x="424.0" y="841" text-anchor="middle">Installation Helper</text>
+<text class="detail" x="424.0" y="857" text-anchor="middle">9799225290</text>
+<path class="line" d="M 424.0 795 V 807"/>
+<path class="line" d="M 688.0 176 V 196"/>
+<rect x="568" y="205" width="240" height="34" rx="8" fill="#8a5a1f"/>
+<text class="group-title" x="688.0" y="227" text-anchor="middle">Breakdown</text>
+<rect x="568" y="251" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="688.0" y="269" text-anchor="middle">Bhanwar Choudhary</text>
+<text class="detail" x="688.0" y="285" text-anchor="middle">Breakdown Supervisor</text>
+<text class="detail" x="688.0" y="301" text-anchor="middle">9950031632</text>
+<rect x="568" y="328" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="688.0" y="346" text-anchor="middle">Deepak Sharma</text>
+<text class="detail" x="688.0" y="362" text-anchor="middle">Breakdown Engineer</text>
+<text class="detail" x="688.0" y="378" text-anchor="middle">9929705440</text>
+<path class="line" d="M 688.0 316 V 328"/>
+<rect x="568" y="405" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="688.0" y="423" text-anchor="middle">Krishna Kumar Sharma</text>
+<text class="detail" x="688.0" y="439" text-anchor="middle">Breakdown Engineer</text>
+<text class="detail" x="688.0" y="455" text-anchor="middle">9950031886</text>
+<path class="line" d="M 688.0 393 V 405"/>
+<rect x="568" y="482" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="688.0" y="500" text-anchor="middle">Shankar Lal Kumawat</text>
+<text class="detail" x="688.0" y="516" text-anchor="middle">Breakdown Engineer</text>
+<text class="detail" x="688.0" y="532" text-anchor="middle">9928343804</text>
+<path class="line" d="M 688.0 470 V 482"/>
+<rect x="568" y="559" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="688.0" y="577" text-anchor="middle">Pushpraj Mehra</text>
+<text class="detail" x="688.0" y="593" text-anchor="middle">Breakdown Engineer</text>
+<text class="detail" x="688.0" y="609" text-anchor="middle">7727097799</text>
+<path class="line" d="M 688.0 547 V 559"/>
+<rect x="568" y="636" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="688.0" y="654" text-anchor="middle">Prashant Yadav</text>
+<text class="detail" x="688.0" y="670" text-anchor="middle">Breakdown Engineer</text>
+<text class="detail" x="688.0" y="686" text-anchor="middle">9358897871</text>
+<path class="line" d="M 688.0 624 V 636"/>
+<rect x="568" y="713" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="688.0" y="731" text-anchor="middle">Mohammad Iqbal</text>
+<text class="detail" x="688.0" y="747" text-anchor="middle">Breakdown Engineer</text>
+<text class="detail" x="688.0" y="763" text-anchor="middle">9773313462</text>
+<path class="line" d="M 688.0 701 V 713"/>
+<path class="line" d="M 952.0 176 V 196"/>
+<rect x="832" y="205" width="240" height="34" rx="8" fill="#7b4d8d"/>
+<text class="group-title" x="952.0" y="227" text-anchor="middle">Service</text>
+<rect x="832" y="251" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="952.0" y="269" text-anchor="middle">Jitendra Choudhary</text>
+<text class="detail" x="952.0" y="285" text-anchor="middle">Service Supervisor</text>
+<text class="detail" x="952.0" y="301" text-anchor="middle">9929705407</text>
+<rect x="832" y="328" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="952.0" y="346" text-anchor="middle">Arman Khan</text>
+<text class="detail" x="952.0" y="362" text-anchor="middle">Service Engineer</text>
+<text class="detail" x="952.0" y="378" text-anchor="middle">9929705494</text>
+<path class="line" d="M 952.0 316 V 328"/>
+<rect x="832" y="405" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="952.0" y="423" text-anchor="middle">Sachin Yogi</text>
+<text class="detail" x="952.0" y="439" text-anchor="middle">Service Engineer</text>
+<text class="detail" x="952.0" y="455" text-anchor="middle">9257061003</text>
+<path class="line" d="M 952.0 393 V 405"/>
+<rect x="832" y="482" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="952.0" y="500" text-anchor="middle">Ganpat Yogi</text>
+<text class="detail" x="952.0" y="516" text-anchor="middle">Service Engineer</text>
+<text class="detail" x="952.0" y="532" text-anchor="middle">8306777301</text>
+<path class="line" d="M 952.0 470 V 482"/>
+<rect x="832" y="559" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="952.0" y="577" text-anchor="middle">Arbaz Khan</text>
+<text class="detail" x="952.0" y="593" text-anchor="middle">Service Engineer</text>
+<text class="detail" x="952.0" y="609" text-anchor="middle">9929705453</text>
+<path class="line" d="M 952.0 547 V 559"/>
+<path class="line" d="M 1216.0 176 V 196"/>
+<rect x="1096" y="205" width="240" height="34" rx="8" fill="#3b6f7f"/>
+<text class="group-title" x="1216.0" y="227" text-anchor="middle">Commissioning</text>
+<rect x="1096" y="251" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="1216.0" y="269" text-anchor="middle">Vishram Kumawat</text>
+<text class="detail" x="1216.0" y="285" text-anchor="middle">Commissining Supervisor</text>
+<text class="detail" x="1216.0" y="301" text-anchor="middle">9950997934</text>
+<rect x="1096" y="328" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="1216.0" y="346" text-anchor="middle">Dharmendra Kumbhawat</text>
+<text class="detail" x="1216.0" y="362" text-anchor="middle">Commissining Engineer</text>
+<text class="detail" x="1216.0" y="378" text-anchor="middle">8306993243</text>
+<path class="line" d="M 1216.0 316 V 328"/>
+<rect x="1096" y="405" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="1216.0" y="423" text-anchor="middle">Kailash Chand Kumawat</text>
+<text class="detail" x="1216.0" y="439" text-anchor="middle">Commissining Engineer</text>
+<text class="detail" x="1216.0" y="455" text-anchor="middle">9001764964</text>
+<path class="line" d="M 1216.0 393 V 405"/>
+<path class="line" d="M 1480.0 176 V 196"/>
+<rect x="1360" y="205" width="240" height="34" rx="8" fill="#6c654a"/>
+<text class="group-title" x="1480.0" y="227" text-anchor="middle">Accounts</text>
+<rect x="1360" y="251" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="1480.0" y="269" text-anchor="middle">Sandeep Sharma</text>
+<text class="detail" x="1480.0" y="285" text-anchor="middle">Acount head</text>
+<text class="detail" x="1480.0" y="301" text-anchor="middle">9001057999</text>
+<rect x="1360" y="328" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="1480.0" y="346" text-anchor="middle">Shobhit Mudgal</text>
+<text class="detail" x="1480.0" y="362" text-anchor="middle">Accounts Helper</text>
+<text class="detail" x="1480.0" y="378" text-anchor="middle">9929116418</text>
+<path class="line" d="M 1480.0 316 V 328"/>
+<path class="line" d="M 1744.0 176 V 196"/>
+<rect x="1624" y="205" width="240" height="34" rx="8" fill="#596a9b"/>
+<text class="group-title" x="1744.0" y="227" text-anchor="middle">Factory</text>
+<rect x="1624" y="251" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="1744.0" y="269" text-anchor="middle">Roopchand Gurjar</text>
+<text class="detail" x="1744.0" y="285" text-anchor="middle">Factory Supervisor</text>
+<text class="detail" x="1744.0" y="301" text-anchor="middle">9116660867</text>
+<rect x="1624" y="328" width="240" height="82" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="1744.0" y="346" text-anchor="middle">Rajendra Prasad</text>
+<text class="detail" x="1744.0" y="362" text-anchor="middle">Dhanaka</text>
+<text class="detail" x="1744.0" y="378" text-anchor="middle">Material Handling</text>
+<text class="detail" x="1744.0" y="394" text-anchor="middle">9950971578</text>
+<path class="line" d="M 1744.0 316 V 328"/>
+<rect x="1624" y="422" width="240" height="48" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="1744.0" y="440" text-anchor="middle">Irfan Khan</text>
+<text class="detail" x="1744.0" y="456" text-anchor="middle">Fabricator Engineer</text>
+<path class="line" d="M 1744.0 410 V 422"/>
+<rect x="1624" y="482" width="240" height="48" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="1744.0" y="500" text-anchor="middle">Shahrukh Khan</text>
+<text class="detail" x="1744.0" y="516" text-anchor="middle">Helper</text>
+<path class="line" d="M 1744.0 470 V 482"/>
+<rect x="1624" y="542" width="240" height="48" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="1744.0" y="560" text-anchor="middle">Noshyad Khan</text>
+<text class="detail" x="1744.0" y="576" text-anchor="middle">Helper</text>
+<path class="line" d="M 1744.0 530 V 542"/>
+<path class="line" d="M 2008.0 176 V 196"/>
+<rect x="1888" y="205" width="240" height="34" rx="8" fill="#8b4d5b"/>
+<text class="group-title" x="2008.0" y="227" text-anchor="middle">Back Office</text>
+<rect x="1888" y="251" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="2008.0" y="269" text-anchor="middle">Jitendra Singh Hada</text>
+<text class="detail" x="2008.0" y="285" text-anchor="middle">Computer Operator</text>
+<text class="detail" x="2008.0" y="301" text-anchor="middle">9145888556</text>
+<rect x="1888" y="328" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="2008.0" y="346" text-anchor="middle">Vinod Kumar</text>
+<text class="detail" x="2008.0" y="362" text-anchor="middle">Computer Operator</text>
+<text class="detail" x="2008.0" y="378" text-anchor="middle">8829900388</text>
+<path class="line" d="M 2008.0 316 V 328"/>
+<rect x="1888" y="405" width="240" height="48" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="2008.0" y="423" text-anchor="middle">Raj Kumar</text>
+<text class="detail" x="2008.0" y="439" text-anchor="middle">Office</text>
+<path class="line" d="M 2008.0 393 V 405"/>
+<rect x="1888" y="465" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="2008.0" y="483" text-anchor="middle">Aarush Gupta</text>
+<text class="detail" x="2008.0" y="499" text-anchor="middle">office</text>
+<text class="detail" x="2008.0" y="515" text-anchor="middle">9217245475</text>
+<path class="line" d="M 2008.0 453 V 465"/>
+<path class="line" d="M 2272.0 176 V 196"/>
+<rect x="2152" y="205" width="240" height="34" rx="8" fill="#4f6b46"/>
+<text class="group-title" x="2272.0" y="227" text-anchor="middle">GAD / Tender</text>
+<rect x="2152" y="251" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="2272.0" y="269" text-anchor="middle">Diyanshu Bansal</text>
+<text class="detail" x="2272.0" y="285" text-anchor="middle">GAD Supervisor</text>
+<text class="detail" x="2272.0" y="301" text-anchor="middle">9680791377</text>
+<rect x="2152" y="328" width="240" height="65" rx="8" fill="#ffffff" stroke="#2f5f8f" stroke-width="1.5"/>
+<text class="name" x="2272.0" y="346" text-anchor="middle">Bharat Singh Choudhary</text>
+<text class="detail" x="2272.0" y="362" text-anchor="middle">Tender supervisor</text>
+<text class="detail" x="2272.0" y="378" text-anchor="middle">9929705041</text>
+<path class="line" d="M 2272.0 316 V 328"/>
+</svg>

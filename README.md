@@ -84,17 +84,32 @@ API: `POST /api/portal/users`, `PATCH /api/portal/users/<id>`
 
 Build professional elevator quotations and send bid reports directly to customers.
 
-**New estimate form:**
-- Elevator type: Residential Hydraulic, Residential MRL, Passenger (Commercial), Hospital / Stretcher, Industrial / Goods, Panoramic / Glass, Dumbwaiter, Escalator
-- Capacity (4 to 20 persons)
-- Number of floors / stops
-- Drive: Hydraulic, Geared Traction, Gearless MRL, VFD Traction
-- Cabin finish: Basic, Standard, Premium, Custom / Bespoke
-- Door type: Manual SS, Automatic SS, Automatic Glass, Fire-Rated
-- Control: Basic Relay, Collective Control, Microprocessor, Smart IoT
-- Add-ons: ARD / Rescue Device, Load Weighing Sensor, Cabin CCTV, Intercom, Remote Monitoring, UPS Backup, AMC (1 or 3 year), Modernisation Package
-- Margin % with live price recalculation
-- Recipient email, valid-until date, and free-text notes/terms
+**Elevator costing module fields:**
+- Elevator type: `Passenger` (default), `Goods`, `Dumbwaiter`
+- Passenger capacity: `1`, `2`, `3`, `6` (default), `8`, `10`, `13`, `15`, `16`, `20`, `26` passengers
+- Goods / dumbwaiter capacity: `500 kg`, `1000 kg`, `1500 kg`, `2000 kg`, `2500 kg`, `3000 kg`, `4000 kg`, `5000 kg`
+- Speed: `0.65 mps`, `1 mps` (default), `1.25 mps`, `1.5 mps`, `1.75 mps`, `2 mps`
+- Motor: `Geared`, `Gearless` (default), `Hydraulic`, `Vacuum`
+- Number of stops: `2` to `20`
+- Floor-to-floor height: `2400` to `5000` mm
+- Pit depth: `300` to `2000` mm
+- Overhead: `2800` to `5000` mm
+- Cabin construction: `Mild Steel`, `Stainless Steel` (default), `Golden`, `Rose Gold`
+- Door type: `Automatic` (default), `Manual`
+- Door construction: `Mild Steel`, `Stainless Steel` (default), `Golden`, `Rose Gold`
+- Door panels: `1`, `2` (default), `3`, `4`
+- Door opening type: `Center` (default), `Side`
+- Door vision: `Non Vision`, `Small Vision` (default), `Big Vision`, `Full Vision`
+- Door width: `700` (default), `800`, `900`, `1000`, `1100`, `1200`, `1300`, `1400` mm
+- Door height: `2000` (default), `2100`, `2200`, `2300`, `2400` mm
+- Door opening arrangement: `All Are Same Side` (default), `One Floor Reverse Opening`, `One Floor Both Side Opening`
+- Make: `Fuzi` (default), `Wittur German Kit`, `PVE`, `Fuzi IS 17900`, `Fuzi PWD BSR 2025`
+- Remarks / accessories: `Remark 1`, `Remark 2`, `Remark 3`
+
+**Estimator behaviour:**
+- Passenger mode uses passenger-capacity options, while Goods and Dumbwaiter switch to the load-capacity options automatically.
+- Margin % still recalculates price live.
+- Recipient email, valid-until date, free-text notes, and add-ons remain available.
 
 **Live pricing:** Cost engine applies base + per-floor rates, capacity multipliers, and percentage uplifts for finish, door, drive, and control — all recalculated in real time as you change inputs.
 
@@ -137,6 +152,54 @@ Track cashflow per estimate from advance to final sign-off. Open the **Payment L
 - Outstanding balance banner on the dashboard header when any amount is due
 
 API: `GET /api/portal/payments`, `POST /api/portal/payments`, `PATCH /api/portal/payments/<id>`, `DELETE /api/portal/payments/<id>`, `POST /api/portal/payments/auto-schedule`
+
+---
+
+### Sales Admin Panel *(new)*
+
+The **Sales** view now includes an FY-aware admin panel for April 1 to March 31 reporting.
+
+**How it works:**
+- All KPI totals are shown for the selected financial year.
+- A date picker lets you view same KPIs for one specific date.
+- The panel displays both columns together: **Financial Year** and **Selected Date**.
+- Admin entry fields let you capture manual values for metrics that are not always auto-derived from inquiries/payments/service records.
+
+**KPIs included:**
+- Number of inquiry received
+- Number of site visited
+- Number of offer submitted
+- Number of elevator units received (work in progress)
+- Number of elevators in warranty
+- Number of elevators in AMC
+- Total number of elevators in service (warranty + AMC)
+- Number of inquiry lost
+- Number of order lost
+- Major competitor by whom bid was lost
+- Number of units lost from warranty
+- Number of units lost from AMC
+- AMC payment received till now
+- AMC payment to be received by this year
+- New elevator payment received
+- New elevator payment yet to be received
+- AMC payment for next 10 years
+- New orders completed in loss
+- Maintenance completed in loss
+
+**Admin-entry fields (date based):**
+- Site visited count (manual)
+- Units received WIP (manual)
+- Inquiry lost count (manual)
+- Order lost count (manual)
+- Major competitor
+- Units lost from warranty (manual)
+- Units lost from AMC (manual)
+- AMC payment next 10 years (manual override)
+- New orders completed in loss (manual)
+- Maintenance completed in loss (manual)
+- Notes
+
+API: `GET /api/portal/sales/admin-panel?date=YYYY-MM-DD`, `POST /api/portal/sales/admin-panel`, `GET /api/portal/sales/inquiries`, `POST /api/portal/sales/inquiries`, `PATCH /api/portal/sales/inquiries/<id>`
 
 ---
 
@@ -339,6 +402,7 @@ All data persists to JSON files. Production would replace these with a database 
 | `install_team.json` | Installer roster and assignments |
 | `inventory.json` | Parts inventory |
 | `estimates.json` | Costing estimates and bid records |
+| `sales_admin_panel.json` | Sales admin panel date entries and manual KPI adjustments |
 | `org_chart.json` | Org chart nodes |
 | `attendance.json` | Daily attendance records |
 | `operations_state.json` | Live fleet, messages, renewals, work orders, activity log |
@@ -368,6 +432,8 @@ All data persists to JSON files. Production would replace these with a database 
 ## OpenClaw Agent Relay
 
 Agent actions route through OpenClaw's authenticated gateway (`/tools/invoke`). Supports separate Discord channels per agent:
+
+The transport control points live in [app.py](app.py): `resolve_injected_whatsapp_transport()` handles phone-style delivery, and `resolve_injected_discord_gateway()` now centralizes Discord reads plus Discord REST provisioning so Discord behavior can be removed, replaced, or extended from one place.
 
 - `FUZI_OPENCLAW_TARGET_FLEET_MONITOR` → `#fleet-monitor`
 - `FUZI_OPENCLAW_TARGET_MODERNIZATION_COORDINATOR` → `#modernization-coordinator`
@@ -404,6 +470,7 @@ node --check static/portal.js
 - `/portal/dashboard` redirects to login when logged out.
 - Customer login works at `/customer/login`.
 - Costing Estimator calculates live prices and saves estimates.
+- Sales Admin Panel shows FY (Apr-Mar) KPI totals and selected-date KPI drilldown.
 - "Send" on a saved estimate triggers the email client (or SMTP if configured).
 - Customers can log in and view their quotes.
 - Accept / Decline on a quote updates its status in the staff portal.

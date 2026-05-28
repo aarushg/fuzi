@@ -26,5 +26,31 @@
     "valid_until": "",
     "created_by": "USR-001",
     "created_at": "2026-05-26 06:37"
+  },
+  {
+    "id": "EST-002",
+    "customer_id": "",
+    "customer_name": "TRes",
+    "site": "",
+    "elevator_type": "Passenger",
+    "capacity": "6 Passengers",
+    "num_floors": 4,
+    "drive_type": "Gearless",
+    "cabin_finish": "Stainless Steel",
+    "door_type": "Automatic",
+    "control_type": "Collective Control",
+    "addons": [],
+    "base_cost": 791076,
+    "addons_cost": 0,
+    "subtotal": 791076,
+    "margin_percent": 20.0,
+    "total_cost": 949291,
+    "notes": "",
+    "status": "Draft",
+    "sent_to_email": "",
+    "sent_at": "",
+    "valid_until": "",
+    "created_by": "USR-001",
+    "created_at": "2026-05-28 05:49"
   }
 ]
