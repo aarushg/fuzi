@@ -1,21 +1,44 @@
 # FUZI Operations Portal
 
-Flask-powered operations and customer portal for FUZI Classic Elevators. The public website is served from static HTML files, while `/portal` provides a protected staff dashboard and `/customer` provides a separate customer-facing portal for quotes, payment tracking, and project status.
+React/Expo operations and customer portal for FUZI Classic Elevators, backed by a lightweight Node/Express API. The public website is still served from static HTML files, while the staff/mobile portal runs from the Expo app for web and Android.
 
 ---
 
 ## Quick Start
 
+Install the Node API dependencies and Expo dependencies:
+
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/python app.py
+npm install
+cd expo-app
+npm install
+```
+
+Start the Node API from the repository root:
+
+```bash
+npm run api
+```
+
+Start the React/Expo web app:
+
+```bash
+cd expo-app
+npm run web
+```
+
+Start the Android app from the Expo project:
+
+```bash
+cd expo-app
+npm run android
 ```
 
 | URL | Description |
 |---|---|
-| `http://127.0.0.1:5000/portal/login` | Staff operations portal |
-| `http://127.0.0.1:5000/customer/login` | Customer self-service portal |
+| `http://127.0.0.1:5000` | Node API and static-file fallback |
+| `http://127.0.0.1:8081` | Expo website home and staff/mobile portal |
+| `http://127.0.0.1:5000/api/portal/data` | Authenticated portal data API |
 
 **Default admin credentials:**
 ```
@@ -23,12 +46,7 @@ Username: admin
 Password: fuzi2026
 ```
 
-The first run auto-creates technician accounts for the install team and department manager accounts, all with the temporary password `ChangeMe123!`. Reset these from the Team Accounts screen before sharing with your team.
-
-Override defaults with environment variables before `users.json` is created:
-```bash
-FUZI_PORTAL_USER=your_user FUZI_PORTAL_PASSWORD=your_password FUZI_SECRET_KEY=your_secret .venv/bin/python app.py
-```
+Seeded staff accounts are stored in `fuzi.sqlite3`. Some seeded department accounts still have temporary-password flags; rotate them from the Team Accounts workflow before sharing with the team.
 
 ---
 
@@ -36,26 +54,42 @@ FUZI_PORTAL_USER=your_user FUZI_PORTAL_PASSWORD=your_password FUZI_SECRET_KEY=yo
 
 | File | Purpose |
 |---|---|
-| `app.py` | Flask app, auth, all routes, API endpoints, JSON persistence |
-| `templates/login.html` | Staff portal login / password-change page |
-| `templates/dashboard.html` | Staff operations dashboard (single-page) |
-| `templates/customer_login.html` | Customer portal login / first-use password change |
-| `templates/customer_dashboard.html` | Customer self-service dashboard |
-| `static/portal.css` | Staff portal styling |
-| `static/portal.js` | Staff portal interactivity |
-| `static/customer.css` | Customer portal styling |
-| `users.json` | Staff portal accounts (hashed passwords) |
-| `customers.json` | Customer / building records |
-| `customer_users.json` | Customer portal login accounts (hashed passwords) |
-| `project_tickets.json` | Project ticket data |
-| `install_jobs.json` | Installation job progress |
-| `install_team.json` | Install technician roster and assignments |
-| `inventory.json` | Parts and materials inventory |
-| `estimates.json` | Elevator costing estimates and bid reports |
-| `payments.json` | Payment milestones, receipts, and follow-up records |
-| `org_chart.json` | Company org chart nodes |
-| `attendance.json` | Daily staff attendance records |
-| `operations_state.json` | Live fleet, project, renewal, message, and work-order snapshots |
+| `server/index.mjs` | Node/Express API, auth, portal data aggregation, SQLite persistence, static public-file serving |
+| `expo-app/` | React/Expo app for Android and web clients |
+| `expo-app/src/App.tsx` | Staff/mobile portal screens and full FUZI Ops module navigation |
+| `expo-app/src/api.ts` | API base URL and bearer-token fetch wrapper |
+| `fuzi.sqlite3` | Primary SQLite database used by the Node API |
+
+---
+
+## React / Expo App
+
+The website home and portal are now React/Expo first on the same web port. It uses the Node API with bearer-token login and no Flask/Jinja runtime.
+
+Development URLs:
+- Node API and static-file fallback: `http://127.0.0.1:5000`
+- Expo website home and portal: `http://127.0.0.1:8081`
+
+API base URL:
+- Web and local development default to `http://127.0.0.1:5000`.
+- Android emulator automatically maps that to `http://10.0.2.2:5000`.
+- For a real Android phone, start the Node API on your LAN interface and run Expo with:
+
+```powershell
+$env:EXPO_PUBLIC_FUZI_API_URL="http://YOUR_COMPUTER_IP:5000"
+npm run android
+```
+
+The Expo app includes login, live metrics, saved estimates and site visit reports inside Customer CRM. Its navigation mirrors the staff portal modules: Overview, Platform Modules, Customers, Fleet Monitor, Project Tickets, Projects, Installations, Install Team, Team Accounts, Service Agent, Renewals, Work Orders, Inventory, Staff & Attendance, Installation Dept, Breakdown, Service, GAD Drawings, Accounts, Commissioning, Back Office, Tender, Factory, and Dept Comms.
+
+Most module pages include shared add/update controls backed by the Node compatibility API, so the React/Expo portal can create and update the same SQLite-backed operational records that the legacy portal used: project tickets, install jobs, install team, users, inventory, estimates, payments, sales inquiries, breakdowns, service records, GAD drawings, commissioning, factory jobs, tenders, department comms, org chart, and attendance.
+
+Customer/Site Visit rule:
+- Select a CRM customer or imported enquiry/customer row first.
+- Site Visit Reports are saved in `fuzi.sqlite3` from inside Customer CRM.
+- A Site Visit Report must include an existing CRM `customer_id`; the API rejects reports that are not tied to a CRM customer.
+
+API: `POST /api/portal/auth/login`, `GET /api/portal/auth/session`, `POST /api/portal/auth/logout`, `GET /api/portal/data`, `POST /api/portal/customers`, `POST /api/portal/site-visits`, plus legacy-compatible collection routes like `GET/POST/PATCH /api/portal/inventory`, `GET/POST/PATCH /api/portal/tender`, and `GET/POST/PATCH /api/portal/sales/inquiries`.
 
 ---
 
@@ -63,16 +97,19 @@ FUZI_PORTAL_USER=your_user FUZI_PORTAL_PASSWORD=your_password FUZI_SECRET_KEY=yo
 
 ### Authentication & Role-Based Access
 
-- Session-protected login with Werkzeug-hashed passwords.
+- Bearer-token login with migrated Werkzeug-compatible password hashes.
 - Roles: `admin`, `manager`, `technician`.
-- Admins and Executive Office users see all 15 dashboard views.
+- Admins and Executive Office users see the full Expo module navigation.
+- Department-head accounts are seeded from the org chart for every department head/supervisor/CEO.
+- Department heads see only the portal views needed for their department.
+- Admin Team Accounts can create accounts, change usernames/passwords, reset passwords, and activate/deactivate staff logins when staff changes.
 - Department managers land on a focused workspace:
   - `Service Control` → Fleet Monitor, Service Agent, Staff & Attendance
   - `Project Office` → Project Tickets, Projects, Staff & Attendance
   - `Install Operations` → Installations, Install Team, Staff & Attendance
   - `Stores & Procurement` → Inventory, Staff & Attendance
-  - `Sales & Renewals` → Customers, Renewals, Costing Estimator, Staff & Attendance
-  - `Customer Success` → Customers, Service Agent, Work Orders, Costing Estimator, Staff & Attendance
+  - `CRM & Renewals` → Customers, Renewals, Staff & Attendance
+  - `Customer Success` → Customers, Service Agent, Work Orders, Staff & Attendance
 - First-use accounts are blocked until the user rotates their temporary password.
 - Admin can reset any team password from the Team Accounts view.
 
@@ -80,9 +117,134 @@ API: `POST /api/portal/users`, `PATCH /api/portal/users/<id>`
 
 ---
 
-### Costing Estimator *(new)*
+### Customer / Site Visit Records
 
-Build professional elevator quotations and send bid reports directly to customers.
+- Every new customer is saved with a unique random 4-digit customer ID, persisted as the primary key in `fuzi.sqlite3`, and reused by estimator/customer-portal links.
+- Older saved customer IDs are migrated to 4-digit IDs on portal load, with linked `customer_id` references updated across the local collections.
+- Customer records capture the visible `sitevisit.pdf` form fields: address, main mobile phone, site person name/mobile, reference given by/mobile, pit size in mm, machine room available (`Y`/`N`), visit date, offer/enquiry numbers, floor/FF/lintel height notes, offer type, motor/finish/door requirement, openings/stops, opening type, door size, car size, capacity, shaft size, brick wall, civil door height, and visited-by.
+- The Customers portal view shows the site-visit details beside the customer contact record so follow-up, quotation, and portal access all stay tied to the same customer ID.
+
+API: `POST /api/portal/customers`, `PATCH /api/portal/customers/<id>`
+
+---
+
+### India-Ready CRM Feature Roadmap *(started)*
+
+The CRM roadmap is shaped for an Indian elevator sales, installation, AMC, warranty, and service business. Compliance notes are an operational baseline, not legal advice; final templates and retention rules should be reviewed with the company accountant/legal advisor.
+
+**India compliance baseline:**
+- DPDP Act, 2023: record customer consent, purpose, source, withdrawal notes, owner, and follow-up history for digital personal data.
+- TRAI/TCCCPR: keep marketing consent and DLT/reference IDs before commercial SMS/telemarketing campaigns.
+- GST operations: capture GSTIN, PAN, state/place of supply, invoice references, payment references, and e-invoice readiness where applicable.
+- Audit readiness: keep created/updated timestamps, user ownership, quote approval trail, service reports, and customer-visible history.
+
+**Top 100 CRM features to build and track:**
+1. Customer account database [Built]
+2. Contact person tracking [Built]
+3. Phone and email storage [Built]
+4. Building/site address tracking [Built]
+5. Customer segment tagging [Built]
+6. Customer status pipeline [Built]
+7. Renewal date tracking [Built]
+8. Customer notes [Built]
+9. Customer portal access [Built]
+10. Customer-visible quotes [Built]
+11. GSTIN capture [Started]
+12. PAN capture [Started]
+13. State/place-of-supply capture [Started]
+14. DPDP consent flag [Started]
+15. DPDP consent timestamp [Started]
+16. Marketing/DLT consent flag [Started]
+17. DLT consent reference [Started]
+18. Preferred contact channel [Started]
+19. Lead source tracking [Started]
+20. Account owner assignment [Started]
+21. Next follow-up date [Started]
+22. Consent/compliance notes [Started]
+23. Lead capture form [Roadmap]
+24. Lead qualification scoring [Roadmap]
+25. Lead-to-customer conversion [Roadmap]
+26. Duplicate customer detection [Roadmap]
+27. Sales opportunity pipeline [Roadmap]
+28. Deal stage tracking [Roadmap]
+29. Probability and weighted forecast [Roadmap]
+30. Site visit scheduling [Started]
+31. Site visit checklist [Started]
+32. Competitor lost-reason tracking [Roadmap]
+33. Offer/quotation generation [Built]
+34. Editable offer approval before sending [Built]
+35. Offer PDF generation [Built]
+36. Customer-to-offer linking [Built]
+37. Offer validity tracking [Built]
+38. Quote acceptance/decline [Built]
+39. Saved estimate edit [Built]
+40. Saved estimate delete [Built]
+41. Payment milestone ledger [Built]
+42. UPI/NEFT/cheque reference tracking [Built]
+43. Outstanding balance tracking [Built]
+44. Overdue payment alerts [Roadmap]
+45. GST tax invoice export [Roadmap]
+46. E-invoice/IRN field tracking [Roadmap]
+47. AMC contract records [Roadmap]
+48. CAMC contract records [Roadmap]
+49. Warranty records [Roadmap]
+50. Contract renewal reminders [Roadmap]
+51. Preventive maintenance schedule [Roadmap]
+52. Breakdown ticket logging [Built]
+53. Technician assignment [Built]
+54. Service report generation [Built]
+55. Service report CEO copy [Built]
+56. Service report customer file record [Built]
+57. Parts used tracking [Built]
+58. Part number and quantity tracking [Built]
+59. Service billing item tracking [Built]
+60. Customer service history [Built]
+61. Customer comments capture [Built]
+62. Required action tracking [Built]
+63. Work order management [Built]
+64. Field technician mobile readiness [Started]
+65. Staff and attendance [Built]
+66. Editable org chart [Built]
+67. Staff mobile number directory [Built]
+68. Role-based dashboard access [Built]
+69. Password reset and forced rotation [Built]
+70. Admin user management [Built]
+71. Inventory item master [Built]
+72. Inventory reorder alerts [Roadmap]
+73. Part warranty tracking [Roadmap]
+74. Vendor records [Roadmap]
+75. Purchase request workflow [Roadmap]
+76. Installation project tracker [Built]
+77. Installation stage tracking [Built]
+78. Handover report [Built]
+79. Warranty registration output [Built]
+80. Customer success dashboard [Roadmap]
+81. Sales KPI dashboard [Built]
+82. Financial-year reporting [Built]
+83. Daily sales admin entries [Built]
+84. AMC revenue forecast [Built]
+85. Inquiry tracking [Built]
+86. Site visit count [Built]
+87. Offer submitted count [Built]
+88. Lost inquiry/order tracking [Built]
+89. Search and status filters [Built]
+90. Mobile responsive portal [Started]
+91. Email delivery configuration [Built]
+92. PDF/document export [Built]
+93. Internal activity feed [Built]
+94. Audit log per customer [Roadmap]
+95. Data retention policy fields [Roadmap]
+96. Consent withdrawal workflow [Roadmap]
+97. Customer complaint/escalation SLA [Roadmap]
+98. WhatsApp/SMS template registry [Roadmap]
+99. CEO/MIS summary reports [Roadmap]
+100. Backup and restore controls [Roadmap]
+
+---
+
+### Costing Estimator *(inside Customer CRM)*
+
+Build professional customer-linked elevator costing records and send bid reports directly from the Customers CRM page.
 
 **Elevator costing module fields:**
 - Elevator type: `Passenger` (default), `Goods`, `Dumbwaiter`
@@ -108,14 +270,17 @@ Build professional elevator quotations and send bid reports directly to customer
 
 **Estimator behaviour:**
 - Passenger mode uses passenger-capacity options, while Goods and Dumbwaiter switch to the load-capacity options automatically.
-- Margin % still recalculates price live.
+- Fixed rupee margin mirrors the Excel costing sheets and recalculates price live.
 - Recipient email, valid-until date, free-text notes, and add-ons remain available.
 
-**Live pricing:** Cost engine applies base + per-floor rates, capacity multipliers, and percentage uplifts for finish, door, drive, and control — all recalculated in real time as you change inputs.
+**Live pricing:** Cost engine reads workbook-style component costs, applies capacity/specification selections, and adds the approved rupee margin in real time.
 
 **Actions:**
-- **Save Estimate** — persists to `estimates.json` with status `Draft`
+- **Save Estimate** — persists to `fuzi.sqlite3` with status `Draft`
+- **Edit Saved Estimate** — reopens the selected draft/saved estimate in the estimator for changes
+- **Delete Saved Estimate** — removes a saved estimate when it should not be kept
 - **View Report** — opens a printable/shareable HTML quotation page
+- **Approve Offer PDF** — edits the offer text, approves it, and generates the PDF before sending
 - **Send** — marks as `Sent`; if SMTP is configured sends the HTML report by email; otherwise opens your email client via `mailto:`
 - Customers can **Accept** or **Decline** quotes from their portal
 
@@ -123,7 +288,7 @@ Build professional elevator quotations and send bid reports directly to customer
 
 SMTP (optional): set `FUZI_SMTP_HOST`, `FUZI_SMTP_PORT`, `FUZI_SMTP_USER`, `FUZI_SMTP_PASS`, `FUZI_SMTP_FROM` to enable server-side delivery.
 
-API: `GET /api/portal/estimates`, `POST /api/portal/estimates`, `PATCH /api/portal/estimates/<id>`, `GET /api/portal/estimates/<id>/report`, `POST /api/portal/estimates/<id>/send`, `POST /api/portal/estimates/calculate`
+API: `GET /api/portal/estimates`, `POST /api/portal/estimates`, `PATCH /api/portal/estimates/<id>`, `DELETE /api/portal/estimates/<id>`, `GET /api/portal/estimates/<id>/report`, `GET /api/portal/estimates/<id>/offer.pdf`, `POST /api/portal/estimates/<id>/send`, `POST /api/portal/estimates/calculate`
 
 ---
 
@@ -158,6 +323,20 @@ API: `GET /api/portal/payments`, `POST /api/portal/payments`, `PATCH /api/portal
 ### Sales Admin Panel *(new)*
 
 The **Sales** view now includes an FY-aware admin panel for April 1 to March 31 reporting.
+
+The Customer CRM page includes Enquiry Intake based on `docs/Enquiry Report.csv`; there is no separate Sales dashboard page.
+It also includes Offer creation and the imported Offer Report from `docs/Offer Report.csv`, tied back into each CRM enquiry/customer row instead of shown as a separate dashboard section.
+
+**Enquiry intake fields:**
+- Enquiry number, lead/customer name, enquiry remark, lead status, WhatsApp number, lead type, quantity, phone, created date, referral by, created by, last modified by, assigned owner, and next follow-up.
+- Imported report rows keep `source_enquiry_no` so CSV enquiries can be tracked without losing the original report reference.
+- Each enquiry/customer row also carries a generated 4-digit `customer_id` so imported leads display a system customer ID even before they become full CRM accounts.
+- Costing estimate records are linked to enquiries by source inquiry/customer ID and customer name, so each CRM row shows whether costing exists and the latest costing number/date/value/status.
+- Automatic follow-up settings are stored on each CRM enquiry: channel, cadence in days, next follow-up date, status, and last follow-up date.
+- The CRM Follow-up Queue shows records due today or overdue and can mark them followed up, close the follow-up, or reschedule by 3/7/14/30 days.
+- Quick pipeline actions update an enquiry to `Site Visit`, `Offer Pending`, `Offer Submitted`, or `Lost`.
+- The report import has been merged into `fuzi.sqlite3`; the CRM now has 2,022 enquiry records available for intake and follow-up, with 20 records per page in the Enquiry Report Records section.
+- `docs/Offer Report.csv` has been merged into `fuzi.sqlite3`; imported offer report records plus newly created offers are now managed from the matching CRM enquiry/customer row.
 
 **How it works:**
 - All KPI totals are shown for the selected financial year.
@@ -208,6 +387,9 @@ API: `GET /api/portal/sales/admin-panel?date=YYYY-MM-DD`, `POST /api/portal/sale
 Add and manage building/customer records:
 
 - Name, contact person, phone, email, address, segment, renewal date, notes.
+- India CRM fields: GSTIN, PAN, state/place of supply, lead source, account owner, preferred channel, next follow-up.
+- Consent tracking: DPDP consent, marketing/DLT consent, DLT consent reference, and consent/compliance notes.
+- Modern CRM workspace: lead/account pipeline, merged enquiry intake, all imported enquiry report records, editable customer records, search, stage filters, due follow-up badges, consent review badges, quick stage updates, quick consent capture, follow-up scheduling, and 20-record pagination for both customers and enquiry records.
 - Status tracking: `Active`, `At Risk`, `Renewal Due`, `Paused`, `Closed`.
 - **Grant Portal Access** (admin): create a customer portal login directly from the customer row — generates username, temporary password, and portal URL to share with the customer.
 
@@ -238,9 +420,16 @@ Track each installation job through 8 stages:
 7. Quality Review & Homeowner Orientation
 8. Post-Installation Care
 
-Each job tracks: site, type, crew, target date, progress %, current stage, per-stage status (`Open`, `In Progress`, `Done`, `Blocked`).
+Each job tracks: customer ID, site, type, crew, target date, progress %, current stage, per-stage status (`Open`, `In Progress`, `Done`, `Blocked`).
+New installation jobs must be linked to an existing customer ID before they can be created.
 
-API: `PATCH /api/portal/install-jobs/<id>/stages/<stage_id>`
+API: `POST /api/portal/install-jobs`, `PATCH /api/portal/install-jobs/<id>/stages/<stage_id>`
+
+Install completion handoff:
+- Completed install jobs can be sent to the Commissioning board from the Install Team workspace.
+- The handoff creates or updates a commissioning record and posts an install-team message for the Commissioning department.
+
+API: `POST /api/portal/install-jobs/<id>/send-commissioning`
 
 ---
 
@@ -252,6 +441,7 @@ Manage the installer and technician roster:
 - Assign technicians to active jobs.
 - Availability: `Available`, `On Site`, `Off Duty`, `Blocked`.
 - Link technicians to portal login accounts.
+- Expo Install Team workspace supports roster intake, one-tap job assignment from active install jobs, and quick availability updates.
 
 API: `POST /api/portal/install-team`, `PATCH /api/portal/install-team/<id>`
 
@@ -259,14 +449,16 @@ API: `POST /api/portal/install-team`, `PATCH /api/portal/install-team/<id>`
 
 ### Inventory Management
 
-Smart parts and materials inventory with AI insights:
+Warehouse inventory control for parts and materials:
 
 - 66 parts pre-loaded from the FUZI lift material list.
-- Track quantity on hand, reserved, reorder point, unit cost, vendor, lead time.
-- Statuses: `In Stock`, `Low Stock`, `Out of Stock`, `Ordered`.
-- AI-driven PO suggestions and job-stage shortage predictions.
-- Raise purchase orders for flagged items.
-- Manual stock adjustments with reason notes.
+- Track quantity on hand, reserved quantity, available stock, bin location, unit, vendor, unit cost, and vendor lead time.
+- Set a reorder trigger (`reorder_point`) and target stock (`target_stock`) per item.
+- Existing stock cards include inline trigger/target inputs with `Save trigger`.
+- Items at or below the trigger are shown in the Reorder Watchlist.
+- `Order missing` raises a purchase order, records the PO number on the item, and marks the item `On Order`.
+- `Receive +1` and `Issue -1` adjust warehouse stock with reason notes.
+- Statuses are calculated from available stock and open purchase orders: `In Stock`, `Reorder Needed`, `Out of Stock`, and `On Order`.
 
 API: `GET /api/portal/inventory`, `POST /api/portal/inventory`, `PATCH /api/portal/inventory/<id>`, `POST /api/portal/inventory/<id>/adjust`, `POST /api/portal/inventory/raise-po`, `GET /api/portal/inventory/ai-insights`
 
@@ -280,20 +472,24 @@ API: `GET /api/portal/inventory`, `POST /api/portal/inventory`, `PATCH /api/port
 - Admin can add, edit, or remove people; reports-to hierarchy is maintained automatically when a node is removed.
 
 **Attendance register:**
-- Daily register for every person in the org chart.
-- Mark status: Present, Late, Absent, WFH, Leave, Holiday.
+- HR portal dashboard with staff totals, today's attendance, unavailable staff, and pending leave counts.
+- Searchable staff directory with department filters, staff phone/title/manager details, and one-click Present/Absent/Half-day/Leave actions.
+- Daily register for every person in the org chart with one record per person per date.
+- Mark status: Present, Late, Absent, Half-day, WFH, Leave, Holiday.
 - Check-in and check-out time inputs.
 - Optional notes per person.
-- Live summary badges (x Present, y Absent, etc.).
+- Attendance console for manual edits after selecting a staff member.
 - Managers can mark attendance only for their own department; admin can mark for all.
+- Staff can apply for leave with leave type, date range, and reason.
+- Leave requests stay `Pending` until a manager/admin approves or rejects them, with a separate approval queue and leave history.
 
-API: `GET /api/portal/org-chart`, `POST /api/portal/org-chart`, `PATCH /api/portal/org-chart/<id>`, `DELETE /api/portal/org-chart/<id>`, `GET /api/portal/attendance`, `POST /api/portal/attendance`, `PATCH /api/portal/attendance/<id>`
+API: `GET /api/portal/org-chart`, `POST /api/portal/org-chart`, `PATCH /api/portal/org-chart/<id>`, `DELETE /api/portal/org-chart/<id>`, `GET /api/portal/attendance`, `POST /api/portal/attendance`, `PATCH /api/portal/attendance/<id>`, `GET /api/portal/leave-requests`, `POST /api/portal/leave-requests`, `PATCH /api/portal/leave-requests/<id>`
 
 ---
 
 ### Fleet Monitor
 
-Live fleet health overview from `operations_state.json`:
+Live fleet health overview from `fuzi.sqlite3`:
 
 - Fault severity badges, motor temperatures, door cycle deltas.
 - On-call phone number and open ticket links per unit.
@@ -313,15 +509,25 @@ Rolls up all department data into a single leadership view:
 ### Service Agent & Work Orders
 
 - Inbound customer messages from WhatsApp, web chat, and email.
-- Site walkthrough to work-order conversion.
+- Phone/manual service intake in the Expo app with customer, mobile, channel, priority, owner, next action, and message details.
+- Inbox triage actions for contacted/closed state updates.
+- Service message to work-order conversion.
 - Work order status tracking.
+- Breakdown Portal dispatch assigns install/service staff from the saved team roster and supports dispatch, reached-site, and close statuses.
+- Breakdown calls must be linked to an existing customer ID before they can be logged.
+
+API: `GET /api/portal/service-agent/messages`, `POST /api/portal/service-agent/messages`, `PATCH /api/portal/service-agent/messages/<id>`, `POST /api/portal/service-agent/messages/<id>/work-order`
 
 ---
 
 ### Contract Renewals
 
 - Renewal pipeline with days-to-expiry, contacted flag, contact email, and draft generation.
-- CRM query agent answers renewal-status questions and posts results to Discord.
+- CRM query agent answers renewal-status questions and posts results through the configured OpenClaw target.
+- Maintenance renewals must be linked to an existing customer ID before they can be created.
+- Existing maintenance renewal rows are reconciled into CRM customers so legacy renewal records also display a `CUST-###` link instead of remaining standalone building names.
+
+API: `GET /api/portal/renewals`, `POST /api/portal/renewals`, `PATCH /api/portal/renewals/<id>`
 
 ---
 
@@ -390,22 +596,9 @@ Auto-seeded manager accounts (temporary password `ChangeMe123!`):
 
 ## Data Model
 
-All data persists to JSON files. Production would replace these with a database and real FSM/ERP/CRM integrations.
+All portal data persists to the local SQLite database `fuzi.sqlite3`. The Node API stores each operational collection in the SQLite `json_collections` table so existing React/Expo forms can keep using the same collection names while runtime inputs are database writes. The old root-level operational JSON files have been removed after import.
 
-| File | Description |
-|---|---|
-| `users.json` | Staff portal accounts |
-| `customers.json` | Customer / building records |
-| `customer_users.json` | Customer portal credentials |
-| `project_tickets.json` | Project tickets |
-| `install_jobs.json` | Installation job stages and progress |
-| `install_team.json` | Installer roster and assignments |
-| `inventory.json` | Parts inventory |
-| `estimates.json` | Costing estimates and bid records |
-| `sales_admin_panel.json` | Sales admin panel date entries and manual KPI adjustments |
-| `org_chart.json` | Org chart nodes |
-| `attendance.json` | Daily attendance records |
-| `operations_state.json` | Live fleet, messages, renewals, work orders, activity log |
+Primary collections include staff portal accounts, customer/building records, customer portal credentials, project tickets, installation jobs, install team roster, inventory, costing estimates, sales/admin records, org chart, attendance, site visits, live fleet, messages, renewals, work orders, and activity history.
 
 ---
 
@@ -413,7 +606,6 @@ All data persists to JSON files. Production would replace these with a database 
 
 | Variable | Default | Description |
 |---|---|---|
-| `FUZI_SECRET_KEY` | `dev-only-fuzi-secret` | Flask session key |
 | `FUZI_PORTAL_USER` | `admin` | Initial admin username |
 | `FUZI_PORTAL_PASSWORD` | `fuzi2026` | Initial admin password |
 | `FUZI_SMTP_HOST` | *(off)* | SMTP server for estimate emails |
@@ -431,9 +623,14 @@ All data persists to JSON files. Production would replace these with a database 
 
 ## OpenClaw Agent Relay
 
-Agent actions route through OpenClaw's authenticated gateway (`/tools/invoke`). Supports separate Discord channels per agent:
+Agent actions route through OpenClaw's authenticated gateway (`/tools/invoke`). FUZI now uses one inbound OpenClaw entrypoint and one outbound OpenClaw send path:
 
-The transport control points live in [app.py](app.py): `resolve_injected_whatsapp_transport()` handles phone-style delivery, and `resolve_injected_discord_gateway()` now centralizes Discord reads plus Discord REST provisioning so Discord behavior can be removed, replaced, or extended from one place.
+- Inbound user messages are pushed into the app with an authenticated `POST` to `/api/openclaw/inbound/messages`.
+- FUZI normalizes the incoming payload, matches the target against the configured `FUZI_OPENCLAW_TARGET_*` values, and routes the message into the correct workflow.
+- Outbound operational updates are emitted through `send_business_channel_update()` in [server/index.mjs](server/index.mjs), which applies deduplication and then sends through the injected OpenClaw message transport.
+- Phone-style delivery remains isolated behind `resolve_injected_whatsapp_transport()` in [server/index.mjs](server/index.mjs).
+
+The main routing targets are:
 
 - `FUZI_OPENCLAW_TARGET_FLEET_MONITOR` → `#fleet-monitor`
 - `FUZI_OPENCLAW_TARGET_MODERNIZATION_COORDINATOR` → `#modernization-coordinator`
@@ -444,7 +641,12 @@ The transport control points live in [app.py](app.py): `resolve_injected_whatsap
 - `FUZI_OPENCLAW_TARGET_WORK_ORDERS` → `#site-work-orders`
 - `FUZI_OPENCLAW_TARGET_INSTALLATIONS` → `#field-installations`
 
-Set `FUZI_DISCORD_GUILD_ID` and grant the bot `MANAGE_CHANNELS` permission to auto-provision these channels from Team Accounts → Provision Discord channels.
+Recommended related settings:
+
+- `FUZI_OPENCLAW_URL` for the local gateway base URL.
+- `FUZI_OPENCLAW_TIMEOUT` for request timeout control.
+- `FUZI_OPENCLAW_CHANNEL` for the default outbound delivery channel.
+- `FUZI_OPENCLAW_PUSH_INGEST_ENABLED` to keep the inbound push route enabled.
 
 ---
 
@@ -452,24 +654,19 @@ Set `FUZI_DISCORD_GUILD_ID` and grant the bot `MANAGE_CHANNELS` permission to au
 
 ```bash
 # Syntax checks
-.venv/bin/python -m py_compile app.py
-node --check static/portal.js
+node --check server/index.mjs
+npm run typecheck
 
 # Data integrity
-.venv/bin/python -m json.tool project_tickets.json
-.venv/bin/python -m json.tool users.json
-.venv/bin/python -m json.tool customers.json
-.venv/bin/python -m json.tool estimates.json
-.venv/bin/python -m json.tool org_chart.json
-.venv/bin/python -m json.tool attendance.json
+node -e "const db=require('better-sqlite3')('fuzi.sqlite3'); console.log(db.prepare('select name, length(payload) bytes from json_collections order by name').all())"
 ```
 
-**After starting Flask, verify:**
+**After starting the Node API and Expo app, verify:**
 
-- Staff login works at `/portal/login`.
-- `/portal/dashboard` redirects to login when logged out.
-- Customer login works at `/customer/login`.
-- Costing Estimator calculates live prices and saves estimates.
+- Staff login works in the Expo app at `http://127.0.0.1:8081`.
+- `GET /api/portal/data` returns `401` without a bearer token.
+- Customer CRM and Site Visit Reports work in the Expo app.
+- Costing Estimator saved estimates render in the Expo app.
 - Sales Admin Panel shows FY (Apr-Mar) KPI totals and selected-date KPI drilldown.
 - "Send" on a saved estimate triggers the email client (or SMTP if configured).
 - Customers can log in and view their quotes.

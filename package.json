@@ -1,0 +1,19 @@
+{
+  "name": "fuzi-ops-react-node",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.mjs",
+    "api": "node server/index.mjs",
+    "web": "npm --prefix expo-app run web",
+    "android": "npm --prefix expo-app run android",
+    "typecheck": "npm --prefix expo-app run typecheck",
+    "check": "npm --prefix expo-app run typecheck && npm --prefix expo-app exec expo install --check"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.10.0",
+    "cors": "^2.8.5",
+    "express": "^5.2.1"
+  }
+}

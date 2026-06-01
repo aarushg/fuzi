@@ -1,0 +1,701 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lift Costing Calculator</title>
+  <style>
+    :root {
+      --ink: #111827;
+      --muted: #667085;
+      --line: #d9dee7;
+      --soft: #f5f7fb;
+      --panel: #ffffff;
+      --accent: #0f766e;
+      --accent-strong: #115e59;
+      --blue: #1d4ed8;
+      --warn-bg: #fff7ed;
+      --warn: #9a5b06;
+      --ok-bg: #ecfdf3;
+      --ok: #167044;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: #e9eef4;
+    }
+    header {
+      background: #111827;
+      color: #fff;
+      padding: 14px 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+    .header-meta {
+      color: #c7d0dc;
+      font-size: 13px;
+      margin-top: 3px;
+    }
+    .shell {
+      display: grid;
+      grid-template-columns: 370px minmax(0, 1fr);
+      gap: 16px;
+      padding: 16px;
+    }
+    aside, section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    aside {
+      padding: 14px;
+      align-self: start;
+      position: sticky;
+      top: 12px;
+      max-height: calc(100vh - 24px);
+      overflow: auto;
+    }
+    .main {
+      display: grid;
+      gap: 16px;
+    }
+    section {
+      padding: 16px;
+    }
+    h2 {
+      font-size: 16px;
+      margin: 0 0 12px;
+    }
+    h3 {
+      margin: 18px 0 9px;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    input, select {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: var(--ink);
+      background: #fff;
+      font: inherit;
+    }
+    .field { margin-bottom: 12px; }
+    .grid2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .grid3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .segments {
+      display: grid;
+      gap: 6px;
+    }
+    .segments.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .segments.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    button {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      min-height: 38px;
+      padding: 8px 10px;
+      cursor: pointer;
+      font: inherit;
+    }
+    button:hover { border-color: #aab3c2; }
+    button.active,
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    button.primary:hover,
+    button.active:hover {
+      background: var(--accent-strong);
+    }
+    button.secondary {
+      background: #eef6ff;
+      border-color: #b9d6ff;
+      color: var(--blue);
+    }
+    button.linkish {
+      min-height: 32px;
+      font-size: 12px;
+      text-align: left;
+      padding: 7px 9px;
+    }
+    .preset-list {
+      display: grid;
+      gap: 6px;
+      max-height: 190px;
+      overflow: auto;
+      padding-right: 3px;
+    }
+    .actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: 1.3fr repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      align-items: stretch;
+    }
+    .quote-panel {
+      background: #102a2a;
+      color: #fff;
+      border-radius: 8px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 126px;
+    }
+    .quote-label {
+      color: #b9d7d3;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .quote-value {
+      margin-top: 8px;
+      font-size: 30px;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }
+    .quote-sub {
+      color: #d8e7e5;
+      font-size: 13px;
+      margin-top: 8px;
+    }
+    .metric {
+      background: var(--soft);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 96px;
+    }
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .metric strong {
+      display: block;
+      margin-top: 8px;
+      font-size: 18px;
+      font-variant-numeric: tabular-nums;
+    }
+    .status {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+    .status.ok {
+      background: var(--ok-bg);
+      color: var(--ok);
+      border: 1px solid #b7efcc;
+    }
+    .status.warn {
+      background: var(--warn-bg);
+      color: var(--warn);
+      border: 1px solid #fed7aa;
+    }
+    .table-tools {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 8px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #f8fafc;
+      color: #344054;
+      font-size: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    td.num, th.num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .table-wrap {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: auto;
+      max-height: 560px;
+    }
+    .muted {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .totals-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .total-line {
+      border: 1px solid var(--line);
+      background: var(--soft);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .total-line span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .total-line strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 17px;
+      font-variant-numeric: tabular-nums;
+    }
+    details {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px 10px;
+      background: #fff;
+    }
+    summary {
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .travel-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .travel-grid label {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .travel-grid input {
+      min-height: 34px;
+      padding: 6px 8px;
+    }
+    @media print {
+      header, aside, .actions, .table-tools button { display: none; }
+      body { background: #fff; }
+      .shell { display: block; padding: 0; }
+      section { border: 0; page-break-inside: avoid; }
+      .table-wrap { max-height: none; overflow: visible; }
+    }
+    @media (max-width: 1050px) {
+      .shell { grid-template-columns: 1fr; }
+      aside { position: static; max-height: none; }
+      .summary { grid-template-columns: 1fr 1fr; }
+      .quote-panel { grid-column: 1 / -1; }
+    }
+    @media (max-width: 680px) {
+      header { align-items: flex-start; flex-direction: column; }
+      .grid2, .grid3, .summary, .totals-grid { grid-template-columns: 1fr; }
+      .actions { justify-content: stretch; }
+      .actions button { flex: 1; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Lift Costing Calculator</h1>
+      <div class="header-meta" id="headerMeta">6 passenger costing engine</div>
+    </div>
+    <div class="actions">
+      <button class="secondary" id="csvBtn">Download CSV</button>
+      <button class="primary" id="printBtn">Print Estimate</button>
+    </div>
+  </header>
+
+  <div class="shell">
+    <aside>
+      <h2>Estimate Inputs</h2>
+      <div class="grid2">
+        <div class="field">
+          <label for="projectName">Project</label>
+          <input id="projectName" value="New lift costing">
+        </div>
+        <div class="field">
+          <label for="customerName">Customer</label>
+          <input id="customerName" placeholder="Customer name">
+        </div>
+      </div>
+
+      <h3>Reference Presets</h3>
+      <div class="preset-list">
+        {% for scenario in scenarios %}
+        <button class="linkish preset" data-scenario='{{ scenario | tojson }}'>{{ scenario.label }}</button>
+        {% endfor %}
+      </div>
+
+      <h3>Lift Configuration</h3>
+      <div class="field">
+        <label>Vision</label>
+        <div class="segments two" data-field="vision">
+          <button data-value="small">Small / Non vision</button>
+          <button data-value="big">Big vision glass door</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Material</label>
+        <div class="segments three" data-field="material">
+          <button data-value="ms">Mild Steel</button>
+          <button data-value="ss">Stainless Steel</button>
+          <button data-value="rg">RG / Golden</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Motor Type</label>
+        <div class="segments two" data-field="drive">
+          <button data-value="geared">Geared motor</button>
+          <button data-value="gearless">Gearless motor</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Door</label>
+        <div class="segments two" data-field="door">
+          <button data-value="auto">Auto Door</button>
+          <button data-value="manual">Manual Door</button>
+        </div>
+      </div>
+
+      <div class="grid3">
+        <div class="field">
+          <label for="capacity">Capacity</label>
+          <select id="capacity">
+            <option value="6">6 passenger</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="stops">Stops</label>
+          <select id="stops">
+            {% for stop in range(2, 11) %}
+            <option value="{{ stop }}">{{ stop }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="speed">Speed</label>
+          <input id="speed" type="text" value="0.65 mps" readonly>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <label for="margin">Margin %</label>
+          <input id="margin" type="number" min="0" max="80" step="0.5" value="20">
+        </div>
+        <div class="field">
+          <label for="validity">Validity</label>
+          <input id="validity" value="15 days">
+        </div>
+      </div>
+
+      <details>
+        <summary>Travel Dimensions</summary>
+        <div class="travel-grid" id="travelFields"></div>
+      </details>
+    </aside>
+
+    <div class="main">
+      <section>
+        <div class="summary">
+          <div class="quote-panel">
+            <div>
+              <div class="quote-label">Final Offer</div>
+              <div class="quote-value" id="finalOffer">0.00</div>
+            </div>
+            <div class="quote-sub" id="quoteSub">Material, installation, warranty, and margin included</div>
+          </div>
+          <div class="metric"><span>Material Subtotal</span><strong id="materialTotal">0.00</strong></div>
+          <div class="metric"><span>Installation</span><strong id="installationTotal">0.00</strong></div>
+          <div class="metric"><span>Warranty</span><strong id="warrantyTotal">0.00</strong></div>
+          <div class="metric"><span>Margin</span><strong id="marginTotal">0.00</strong></div>
+        </div>
+        <div id="messages"></div>
+      </section>
+
+      <section>
+        <div class="table-tools">
+          <div>
+            <h2>Estimate Summary</h2>
+            <div class="muted" id="estimateMeta"></div>
+          </div>
+        </div>
+        <div class="totals-grid">
+          <div class="total-line"><span>Travel Height</span><strong id="travelTotal">0.00</strong></div>
+          <div class="total-line"><span>Post-install Total</span><strong id="postInstallTotal">0.00</strong></div>
+          <div class="total-line"><span>Rate Source</span><strong id="rateSource">6P source</strong></div>
+        </div>
+      </section>
+
+      <section>
+        <div class="table-tools">
+          <div>
+            <h2>Cost Items</h2>
+            <div class="muted">Quantities, rates, and formulas update from the selected configuration.</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Specification</th>
+                <th class="num">Qty</th>
+                <th class="num">Rate</th>
+                <th class="num">Amount</th>
+                <th>Formula</th>
+              </tr>
+            </thead>
+            <tbody id="itemRows"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const defaultTravelLabels = [
+      "Pit", "B to G", "G to 1", "1 to 2", "2 to 3", "3 to 4", "4 to 5",
+      "5 to 6", "6 to 7", "7 to 8", "8 to 9", "9 to 10", "Overhead"
+    ];
+    let latestResult = null;
+    const state = {
+      capacity: 6,
+      vision: "small",
+      material: "ms",
+      source_material: null,
+      is_rg_source: false,
+      drive: "geared",
+      door: "auto",
+      stops: 2,
+      speed: 0.65,
+      margin_percent: 20
+    };
+
+    const money = value => new Intl.NumberFormat("en-IN", {
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 2
+    }).format(Number(value || 0));
+
+    function safeKey(label) {
+      return label.toLowerCase().replaceAll(" ", "_");
+    }
+
+    function defaultTravel(stops) {
+      const travel = Object.fromEntries(defaultTravelLabels.map(label => [label, 0]));
+      travel["Pit"] = 1600;
+      travel["Overhead"] = 4800;
+      if (stops <= 2) {
+        travel["G to 1"] = 4000;
+      } else {
+        const values = [3800, 3800, 3900, 3800, 3800, 3800, 3800, 3800, 3800];
+        const labels = defaultTravelLabels.slice(2, 11);
+        for (let index = 0; index < Math.min(stops - 1, labels.length); index += 1) {
+          travel[labels[index]] = values[index];
+        }
+      }
+      return travel;
+    }
+
+    function buildTravelFields(reset = false) {
+      const wrap = document.getElementById("travelFields");
+      const travel = defaultTravel(Number(state.stops));
+      wrap.innerHTML = defaultTravelLabels.map(label => {
+        const key = safeKey(label);
+        const existing = document.getElementById(`travel_${key}`);
+        const value = reset || !existing ? travel[label] : existing.value;
+        return `
+          <div>
+            <label for="travel_${key}">${label}</label>
+            <input id="travel_${key}" data-travel="${key}" type="number" step="50" value="${value}">
+          </div>
+        `;
+      }).join("");
+      wrap.querySelectorAll("input").forEach(input => input.addEventListener("input", calculate));
+    }
+
+    function collectState() {
+      state.capacity = Number(document.getElementById("capacity").value);
+      state.stops = Number(document.getElementById("stops").value);
+      state.speed = state.drive === "gearless" ? 1.0 : 0.65;
+      state.margin_percent = Number(document.getElementById("margin").value || 0);
+      const payload = {...state};
+      document.querySelectorAll("[data-travel]").forEach(input => {
+        payload[input.dataset.travel] = Number(input.value || 0);
+      });
+      return payload;
+    }
+
+    function syncButtons() {
+      document.querySelectorAll(".segments").forEach(group => {
+        const field = group.dataset.field;
+        group.querySelectorAll("button").forEach(button => {
+          button.classList.toggle("active", button.dataset.value === state[field]);
+        });
+      });
+      document.getElementById("capacity").value = state.capacity;
+      document.getElementById("stops").value = state.stops;
+      document.getElementById("speed").value = `${state.drive === "gearless" ? "1.0" : "0.65"} mps`;
+      document.getElementById("margin").value = state.margin_percent;
+    }
+
+    async function calculate() {
+      syncButtons();
+      const response = await fetch("/api/calculate", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(collectState())
+      });
+      latestResult = await response.json();
+      render(latestResult);
+    }
+
+    function render(data) {
+      const totals = data.totals;
+      document.getElementById("finalOffer").textContent = money(totals.final_offer);
+      document.getElementById("materialTotal").textContent = money(totals.material_total);
+      document.getElementById("installationTotal").textContent = money(totals.installation);
+      document.getElementById("warrantyTotal").textContent = money(totals.warranty);
+      document.getElementById("marginTotal").textContent = money(totals.margin);
+      document.getElementById("travelTotal").textContent = money(data.travel_total);
+      document.getElementById("postInstallTotal").textContent = money(totals.post_install_total);
+
+      const project = document.getElementById("projectName").value || "New lift costing";
+      const customer = document.getElementById("customerName").value || "Customer";
+      const material = data.params.material === "rg" ? "RG / Golden" : data.params.material === "ss" ? "Stainless steel" : "Mild steel";
+      const vision = data.params.vision === "big" ? "Big vision glass door" : "Small / Non vision";
+      const motorType = data.params.drive === "gearless" ? "Gearless motor" : "Geared motor";
+      document.getElementById("estimateMeta").textContent = `${project} for ${customer} - ${data.params.capacity} passenger, ${vision}, ${material}, ${motorType}, ${data.params.door} door, ${data.params.stops} stops`;
+      document.getElementById("headerMeta").textContent = `${project} - ${money(totals.final_offer)}`;
+      document.getElementById("quoteSub").textContent = `${data.params.stops} stops at ${data.params.speed} m/s with ${data.params.margin_percent}% margin`;
+      document.getElementById("rateSource").textContent = data.params.capacity === 6 ? "6P source" : "6P basis";
+
+      const messages = [];
+      if (data.source) {
+        messages.push(`<div class="status ok">Preset match: ${data.source.label}. Difference from source final offer: ${money(data.source_diff.final_offer)}.</div>`);
+      }
+      data.warnings.forEach(text => messages.push(`<div class="status warn">${text}</div>`));
+      document.getElementById("messages").innerHTML = messages.join("");
+
+      const rows = [...data.rows, ...data.service_rows];
+      document.getElementById("itemRows").innerHTML = rows.map((row, index) => `
+        <tr>
+          <td><strong>${index + 1}. ${row.item}</strong>${row.note ? `<div class="muted">${row.note}</div>` : ""}</td>
+          <td>${row.spec || ""}</td>
+          <td class="num">${money(row.qty)}</td>
+          <td class="num">${money(row.rate)}</td>
+          <td class="num">${money(row.amount)}</td>
+          <td class="muted">${row.formula || ""}</td>
+        </tr>
+      `).join("");
+    }
+
+    function downloadCsv() {
+      if (!latestResult) return;
+      const rows = [["Item", "Specification", "Qty", "Rate", "Amount", "Formula"]];
+      [...latestResult.rows, ...latestResult.service_rows].forEach(row => {
+        rows.push([row.item, row.spec || "", row.qty, row.rate, row.amount, row.formula || ""]);
+      });
+      rows.push([]);
+      Object.entries(latestResult.totals).forEach(([key, value]) => rows.push([key, "", "", "", value, ""]));
+      const csv = rows.map(row => row.map(cell => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
+      const blob = new Blob([csv], {type: "text/csv"});
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "lift-costing.csv";
+      link.click();
+      URL.revokeObjectURL(link.href);
+    }
+
+    document.querySelectorAll(".segments button").forEach(button => {
+      button.addEventListener("click", () => {
+        state[button.parentElement.dataset.field] = button.dataset.value;
+        if (button.parentElement.dataset.field === "material") {
+          state.source_material = null;
+          state.is_rg_source = false;
+        }
+        if (button.parentElement.dataset.field === "drive") {
+          state.speed = state.drive === "gearless" ? 1.0 : 0.65;
+        }
+        calculate();
+      });
+    });
+    ["capacity", "margin", "projectName", "customerName", "validity"].forEach(id => {
+      document.getElementById(id).addEventListener("input", calculate);
+    });
+    document.getElementById("stops").addEventListener("change", event => {
+      state.stops = Number(event.target.value);
+      buildTravelFields(true);
+      calculate();
+    });
+    document.querySelectorAll(".preset").forEach(button => {
+      button.addEventListener("click", () => {
+        const scenario = JSON.parse(button.dataset.scenario);
+        Object.assign(state, {
+          capacity: 6,
+          vision: scenario.vision,
+          material: scenario.material,
+          source_material: scenario.source_material || null,
+          is_rg_source: Boolean(scenario.is_rg_source),
+          drive: scenario.drive,
+          door: scenario.door,
+          stops: scenario.stops,
+          speed: scenario.drive === "gearless" ? 1.0 : 0.65,
+          margin_percent: 20
+        });
+        buildTravelFields(true);
+        calculate();
+      });
+    });
+    document.getElementById("csvBtn").addEventListener("click", downloadCsv);
+    document.getElementById("printBtn").addEventListener("click", () => window.print());
+
+    buildTravelFields(true);
+    calculate();
+  </script>
+</body>
+</html>

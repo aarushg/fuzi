@@ -1,3 +1,4 @@
+import json
 from html import escape
 from pathlib import Path
 
@@ -6,10 +7,12 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 ROOT = Path(__file__).resolve().parent
-SOURCE = ROOT / "Fuzi Staff Name & Mobile No..xlsx"
+SOURCE = ROOT / "Fuzi Staff Name & Mobile No.xlsx"
+JSON_OUT = ROOT.parent.parent / "org_chart.json"
 SVG_OUT = ROOT / "fuzi_org_chart.svg"
 HTML_OUT = ROOT / "fuzi_org_chart.html"
 PNG_OUT = ROOT / "fuzi_org_chart.png"
+PDF_OUT = ROOT / "fuzi_org_chart.pdf"
 
 
 def normalize_manager(value):
@@ -26,7 +29,7 @@ def normalize_manager(value):
 
 def normalize_dept(value):
     if not value:
-        return ""
+        return "Executive Office"
     text = str(value).strip().lower()
     corrections = {
         "break down": "Breakdown",
@@ -49,6 +52,9 @@ def fmt_phone(value):
     text = str(value).strip()
     if text.endswith(".0"):
         text = text[:-2]
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if len(digits) == 10:
+        return f"+91 {digits}"
     return text
 
 
@@ -65,9 +71,9 @@ def read_people():
         dept = normalize_dept(dept)
         manager = normalize_manager(manager)
 
-        # The source repeats Atul Singhal as Sales Head. Keep one executive node
-        # and represent Sales as a department below him.
-        if name == "Atul Singhal" and designation.lower() == "sales head":
+        # The source repeats Atul Singhal as a sales supervisor. Keep one
+        # executive root node so the reporting tree does not point to itself.
+        if name == "Atul Singhal" and manager == "Atul Singhal":
             continue
 
         people.append(
@@ -83,50 +89,80 @@ def read_people():
 
 
 def build_groups(people):
-    by_name = {p["name"]: p for p in people}
-    ceo = by_name["Atul Singhal"]
-
-    groups = [
-        ("Sales", ["Anita Boylla", "Pankaj Jangam"], "Atul Singhal"),
-        (
-            "Installation",
-            [
-                "Ashwani Kumar",
-                "Ankush Sharma",
-                "Bhawani Shankar Kumawat",
-                "Rajesh Kumawat",
-                "Shiv Dayal Yadav",
-                "Iqbal Khan",
-                "Ansar Khan",
-                "Shahwaj Mallik",
-            ],
-            "Atul Singhal",
-        ),
-        (
-            "Breakdown",
-            [
-                "Bhanwar Choudhary",
-                "Deepak Sharma",
-                "Krishna Kumar Sharma",
-                "Shankar Lal Kumawat",
-                "Pushpraj Mehra",
-                "Prashant Yadav",
-                "Mohammad Iqbal",
-            ],
-            "Atul Singhal",
-        ),
-        (
-            "Service",
-            ["Jitendra Choudhary", "Arman Khan", "Sachin Yogi", "Ganpat Yogi", "Arbaz Khan"],
-            "Atul Singhal",
-        ),
-        ("Commissioning", ["Vishram Kumawat", "Dharmendra Kumbhawat", "Kailash Chand Kumawat"], "Atul Singhal"),
-        ("Accounts", ["Sandeep Sharma", "Shobhit Mudgal"], "Atul Singhal"),
-        ("Factory", ["Roopchand Gurjar", "Rajendra Prasad Dhanaka", "Irfan Khan", "Shahrukh Khan", "Noshyad Khan"], "Ashwani Kumar"),
-        ("Back Office", ["Jitendra Singh Hada", "Vinod Kumar", "Raj Kumar", "Aarush Gupta"], "Atul Singhal"),
-        ("GAD / Tender", ["Diyanshu Bansal", "Bharat Singh Choudhary"], "Atul Singhal"),
+    ceo = next((p for p in people if not p["manager"]), people[0])
+    order = [
+        "Sales",
+        "Installation",
+        "Breakdown",
+        "Service",
+        "GAD",
+        "Accounts",
+        "Commissioning",
+        "Tender",
+        "Factory",
+        "Back Office",
     ]
-    return ceo, [(title, [by_name[n] for n in names if n in by_name], lead) for title, names, lead in groups]
+    rank = {dept: index for index, dept in enumerate(order)}
+    by_dept = {}
+    for person in people:
+        if person["name"] == ceo["name"]:
+            continue
+        by_dept.setdefault(person["dept"], []).append(person)
+
+    def person_depth(person):
+        depth = 0
+        seen = {person["name"]}
+        manager = person.get("manager")
+        by_name = {p["name"]: p for p in people}
+        while manager and manager in by_name and manager not in seen:
+            depth += 1
+            seen.add(manager)
+            manager = by_name[manager].get("manager")
+        return depth
+
+    def role_rank(person):
+        title = person.get("designation", "").lower()
+        if "supervisor" in title or "head" in title:
+            return 0
+        if "engineer" in title:
+            return 1
+        if "operator" in title or "office" in title or "accounts" in title:
+            return 2
+        if "helper" in title:
+            return 3
+        return 4
+
+    groups = []
+    for dept in sorted(by_dept, key=lambda d: (rank.get(d, 99), d)):
+        members = sorted(by_dept[dept], key=lambda p: (person_depth(p), role_rank(p), p.get("manager") or "", p["name"]))
+        lead = next((p["name"] for p in members if p.get("manager") == ceo["name"]), ceo["name"])
+        groups.append((dept, members, lead))
+    return ceo, groups
+
+
+def build_nodes(people):
+    id_by_name = {}
+    nodes = []
+    for index, person in enumerate(people, start=1):
+        node_id = f"OC-{index:03d}"
+        id_by_name[person["name"]] = node_id
+        nodes.append(
+            {
+                "id": node_id,
+                "name": person["name"],
+                "title": person["designation"],
+                "department": person["dept"],
+                "reports_to": None,
+                "user_id": "",
+                "phone": person["phone"],
+                "email": "",
+            }
+        )
+    for node, person in zip(nodes, people):
+        manager = person.get("manager")
+        if manager and manager in id_by_name and manager != person["name"]:
+            node["reports_to"] = id_by_name[manager]
+    return nodes
 
 
 def wrap(text, max_len):
@@ -338,16 +374,25 @@ def generate_png(ceo, groups):
     image.save(PNG_OUT)
 
 
+def generate_pdf():
+    image = Image.open(PNG_OUT).convert("RGB")
+    image.save(PDF_OUT, "PDF", resolution=150.0)
+
+
 def main():
     people = read_people()
+    JSON_OUT.write_text(json.dumps(build_nodes(people), indent=2), encoding="utf-8")
     ceo, groups = build_groups(people)
     svg = generate_svg(ceo, groups)
     SVG_OUT.write_text(svg, encoding="utf-8")
     HTML_OUT.write_text(generate_html(svg), encoding="utf-8")
     generate_png(ceo, groups)
+    generate_pdf()
+    print(JSON_OUT)
     print(SVG_OUT)
     print(HTML_OUT)
     print(PNG_OUT)
+    print(PDF_OUT)
 
 
 if __name__ == "__main__":

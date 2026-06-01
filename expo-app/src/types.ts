@@ -1,0 +1,103 @@
+export type Metric = {
+  label: string;
+  value: string;
+  delta: string;
+  tone: string;
+  detail?: string;
+};
+
+export type Customer = {
+  id: string;
+  name: string;
+  contact_person?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  segment?: string;
+  status?: string;
+  pipeline_stage?: string;
+  lead_source?: string;
+  account_owner?: string;
+  next_follow_up?: string;
+  preferred_channel?: string;
+  gstin?: string;
+  pan?: string;
+  state?: string;
+  place_of_supply?: string;
+  dpdp_consent?: string;
+  dpdp_consent_at?: string;
+  marketing_consent?: string;
+  dlt_reference?: string;
+  consent_notes?: string;
+  notes?: string;
+};
+
+export type SiteVisit = {
+  id: string;
+  customer_id: string;
+  customer_name?: string;
+  address?: string;
+  site_person_name?: string;
+  site_person_mobile?: string;
+  reference_given_by?: string;
+  reference_mobile?: string;
+  pit_size_mm?: string;
+  machine_room_available?: string;
+  site_visit_date?: string;
+  site_offer_no?: string;
+  site_enquiry_no?: string;
+  floor_height_profile?: string;
+  site_offer_type?: string;
+  site_motor_required?: string;
+  site_finish_required?: string;
+  site_door_required?: string;
+  site_number_of_openings?: string;
+  site_stops?: string;
+  site_opening_type?: string;
+  door_size_width_mm?: string;
+  door_size_height_mm?: string;
+  car_size_width_mm?: string;
+  car_size_depth_mm?: string;
+  site_capacity_persons?: string;
+  site_capacity_kg?: string;
+  shaft_width_mm?: string;
+  shaft_depth_mm?: string;
+  brick_wall_available?: string;
+  civil_door_height_mm?: string;
+  visited_by?: string;
+  notes?: string;
+};
+
+export type Estimate = {
+  id: string;
+  customer_name: string;
+  site?: string;
+  elevator_type?: string;
+  status?: string;
+  total_cost?: number;
+  created_at?: string;
+};
+
+export type PortalData = {
+  [key: string]: unknown;
+  metrics: Metric[];
+  customers: Customer[];
+  site_visits: SiteVisit[];
+  estimates: Estimate[];
+  inventory?: Array<Record<string, unknown>>;
+  platform_modules?: Array<Record<string, unknown>>;
+  project_tickets?: Array<Record<string, unknown>>;
+  install_jobs?: Array<Record<string, unknown>>;
+  install_team?: Array<Record<string, unknown>>;
+  users?: Array<Record<string, unknown>>;
+  fleet?: Array<Record<string, unknown>>;
+  renewals?: Array<Record<string, unknown>>;
+  work_orders?: Array<Record<string, unknown>>;
+  attendance_today?: Array<Record<string, unknown>>;
+  org_chart?: Array<Record<string, unknown>>;
+  leave_requests?: Array<Record<string, unknown>>;
+  payments?: Array<Record<string, unknown>>;
+  viewer?: { display_name?: string; username?: string; department?: string; role?: string };
+  access?: { allowed_views?: string[]; selected_view?: string; default_view?: string; is_restricted?: boolean };
+  synced_at?: string;
+};
