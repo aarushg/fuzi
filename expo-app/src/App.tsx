@@ -45,7 +45,8 @@ type TabKey =
   | "backoffice"
   | "tender"
   | "factory"
-  | "comms";
+  | "comms"
+  | "siteVisits";
 
 type ModuleConfig = {
   route: string;
@@ -53,6 +54,21 @@ type ModuleConfig = {
   titleKey: string;
   customerKey?: string;
   notesKey?: string;
+};
+
+type CostingSourceCell = {
+  sheet: string;
+  cell: string;
+  value: unknown;
+  formula?: string;
+};
+
+type CostingSource = {
+  source_file: string;
+  variant: string;
+  sheets: Array<{ name: string; non_empty_cell_count: number }>;
+  non_empty_cell_count: number;
+  cells: CostingSourceCell[];
 };
 
 const navItems: Array<{ key: TabKey; label: string; icon: string }> = [
@@ -70,6 +86,7 @@ const navItems: Array<{ key: TabKey; label: string; icon: string }> = [
   { key: "workorders", label: "Work Orders", icon: "▤" },
   { key: "inventory", label: "Inventory", icon: "▣" },
   { key: "orgchart", label: "Staff & Attendance", icon: "◍" },
+  { key: "siteVisits", label: "Site Visits", icon: "⌖" },
   { key: "installation_dept", label: "Installation Dept", icon: "⚙" },
   { key: "breakdown", label: "Breakdown Portal", icon: "⚡" },
   { key: "service", label: "Service", icon: "✚" },
@@ -82,18 +99,20 @@ const navItems: Array<{ key: TabKey; label: string; icon: string }> = [
   { key: "comms", label: "Dept Comms", icon: "☰" },
 ];
 
+const sharedPortalPassword = process.env.EXPO_PUBLIC_FUZI_PORTAL_PASSWORD || "Fuzi@2026!Portal";
+
 const quickLoginAccounts = [
-  { label: "Admin", username: "admin", password: "fuzi2026" },
-  { label: "CEO", username: "atul.singhal", password: "ChangeMe123!" },
-  { label: "Installation Head", username: "ashwani.kumar", password: "ChangeMe123!" },
-  { label: "Breakdown Head", username: "bhanwar.choudhary", password: "ChangeMe123!" },
-  { label: "Service Head", username: "jitendra.choudhary", password: "ChangeMe123!" },
-  { label: "GAD Head", username: "diyanshu.bansal", password: "ChangeMe123!" },
-  { label: "Accounts Head", username: "sandeep.sharma", password: "ChangeMe123!" },
-  { label: "Commissioning Head", username: "vishram.kumawat", password: "ChangeMe123!" },
-  { label: "Tender Head", username: "bharat.singh.choudhary", password: "ChangeMe123!" },
-  { label: "Factory Head", username: "roopchand.gurjar", password: "ChangeMe123!" },
-  { label: "Back Office Head", username: "jitendra.singh.hada", password: "ChangeMe123!" },
+  { label: "Admin", username: "admin", password: sharedPortalPassword },
+  { label: "CEO", username: "atul.singhal", password: sharedPortalPassword },
+  { label: "Installation Head", username: "ashwani.kumar", password: sharedPortalPassword },
+  { label: "Breakdown Head", username: "bhanwar.choudhary", password: sharedPortalPassword },
+  { label: "Service Head", username: "jitendra.choudhary", password: sharedPortalPassword },
+  { label: "GAD Head", username: "diyanshu.bansal", password: sharedPortalPassword },
+  { label: "Accounts Head", username: "sandeep.sharma", password: sharedPortalPassword },
+  { label: "Commissioning Head", username: "vishram.kumawat", password: sharedPortalPassword },
+  { label: "Tender Head", username: "bharat.singh.choudhary", password: sharedPortalPassword },
+  { label: "Factory Head", username: "roopchand.gurjar", password: sharedPortalPassword },
+  { label: "Back Office Head", username: "jitendra.singh.hada", password: sharedPortalPassword },
 ];
 
 const moduleConfigs: Partial<Record<TabKey, ModuleConfig>> = {
@@ -160,6 +179,7 @@ const emptyBreakdownDraft = {
   priority: "High",
   engineer: "",
   trapped_passenger: "N",
+  scheduled_at: "",
 };
 const emptyInstallTeamDraft = {
   name: "",
@@ -242,6 +262,7 @@ const emptySalesInquiryDraft = {
   followup_frequency_days: "7",
   followup_status: "Open",
   last_followup: "",
+  lost_reason: "",
   notes: "",
 };
 const emptyOfferDraft = {
@@ -296,6 +317,7 @@ const emptySiteVisit: Partial<SiteVisit> = {
   site_offer_no: "",
   site_enquiry_no: "",
   floor_height_profile: "",
+  opening_schedule: [],
   site_offer_type: "",
   site_motor_required: "",
   site_finish_required: "",
@@ -351,13 +373,12 @@ const siteVisitFields: Array<{ key: keyof SiteVisit; label: string; keyboard?: "
   { key: "site_visit_date", label: "Site visit date YYYY-MM-DD" },
   { key: "site_offer_no", label: "Offer no." },
   { key: "site_enquiry_no", label: "Enquiry no." },
-  { key: "floor_height_profile", label: "Floor / FF height / lintel height", multiline: true },
   { key: "site_offer_type", label: "Offer to be given" },
   { key: "site_motor_required", label: "Motor required" },
   { key: "site_finish_required", label: "Finish required" },
   { key: "site_door_required", label: "Door required" },
-  { key: "site_number_of_openings", label: "Number of openings" },
-  { key: "site_stops", label: "Stops", keyboard: "numeric" },
+  { key: "site_stops", label: "How many stops?", keyboard: "numeric" },
+  { key: "site_number_of_openings", label: "Number of openings", keyboard: "numeric" },
   { key: "site_opening_type", label: "Center / side opening" },
   { key: "door_size_width_mm", label: "Door width mm", keyboard: "numeric" },
   { key: "door_size_height_mm", label: "Door height mm", keyboard: "numeric" },
@@ -370,6 +391,27 @@ const siteVisitFields: Array<{ key: keyof SiteVisit; label: string; keyboard?: "
   { key: "brick_wall_available", label: "Brick wall Y/N" },
   { key: "civil_door_height_mm", label: "Civil door height mm", keyboard: "numeric" },
   { key: "visited_by", label: "Visited by" },
+  { key: "notes", label: "Site visit notes", multiline: true },
+];
+
+const inquiryLifecycleStatuses = [
+  "Inquiry Pending",
+  "Inquiry Lost",
+  "Site Visit Pending",
+  "Site Visit Done",
+  "Site Not Visited, Offer Pending",
+  "Site Visit Lost",
+  "Offer Pending",
+  "Offer Submitted",
+  "Offer Lost",
+  "Order Received",
+  "Order Lost",
+  "Work In Progress",
+  "Hand Over",
+  "Warranty Running",
+  "Warranty Lost",
+  "AMC Running",
+  "One Time Service",
 ];
 
 function formatMoney(value?: number) {
@@ -379,7 +421,7 @@ function formatMoney(value?: number) {
 export default function App() {
   const { width } = useWindowDimensions();
   const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("fuzi2026");
+  const [password, setPassword] = useState(sharedPortalPassword);
   const [token, setToken] = useState("");
   const [data, setData] = useState<PortalData | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
@@ -389,7 +431,12 @@ export default function App() {
   const [customerDraft, setCustomerDraft] = useState<Partial<Customer>>(emptyCustomer);
   const [siteVisitDraft, setSiteVisitDraft] = useState<Partial<SiteVisit>>(emptySiteVisit);
   const [siteVisitEditorOpen, setSiteVisitEditorOpen] = useState(false);
+  const [siteVisitCustomerSearch, setSiteVisitCustomerSearch] = useState("");
   const [moduleDraft, setModuleDraft] = useState(emptyModuleDraft);
+  const [serviceEditDrafts, setServiceEditDrafts] = useState<Record<string, Record<string, string>>>({});
+  const [serviceCustomerDropdownOpen, setServiceCustomerDropdownOpen] = useState(false);
+  const [serviceCustomerSearch, setServiceCustomerSearch] = useState("");
+  const [serviceRecordSearch, setServiceRecordSearch] = useState("");
   const [serviceDraft, setServiceDraft] = useState(emptyServiceDraft);
   const [paymentDraft, setPaymentDraft] = useState(emptyPaymentDraft);
   const [breakdownDraft, setBreakdownDraft] = useState(emptyBreakdownDraft);
@@ -409,8 +456,14 @@ export default function App() {
   const [inventoryDraft, setInventoryDraft] = useState(emptyInventoryDraft);
   const [inventoryEdits, setInventoryEdits] = useState<Record<string, { reorder_point: string; target_stock: string }>>({});
   const [salesInquiryDraft, setSalesInquiryDraft] = useState(emptySalesInquiryDraft);
-  const [offerDraft, setOfferDraft] = useState(emptyOfferDraft);
+  const [offerDraft, setOfferDraft] = useState<Record<string, any>>(emptyOfferDraft);
   const [costingEditorOpen, setCostingEditorOpen] = useState(false);
+  const [costingSources, setCostingSources] = useState<CostingSource[]>([]);
+  const [costingSourcesLoading, setCostingSourcesLoading] = useState(false);
+  const [costingSourceIndex, setCostingSourceIndex] = useState(0);
+  const [costingCellStep, setCostingCellStep] = useState(0);
+  const [breakdownScheduleDrafts, setBreakdownScheduleDrafts] = useState<Record<string, string>>({});
+  const [breakdownEngineerTaskDrafts, setBreakdownEngineerTaskDrafts] = useState<Record<string, string>>({});
   const [breakdownCustomerDropdownOpen, setBreakdownCustomerDropdownOpen] = useState(false);
   const [breakdownCustomerSearch, setBreakdownCustomerSearch] = useState("");
 
@@ -439,6 +492,9 @@ export default function App() {
       role: String(member.role || "Technician"),
       phone: String(member.phone || ""),
       availability: String(member.availability || ""),
+      current_job: String(member.current_job || ""),
+      shift: String(member.shift || ""),
+      notes: String(member.notes || ""),
     }));
     const technicians = asRecords(data?.users)
       .filter((user) => String(user.role || "").toLowerCase().includes("technician"))
@@ -448,6 +504,9 @@ export default function App() {
         role: String(user.department || "Technician"),
         phone: "",
         availability: String(user.active === false ? "Inactive" : "Available"),
+        current_job: "",
+        shift: "",
+        notes: "",
       }));
     const seen = new Set<string>();
     return [...team, ...technicians].filter((member) => {
@@ -457,6 +516,94 @@ export default function App() {
       return true;
     });
   }, [data]);
+  const costingCellsPerStep = 80;
+  const selectedCostingSource = costingSources[Math.min(costingSourceIndex, Math.max(costingSources.length - 1, 0))];
+  const costingCellChunks = useMemo(() => {
+    const cells = selectedCostingSource?.cells || [];
+    const chunks: CostingSourceCell[][] = [];
+    for (let index = 0; index < cells.length; index += costingCellsPerStep) {
+      chunks.push(cells.slice(index, index + costingCellsPerStep));
+    }
+    return chunks;
+  }, [selectedCostingSource]);
+  const visibleCostingCells = costingCellChunks[Math.min(costingCellStep, Math.max(costingCellChunks.length - 1, 0))] || [];
+
+  useEffect(() => {
+    if (costingEditorOpen && token && !costingSources.length && !costingSourcesLoading) {
+      loadCostingSourceData();
+    }
+  }, [costingEditorOpen, token, costingSources.length, costingSourcesLoading]);
+
+  useEffect(() => {
+    setCostingCellStep(0);
+  }, [costingSourceIndex]);
+
+  async function loadCostingSourceData() {
+    if (!token) return;
+    setCostingSourcesLoading(true);
+    try {
+      const response = await apiFetch<{ ok: boolean; sources: CostingSource[] }>("/api/portal/costing-source-data", { token });
+      setCostingSources(response.sources || []);
+      setCostingSourceIndex(0);
+      setCostingCellStep(0);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Costing source data could not be loaded.");
+    } finally {
+      setCostingSourcesLoading(false);
+    }
+  }
+
+  function attachSelectedCostingSource() {
+    if (!selectedCostingSource) return;
+    const totalCell = selectedCostingSource.cells.find((cell) => String(cell.cell).toUpperCase() === "R53") || selectedCostingSource.cells.find((cell) => String(cell.cell).toUpperCase().endsWith("53"));
+    const totalValue = typeof totalCell?.value === "number" ? String(totalCell.value) : offerDraft.total_cost;
+    setOfferDraft((draft) => ({
+      ...draft,
+      offer_type: draft.offer_type || selectedCostingSource.variant,
+      total_cost: totalValue || draft.total_cost,
+      costing_source_file: selectedCostingSource.source_file,
+      expanded_costing_data: selectedCostingSource,
+      expanded_costing_data_status: "All source values attached as user-entered costing data",
+    }));
+    setMessage(`Attached all costing data from ${selectedCostingSource.source_file}. Review the step-by-step values before saving.`);
+  }
+
+  function openingScheduleRows(draft: Partial<SiteVisit>) {
+    return Array.isArray(draft.opening_schedule) ? draft.opening_schedule : [];
+  }
+
+  function desiredOpeningCount(draft: Partial<SiteVisit>) {
+    const openings = Number(draft.site_number_of_openings || 0);
+    const stops = Number(draft.site_stops || 0);
+    return Math.max(0, Math.floor(openings || stops || 0));
+  }
+
+  function ensureOpeningSchedule(draft: Partial<SiteVisit>, count: number) {
+    const current = openingScheduleRows(draft);
+    return Array.from({ length: Math.max(0, count) }, (_, index) => ({
+      floor: current[index]?.floor || (index === 0 ? "Ground" : String(index)),
+      ff_height_mm: current[index]?.ff_height_mm || "",
+      lintel_height_mm: current[index]?.lintel_height_mm || "",
+    }));
+  }
+
+  function updateSiteVisitField(key: keyof SiteVisit, value: string) {
+    setSiteVisitDraft((draft) => {
+      const next: Partial<SiteVisit> = { ...draft, [key]: value };
+      if (key === "site_stops" || key === "site_number_of_openings") {
+        next.opening_schedule = ensureOpeningSchedule(next, desiredOpeningCount(next));
+      }
+      return next;
+    });
+  }
+
+  function updateOpeningScheduleRow(index: number, key: "floor" | "ff_height_mm" | "lintel_height_mm", value: string) {
+    setSiteVisitDraft((draft) => {
+      const rows = ensureOpeningSchedule(draft, Math.max(desiredOpeningCount(draft), index + 1));
+      rows[index] = { ...rows[index], [key]: value };
+      return { ...draft, opening_schedule: rows, floor_height_profile: rows.map((row) => `${row.floor}: FF ${row.ff_height_mm || "-"} mm, lintel ${row.lintel_height_mm || "-"} mm`).join("\n") };
+    });
+  }
 
   function fieldText(record: Record<string, unknown>, keys: string[]) {
     for (const key of keys) {
@@ -466,6 +613,76 @@ export default function App() {
       }
     }
     return "-";
+  }
+
+  function viewerStaffRecord(staff: Array<Record<string, unknown>>) {
+    const viewer = (data?.viewer || {}) as Record<string, unknown>;
+    const linkedId = String(viewer.linked_org_node || viewer.linked_team_member || "").trim();
+    const viewerName = String(viewer.display_name || viewer.name || "").trim().toLowerCase();
+    const usernameName = String(viewer.username || "").replace(/\./g, " ").trim().toLowerCase();
+    return staff.find((person) => linkedId && fieldText(person, ["id"]) === linkedId)
+      || staff.find((person) => fieldText(person, ["name"]).toLowerCase() === viewerName)
+      || staff.find((person) => fieldText(person, ["name"]).toLowerCase() === usernameName);
+  }
+
+  function attendanceLocationText(location: unknown) {
+    if (!location || typeof location !== "object") return "";
+    const item = location as Record<string, unknown>;
+    const latitude = Number(item.latitude ?? item.lat);
+    const longitude = Number(item.longitude ?? item.lng);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return "";
+    const accuracy = Number(item.accuracy_m ?? item.accuracy);
+    const accuracyText = Number.isFinite(accuracy) ? ` +/- ${Math.round(accuracy)} m` : "";
+    return `${latitude.toFixed(5)}, ${longitude.toFixed(5)}${accuracyText}`;
+  }
+
+  async function captureAttendanceLocation() {
+    const geolocation = Platform.OS === "web" ? globalThis.navigator?.geolocation : undefined;
+    if (!geolocation) {
+      setMessage("Location capture is not available in this browser.");
+      return null;
+    }
+    return new Promise<Record<string, unknown> | null>((resolve) => {
+      geolocation.getCurrentPosition(
+        (position) => resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy_m: position.coords.accuracy,
+          captured_at: new Date().toISOString(),
+        }),
+        (error) => {
+          setMessage(`Location could not be captured: ${error.message}`);
+          resolve(null);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+      );
+    });
+  }
+
+  function staffAvailabilityInfo(member: Record<string, unknown>) {
+    const availability = String(member.availability || "Available").trim();
+    const shift = String(member.shift || "").trim();
+    const currentJob = String(member.current_job || "").trim();
+    const nextAvailable = String(member.next_available_at || "").trim();
+    const notes = String(member.notes || "").trim();
+    const availableNow = ["available", "standby", "ready"].includes(availability.toLowerCase()) && !currentJob;
+    const when = availableNow
+      ? "Available now"
+      : availability.toLowerCase() === "off duty"
+        ? (nextAvailable || shift ? `Off duty - available ${nextAvailable || shift}` : "Off duty")
+        : currentJob
+          ? `Busy on ${currentJob}${nextAvailable ? ` until ${nextAvailable}` : ""}`
+          : availability;
+    return {
+      availableNow,
+      summary: [when, shift && !when.includes(shift) ? `Shift ${shift}` : "", notes].filter(Boolean).join(" - "),
+    };
+  }
+
+  function defaultBreakdownScheduleTime() {
+    const date = new Date(Date.now() + 30 * 60 * 1000);
+    const pad = (value: number) => String(value).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }
 
   function recordIdentity(record: Record<string, unknown>) {
@@ -503,6 +720,10 @@ export default function App() {
     if (normalized.includes("order") || normalized.includes("running")) return "#0f766e";
     if (normalized.includes("offer") || normalized.includes("site")) return "#925f00";
     return "#b91414";
+  }
+
+  function isLostInquiryStatus(status: string) {
+    return status.toLowerCase().includes("lost");
   }
 
 
@@ -556,18 +777,266 @@ export default function App() {
     );
   }
 
+  function openCrmForCustomerNumber(customerId: string) {
+    const nextSearch = String(customerId || "").trim();
+    if (!nextSearch) return;
+    setCrmSearch(nextSearch);
+    setCustomerPage(1);
+    setEnquiryPage(1);
+    setActiveTab("customers");
+    setMessage(`Showing CRM records linked to customer ${nextSearch}.`);
+  }
+
+  function crmCustomerOptions() {
+    const saved = (data?.customers || []).map((customer) => ({
+      id: String(customer.id || ""),
+      name: String(customer.name || customer.contact_person || customer.id || ""),
+      phone: String(customer.phone || ""),
+      source_inquiry_id: "",
+    }));
+    const inquiries = asRecords(data?.sales_inquiries).map((item) => ({
+      id: String(item.customer_id || item.id || ""),
+      name: String(item.customer || item.lead_name || item.name || item.customer_id || item.id || ""),
+      phone: String(item.phone || item.whatsapp_no || ""),
+      source_inquiry_id: String(item.id || item.enquiry_no || ""),
+    }));
+    const seen = new Set<string>();
+    return [...saved, ...inquiries].filter((item) => {
+      if (!item.id || seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+  }
+
+  function startServiceEdit(record: Record<string, unknown>) {
+    const id = recordIdentity(record);
+    if (!id) return;
+    setServiceEditDrafts((drafts) => ({
+      ...drafts,
+      [id]: {
+        customer_id: String(record.customer_id || ""),
+        source_inquiry_id: String(record.source_inquiry_id || ""),
+        customer: String(record.customer || ""),
+        site: String(record.site || ""),
+        city: String(record.city || ""),
+        phone: String(record.phone || ""),
+        status: String(record.status || ""),
+        technician: String(record.technician || ""),
+        scheduled_date: String(record.scheduled_date || ""),
+        completed_date: String(record.completed_date || ""),
+        next_service_date: String(record.next_service_date || ""),
+        findings: String(record.findings || ""),
+      },
+    }));
+  }
+
+  async function saveServiceRecord(id: string) {
+    const draft = serviceEditDrafts[id];
+    if (!draft) return;
+    if (!String(draft.customer_id || "").trim()) {
+      setMessage("Customer number is required before saving a service record.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await apiFetch(`/api/portal/service/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify(draft),
+      });
+      setServiceEditDrafts((drafts) => {
+        const next = { ...drafts };
+        delete next[id];
+        return next;
+      });
+      await loadPortal();
+      setMessage(`Service record ${id} updated and linked to customer ${draft.customer_id}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Service record could not be saved.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function renderServicePage() {
+    const records = asRecords((data as Record<string, unknown> | null)?.service_records);
+    const query = serviceRecordSearch.trim().toLowerCase();
+    const filteredRecords = records.filter((record) => {
+      if (!query) return true;
+      return [
+        record.id,
+        record.job_number,
+        record.job_no,
+        record.customer_id,
+        record.source_inquiry_id,
+        record.customer,
+        record.site,
+        record.city,
+        record.area,
+        record.phone,
+        record.technician,
+        record.status,
+        record.next_service_date,
+        record.scheduled_date,
+      ].some((value) => String(value || "").toLowerCase().includes(query));
+    });
+    const visibleRecords = filteredRecords.slice(0, 80);
+    return (
+      <View>
+        <View style={styles.moduleHero}>
+          <Text style={styles.eyebrow}>FUZI Ops Module</Text>
+          <Text style={styles.moduleHeroTitle}>Service</Text>
+          <Text style={styles.moduleHeroText}>Service records, technician updates, customer comments, and linked CRM customer numbers.</Text>
+        </View>
+        {renderModuleForm(moduleConfigs.service!)}
+        <View style={styles.formCard}>
+          <View style={styles.sectionHeaderRow}>
+            <View>
+              <Text style={styles.cardLabel}>Search service records</Text>
+              <Text style={styles.muted}>{filteredRecords.length} matching records. Customer name and customer number are searchable.</Text>
+            </View>
+            {!!serviceRecordSearch && (
+              <Pressable style={styles.smallButton} onPress={() => setServiceRecordSearch("")} disabled={loading}>
+                <Text style={styles.smallButtonText}>Clear</Text>
+              </Pressable>
+            )}
+          </View>
+          <TextInput
+            style={styles.input}
+            value={serviceRecordSearch}
+            onChangeText={setServiceRecordSearch}
+            placeholder="Search customer name, customer number, CRM ID, job no, phone, site, technician, status"
+          />
+        </View>
+        {!visibleRecords.length && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>No service records found</Text>
+            <Text style={styles.muted}>{records.length ? "No service records match that search." : "Import or add service records, then link each one to a CRM customer number."}</Text>
+          </View>
+        )}
+        {visibleRecords.map((record, index) => {
+          const id = recordIdentity(record) || String(record.id || `SVC-${index + 1}`);
+          const draft = serviceEditDrafts[id];
+          const customerId = String((draft || record).customer_id || "");
+          const historyCount = Array.isArray(record.service_history) ? record.service_history.length : 0;
+          return (
+            <View key={id} style={styles.card}>
+              <View style={styles.cardHeaderRow}>
+                <View style={styles.cardTitleBlock}>
+                  <Text style={styles.cardTitle}>{String((draft || record).customer || record.customer || "-")}</Text>
+                  <Text style={styles.muted}>Service job: {String(record.job_number || record.job_no || record.id || id)}</Text>
+                  <View style={styles.inlineMeta}>
+                    <Text style={styles.muted}>Customer no.</Text>
+                    {customerId ? (
+                      <Pressable onPress={() => openCrmForCustomerNumber(customerId)} disabled={loading}>
+                        <Text style={styles.clickableUsername}>{customerId}</Text>
+                      </Pressable>
+                    ) : (
+                      <Text style={styles.muted}>Missing</Text>
+                    )}
+                    {!!record.source_inquiry_id && <Text style={styles.muted}>- CRM {String(record.source_inquiry_id)}</Text>}
+                  </View>
+                </View>
+                <Text style={styles.statusPill}>{String((draft || record).status || "Open")}</Text>
+              </View>
+              {draft ? (
+                <View style={styles.inlineRecordEditor}>
+                  <View style={styles.formGrid}>
+                    {[
+                      ["customer_id", "Customer number"],
+                      ["source_inquiry_id", "CRM inquiry ID"],
+                      ["customer", "Customer / building"],
+                      ["site", "Site"],
+                      ["city", "City"],
+                      ["phone", "Phone"],
+                      ["status", "Status"],
+                      ["technician", "Technician"],
+                      ["scheduled_date", "Scheduled date"],
+                      ["completed_date", "Completed date"],
+                      ["next_service_date", "Next service date"],
+                    ].map(([key, label]) => (
+                      <View key={`${id}-${key}`} style={styles.field}>
+                        <Text style={styles.label}>{label}</Text>
+                        <TextInput
+                          style={styles.input}
+                          value={String(draft[key] || "")}
+                          onChangeText={(value) => setServiceEditDrafts((drafts) => ({ ...drafts, [id]: { ...drafts[id], [key]: value } }))}
+                        />
+                      </View>
+                    ))}
+                  </View>
+                  <View style={styles.field}>
+                    <Text style={styles.label}>Findings / notes</Text>
+                    <TextInput
+                      style={[styles.input, styles.textarea]}
+                      value={String(draft.findings || "")}
+                      onChangeText={(value) => setServiceEditDrafts((drafts) => ({ ...drafts, [id]: { ...drafts[id], findings: value } }))}
+                      multiline
+                    />
+                  </View>
+                  <View style={styles.inlineActions}>
+                    <Pressable style={styles.primaryButtonInline} onPress={() => saveServiceRecord(id)} disabled={loading || !customerId}>
+                      <Text style={styles.primaryButtonText}>Save service record</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.secondaryButton}
+                      onPress={() => setServiceEditDrafts((drafts) => {
+                        const next = { ...drafts };
+                        delete next[id];
+                        return next;
+                      })}
+                      disabled={loading}
+                    >
+                      <Text style={styles.secondaryButtonText}>Cancel</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.bodyText}>{String(record.customer || "-")} - {String(record.site || record.city || "-")}</Text>
+                  <Text style={styles.bodyText}>Technician: {String(record.technician || "-")} - Next service: {String(record.next_service_date || record.scheduled_date || "-")}</Text>
+                  <Text style={styles.bodyText}>Completed: {String(record.completed_date || "-")} - History entries: {historyCount}</Text>
+                  <Text style={styles.muted}>{String(record.findings || "")}</Text>
+                  <View style={styles.inlineActions}>
+                    <Pressable style={styles.smallButton} onPress={() => startServiceEdit(record)} disabled={loading}>
+                      <Text style={styles.smallButtonText}>Edit</Text>
+                    </Pressable>
+                    {customerId ? (
+                      <Pressable style={styles.smallButton} onPress={() => openCrmForCustomerNumber(customerId)} disabled={loading}>
+                        <Text style={styles.smallButtonText}>Open CRM customer</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </>
+              )}
+            </View>
+          );
+        })}
+      </View>
+    );
+  }
+
   function renderModuleForm(config: ModuleConfig) {
-    const needsCustomer = config.route === "/api/portal/install-jobs";
+    const needsCustomer = config.route === "/api/portal/install-jobs" || config.route === "/api/portal/service";
+    const customerOptions = config.route === "/api/portal/service" ? crmCustomerOptions() : (data?.customers || []).map((customer) => ({ id: customer.id, name: customer.name, phone: customer.phone || "", source_inquiry_id: "" }));
+    const selectedServiceCustomer = customerOptions.find((customer) => customer.id === moduleDraft.customer_id);
+    const serviceCustomerQuery = serviceCustomerSearch.trim().toLowerCase();
+    const visibleServiceCustomers = config.route === "/api/portal/service"
+      ? customerOptions
+        .filter((customer) => !serviceCustomerQuery || `${customer.id} ${customer.name} ${customer.phone} ${customer.source_inquiry_id}`.toLowerCase().includes(serviceCustomerQuery))
+        .slice(0, 80)
+      : customerOptions;
     return (
       <View style={styles.formCard}>
         <Text style={styles.cardLabel}>Add / update module data</Text>
         {needsCustomer && (
           <View style={styles.field}>
-            <Text style={styles.label}>Select customer</Text>
-            {!data?.customers.length && (
+            <Text style={styles.label}>{config.route === "/api/portal/service" ? "Select CRM customer (required)" : "Select customer"}</Text>
+            {config.route === "/api/portal/service" && <Text style={styles.muted}>A service record cannot be saved until it is linked to a CRM customer number.</Text>}
+            {!customerOptions.length && (
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Add a customer first</Text>
-                <Text style={styles.muted}>Installation jobs must be linked to a saved customer ID before they can be created.</Text>
+                <Text style={styles.muted}>{config.route === "/api/portal/service" ? "Service records must be linked to a CRM customer number before they can be created." : "Installation jobs must be linked to a saved customer ID before they can be created."}</Text>
                 <View style={styles.inlineActions}>
                   <Pressable style={styles.smallButton} onPress={() => setActiveTab("customers")}>
                     <Text style={styles.smallButtonText}>Open Customer CRM</Text>
@@ -575,20 +1044,70 @@ export default function App() {
                 </View>
               </View>
             )}
-            {!!data?.customers.length && (
-              <View style={styles.selectorList}>
-                {data.customers.map((customer) => (
+            {!!customerOptions.length && (
+              config.route === "/api/portal/service" ? (
+                <View style={styles.field}>
                   <Pressable
-                    key={customer.id}
-                    style={[styles.selectorPill, moduleDraft.customer_id === customer.id && styles.selectorPillActive]}
-                    onPress={() => setModuleDraft((draft) => ({ ...draft, customer_id: customer.id, customer: customer.name }))}
+                    style={[styles.dropdownButton, serviceCustomerDropdownOpen && styles.selectorPillActive]}
+                    onPress={() => setServiceCustomerDropdownOpen((open) => !open)}
+                    disabled={loading}
                   >
-                    <Text style={[styles.selectorText, moduleDraft.customer_id === customer.id && styles.selectorTextActive]}>
-                      {customer.id} - {customer.name}
+                    <Text style={styles.selectorText}>
+                      {selectedServiceCustomer
+                        ? `${selectedServiceCustomer.id} - ${selectedServiceCustomer.name}${selectedServiceCustomer.phone ? ` - ${selectedServiceCustomer.phone}` : ""}`
+                        : "Select CRM customer"}
                     </Text>
+                    <Text style={styles.dropdownChevron}>{serviceCustomerDropdownOpen ? "▲" : "▼"}</Text>
                   </Pressable>
-                ))}
-              </View>
+                  {serviceCustomerDropdownOpen && (
+                    <View style={styles.dropdownPanel}>
+                      <TextInput
+                        style={styles.input}
+                        value={serviceCustomerSearch}
+                        onChangeText={setServiceCustomerSearch}
+                        placeholder="Search customer number, name, phone, CRM ID"
+                      />
+                      <Text style={styles.muted}>Showing {visibleServiceCustomers.length} matching customers.</Text>
+                      <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                        {visibleServiceCustomers.map((customer, index) => (
+                          <Pressable
+                            key={`service-customer-${customer.id}-${customer.source_inquiry_id}-${index}`}
+                            style={[styles.dropdownOption, moduleDraft.customer_id === customer.id && styles.selectorPillActive]}
+                            onPress={() => {
+                              setModuleDraft((draft) => ({
+                                ...draft,
+                                customer_id: customer.id,
+                                customer: customer.name,
+                                notes: customer.source_inquiry_id ? `CRM ${customer.source_inquiry_id}` : draft.notes,
+                              }));
+                              setServiceCustomerDropdownOpen(false);
+                              setServiceCustomerSearch("");
+                            }}
+                          >
+                            <Text style={styles.selectorText}>{customer.id} - {customer.name}</Text>
+                            <Text style={styles.muted}>{customer.phone || "No phone"}{customer.source_inquiry_id ? ` - ${customer.source_inquiry_id}` : ""}</Text>
+                          </Pressable>
+                        ))}
+                        {!visibleServiceCustomers.length && <Text style={styles.muted}>No CRM customers match that search.</Text>}
+                      </ScrollView>
+                    </View>
+                  )}
+                </View>
+              ) : (
+                <View style={styles.selectorList}>
+                  {customerOptions.slice(0, 80).map((customer) => (
+                    <Pressable
+                      key={customer.id}
+                      style={[styles.selectorPill, moduleDraft.customer_id === customer.id && styles.selectorPillActive]}
+                      onPress={() => setModuleDraft((draft) => ({ ...draft, customer_id: customer.id, customer: customer.name, notes: draft.notes }))}
+                    >
+                      <Text style={[styles.selectorText, moduleDraft.customer_id === customer.id && styles.selectorTextActive]}>
+                        {customer.id} - {customer.name}{customer.phone ? ` - ${customer.phone}` : ""}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )
             )}
           </View>
         )}
@@ -602,7 +1121,7 @@ export default function App() {
             />
           </View>
           <View style={styles.field}>
-            <Text style={styles.label}>{config.customerKey === "department" ? "Department" : "Customer / owner"}</Text>
+            <Text style={styles.label}>{config.route === "/api/portal/service" ? "Linked customer / owner" : config.customerKey === "department" ? "Department" : "Customer / owner"}</Text>
             <TextInput
               style={styles.input}
               value={moduleDraft.customer}
@@ -868,12 +1387,18 @@ export default function App() {
       .filter((customer) => !breakdownCustomerQuery || `${customer.id} ${customer.name} ${customer.phone} ${customer.address} ${customer.enquiryNo}`.toLowerCase().includes(breakdownCustomerQuery));
     const activeBreakdowns = breakdowns.filter((item) => !["closed", "resolved", "done"].includes(String(item.status || "").toLowerCase()));
     const trappedCalls = breakdowns.filter((item) => ["y", "yes", "true"].includes(String(item.trapped_passenger || item.passenger_trapped || "").toLowerCase()));
+    const availableEngineers = assignableStaff.filter((member) => staffAvailabilityInfo(member).availableNow);
     return (
       <View>
         <View style={styles.moduleHero}>
           <Text style={styles.eyebrow}>Breakdown Portal</Text>
           <Text style={styles.moduleHeroTitle}>Emergency Breakdown Control</Text>
           <Text style={styles.moduleHeroText}>Log trapped-passenger calls, assign an engineer, track dispatch, and close breakdowns from the mobile/web portal.</Text>
+          <View style={styles.inlineActions}>
+            <Pressable style={styles.smallButton} onPress={syncDiscordBreakdowns} disabled={loading}>
+              <Text style={styles.smallButtonText}>Sync Discord</Text>
+            </Pressable>
+          </View>
         </View>
 
         <View style={styles.metricGrid}>
@@ -886,6 +1411,50 @@ export default function App() {
             <Text style={styles.cardLabel}>Trapped passenger</Text>
             <Text style={styles.metricValue}>{trappedCalls.length}</Text>
             <Text style={styles.muted}>Highest-priority rescue cases.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Engineers available</Text>
+            <Text style={styles.metricValue}>{availableEngineers.length}</Text>
+            <Text style={styles.muted}>Available now for breakdown scheduling.</Text>
+          </View>
+        </View>
+
+        <View style={styles.formCard}>
+          <Text style={styles.cardLabel}>Schedule Engineer</Text>
+          <Text style={styles.muted}>Engineer availability for breakdown dispatch. Select an engineer below while logging a new call, or use the schedule controls on an existing breakdown.</Text>
+          <View style={styles.selectorList}>
+            {assignableStaff.map((member) => {
+              const availability = staffAvailabilityInfo(member);
+              const taskDraft = breakdownEngineerTaskDrafts[member.name] ?? String(member.current_job || "");
+              return (
+                <View key={`breakdown-availability-${member.id}`} style={styles.selectorPill}>
+                  <View style={styles.cardHeaderRow}>
+                    <Text style={styles.selectorText}>{member.name} - {member.role}</Text>
+                    <Text style={styles.statusPill}>{availability.availableNow ? "Available" : "Busy"}</Text>
+                  </View>
+                  <Text style={styles.muted}>{availability.summary}</Text>
+                  {!!member.phone && <Text style={styles.bodyText}>Phone: {member.phone}</Text>}
+                  <View style={styles.field}>
+                    <Text style={styles.label}>Current task</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={taskDraft}
+                      onChangeText={(value) => setBreakdownEngineerTaskDrafts((draft) => ({ ...draft, [member.name]: value }))}
+                      placeholder="Current breakdown/task"
+                    />
+                  </View>
+                  <View style={styles.inlineActions}>
+                    <Pressable style={styles.smallButton} onPress={() => updateBreakdownEngineerTask(member, taskDraft)} disabled={loading}>
+                      <Text style={styles.smallButtonText}>Save task</Text>
+                    </Pressable>
+                    <Pressable style={styles.smallButton} onPress={() => updateBreakdownEngineerTask(member, "")} disabled={loading}>
+                      <Text style={styles.smallButtonText}>Clear task</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              );
+            })}
+            {!assignableStaff.length && <Text style={styles.muted}>No engineer roster found. Add engineers in Install Team to schedule breakdown dispatch.</Text>}
           </View>
         </View>
 
@@ -959,6 +1528,7 @@ export default function App() {
             ["location", "Location"],
             ["priority", "Priority"],
             ["trapped_passenger", "Trapped passenger Y/N"],
+            ["scheduled_at", "Schedule engineer YYYY-MM-DD HH:mm"],
           ].map(([key, label]) => (
             <View key={key} style={styles.field}>
               <Text style={styles.label}>{label}</Text>
@@ -972,17 +1542,18 @@ export default function App() {
             </View>
           ))}
           <View style={styles.field}>
-            <Text style={styles.label}>Assign staff</Text>
+            <Text style={styles.label}>Schedule engineer</Text>
             <View style={styles.selectorList}>
               {assignableStaff.map((member) => (
                 <Pressable
                   key={member.id}
                   style={[styles.selectorPill, breakdownDraft.engineer === member.name && styles.selectorPillActive]}
-                  onPress={() => setBreakdownDraft((draft) => ({ ...draft, engineer: member.name }))}
+                  onPress={() => setBreakdownDraft((draft) => ({ ...draft, engineer: member.name, scheduled_at: draft.scheduled_at || defaultBreakdownScheduleTime() }))}
                 >
                   <Text style={[styles.selectorText, breakdownDraft.engineer === member.name && styles.selectorTextActive]}>
-                    {member.name} - {member.role}{member.availability ? ` - ${member.availability}` : ""}
+                    {member.name} - {member.role}
                   </Text>
+                  <Text style={styles.muted}>{staffAvailabilityInfo(member).summary}</Text>
                 </Pressable>
               ))}
             </View>
@@ -1019,14 +1590,41 @@ export default function App() {
               <Text style={styles.muted}>{fieldText(item, ["customer"])} - {fieldText(item, ["location", "site"])} - {fieldText(item, ["status"])}</Text>
               <Text style={styles.bodyText}>{fieldText(item, ["issue", "fault", "notes"])}</Text>
               <Text style={styles.bodyText}>Engineer: {fieldText(item, ["engineer", "assigned_to"])} - Caller: {fieldText(item, ["phone", "caller_mobile"])}</Text>
+              <Text style={styles.bodyText}>Scheduled: {fieldText(item, ["scheduled_at", "scheduled_time", "dispatch_time"])}</Text>
               <Text style={styles.bodyText}>Trapped passenger: {fieldText(item, ["trapped_passenger", "passenger_trapped"])}</Text>
-              <Text style={styles.label}>Assign staff</Text>
+              <View style={styles.field}>
+                <Text style={styles.label}>Schedule time</Text>
+                <TextInput
+                  style={styles.input}
+                  value={breakdownScheduleDrafts[id] ?? String(item.scheduled_at || item.scheduled_time || item.dispatch_time || defaultBreakdownScheduleTime())}
+                  onChangeText={(value) => setBreakdownScheduleDrafts((draft) => ({ ...draft, [id]: value }))}
+                  placeholder="YYYY-MM-DD HH:mm"
+                />
+              </View>
+              <Text style={styles.label}>Schedule Engineer</Text>
               <View style={styles.inlineActions}>
-                {assignableStaff.slice(0, 6).map((member) => (
-                  <Pressable key={`${id}-${member.id}`} style={styles.smallButton} onPress={() => updateBreakdown(id, "Assigned", member.name)} disabled={loading}>
-                    <Text style={styles.smallButtonText}>{member.name}</Text>
-                  </Pressable>
-                ))}
+                {assignableStaff.slice(0, 6).map((member) => {
+                  const availability = staffAvailabilityInfo(member);
+                  const scheduleTime = breakdownScheduleDrafts[id] ?? String(item.scheduled_at || item.scheduled_time || item.dispatch_time || defaultBreakdownScheduleTime());
+                  const taskDraft = breakdownEngineerTaskDrafts[`${id}-${member.name}`] ?? String(member.current_job || "");
+                  return (
+                    <View key={`${id}-${member.id}`} style={styles.selectorPill}>
+                      <Pressable style={styles.smallButton} onPress={() => scheduleBreakdownEngineer(id, member, scheduleTime)} disabled={loading}>
+                        <Text style={styles.smallButtonText}>{member.name}</Text>
+                        <Text style={styles.smallButtonHint}>{availability.availableNow ? "Available now" : availability.summary}</Text>
+                      </Pressable>
+                      <TextInput
+                        style={styles.compactInput}
+                        value={taskDraft}
+                        onChangeText={(value) => setBreakdownEngineerTaskDrafts((draft) => ({ ...draft, [`${id}-${member.name}`]: value }))}
+                        placeholder="Change current task"
+                      />
+                      <Pressable style={styles.smallButton} onPress={() => updateBreakdownEngineerTask(member, taskDraft || id)} disabled={loading}>
+                        <Text style={styles.smallButtonText}>Save task</Text>
+                      </Pressable>
+                    </View>
+                  );
+                })}
               </View>
               <View style={styles.inlineActions}>
                 <Pressable style={styles.smallButton} onPress={() => updateBreakdown(id, "Dispatched")} disabled={loading}>
@@ -1305,6 +1903,11 @@ export default function App() {
     });
     const todayAttendance = attendance.filter((item) => fieldText(item, ["date"]) === today);
     const attendanceByPerson = new Map(todayAttendance.map((item) => [fieldText(item, ["person_id", "staff_id"]), item]));
+    const viewer = (data?.viewer || {}) as Record<string, unknown>;
+    const viewerStaff = viewerStaffRecord(staff);
+    const viewerStaffId = viewerStaff ? fieldText(viewerStaff, ["id"]) : "";
+    const viewerAttendance = viewerStaffId ? attendanceByPerson.get(viewerStaffId) : undefined;
+    const canManageAttendance = String(viewer.role || "").toLowerCase() === "admin" || String(viewer.department || "").toLowerCase() === "executive office";
     const pendingLeaves = leaves.filter((item) => String(item.status || "").toLowerCase() === "pending");
     const approvedLeaves = leaves.filter((item) => {
       const status = String(item.status || "").toLowerCase();
@@ -1344,6 +1947,32 @@ export default function App() {
             <Text style={styles.metricValue}>{pendingLeaves.length}</Text>
             <Text style={styles.muted}>Manager action required.</Text>
           </View>
+        </View>
+
+        <View style={styles.formCard}>
+          <View style={styles.cardHeaderRow}>
+            <View>
+              <Text style={styles.cardLabel}>My attendance</Text>
+              <Text style={styles.cardTitle}>{viewerStaff ? fieldText(viewerStaff, ["name"]) : "Staff profile not linked"}</Text>
+            </View>
+            <Text style={styles.statusPill}>{fieldText(viewerAttendance || {}, ["status"]) || "Not marked"}</Text>
+          </View>
+          <Text style={styles.bodyText}>Today: {today} - In {fieldText(viewerAttendance || {}, ["check_in", "time_in"]) || "Not set"} - Out {fieldText(viewerAttendance || {}, ["check_out", "time_out"]) || "Not set"}</Text>
+          {!!attendanceLocationText(viewerAttendance?.check_in_location) && (
+            <Text style={styles.muted}>Check-in location: {attendanceLocationText(viewerAttendance?.check_in_location)}</Text>
+          )}
+          {!!attendanceLocationText(viewerAttendance?.check_out_location) && (
+            <Text style={styles.muted}>Check-out location: {attendanceLocationText(viewerAttendance?.check_out_location)}</Text>
+          )}
+          <View style={styles.inlineActions}>
+            <Pressable style={styles.primaryButton} onPress={() => markSelfAttendance("check_in")} disabled={loading || !viewerStaff}>
+              <Text style={styles.primaryButtonText}>Check in</Text>
+            </Pressable>
+            <Pressable style={styles.secondaryButton} onPress={() => markSelfAttendance("check_out")} disabled={loading || !viewerStaff}>
+              <Text style={styles.secondaryButtonText}>Check out</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.muted}>Location is captured from the staff member's browser when they check in or out.</Text>
         </View>
 
         <View style={styles.formCard}>
@@ -1397,7 +2026,7 @@ export default function App() {
                   <Pressable style={styles.smallButton} onPress={() => selectStaffForAttendance(person)}>
                     <Text style={styles.smallButtonText}>Select</Text>
                   </Pressable>
-                  {["present", "absent", "half-day", "leave"].map((statusOption) => (
+                  {canManageAttendance && ["present", "absent", "half-day", "leave"].map((statusOption) => (
                     <Pressable key={`${personId}-${statusOption}`} style={styles.smallButton} onPress={() => markQuickAttendance(person, statusOption)} disabled={loading}>
                       <Text style={styles.smallButtonText}>{statusOption}</Text>
                     </Pressable>
@@ -1414,7 +2043,7 @@ export default function App() {
           </View>
         )}
 
-        <View style={styles.formGrid}>
+        {canManageAttendance && <View style={styles.formGrid}>
           <View style={styles.formCard}>
             <Text style={styles.cardLabel}>Attendance console</Text>
             <Text style={styles.cardTitle}>{selectedPerson ? fieldText(selectedPerson, ["name"]) : "Select a staff member"}</Text>
@@ -1480,7 +2109,7 @@ export default function App() {
               <Text style={styles.primaryButtonText}>Submit leave request</Text>
             </Pressable>
           </View>
-        </View>
+        </View>}
 
         <Text style={styles.sectionTitle}>Leave Approval Queue</Text>
         {!pendingLeaves.length && (
@@ -1526,6 +2155,8 @@ export default function App() {
             </View>
             <Text style={styles.muted}>{fieldText(item, ["date"])} - {fieldText(item, ["department"])}</Text>
             <Text style={styles.bodyText}>In {fieldText(item, ["check_in", "time_in"]) || "Not set"} - Out {fieldText(item, ["check_out", "time_out"]) || "Not set"}</Text>
+            {!!attendanceLocationText(item.check_in_location) && <Text style={styles.muted}>Check-in location: {attendanceLocationText(item.check_in_location)}</Text>}
+            {!!attendanceLocationText(item.check_out_location) && <Text style={styles.muted}>Check-out location: {attendanceLocationText(item.check_out_location)}</Text>}
             {!!fieldText(item, ["notes"]) && <Text style={styles.bodyText}>{fieldText(item, ["notes"])}</Text>}
           </View>
         ))}
@@ -1649,6 +2280,22 @@ export default function App() {
     setSiteVisitEditorOpen(true);
   }
 
+  function openSiteVisitForCrmOption(customer: { id: string; name: string; phone?: string; source_inquiry_id?: string }) {
+    const existing = (data?.site_visits || []).find((visit) => String(visit.customer_id || "") === String(customer.id || ""));
+    setSiteVisitDraft({
+      ...emptySiteVisit,
+      ...existing,
+      customer_id: customer.id,
+      customer_name: customer.name,
+      site_person_name: existing?.site_person_name || customer.name,
+      site_person_mobile: existing?.site_person_mobile || customer.phone || "",
+      site_enquiry_no: existing?.site_enquiry_no || customer.source_inquiry_id || "",
+      site_visit_date: existing?.site_visit_date || new Date().toISOString().slice(0, 10),
+      visited_by: existing?.visited_by || data?.viewer?.display_name || username,
+    });
+    setSiteVisitEditorOpen(true);
+  }
+
   function openSiteVisitForInquiry(record: Record<string, unknown>) {
     const customerId = String(record.customer_id || record.id || record.enquiry_no || "");
     const enquiryNo = String(record.enquiry_no || record.source_enquiry_no || "");
@@ -1664,6 +2311,90 @@ export default function App() {
       site_enquiry_no: String(existing?.site_enquiry_no || enquiryNo),
     });
     setSiteVisitEditorOpen(true);
+  }
+
+  function renderSiteVisitEditorModal() {
+    return (
+      <Modal visible={siteVisitEditorOpen} transparent animationType="fade" onRequestClose={() => setSiteVisitEditorOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.cardLabel}>{siteVisitDraft.id ? "Edit site visit report" : "Create site visit report"}</Text>
+                <Text style={styles.muted}>Customer ID: {String(siteVisitDraft.customer_id || "-")}</Text>
+              </View>
+              <Pressable style={styles.secondaryButton} onPress={() => setSiteVisitEditorOpen(false)} disabled={loading}>
+                <Text style={styles.secondaryButtonText}>Close</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+              <View style={styles.field}>
+                <Text style={styles.label}>Assigned customer ID</Text>
+                <TextInput
+                  style={styles.input}
+                  value={String(siteVisitDraft.customer_id || "")}
+                  editable={false}
+                  placeholder="Select a CRM customer"
+                />
+              </View>
+              <View style={styles.formGrid}>
+                {siteVisitFields.map((field) => (
+                  <View key={`site-modal-${String(field.key)}`} style={styles.field}>
+                    <Text style={styles.label}>{field.label}</Text>
+                    <TextInput
+                      style={[styles.input, field.multiline && styles.textarea]}
+                      value={String(siteVisitDraft[field.key] || "")}
+                      onChangeText={(value) => updateSiteVisitField(field.key, value)}
+                      keyboardType={field.keyboard || "default"}
+                      multiline={field.multiline}
+                    />
+                  </View>
+                ))}
+              </View>
+              <View style={styles.openingSchedulePanel}>
+                <View style={styles.sectionHeaderRow}>
+                  <View>
+                    <Text style={styles.sectionTitle}>Opening size by floor</Text>
+                    <Text style={styles.muted}>Enter each opening after setting stops/openings. Floor, FF height, and lintel height are saved with this site report.</Text>
+                  </View>
+                  <Text style={styles.statusPill}>{ensureOpeningSchedule(siteVisitDraft, desiredOpeningCount(siteVisitDraft)).length} openings</Text>
+                </View>
+                {ensureOpeningSchedule(siteVisitDraft, desiredOpeningCount(siteVisitDraft)).length ? (
+                  ensureOpeningSchedule(siteVisitDraft, desiredOpeningCount(siteVisitDraft)).map((row, index) => (
+                    <View key={`opening-schedule-${index}`} style={styles.openingScheduleRow}>
+                      <View style={styles.openingScheduleField}>
+                        <Text style={styles.label}>Floor</Text>
+                        <TextInput style={styles.input} value={row.floor} onChangeText={(value) => updateOpeningScheduleRow(index, "floor", value)} />
+                      </View>
+                      <View style={styles.openingScheduleField}>
+                        <Text style={styles.label}>FF height mm</Text>
+                        <TextInput style={styles.input} value={row.ff_height_mm} onChangeText={(value) => updateOpeningScheduleRow(index, "ff_height_mm", value)} keyboardType="numeric" />
+                      </View>
+                      <View style={styles.openingScheduleField}>
+                        <Text style={styles.label}>Lintel height mm</Text>
+                        <TextInput style={styles.input} value={row.lintel_height_mm} onChangeText={(value) => updateOpeningScheduleRow(index, "lintel_height_mm", value)} keyboardType="numeric" />
+                      </View>
+                    </View>
+                  ))
+                ) : (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.muted}>Enter how many stops or openings to create floor opening rows.</Text>
+                  </View>
+                )}
+              </View>
+            </ScrollView>
+            <View style={styles.modalActions}>
+              <Pressable style={styles.secondaryButton} onPress={() => setSiteVisitEditorOpen(false)} disabled={loading}>
+                <Text style={styles.secondaryButtonText}>Cancel</Text>
+              </Pressable>
+              <Pressable style={styles.primaryButtonInline} onPress={saveSiteVisit} disabled={loading || !siteVisitDraft.customer_id}>
+                <Text style={styles.primaryButtonText}>{siteVisitDraft.id ? "Update site visit report" : "Save site visit report"}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
   }
 
   function openCostingForCustomer(customer: Customer) {
@@ -2030,7 +2761,7 @@ export default function App() {
                   <Text style={styles.cardTitle}>{String(item.customer || item.lead_name || item.name || "-")}</Text>
                   <Text style={styles.muted}>Customer ID: {String(item.customer_id || "-")} - {String(item.enquiry_no || item.source_enquiry_no || id)} - {String(item.lead_type || item.leadtype || "New")} - Qty {String(item.qty || 1)}</Text>
                 </View>
-                <Text style={[styles.statusPill, { color: salesInquiryStatusTone(costingStatus === "No costing" ? status : costingStatus) }]}>{costingStatus}</Text>
+                <Text style={[styles.statusPill, { color: salesInquiryStatusTone(status) }]}>{status}</Text>
               </View>
               {isEditing ? (
                 <View style={styles.inlineRecordEditor}>
@@ -2045,8 +2776,40 @@ export default function App() {
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>Lead status</Text>
-                      <TextInput style={styles.input} value={salesInquiryDraft.lead_status} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, lead_status: value }))} />
+                      <View style={styles.statusSelectorPanel}>
+                        <View style={styles.sectionHeaderRow}>
+                          <Text style={[styles.statusPill, { color: salesInquiryStatusTone(salesInquiryDraft.lead_status) }]}>{salesInquiryDraft.lead_status}</Text>
+                        </View>
+                        <View style={styles.statusChoiceGrid}>
+                          {inquiryLifecycleStatuses.map((statusOption) => (
+                            <Pressable
+                              key={`edit-${id}-${statusOption}`}
+                              style={[styles.statusChoice, salesInquiryDraft.lead_status === statusOption && styles.statusChoiceActive]}
+                              onPress={() => setSalesInquiryDraft((draft) => ({
+                                ...draft,
+                                lead_status: statusOption,
+                                ...(isLostInquiryStatus(statusOption) ? {} : { lost_reason: "" }),
+                              }))}
+                              disabled={loading}
+                            >
+                              <Text style={[styles.statusChoiceText, salesInquiryDraft.lead_status === statusOption && styles.statusChoiceTextActive]}>{statusOption}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      </View>
                     </View>
+                    {isLostInquiryStatus(salesInquiryDraft.lead_status) ? (
+                      <View style={styles.field}>
+                        <Text style={styles.label}>Lost reason required</Text>
+                        <TextInput
+                          style={[styles.input, styles.textarea]}
+                          value={salesInquiryDraft.lost_reason}
+                          onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, lost_reason: value }))}
+                          multiline
+                          placeholder="Why was this enquiry/order/site visit/offer lost?"
+                        />
+                      </View>
+                    ) : null}
                     <View style={styles.field}>
                       <Text style={styles.label}>Lead type</Text>
                       <TextInput style={styles.input} value={salesInquiryDraft.lead_type} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, lead_type: value }))} />
@@ -2126,6 +2889,7 @@ export default function App() {
                   <Text style={styles.bodyText}>Referral: {String(item.referral_by || "-")} - Created by: {String(item.createdbyname || "-")} - Last modified by: {String(item.lastmodifiedbyname || "-")}</Text>
                   <Text style={styles.bodyText}>Follow-up: {followupDate(item) || "-"} - {String(item.followup_channel || "WhatsApp")} - Every {followupFrequency(item)}d - {String(item.followup_status || "Open")}</Text>
                   <Text style={styles.bodyText}>Costing: {latestEstimate ? `${String(latestEstimate.job_no || latestEstimate.id || "-")} - ${String(latestEstimate.offer_type || latestEstimate.elevator_type || "-")} - ${String(latestEstimate.offer_date || latestEstimate.created_at || "-")} - ${formatMoney(Number(latestEstimate.total_cost || 0))}` : "No costing estimate yet"}</Text>
+                  {isLostInquiryStatus(status) && !!(item.lost_reason || item.status_lost_reason) ? <Text style={styles.muted}>Lost reason: {String(item.lost_reason || item.status_lost_reason)}</Text> : null}
                   {!!(item.requirement || item.enquiry_remark || item.notes) && <Text style={styles.muted}>{String(item.requirement || item.enquiry_remark || item.notes)}</Text>}
                   <View style={styles.inlineActions}>
                     <Pressable style={styles.smallButton} onPress={() => editSalesInquiry(item)} disabled={loading}>
@@ -2134,11 +2898,6 @@ export default function App() {
                     <Pressable style={styles.smallButton} onPress={() => markFollowedUp(item)} disabled={loading}>
                       <Text style={styles.smallButtonText}>Followed up</Text>
                     </Pressable>
-                    {[3, 7, 14, 30].map((days) => (
-                      <Pressable key={`${id}-followup-${days}`} style={styles.smallButton} onPress={() => scheduleFollowUp(item, days)} disabled={loading}>
-                        <Text style={styles.smallButtonText}>+{days}d</Text>
-                      </Pressable>
-                    ))}
                     <Pressable style={styles.smallButton} onPress={() => openSiteVisitForInquiry(item)} disabled={loading}>
                       <Text style={styles.smallButtonText}>{existingSiteVisit ? "Edit site visit" : "Site Visit"}</Text>
                     </Pressable>
@@ -2151,9 +2910,6 @@ export default function App() {
                       disabled={loading}
                     >
                       <Text style={styles.smallButtonText}>{existingSiteVisit ? "Edit site visit" : "Start site visit"}</Text>
-                    </Pressable>
-                    <Pressable style={styles.smallButton} onPress={() => updateSalesInquiry(item, { lead_status: "Lost", status: "Lost" })} disabled={loading}>
-                      <Text style={styles.smallButtonText}>Lost</Text>
                     </Pressable>
                     <Pressable style={styles.dangerButton} onPress={() => deleteSalesInquiry(item)} disabled={loading}>
                       <Text style={styles.dangerButtonText}>Remove</Text>
@@ -2211,6 +2967,79 @@ export default function App() {
                   <Text style={styles.label}>Costing notes</Text>
                   <TextInput style={[styles.input, styles.textarea]} value={offerDraft.notes} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, notes: value }))} multiline />
                 </View>
+                <View style={styles.costingSourcePanel}>
+                  <View style={styles.sectionHeaderRow}>
+                    <View>
+                      <Text style={styles.sectionTitle}>Complete .xlsx costing data</Text>
+                      <Text style={styles.muted}>All extracted source values are shown step by step as normal app data. This is not an upload/import control.</Text>
+                    </View>
+                    <Pressable style={styles.smallButton} onPress={loadCostingSourceData} disabled={loading || costingSourcesLoading}>
+                      <Text style={styles.smallButtonText}>{costingSourcesLoading ? "Loading..." : "Refresh source data"}</Text>
+                    </Pressable>
+                  </View>
+                  {selectedCostingSource ? (
+                    <>
+                      <View style={styles.costingStepper}>
+                        <Pressable
+                          style={styles.smallButton}
+                          onPress={() => setCostingSourceIndex((index) => Math.max(0, index - 1))}
+                          disabled={costingSourceIndex <= 0}
+                        >
+                          <Text style={styles.smallButtonText}>Previous source</Text>
+                        </Pressable>
+                        <View style={styles.costingStepMeta}>
+                          <Text style={styles.cardTitle}>{selectedCostingSource.source_file}</Text>
+                          <Text style={styles.muted}>
+                            Source {costingSourceIndex + 1} of {costingSources.length} - {selectedCostingSource.variant} - {selectedCostingSource.non_empty_cell_count} values
+                          </Text>
+                        </View>
+                        <Pressable
+                          style={styles.smallButton}
+                          onPress={() => setCostingSourceIndex((index) => Math.min(costingSources.length - 1, index + 1))}
+                          disabled={costingSourceIndex >= costingSources.length - 1}
+                        >
+                          <Text style={styles.smallButtonText}>Next source</Text>
+                        </Pressable>
+                      </View>
+                      <View style={styles.costingStepper}>
+                        <Pressable
+                          style={styles.smallButton}
+                          onPress={() => setCostingCellStep((step) => Math.max(0, step - 1))}
+                          disabled={costingCellStep <= 0}
+                        >
+                          <Text style={styles.smallButtonText}>Previous data step</Text>
+                        </Pressable>
+                        <Text style={styles.statusPill}>Data step {Math.min(costingCellStep + 1, Math.max(costingCellChunks.length, 1))} of {Math.max(costingCellChunks.length, 1)}</Text>
+                        <Pressable
+                          style={styles.smallButton}
+                          onPress={() => setCostingCellStep((step) => Math.min(costingCellChunks.length - 1, step + 1))}
+                          disabled={costingCellStep >= costingCellChunks.length - 1}
+                        >
+                          <Text style={styles.smallButtonText}>Next data step</Text>
+                        </Pressable>
+                        <Pressable style={styles.primaryButtonInline} onPress={attachSelectedCostingSource} disabled={loading}>
+                          <Text style={styles.primaryButtonText}>Attach all source data</Text>
+                        </Pressable>
+                      </View>
+                      <View style={styles.costingCellList}>
+                        {visibleCostingCells.map((cell, index) => (
+                          <View key={`${selectedCostingSource.source_file}-${cell.sheet}-${cell.cell}-${index}`} style={styles.costingCellRow}>
+                            <Text style={styles.costingCellRef}>{cell.sheet}!{cell.cell}</Text>
+                            <Text style={styles.costingCellValue}>{String(cell.value ?? "")}</Text>
+                            {cell.formula ? <Text style={styles.costingCellFormula}>Formula: {cell.formula}</Text> : null}
+                          </View>
+                        ))}
+                      </View>
+                      <Text style={styles.muted}>
+                        Attached source: {offerDraft.costing_source_file || "none yet"}. Saving will store the selected source's complete extracted data with this costing.
+                      </Text>
+                    </>
+                  ) : (
+                    <View style={styles.emptyState}>
+                      <Text style={styles.muted}>{costingSourcesLoading ? "Loading source values..." : "No costing source data loaded yet."}</Text>
+                    </View>
+                  )}
+                </View>
               </ScrollView>
               <View style={styles.modalActions}>
                 <Pressable style={styles.secondaryButton} onPress={() => setCostingEditorOpen(false)} disabled={loading}>
@@ -2253,12 +3082,43 @@ export default function App() {
                       <TextInput
                         style={[styles.input, field.multiline && styles.textarea]}
                         value={String(siteVisitDraft[field.key] || "")}
-                        onChangeText={(value) => setSiteVisitDraft((draft) => ({ ...draft, [field.key]: value }))}
+                        onChangeText={(value) => updateSiteVisitField(field.key, value)}
                         keyboardType={field.keyboard || "default"}
                         multiline={field.multiline}
                       />
                     </View>
                   ))}
+                </View>
+                <View style={styles.openingSchedulePanel}>
+                  <View style={styles.sectionHeaderRow}>
+                    <View>
+                      <Text style={styles.sectionTitle}>Opening size by floor</Text>
+                      <Text style={styles.muted}>Enter each opening after setting stops/openings. Floor, FF height, and lintel height are saved with this site report.</Text>
+                    </View>
+                    <Text style={styles.statusPill}>{ensureOpeningSchedule(siteVisitDraft, desiredOpeningCount(siteVisitDraft)).length} openings</Text>
+                  </View>
+                  {ensureOpeningSchedule(siteVisitDraft, desiredOpeningCount(siteVisitDraft)).length ? (
+                    ensureOpeningSchedule(siteVisitDraft, desiredOpeningCount(siteVisitDraft)).map((row, index) => (
+                      <View key={`opening-schedule-${index}`} style={styles.openingScheduleRow}>
+                        <View style={styles.openingScheduleField}>
+                          <Text style={styles.label}>Floor</Text>
+                          <TextInput style={styles.input} value={row.floor} onChangeText={(value) => updateOpeningScheduleRow(index, "floor", value)} />
+                        </View>
+                        <View style={styles.openingScheduleField}>
+                          <Text style={styles.label}>FF height mm</Text>
+                          <TextInput style={styles.input} value={row.ff_height_mm} onChangeText={(value) => updateOpeningScheduleRow(index, "ff_height_mm", value)} keyboardType="numeric" />
+                        </View>
+                        <View style={styles.openingScheduleField}>
+                          <Text style={styles.label}>Lintel height mm</Text>
+                          <TextInput style={styles.input} value={row.lintel_height_mm} onChangeText={(value) => updateOpeningScheduleRow(index, "lintel_height_mm", value)} keyboardType="numeric" />
+                        </View>
+                      </View>
+                    ))
+                  ) : (
+                    <View style={styles.emptyState}>
+                      <Text style={styles.muted}>Enter how many stops or openings to create floor opening rows.</Text>
+                    </View>
+                  )}
                 </View>
               </ScrollView>
               <View style={styles.modalActions}>
@@ -2281,8 +3141,130 @@ export default function App() {
             <Text style={styles.bodyText}>Site: {visit.site_person_name || "Not set"} - {visit.site_person_mobile || "No mobile"}</Text>
             <Text style={styles.bodyText}>Pit {visit.pit_size_mm || "-"} mm - Machine room {visit.machine_room_available || "N"}</Text>
             <Text style={styles.bodyText}>Offer {visit.site_offer_type || "-"} - Stops {visit.site_stops || "-"}</Text>
+            {Array.isArray(visit.opening_schedule) && visit.opening_schedule.length ? (
+              <Text style={styles.muted}>
+                Openings: {visit.opening_schedule.map((row) => `${row.floor || "-"} FF ${row.ff_height_mm || "-"} / Lintel ${row.lintel_height_mm || "-"}`).join("; ")}
+              </Text>
+            ) : null}
           </View>
         ))}
+      </View>
+    );
+  }
+
+  function renderSiteVisitReportsPage() {
+    const customerOptions = crmCustomerOptions();
+    const query = siteVisitCustomerSearch.trim().toLowerCase();
+    const matchingCustomers = customerOptions.filter((customer) => (
+      !query || `${customer.id} ${customer.name} ${customer.phone} ${customer.source_inquiry_id}`.toLowerCase().includes(query)
+    ));
+    const siteVisits = [...(data?.site_visits || [])].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
+    const myName = String(data?.viewer?.display_name || username || "");
+    const myUsername = String(data?.viewer?.username || username || "");
+    const myVisits = siteVisits.filter((visit) => (
+      String(visit.submitted_by_username || visit.updated_by_username || "").toLowerCase() === myUsername.toLowerCase()
+      || String(visit.visited_by || "").toLowerCase() === myName.toLowerCase()
+    ));
+    return (
+      <View>
+        <View style={styles.moduleHero}>
+          <Text style={styles.eyebrow}>Field Site Visit</Text>
+          <Text style={styles.moduleHeroTitle}>Site Visit Notes</Text>
+          <Text style={styles.moduleHeroText}>Staff can record site visit details against a CRM customer. Admin sees these same saved reports in the portal.</Text>
+        </View>
+
+        <View style={styles.metricGrid}>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Saved reports</Text>
+            <Text style={styles.metricValue}>{siteVisits.length}</Text>
+            <Text style={styles.muted}>All site visit notes saved in CRM.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>My visits</Text>
+            <Text style={styles.metricValue}>{myVisits.length}</Text>
+            <Text style={styles.muted}>Submitted or updated by this login.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>CRM choices</Text>
+            <Text style={styles.metricValue}>{customerOptions.length}</Text>
+            <Text style={styles.muted}>Customers and enquiries available for linking.</Text>
+          </View>
+        </View>
+
+        <View style={styles.formCard}>
+          <View style={styles.cardHeaderRow}>
+            <View>
+              <Text style={styles.cardLabel}>Add / update site visit notes</Text>
+              <Text style={styles.cardTitle}>Select CRM customer</Text>
+            </View>
+            <Text style={styles.statusPill}>{matchingCustomers.length} matches</Text>
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Search customer</Text>
+            <TextInput
+              style={styles.input}
+              value={siteVisitCustomerSearch}
+              onChangeText={setSiteVisitCustomerSearch}
+              placeholder="Customer name, number, phone, enquiry"
+            />
+          </View>
+          <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+            {matchingCustomers.slice(0, 60).map((customer) => {
+              const existing = siteVisits.find((visit) => String(visit.customer_id || "") === customer.id);
+              return (
+                <Pressable key={`site-visit-customer-${customer.id}`} style={styles.dropdownOption} onPress={() => openSiteVisitForCrmOption(customer)} disabled={loading}>
+                  <View style={styles.cardHeaderRow}>
+                    <View style={styles.cardTitleBlock}>
+                      <Text style={styles.selectorText}>{customer.id} - {customer.name}</Text>
+                      <Text style={styles.muted}>Phone: {customer.phone || "-"}{customer.source_inquiry_id ? ` - Enquiry: ${customer.source_inquiry_id}` : ""}</Text>
+                    </View>
+                    <Text style={styles.statusPill}>{existing ? "Edit notes" : "Start visit"}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+          {!matchingCustomers.length && (
+            <View style={styles.emptyState}>
+              <Text style={styles.muted}>No CRM customers found for that search.</Text>
+            </View>
+          )}
+        </View>
+
+        {renderSiteVisitEditorModal()}
+
+        <Text style={styles.sectionTitle}>Saved Site Visits</Text>
+        {siteVisits.map((visit) => (
+          <View key={visit.id} style={styles.card}>
+            <View style={styles.cardHeaderRow}>
+              <View style={styles.cardTitleBlock}>
+                <Text style={styles.cardTitle}>{visit.id} - {visit.customer_name || visit.customer_id}</Text>
+                <Text style={styles.muted}>{visit.customer_id} - {visit.address || "No address"}</Text>
+              </View>
+              <Text style={styles.statusPill}>{visit.site_visit_date || "No date"}</Text>
+            </View>
+            <Text style={styles.bodyText}>Staff: {visit.visited_by || visit.submitted_by || "Not set"}{visit.submitted_by_department ? ` - ${visit.submitted_by_department}` : ""}</Text>
+            <Text style={styles.bodyText}>Site: {visit.site_person_name || "Not set"} - {visit.site_person_mobile || "No mobile"}</Text>
+            <Text style={styles.bodyText}>Pit {visit.pit_size_mm || "-"} mm - Machine room {visit.machine_room_available || "N"} - Stops {visit.site_stops || "-"}</Text>
+            {Array.isArray(visit.opening_schedule) && visit.opening_schedule.length ? (
+              <Text style={styles.muted}>
+                Openings: {visit.opening_schedule.map((row) => `${row.floor || "-"} FF ${row.ff_height_mm || "-"} / Lintel ${row.lintel_height_mm || "-"}`).join("; ")}
+              </Text>
+            ) : null}
+            {!!visit.notes && <Text style={styles.bodyText}>{visit.notes}</Text>}
+            <View style={styles.inlineActions}>
+              <Pressable style={styles.smallButton} onPress={() => openSiteVisitForCrmOption({ id: String(visit.customer_id || ""), name: String(visit.customer_name || visit.customer_id || ""), phone: String(visit.site_person_mobile || ""), source_inquiry_id: String(visit.site_enquiry_no || "") })} disabled={loading}>
+                <Text style={styles.smallButtonText}>Edit notes</Text>
+              </Pressable>
+            </View>
+          </View>
+        ))}
+        {!siteVisits.length && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>No site visits saved</Text>
+            <Text style={styles.muted}>Select a CRM customer above to submit the first site visit notes.</Text>
+          </View>
+        )}
       </View>
     );
   }
@@ -2310,6 +3292,7 @@ export default function App() {
         {isAdmin && (
           <View style={styles.formCard}>
             <Text style={styles.cardLabel}>{accountDraft.id ? "Edit account" : "Create account"}</Text>
+            <Text style={styles.muted}>All staff portal accounts use the shared portal password. Usernames remain unique and clickable for account editing.</Text>
             {[
               ["username", "Username"],
               ["display_name", "Display name"],
@@ -2357,7 +3340,7 @@ export default function App() {
                     display_name: String(person.name || ""),
                     department: String(person.department || ""),
                     role: String(person.department || "").toLowerCase() === "executive office" ? "admin" : "manager",
-                    password: "ChangeMe123!",
+                    password: sharedPortalPassword,
                     active: "Y",
                   })}
                 >
@@ -2375,7 +3358,12 @@ export default function App() {
               <Text style={styles.cardTitle}>{fieldText(user, ["display_name", "username"])}</Text>
               <Text style={styles.statusPill}>{String(user.active) === "false" ? "Inactive" : "Active"}</Text>
             </View>
-            <Text style={styles.muted}>{fieldText(user, ["username"])} - {fieldText(user, ["department"])} - {fieldText(user, ["role"])}</Text>
+            <View style={styles.inlineMeta}>
+              <Pressable onPress={() => isAdmin && editAccount(user)} disabled={!isAdmin || loading}>
+                <Text style={styles.clickableUsername}>{fieldText(user, ["username"])}</Text>
+              </Pressable>
+              <Text style={styles.muted}>- {fieldText(user, ["department"])} - {fieldText(user, ["role"])}</Text>
+            </View>
             <Text style={styles.bodyText}>Linked org node: {fieldText(user, ["linked_org_node", "linked_team_member"])}</Text>
             <Text style={styles.bodyText}>Password change required: {String(user.must_change_password || false)}</Text>
             {isAdmin && (
@@ -2383,8 +3371,8 @@ export default function App() {
                 <Pressable style={styles.smallButton} onPress={() => editAccount(user)} disabled={loading}>
                   <Text style={styles.smallButtonText}>Edit</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateAccount(String(user.id), { password: "ChangeMe123!" })} disabled={loading}>
-                  <Text style={styles.smallButtonText}>Reset password</Text>
+                <Pressable style={styles.smallButton} onPress={() => updateAccount(String(user.id), { password: sharedPortalPassword })} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Reset shared password</Text>
                 </Pressable>
                 <Pressable style={styles.smallButton} onPress={() => updateAccount(String(user.id), { active: String(user.active) === "false" ? true : false })} disabled={loading}>
                   <Text style={styles.smallButtonText}>{String(user.active) === "false" ? "Activate" : "Deactivate"}</Text>
@@ -2872,6 +3860,8 @@ export default function App() {
         return renderInventoryPage();
       case "orgchart":
         return renderStaffManagementPage();
+      case "siteVisits":
+        return renderSiteVisitReportsPage();
       case "sales":
         return renderCustomerCrmPage();
       case "installation_dept":
@@ -2879,7 +3869,7 @@ export default function App() {
       case "breakdown":
         return renderBreakdownPage();
       case "service":
-        return renderFeaturePage("Service", "Service records, technician updates, and customer comments.", asRecords((data as Record<string, unknown> | null)?.service_records), ["job_number", "id"], [["customer"], ["status"], ["technician"]]);
+        return renderServicePage();
       case "gad":
         return renderFeaturePage("GAD Drawings", "Drawing submissions, revisions, and approval workflow.", asRecords((data as Record<string, unknown> | null)?.gad_records), ["drawing_no", "id"], [["customer"], ["status"], ["unit"]]);
       case "finance":
@@ -2902,6 +3892,23 @@ export default function App() {
   async function loadPortal(nextToken = token) {
     const portalData = await apiFetch<PortalData>("/api/portal/data", { token: nextToken });
     setData(portalData);
+  }
+
+  async function syncDiscordBreakdowns() {
+    setLoading(true);
+    try {
+      const result = await apiFetch<{ imported?: number; message?: string }>("/api/portal/breakdown/sync-discord", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ force: true, limit: 50 }),
+      });
+      await loadPortal();
+      setMessage(result.imported ? `Synced ${result.imported} Discord breakdown update${result.imported === 1 ? "" : "s"}.` : "Discord breakdown channel is already synced.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Discord breakdown sync failed.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   function storeSession(nextToken: string) {
@@ -2972,10 +3979,18 @@ export default function App() {
     setLoading(true);
     try {
       const siteVisitId = String(siteVisitDraft.id || "");
+      const viewer = data?.viewer || {};
       await apiFetch(siteVisitId ? `/api/portal/site-visits/${encodeURIComponent(siteVisitId)}` : "/api/portal/site-visits", {
         method: siteVisitId ? "PATCH" : "POST",
         token,
-        body: JSON.stringify(siteVisitDraft),
+        body: JSON.stringify({
+          ...siteVisitDraft,
+          visited_by: siteVisitDraft.visited_by || viewer.display_name || username,
+          submitted_by: viewer.display_name || username,
+          submitted_by_username: viewer.username || username,
+          submitted_by_department: viewer.department || "",
+          submitted_by_staff_id: viewer.linked_org_node || viewer.linked_team_member || "",
+        }),
       });
       setSiteVisitDraft(emptySiteVisit);
       setSiteVisitEditorOpen(false);
@@ -3005,6 +4020,10 @@ export default function App() {
     };
     if (config.customerKey) payload[config.customerKey] = moduleDraft.customer;
     if (moduleDraft.customer_id) payload.customer_id = moduleDraft.customer_id;
+    if (config.route === "/api/portal/service" && moduleDraft.customer_id) {
+      const selectedCustomer = crmCustomerOptions().find((customer) => customer.id === moduleDraft.customer_id);
+      if (selectedCustomer?.source_inquiry_id) payload.source_inquiry_id = selectedCustomer.source_inquiry_id;
+    }
     if (config.notesKey) payload[config.notesKey] = moduleDraft.notes;
     setLoading(true);
     try {
@@ -3140,13 +4159,23 @@ export default function App() {
       Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
       return;
     }
+    if (isLostInquiryStatus(salesInquiryDraft.lead_status) && !salesInquiryDraft.lost_reason.trim()) {
+      const text = "Lost reason is required for lost statuses.";
+      Platform.OS === "web" ? setMessage(text) : Alert.alert("Lost reason required", text);
+      return;
+    }
     setLoading(true);
     try {
       const id = salesInquiryDraft.id || "";
       await apiFetch(id ? `/api/portal/sales/inquiries/${encodeURIComponent(id)}` : "/api/portal/sales/inquiries", {
         method: id ? "PATCH" : "POST",
         token,
-        body: JSON.stringify(salesInquiryDraft),
+        body: JSON.stringify({
+          ...salesInquiryDraft,
+          status: salesInquiryDraft.lead_status,
+          status_lost_reason: isLostInquiryStatus(salesInquiryDraft.lead_status) ? salesInquiryDraft.lost_reason : "",
+          lost_reason: isLostInquiryStatus(salesInquiryDraft.lead_status) ? salesInquiryDraft.lost_reason : "",
+        }),
       });
       setSalesInquiryDraft(emptySalesInquiryDraft);
       await loadPortal();
@@ -3183,6 +4212,7 @@ export default function App() {
       followup_frequency_days: String(record.followup_frequency_days || "7"),
       followup_status: String(record.followup_status || "Open"),
       last_followup: String(record.last_followup || ""),
+      lost_reason: String(record.lost_reason || record.status_lost_reason || ""),
       notes: String(record.notes || ""),
     });
     setSiteVisitDraft((draft) => ({ ...draft, customer_id: customerId, site_enquiry_no: enquiryNo || draft.site_enquiry_no }));
@@ -3473,7 +4503,7 @@ export default function App() {
         await apiFetch("/api/portal/users", {
           method: "POST",
           token,
-          body: JSON.stringify({ ...payload, password: accountDraft.password || "ChangeMe123!" }),
+          body: JSON.stringify({ ...payload, password: accountDraft.password || sharedPortalPassword }),
         });
       }
       setAccountDraft(emptyAccountDraft);
@@ -3657,7 +4687,11 @@ export default function App() {
       await apiFetch("/api/portal/breakdown", {
         method: "POST",
         token,
-        body: JSON.stringify({ ...breakdownDraft, assigned_to: breakdownDraft.engineer, status: "Open" }),
+        body: JSON.stringify({
+          ...breakdownDraft,
+          assigned_to: breakdownDraft.engineer,
+          status: breakdownDraft.engineer && breakdownDraft.scheduled_at ? "Scheduled" : "Open",
+        }),
       });
       setBreakdownDraft(emptyBreakdownDraft);
       await loadPortal();
@@ -3675,12 +4709,87 @@ export default function App() {
       await apiFetch(`/api/portal/breakdown/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
-        body: JSON.stringify({ status, ...(staffName ? { engineer: staffName, assigned_to: staffName } : {}) }),
+        body: JSON.stringify({ status, ...(staffName ? { engineer: staffName, assigned_to: staffName, assignment_source: "manual" } : {}) }),
       });
       await loadPortal();
       setMessage(staffName ? `Breakdown assigned to ${staffName}.` : `Breakdown marked ${status}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Breakdown could not be updated.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function scheduleBreakdownEngineer(id: string, member: Record<string, unknown>, scheduledAt: string) {
+    const engineerName = String(member.name || "").trim();
+    if (!engineerName) return;
+    setLoading(true);
+    try {
+      await apiFetch(`/api/portal/breakdown/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({
+          status: "Scheduled",
+          engineer: engineerName,
+          assigned_to: engineerName,
+          assignment_source: "manual",
+          scheduled_at: scheduledAt,
+        }),
+      });
+      const teamMember = asRecords(data?.install_team).find((item) => String(item.name || "").trim().toLowerCase() === engineerName.toLowerCase());
+      const teamMemberId = teamMember ? recordIdentity(teamMember) : "";
+      if (teamMemberId) {
+        await apiFetch(`/api/portal/install-team/${encodeURIComponent(teamMemberId)}`, {
+          method: "PATCH",
+          token,
+          body: JSON.stringify({
+            availability: "Scheduled",
+            current_job: id,
+            next_available_at: scheduledAt,
+          }),
+        });
+      }
+      setBreakdownScheduleDrafts((draft) => {
+        const next = { ...draft };
+        delete next[id];
+        return next;
+      });
+      await loadPortal();
+      setMessage(`${engineerName} scheduled for breakdown ${id} at ${scheduledAt}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Engineer could not be scheduled.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function updateBreakdownEngineerTask(member: Record<string, unknown>, task: string) {
+    const engineerName = String(member.name || "").trim();
+    const teamMember = asRecords(data?.install_team).find((item) => String(item.name || "").trim().toLowerCase() === engineerName.toLowerCase());
+    const teamMemberId = teamMember ? recordIdentity(teamMember) : "";
+    if (!teamMemberId) {
+      setMessage("Only saved install-team engineers can have their current task changed from Breakdown Portal.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await apiFetch(`/api/portal/install-team/${encodeURIComponent(teamMemberId)}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({
+          current_job: task,
+          availability: task.trim() ? "Scheduled" : "Available",
+        }),
+      });
+      setBreakdownEngineerTaskDrafts((draft) => {
+        const next = { ...draft };
+        delete next[engineerName];
+        return next;
+      });
+      await loadPortal();
+      setMessage(task.trim() ? `${engineerName}'s current task updated.` : `${engineerName} marked available with no current task.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Engineer task could not be updated.");
     } finally {
       setLoading(false);
     }
@@ -3861,6 +4970,50 @@ export default function App() {
     }
   }
 
+  async function markSelfAttendance(action: "check_in" | "check_out") {
+    const staff = viewerStaffRecord(asRecords(data?.org_chart));
+    if (!staff) {
+      setMessage("Your portal account is not linked to a staff profile yet.");
+      return;
+    }
+    const personId = fieldText(staff, ["id"]);
+    const personName = fieldText(staff, ["name"]);
+    const today = new Date().toISOString().slice(0, 10);
+    const existing = asRecords(data?.attendance_today).find((item) => (
+      fieldText(item, ["date"]) === today && fieldText(item, ["person_id", "staff_id"]) === personId
+    ));
+    const location = await captureAttendanceLocation();
+    const currentTime = new Date().toTimeString().slice(0, 5);
+    const payload = {
+      ...(existing || {}),
+      date: today,
+      person_id: personId,
+      person_name: personName,
+      department: fieldText(staff, ["department"]),
+      status: "present",
+      check_in: action === "check_in" ? currentTime : fieldText(existing || {}, ["check_in", "time_in"]).replace("-", ""),
+      check_out: action === "check_out" ? currentTime : fieldText(existing || {}, ["check_out", "time_out"]).replace("-", ""),
+      ...(action === "check_in" ? { check_in_location: location } : { check_out_location: location }),
+      notes: fieldText(existing || {}, ["notes"]).replace("-", ""),
+      marked_by: data?.viewer?.username || username,
+      marked_at: new Date().toISOString(),
+    };
+    setLoading(true);
+    try {
+      await apiFetch("/api/portal/attendance", {
+        method: "POST",
+        token,
+        body: JSON.stringify(payload),
+      });
+      await loadPortal();
+      setMessage(`${personName} ${action === "check_in" ? "checked in" : "checked out"}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Attendance could not be saved.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function saveLeaveRequest() {
     if (!leaveDraft.person_id || !leaveDraft.reason.trim()) {
       const text = "Select staff and enter a leave reason.";
@@ -3937,6 +5090,14 @@ export default function App() {
   }, [activeTab, data?.access]);
 
   useEffect(() => {
+    if (!token || activeTab !== "breakdown") return;
+    const interval = setInterval(() => {
+      loadPortal().catch((error) => setMessage(error.message));
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [token, activeTab]);
+
+  useEffect(() => {
     setCustomerPage(1);
     setEnquiryPage(1);
     setOfferPage(1);
@@ -3995,6 +5156,7 @@ export default function App() {
             <Text style={styles.primaryButtonText}>{loading ? "Signing in..." : "Sign in"}</Text>
           </Pressable>
           <Text style={styles.cardLabel}>Quick role login</Text>
+          <Text style={styles.muted}>Click a username to sign in with the shared staff portal password.</Text>
           <View style={styles.quickLoginGrid}>
             {quickLoginAccounts.map((account) => (
               <Pressable
@@ -4008,7 +5170,7 @@ export default function App() {
                 disabled={loading}
               >
                 <Text style={styles.quickLoginText}>{account.label}</Text>
-                <Text style={styles.quickLoginSub}>{account.username}</Text>
+                <Text style={styles.quickLoginSubLink}>{account.username}</Text>
               </Pressable>
             ))}
           </View>
@@ -4219,6 +5381,7 @@ const styles = StyleSheet.create({
   cardTitleBlock: { flex: 1, minWidth: 220 },
   formCard: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", padding: 16, gap: 11, marginBottom: 12 },
   formGrid: { gap: 10 },
+  sectionHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" },
   cardLabel: { color: "#e02020", fontSize: 11, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 },
   cardTitle: { color: "#11131b", fontSize: 16, fontWeight: "900", marginBottom: 5 },
   metricValue: { color: "#11131b", fontSize: 28, fontWeight: "900", marginVertical: 5 },
@@ -4238,6 +5401,24 @@ const styles = StyleSheet.create({
   label: { color: "#11131b", fontWeight: "900", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 },
   input: { minHeight: 46, borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 10, backgroundColor: "#f3f5f8", paddingHorizontal: 12, color: "#11131b", fontWeight: "700" },
   textarea: { minHeight: 92, paddingTop: 10, textAlignVertical: "top" },
+  costingSourcePanel: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#fff", padding: 12, gap: 12 },
+  costingStepper: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  costingStepMeta: { flex: 1, minWidth: 220 },
+  costingCellList: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, overflow: "hidden" },
+  costingCellRow: { padding: 10, borderBottomWidth: 1, borderBottomColor: "#e4e7ee", backgroundColor: "#f8fafc", gap: 4 },
+  costingCellRef: { color: "#b91414", fontWeight: "900", fontSize: 12 },
+  costingCellValue: { color: "#11131b", fontWeight: "800", fontSize: 12 },
+  costingCellFormula: { color: "#747b8d", fontWeight: "700", fontSize: 11 },
+  emptyState: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, padding: 12, backgroundColor: "#f8fafc" },
+  openingSchedulePanel: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#fff", padding: 12, gap: 10 },
+  openingScheduleRow: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 10, gap: 8 },
+  openingScheduleField: { gap: 6 },
+  statusSelectorPanel: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#fff", padding: 12, gap: 10, marginTop: 10 },
+  statusChoiceGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  statusChoice: { minHeight: 34, borderRadius: 8, borderWidth: 1, borderColor: "#d5dae4", backgroundColor: "#f3f5f8", paddingHorizontal: 10, paddingVertical: 7, justifyContent: "center" },
+  statusChoiceActive: { backgroundColor: "#fff5f5", borderColor: "#e02020" },
+  statusChoiceText: { color: "#2d3240", fontWeight: "900", fontSize: 11 },
+  statusChoiceTextActive: { color: "#b91414" },
   selectorList: { gap: 8 },
   selectorPill: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: "#f3f5f8" },
   selectorPillActive: { backgroundColor: "rgba(224,32,32,0.1)", borderColor: "#e02020" },
@@ -4256,6 +5437,7 @@ const styles = StyleSheet.create({
   inlineActions: { flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 12 },
   smallButton: { minHeight: 36, borderRadius: 8, borderWidth: 1, borderColor: "#d5dae4", backgroundColor: "#f3f5f8", paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
   smallButtonText: { color: "#2d3240", fontWeight: "900", fontSize: 12 },
+  smallButtonHint: { color: "#747b8d", fontWeight: "700", fontSize: 10, marginTop: 2, textAlign: "center" },
   dangerButton: { minHeight: 36, borderRadius: 8, borderWidth: 1, borderColor: "rgba(224,32,32,0.35)", backgroundColor: "#fff5f5", paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
   dangerButtonText: { color: "#b91414", fontWeight: "900", fontSize: 12 },
   ghostButton: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: "#fff" },
@@ -4276,6 +5458,9 @@ const styles = StyleSheet.create({
   quickLoginButton: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f3f5f8", paddingHorizontal: 12, paddingVertical: 10 },
   quickLoginText: { color: "#11131b", fontWeight: "900", fontSize: 13 },
   quickLoginSub: { color: "#747b8d", fontWeight: "700", fontSize: 11, marginTop: 2 },
+  quickLoginSubLink: { color: "#b91414", fontWeight: "900", fontSize: 11, marginTop: 2, textDecorationLine: "underline" },
+  inlineMeta: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 4 },
+  clickableUsername: { color: "#b91414", fontWeight: "900", textDecorationLine: "underline" },
   homeLinkButton: { minHeight: 40, borderRadius: 8, borderWidth: 1, borderColor: "#d5dae4", backgroundColor: "#fff", alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
   homeLinkText: { color: "#2d3240", fontWeight: "900", fontSize: 13 },
   error: { color: "#b91414", fontWeight: "800" },

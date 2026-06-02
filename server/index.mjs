@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +11,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 const port = Number(process.env.FUZI_API_PORT || 5000);
 const tokens = new Map();
+const loginAttempts = new Map();
+const sharedPortalPassword = String(process.env.FUZI_SHARED_PORTAL_PASSWORD || "Fuzi@2026!Portal");
+const tokenTtlMs = Number(process.env.FUZI_PORTAL_TOKEN_TTL_MINUTES || 480) * 60 * 1000;
+const loginWindowMs = Number(process.env.FUZI_LOGIN_WINDOW_MINUTES || 10) * 60 * 1000;
+const loginMaxAttempts = Number(process.env.FUZI_LOGIN_MAX_ATTEMPTS || 8);
 const dbPath = path.join(rootDir, "fuzi.sqlite3");
 const db = new Database(dbPath);
 db.pragma("journal_mode = WAL");
@@ -139,7 +145,7 @@ function publicUser(user) {
 }
 
 function makeWerkzeugScryptHash(password) {
-  const salt = crypto.randomBytes(8).toString("base64url");
+  const salt = crypto.randomBytes(16).toString("base64url");
   const N = 32768;
   const r = 8;
   const p = 1;
@@ -183,7 +189,9 @@ function accessForUser(user = {}) {
     "stores & procurement": ["overview", "inventory", "factory", "comms"]
   };
   const key = String(user.department || "").toLowerCase();
-  const allowed = byDepartment[key] || ["overview", "comms"];
+  const allowed = [...(byDepartment[key] || ["overview", "comms"])];
+  if (!allowed.includes("orgchart")) allowed.push("orgchart");
+  if (!allowed.includes("siteVisits")) allowed.push("siteVisits");
   return { allowed_views: allowed, selected_view: allowed[0], default_view: allowed[0], is_restricted: true };
 }
 
@@ -213,7 +221,7 @@ const viewDataKeys = {
   tender: ["tenders", "customers", "estimates"],
   factory: ["factory_jobs", "inventory"],
   comms: ["dept_comms"],
-  siteVisits: ["site_visits", "customers"]
+  siteVisits: ["site_visits", "customers", "sales_inquiries", "org_chart"]
 };
 
 const restrictedPayloadKeys = [
@@ -222,6 +230,118 @@ const restrictedPayloadKeys = [
   "leave_requests", "estimates", "payments", "customer_users", "sales_inquiries", "sales_admin_panel", "breakdowns", "service_records",
   "gad_records", "commissionings", "factory_jobs", "tenders", "dept_comms"
 ];
+
+function parseCostingWorkbooks() {
+  const script = String.raw`
+import json, pathlib, re, sys, zipfile
+from xml.etree import ElementTree as ET
+
+root = pathlib.Path(sys.argv[1])
+ns = {
+    "a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+    "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+}
+
+def shared_strings(z):
+    if "xl/sharedStrings.xml" not in z.namelist():
+        return []
+    tree = ET.fromstring(z.read("xl/sharedStrings.xml"))
+    return ["".join(t.text or "" for t in si.findall(".//a:t", ns)) for si in tree.findall("a:si", ns)]
+
+def sheet_paths(z):
+    workbook = ET.fromstring(z.read("xl/workbook.xml"))
+    rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
+    relmap = {rel.attrib["Id"]: rel.attrib["Target"] for rel in rels}
+    out = []
+    for sheet in workbook.find("a:sheets", ns).findall("a:sheet", ns):
+        target = relmap[sheet.attrib["{%s}id" % ns["r"]]].lstrip("/")
+        if not target.startswith("xl/"):
+            target = "xl/" + target
+        out.append((sheet.attrib.get("name", "Sheet1"), target))
+    return out
+
+def cell_value(cell, strings):
+    typ = cell.attrib.get("t", "")
+    value = cell.find("a:v", ns)
+    inline = cell.find("a:is", ns)
+    if value is not None:
+        raw = value.text or ""
+        if typ == "s":
+            return strings[int(raw)] if raw.isdigit() and int(raw) < len(strings) else raw
+        if typ == "b":
+            return raw == "1"
+        try:
+            num = float(raw)
+            return int(num) if num.is_integer() else num
+        except ValueError:
+            return raw
+    if inline is not None:
+        return "".join(t.text or "" for t in inline.findall(".//a:t", ns))
+    return None
+
+def sort_key(item):
+    match = re.match(r"([A-Z]+)(\d+)$", str(item["cell"]).upper())
+    if not match:
+        return (10**9, 10**9, str(item["cell"]))
+    col, row = match.groups()
+    col_num = 0
+    for ch in col:
+        col_num = col_num * 26 + ord(ch) - 64
+    return (int(row), col_num, str(item["cell"]))
+
+def variant(name):
+    lower = name.lower()
+    if "small vision" in lower:
+        return "Small Vision MS/SS"
+    if "golden" in lower or "rose gold" in lower or "rose golden" in lower:
+        return "Big Vision Golden/Rose Gold"
+    return "Big Vision MS/SS"
+
+sources = []
+for path in sorted(root.glob("*.xlsx")):
+    with zipfile.ZipFile(path) as z:
+        strings = shared_strings(z)
+        sheets = []
+        all_cells = []
+        for sheet_name, sheet_path in sheet_paths(z):
+            tree = ET.fromstring(z.read(sheet_path))
+            cells = []
+            for cell in tree.findall(".//a:c", ns):
+                ref = cell.attrib.get("r")
+                if not ref:
+                    continue
+                val = cell_value(cell, strings)
+                formula = cell.find("a:f", ns)
+                formula_text = formula.text if formula is not None else None
+                if val not in (None, "") or formula_text:
+                    entry = {"sheet": sheet_name, "cell": ref, "value": val}
+                    if formula_text:
+                        entry["formula"] = formula_text
+                    cells.append(entry)
+            cells.sort(key=sort_key)
+            sheets.append({"name": sheet_name, "non_empty_cell_count": len(cells)})
+            all_cells.extend(cells)
+        sources.append({
+            "source_file": path.name,
+            "variant": variant(path.name),
+            "sheets": sheets,
+            "non_empty_cell_count": len(all_cells),
+            "cells": all_cells,
+        })
+print(json.dumps({"sources": sources, "source_count": len(sources)}, ensure_ascii=False))
+`;
+  const docsDir = path.join(rootDir, "docs", "costing");
+  return new Promise((resolve, reject) => {
+    execFile("python", ["-c", script, docsDir], { maxBuffer: 50 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) return reject(new Error(stderr || error.message));
+      try {
+        resolve(JSON.parse(stdout || "{}"));
+      } catch (parseError) {
+        reject(parseError);
+      }
+    });
+  });
+}
 
 function filterPortalPayload(payload, access) {
   if (!access.is_restricted) return payload;
@@ -252,8 +372,8 @@ async function ensureDepartmentHeadUsers() {
       department: person.department || "",
       linked_org_node: person.id || "",
       active: true,
-      must_change_password: true,
-      password_hash: makeWerkzeugScryptHash("ChangeMe123!"),
+      must_change_password: false,
+      password_hash: makeWerkzeugScryptHash(sharedPortalPassword),
       created_at: new Date().toISOString()
     });
     changed = true;
@@ -263,10 +383,6 @@ async function ensureDepartmentHeadUsers() {
 }
 
 function verifyWerkzeugPassword(storedHash = "", password = "") {
-  if (password === "fuzi2026" && storedHash.startsWith("scrypt:")) {
-    // Development default retained for the seeded admin during the Node migration.
-    return true;
-  }
   const [method, salt, expectedHex] = String(storedHash).split("$");
   if (!method || !salt || !expectedHex) return false;
   if (method.startsWith("scrypt:")) {
@@ -281,12 +397,63 @@ function verifyWerkzeugPassword(storedHash = "", password = "") {
   return false;
 }
 
+async function ensureSharedStaffPortalPassword() {
+  const users = await ensureDepartmentHeadUsers();
+  let changed = false;
+  for (const user of users) {
+    if (!verifyWerkzeugPassword(user.password_hash, sharedPortalPassword) || user.must_change_password) {
+      user.password_hash = makeWerkzeugScryptHash(sharedPortalPassword);
+      user.must_change_password = false;
+      user.password_policy = "shared-staff-portal";
+      user.password_synced_at = new Date().toISOString();
+      changed = true;
+    }
+  }
+  if (changed) {
+    await writeJson(listFiles.users, users);
+    for (const [token, session] of tokens.entries()) {
+      const nextUser = users.find((user) => String(user.id) === String(session.user?.id));
+      if (nextUser) tokens.set(token, { ...session, user: nextUser });
+    }
+  }
+  return users;
+}
+
+function loginAttemptKey(req, username) {
+  return `${req.ip || req.socket?.remoteAddress || "unknown"}:${username}`;
+}
+
+function loginAttemptState(req, username) {
+  const key = loginAttemptKey(req, username);
+  const now = Date.now();
+  const state = loginAttempts.get(key);
+  if (!state || state.resetAt <= now) {
+    const next = { count: 0, resetAt: now + loginWindowMs };
+    loginAttempts.set(key, next);
+    return { key, state: next };
+  }
+  return { key, state };
+}
+
+function recordFailedLogin(req, username) {
+  const { state } = loginAttemptState(req, username);
+  state.count += 1;
+}
+
+function clearLoginAttempts(req, username) {
+  loginAttempts.delete(loginAttemptKey(req, username));
+}
+
 function authRequired(req, res, next) {
   const header = req.get("Authorization") || "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : String(req.query?.token || "");
-  const user = tokens.get(token);
-  if (!user) return res.status(401).json({ ok: false, message: "Authentication required." });
-  req.user = user;
+  const session = tokens.get(token);
+  if (!session || session.expiresAt <= Date.now()) {
+    if (token) tokens.delete(token);
+    return res.status(401).json({ ok: false, message: "Authentication required." });
+  }
+  session.expiresAt = Date.now() + tokenTtlMs;
+  req.user = session.user;
   req.token = token;
   next();
 }
@@ -582,6 +749,846 @@ async function writeOperationsState(state) {
   await writeJson("operations_state.json", state);
 }
 
+function normalizePhoneDeliveryTarget(target) {
+  const value = String(target || "").trim();
+  if (!value) return "";
+  const digits = value.replace(/[^\d+]/g, "");
+  if (digits.startsWith("+")) return digits;
+  if (digits.length === 10) return `+91${digits}`;
+  if (digits.length > 10) return `+${digits}`;
+  return value;
+}
+
+function isPhoneDeliveryTarget(target) {
+  return /^\+[1-9]\d{6,14}$/.test(normalizePhoneDeliveryTarget(target));
+}
+
+function defaultOpenClawCommunicationData(env, baseDir) {
+  const homeDir = env.USERPROFILE || env.HOME || baseDir;
+  return {
+    url: env.FUZI_OPENCLAW_URL || "http://127.0.0.1:18789/",
+    timeoutSeconds: Number(env.FUZI_OPENCLAW_TIMEOUT || 15),
+    defaultChannel: env.FUZI_OPENCLAW_CHANNEL || "whatsapp",
+    opsTarget: env.FUZI_OPENCLAW_OPS_TARGET || "",
+    agentId: env.FUZI_OPENCLAW_AGENT_ID || "main",
+    whatsappBackendChannel: env.FUZI_OPENCLAW_WHATSAPP_BACKEND_CHANNEL || "",
+    whatsappBackendTarget: env.FUZI_OPENCLAW_WHATSAPP_BACKEND_TARGET || "",
+    configFile: path.join(homeDir, ".openclaw", "openclaw.json"),
+    envFile: path.join(homeDir, ".openclaw", ".env"),
+    allowedDashboardCommand: ["openclaw", "dashboard", "--no-open"],
+    freeChannels: ["whatsapp", "telegram", "signal", "discord", "slack"],
+    agentTargetEnvKeys: {
+      "Self-Healing Fleet Monitor": "FUZI_OPENCLAW_TARGET_FLEET_MONITOR",
+      "Modernization Project Coordinator": "FUZI_OPENCLAW_TARGET_MODERNIZATION_COORDINATOR",
+      "24/7 Customer Service Agent": "FUZI_OPENCLAW_TARGET_CUSTOMER_SERVICE",
+      "Morning Operations Brief": "FUZI_OPENCLAW_TARGET_MORNING_BRIEF",
+      "Live Operations Dashboard": "FUZI_OPENCLAW_TARGET_LIVE_DASHBOARD",
+      "Contract Renewal CRM Agent": "FUZI_OPENCLAW_TARGET_RENEWALS",
+      "CRM Query Agent": "FUZI_OPENCLAW_TARGET_CRM_QUERY",
+      "Site Walkthrough to Work Order": "FUZI_OPENCLAW_TARGET_WORK_ORDERS",
+      "Field Installation Manager": "FUZI_OPENCLAW_TARGET_INSTALLATIONS"
+    }
+  };
+}
+
+function defaultDiscordBreakdownSyncData(env, baseDir) {
+  const homeDir = env.USERPROFILE || env.HOME || baseDir;
+  return {
+    apiBaseUrl: env.DISCORD_API_BASE_URL || "https://discord.com/api/v10",
+    configFile: path.join(homeDir, ".openclaw", "openclaw.json"),
+    envFile: path.join(homeDir, ".openclaw", ".env"),
+    channelTarget: env.FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL || "",
+    pollMs: Math.max(Number(env.FUZI_BREAKDOWN_DISCORD_POLL_MS || 15000), 5000),
+    limit: Math.min(Math.max(Number(env.FUZI_BREAKDOWN_DISCORD_LIMIT || 50), 1), 100)
+  };
+}
+
+function defaultInboundPlatformMessageData(body, config, nowStamp) {
+  const messageText = String(body.text || body.message || body.body || body.content || "").trim();
+  const source = String(body.from || body.sender || body.customer || body.user || "OpenClaw").trim();
+  const priority = String(body.priority || (/urgent|stuck|trapped|breakdown|emergency/i.test(messageText) ? "High" : "Normal")).trim();
+  return {
+    channel: String(body.channel || body.platform || config.defaultChannel).trim(),
+    customer: String(body.customer || source).trim(),
+    phone: String(body.phone || body.target_phone || "").trim(),
+    from: source,
+    priority,
+    state: "New",
+    status: "New",
+    assigned_to: String(body.assigned_to || "").trim(),
+    text: messageText,
+    next_action: String(body.next_action || "Review inbound chat and assign owner.").trim(),
+    external_id: String(body.id || body.message_id || "").trim(),
+    created_at: nowStamp,
+    updated_at: nowStamp
+  };
+}
+
+function defaultAgentForCommunicationAction(action, target) {
+  const moduleMap = {
+    "Elevator Modernization Management": "Modernization Project Coordinator",
+    "Elevator Project Tracking": "Field Installation Manager",
+    "Elevator MIS Reporting Dashboard": "Live Operations Dashboard",
+    "selected fleet alert": "Self-Healing Fleet Monitor",
+    "uncontacted renewals": "Contract Renewal CRM Agent",
+    "FSM": "Site Walkthrough to Work Order"
+  };
+  const actionMap = {
+    "Escalate emergencies": "24/7 Customer Service Agent",
+    "Send SMS brief": "Morning Operations Brief",
+    "Text technician": "Self-Healing Fleet Monitor",
+    "Draft outreach": "Contract Renewal CRM Agent",
+    "Push to FSM": "Site Walkthrough to Work Order",
+    "Send snapshot": "Live Operations Dashboard"
+  };
+  return actionMap[action] || moduleMap[target] || "Live Operations Dashboard";
+}
+
+function extractOpenClawDashboardUrlFromOutput(output) {
+  for (const rawUrl of String(output || "").match(/https?:\/\/\S+/g) || []) {
+    const cleanedUrl = rawUrl.replace(/[)\].,;']+$/g, "");
+    try {
+      const parsed = new URL(cleanedUrl);
+      if (parsed.pathname.startsWith("/chat") || parsed.host.endsWith(":18789")) return cleanedUrl;
+    } catch {
+      // Ignore non-URL matches from command output.
+    }
+  }
+  return "";
+}
+
+function extractOpenClawTokenFromDashboardUrl(dashboardUrl) {
+  if (!dashboardUrl) return "";
+  try {
+    const parsed = new URL(dashboardUrl);
+    for (const source of [parsed.hash.replace(/^#/, ""), parsed.search.replace(/^\?/, "")]) {
+      const values = new URLSearchParams(source);
+      for (const key of ["token", "gatewayToken", "gateway_token", "authToken", "auth_token"]) {
+        const value = values.get(key);
+        if (value) return value.trim();
+      }
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+function createOpenClawCommunicationService({
+  config,
+  env,
+  readText,
+  runCommand,
+  fetchImpl,
+  readState,
+  writeState,
+  nextRecordId,
+  now
+}) {
+  const freeChannels = config.freeChannels || ["whatsapp", "telegram", "signal", "discord", "slack"];
+  const agentTargetEnvKeys = config.agentTargetEnvKeys || {};
+  let dashboardLookupAttempted = false;
+  let discoveredDashboardUrl = "";
+
+  const discoverDashboardUrl = async () => {
+    if (dashboardLookupAttempted) return discoveredDashboardUrl;
+    dashboardLookupAttempted = true;
+    if (!runCommand || !Array.isArray(config.allowedDashboardCommand) || !config.allowedDashboardCommand.length) return "";
+    const [command, ...args] = config.allowedDashboardCommand;
+    const output = await runCommand(command, args, Math.max(config.timeoutSeconds, 5) * 1000);
+    discoveredDashboardUrl = extractOpenClawDashboardUrlFromOutput(output);
+    return discoveredDashboardUrl;
+  };
+
+  const openClawBaseUrl = async () => {
+    const discoveredUrl = await discoverDashboardUrl();
+    if (discoveredUrl) {
+      try {
+        const parsed = new URL(discoveredUrl);
+        return `${parsed.protocol}//${parsed.host}/`;
+      } catch {
+        // Fall back to configured URL below.
+      }
+    }
+    return config.url.endsWith("/") ? config.url : `${config.url}/`;
+  };
+
+  const endpointFor = async (endpointPath = "/tools/invoke") => {
+    const base = await openClawBaseUrl();
+    return new URL(endpointPath.replace(/^\/+/, ""), base).toString();
+  };
+
+  const loadConfig = async () => {
+    const text = await readText(config.configFile);
+    if (!text.trim()) return {};
+    try {
+      const parsed = JSON.parse(text);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const loadEnvValues = async () => {
+    const values = {};
+    const text = await readText(config.envFile);
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#") || !line.includes("=")) continue;
+      const [key, ...rest] = line.split("=");
+      values[key.trim()] = rest.join("=").trim().replace(/^['"]|['"]$/g, "");
+    }
+    return values;
+  };
+
+  const resolvePossiblyEnvValue = async (value) => {
+    const resolved = String(value || "").trim();
+    if (!resolved.startsWith("${") || !resolved.endsWith("}")) return resolved;
+    const envValues = await loadEnvValues();
+    const envKey = resolved.slice(2, -1);
+    return String(env[envKey] || envValues[envKey] || "").trim();
+  };
+
+  const configSecret = async (fieldName) => {
+    const openClawConfig = await loadConfig();
+    const gateway = openClawConfig.gateway && typeof openClawConfig.gateway === "object" ? openClawConfig.gateway : {};
+    const auth = gateway.auth && typeof gateway.auth === "object" ? gateway.auth : {};
+    if (typeof auth[fieldName] === "string" && auth[fieldName].trim()) return await resolvePossiblyEnvValue(auth[fieldName]);
+
+    const text = await readText(config.configFile);
+    const match = text.match(new RegExp(`(?:^|[\\s{,])(?:['"]?${fieldName}['"]?)\\s*:\\s*(['"])([^'"]+)\\1`, "m"));
+    return match ? await resolvePossiblyEnvValue(match[2]) : "";
+  };
+
+  const runtimeValue = async (envKey, fallback = "") => {
+    const envValues = await loadEnvValues();
+    return String(env[envKey] || envValues[envKey] || fallback || "").trim();
+  };
+
+  const configuredChannels = async () => {
+    const openClawConfig = await loadConfig();
+    const channels = openClawConfig.channels && typeof openClawConfig.channels === "object" ? openClawConfig.channels : {};
+    return Object.entries(channels)
+      .filter(([, channelConfig]) => channelConfig && channelConfig.enabled !== false)
+      .map(([channelName]) => channelName);
+  };
+
+  const authSecret = async () => {
+    const envValues = await loadEnvValues();
+    const dashboardToken = extractOpenClawTokenFromDashboardUrl(await discoverDashboardUrl());
+    for (const candidate of [
+      env.FUZI_OPENCLAW_TOKEN,
+      env.OPENCLAW_GATEWAY_TOKEN,
+      envValues.FUZI_OPENCLAW_TOKEN,
+      envValues.OPENCLAW_GATEWAY_TOKEN,
+      await configSecret("token"),
+      env.FUZI_OPENCLAW_PASSWORD,
+      env.OPENCLAW_GATEWAY_PASSWORD,
+      envValues.FUZI_OPENCLAW_PASSWORD,
+      envValues.OPENCLAW_GATEWAY_PASSWORD,
+      await configSecret("password"),
+      dashboardToken
+    ]) {
+      if (String(candidate || "").trim()) return String(candidate).trim();
+    }
+    return "";
+  };
+
+  const formatMessage = (eventType, payload = {}) => {
+    if (eventType === "technician-alert") return String(payload.message || "Technician alert from FUZI operations.").trim();
+    if (eventType === "morning-brief") {
+      const details = Array.isArray(payload.details) ? payload.details.slice(0, 4).map((item) => `- ${item}`).join("\n") : "";
+      return `${payload.summary || "Morning operations brief."}\n${details}`.trim();
+    }
+    if (payload.summary) return String(payload.summary).trim();
+    if (payload.message) return String(payload.message).trim();
+    return JSON.stringify(payload);
+  };
+
+  const deliveryChannel = async (payload = {}) => {
+    const explicitChannel = String(payload.channel || "").trim();
+    if (explicitChannel) return explicitChannel;
+    const configured = await configuredChannels();
+    if (configured.includes(config.defaultChannel) || !configured.length) return config.defaultChannel;
+    return freeChannels.find((channel) => configured.includes(channel)) || configured[0] || config.defaultChannel;
+  };
+
+  const whatsappBackendChannel = async () => {
+    const explicitChannel = await runtimeValue("FUZI_OPENCLAW_WHATSAPP_BACKEND_CHANNEL", config.whatsappBackendChannel);
+    if (explicitChannel) return explicitChannel;
+    const configured = await configuredChannels();
+    if (configured.includes("discord")) return "discord";
+    if (configured.includes("whatsapp")) return "whatsapp";
+    return configured[0] || config.defaultChannel;
+  };
+
+  const whatsappBackendTarget = async (payload = {}) => {
+    const agentTargetKey = agentTargetEnvKeys[String(payload.agent || "").trim()];
+    if (agentTargetKey) {
+      const agentTarget = await runtimeValue(agentTargetKey, "");
+      if (agentTarget) return agentTarget;
+    }
+    return await runtimeValue("FUZI_OPENCLAW_WHATSAPP_BACKEND_TARGET", config.whatsappBackendTarget) ||
+      await runtimeValue("FUZI_OPENCLAW_OPS_TARGET", config.opsTarget);
+  };
+
+  const deliveryTarget = async (eventType, payload = {}) => {
+    const explicitTarget = String(payload.target || payload.target_phone || "").trim();
+    if (explicitTarget) return explicitTarget;
+    const agentTargetKey = agentTargetEnvKeys[String(payload.agent || "").trim()];
+    if (agentTargetKey) {
+      const agentTarget = await runtimeValue(agentTargetKey, "");
+      if (agentTarget) return agentTarget;
+    }
+    if (eventType === "morning-brief") {
+      const briefTarget = await runtimeValue("FUZI_OPENCLAW_MORNING_BRIEF_PHONE", "");
+      if (briefTarget) return briefTarget;
+    }
+    return await runtimeValue("FUZI_OPENCLAW_OPS_TARGET", config.opsTarget);
+  };
+
+  const postJson = async (endpointPath, payload) => {
+    const endpoint = await endpointFor(endpointPath);
+    const secret = await authSecret();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), Math.max(config.timeoutSeconds, 1) * 1000);
+    try {
+      const response = await fetchImpl(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(secret ? { Authorization: `Bearer ${secret}` } : {})
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      const body = await response.text();
+      let json = {};
+      try {
+        json = body ? JSON.parse(body) : {};
+      } catch {
+        json = {};
+      }
+      return { ok: response.ok && (json.ok !== false), status: response.status, body: body.slice(0, 400), json, url: endpoint };
+    } catch (error) {
+      return { ok: false, status: null, error: error?.name === "AbortError" ? "The OpenClaw request timed out." : String(error?.message || error), url: endpoint };
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  const sendBusinessChannelUpdate = async (eventType, payload = {}) => {
+    const requestPayload = {
+      source: "fuzi-operations-portal",
+      event_type: eventType,
+      timestamp: now(),
+      ...payload
+    };
+    const target = await deliveryTarget(eventType, payload);
+    const channel = await deliveryChannel(payload);
+    const configured = await configuredChannels();
+    const message = formatMessage(eventType, requestPayload);
+    const phoneTarget = isPhoneDeliveryTarget(target);
+    const normalizedPhoneTarget = phoneTarget ? normalizePhoneDeliveryTarget(target) : "";
+    let sendChannel = channel;
+    let sendTarget = normalizedPhoneTarget || target;
+    let sendMessage = message;
+    let delivery;
+
+    if (phoneTarget) {
+      sendChannel = await whatsappBackendChannel();
+      if (sendChannel !== "whatsapp") {
+        const backendTarget = await whatsappBackendTarget(payload);
+        if (!backendTarget) {
+          delivery = {
+            ok: false,
+            status: null,
+            error: `Injected WhatsApp backend '${sendChannel}' requires FUZI_OPENCLAW_WHATSAPP_BACKEND_TARGET, an agent target, or FUZI_OPENCLAW_OPS_TARGET.`,
+            url: await endpointFor("/tools/invoke")
+          };
+        } else {
+          sendTarget = backendTarget;
+          sendMessage = `[Injected WhatsApp via ${sendChannel} for ${normalizedPhoneTarget}] ${message}`;
+        }
+      }
+    }
+
+    if (!delivery && !target) {
+      delivery = { ok: true, status: 204, body: "OpenClaw delivery suppressed because no outbound target is configured.", url: await endpointFor("/tools/invoke") };
+    } else if (!delivery && configured.length && !configured.includes(sendChannel)) {
+      delivery = { ok: false, status: null, error: `OpenClaw channel '${sendChannel}' is not configured. Available channels: ${configured.join(", ")}.`, url: await endpointFor("/tools/invoke") };
+    } else if (!delivery) {
+      delivery = await postJson("/tools/invoke", {
+        tool: "message",
+        action: "send",
+        agentId: config.agentId,
+        agent_id: config.agentId,
+        args: {
+          channel: sendChannel,
+          target: sendTarget,
+          message: sendMessage
+        },
+        sessionKey: "fuzi-operations",
+        request: requestPayload
+      });
+    }
+
+    const state = await readState();
+    state.connector_status = {
+      state: delivery.ok ? "online" : "error",
+      last_attempt: now(),
+      channel: sendChannel,
+      target,
+      url: delivery.url,
+      error: delivery.error || ""
+    };
+    await writeState(state);
+    return delivery;
+  };
+
+  const saveInboundPlatformMessage = async (body = {}) => {
+    const state = await readState();
+    const messages = Array.isArray(state.messages) ? state.messages : [];
+    const messageData = defaultInboundPlatformMessageData(body, config, now());
+    if (!messageData.text) return { ok: false, status: 400, error: "Inbound OpenClaw message text is required." };
+    const serviceMessage = {
+      id: nextRecordId(messages, "MSG"),
+      ...messageData
+    };
+    messages.unshift(serviceMessage);
+    state.messages = messages;
+    await writeState(state);
+    return { ok: true, message: serviceMessage };
+  };
+
+  return {
+    configuredChannels,
+    saveInboundPlatformMessage,
+    sendBusinessChannelUpdate
+  };
+}
+
+function createDiscordBreakdownSyncService({
+  config,
+  env,
+  readText,
+  fetchImpl,
+  readState,
+  writeState,
+  readCollection,
+  writeCollection,
+  nextRecordId,
+  now
+}) {
+  const loadJsonConfig = async () => {
+    const text = await readText(config.configFile);
+    if (!text.trim()) return {};
+    try {
+      const parsed = JSON.parse(text);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const loadEnvValues = async () => {
+    const values = {};
+    const text = await readText(config.envFile);
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#") || !line.includes("=")) continue;
+      const [key, ...rest] = line.split("=");
+      values[key.trim()] = rest.join("=").trim().replace(/^['"]|['"]$/g, "");
+    }
+    return values;
+  };
+
+  const resolvePossiblyEnvValue = async (value) => {
+    const resolved = String(value || "").trim();
+    if (!resolved.startsWith("${") || !resolved.endsWith("}")) return resolved;
+    const envValues = await loadEnvValues();
+    const envKey = resolved.slice(2, -1);
+    return String(env[envKey] || envValues[envKey] || "").trim();
+  };
+
+  const runtimeValue = async (key, fallback = "") => {
+    const envValues = await loadEnvValues();
+    return String(env[key] || envValues[key] || fallback || "").trim();
+  };
+
+  const discordChannelId = async () => {
+    const target = await runtimeValue("FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL", config.channelTarget);
+    const value = String(target || "").trim();
+    return value.startsWith("channel:") ? value.slice("channel:".length).trim() : value;
+  };
+
+  const discordBotToken = async () => {
+    const direct = await runtimeValue("DISCORD_BOT_TOKEN", "");
+    if (direct) return direct;
+    const openClawConfig = await loadJsonConfig();
+    const discord = openClawConfig.channels?.discord || {};
+    const accounts = discord.accounts || {};
+    const candidates = [];
+    if (accounts.default?.token) candidates.push(accounts.default.token);
+    if (Array.isArray(accounts)) candidates.push(...accounts.map((account) => account?.token));
+    if (accounts && typeof accounts === "object") candidates.push(...Object.values(accounts).map((account) => account?.token));
+    for (const candidate of candidates) {
+      const resolved = await resolvePossiblyEnvValue(candidate);
+      if (resolved) return resolved;
+    }
+    return "";
+  };
+
+  const cleanLineValue = (value) => String(value || "").replace(/\*\*/g, "").trim().replace(/\.+$/g, "").trim();
+  const cleanLineKey = (value) => String(value || "").replace(/[*_`~#>-]/g, "").trim().toLowerCase();
+
+  const parseConfirmation = (message) => {
+    const textParts = [message?.content];
+    for (const embed of Array.isArray(message?.embeds) ? message.embeds : []) {
+      textParts.push(embed?.title, embed?.description);
+      for (const field of Array.isArray(embed?.fields) ? embed.fields : []) {
+        textParts.push(`${field?.name || ""}: ${field?.value || ""}`);
+      }
+    }
+    const content = textParts.filter(Boolean).join("\n").trim();
+    const header = content.match(/Breakdown\s+(BRK-\d+)\s+assigned\s+from\s+Discord\s+message\s+(\d+)/i);
+    if (!header) return null;
+    const values = {};
+    for (const rawLine of content.split(/\r?\n/)) {
+      const match = rawLine.match(/^\s*([^:]+):\s*(.*?)\s*$/);
+      if (!match) continue;
+      values[cleanLineKey(match[1])] = cleanLineValue(match[2]);
+    }
+    const scheduled = values["scheduled engineer"] || "";
+    const scheduledMatch = scheduled.match(/^(.*?)\s*(?:\((.*?)\))?$/);
+    const engineer = cleanLineValue(scheduledMatch?.[1] || values.technician || "");
+    const availability = cleanLineValue(scheduledMatch?.[2] || "");
+    const unit = values.unit || "";
+    const site = values.site || "";
+    const fault = values.fault || (site ? `Inbound Discord report for unit ${unit} at ${site}.` : "");
+    return {
+      id: header[1],
+      source_discord_message_id: header[2],
+      source_bot_message_id: String(message.id || ""),
+      unit,
+      site,
+      location: site,
+      customer: site || `Discord unit ${unit}`,
+      fault,
+      issue: fault,
+      priority: values.priority || "High",
+      engineer,
+      assigned_to: engineer,
+      technician: values.technician || engineer,
+      engineer_availability: availability,
+      status: engineer ? "Scheduled" : "Open",
+      source: "Discord",
+      channel: "discord",
+      created_at: now(),
+      updated_at: now()
+    };
+  };
+
+  const parseHumanBreakdownMessage = (body = {}) => {
+    const text = String(body.text || body.message || body.body || body.content || "").trim();
+    const messageId = String(body.message_id || body.discord_message_id || body.id || "").trim();
+    const [unitToken, ...rest] = text.split(/\s+/);
+    const unit = String(body.unit || (/^\d+[A-Za-z-]*$/.test(unitToken || "") ? unitToken : "")).trim();
+    let site = String(body.site || body.location || rest.join(" ")).trim();
+    site = site.replace(/^Place\s+Exists\s+/i, "").trim();
+    const priority = String(body.priority || (/urgent|stuck|trapped|breakdown|emergency|not working|fault/i.test(text) ? "High" : "Normal")).trim();
+    return {
+      source_discord_message_id: messageId,
+      unit,
+      site,
+      location: site,
+      customer: site || (unit ? `Discord unit ${unit}` : "Discord breakdown"),
+      fault: String(body.fault || body.issue || (unit && site ? `Inbound Discord report for unit ${unit} at ${site}.` : text)).trim(),
+      issue: String(body.issue || body.fault || (unit && site ? `Inbound Discord report for unit ${unit} at ${site}.` : text)).trim(),
+      priority,
+      source: "Discord",
+      channel: "discord",
+      created_at: now(),
+      updated_at: now()
+    };
+  };
+
+  const selectedEngineerFromBody = (body = {}) => String(
+    body.scheduled_engineer ||
+    body.engineer ||
+    body.assigned_to ||
+    body.technician ||
+    ""
+  ).trim();
+
+  const formatBreakdownReply = (record) => [
+    `Breakdown ${record.id} assigned from Discord message ${record.source_discord_message_id || "unknown"}.`,
+    `Unit: ${record.unit || "-"}.`,
+    `Site: ${record.site || record.location || "-"}.`,
+    `Fault: ${record.fault || record.issue || "-"}.`,
+    `Priority: ${record.priority || "Normal"}.`,
+    `Scheduled engineer: ${record.engineer || record.assigned_to || "-"} (${record.engineer_availability || "Scheduled"}).`,
+    `Technician: ${record.technician || record.engineer || record.assigned_to || "-"}.`
+  ].join("\n");
+
+  const idGreaterThan = (left, right) => {
+    if (!left) return false;
+    if (!right) return true;
+    try {
+      return BigInt(left) > BigInt(right);
+    } catch {
+      return String(left) > String(right);
+    }
+  };
+
+  const activeBreakdownLoad = (breakdowns) => {
+    const load = new Map();
+    for (const item of Array.isArray(breakdowns) ? breakdowns : []) {
+      const status = String(item.status || "").trim().toLowerCase();
+      if (["closed", "resolved", "done", "cancelled"].includes(status)) continue;
+      const engineer = String(item.engineer || item.assigned_to || item.technician || "").trim().toLowerCase();
+      if (!engineer) continue;
+      load.set(engineer, (load.get(engineer) || 0) + 1);
+    }
+    return load;
+  };
+
+  const availabilityRank = (member) => {
+    const availability = String(member.availability || "").trim().toLowerCase();
+    const currentJob = String(member.current_job || "").trim();
+    if (/inactive|off|leave|holiday|unavailable/.test(availability)) return null;
+    if (currentJob) return 2;
+    if (!currentJob && /available|standby|ready|free/.test(availability || "available")) return 0;
+    if (/available|standby|ready|free/.test(availability)) return 1;
+    return 2;
+  };
+
+  const selectEngineerForBreakdown = async (record, breakdowns, existing = {}) => {
+    if (existing.assignment_source === "manual" && String(existing.engineer || existing.assigned_to || "").trim()) {
+      const engineer = String(existing.engineer || existing.assigned_to).trim();
+      return { engineer, availability: String(existing.engineer_availability || existing.availability || "Manually assigned").trim(), source: "manual" };
+    }
+
+    if (existing.assignment_source === "openclaw-judgement" && String(existing.engineer || existing.assigned_to || existing.technician || "").trim()) {
+      const engineer = String(existing.engineer || existing.assigned_to || existing.technician).trim();
+      return {
+        engineer,
+        availability: String(existing.engineer_availability || "OpenClaw selected").trim(),
+        source: "openclaw-judgement"
+      };
+    }
+
+    if (record.assignment_source === "openclaw-judgement" && String(record.engineer || record.assigned_to || record.technician || "").trim()) {
+      const requestedEngineer = String(record.engineer || record.assigned_to || record.technician).trim();
+      const team = await readCollection("install_team");
+      const teamMember = team.find((member) => String(member.name || "").trim().toLowerCase() === requestedEngineer.toLowerCase());
+      const state = await readState();
+      state.discord_breakdown_last_openclaw_engineer = teamMember ? String(teamMember.name || "").trim() : requestedEngineer;
+      await writeState(state);
+      return {
+        engineer: teamMember ? String(teamMember.name || "").trim() : requestedEngineer,
+        availability: String(record.engineer_availability || teamMember?.availability || "OpenClaw selected").trim(),
+        source: "openclaw-judgement"
+      };
+    }
+
+    const team = await readCollection("install_team");
+    const candidates = team
+      .map((member, index) => ({ member, index, rank: availabilityRank(member) }))
+      .filter((candidate) => candidate.rank !== null && String(candidate.member.name || "").trim());
+    if (!candidates.length) {
+      const fallback = String(record.engineer || record.assigned_to || record.technician || "").trim();
+      return { engineer: fallback, availability: String(record.engineer_availability || "Assigned").trim(), source: "openclaw-fallback" };
+    }
+
+    const state = await readState();
+    const lastEngineer = String(state.discord_breakdown_last_engineer || "").trim().toLowerCase();
+    const loads = activeBreakdownLoad(breakdowns);
+    const sorted = candidates.slice().sort((left, right) => {
+      const leftName = String(left.member.name || "").trim().toLowerCase();
+      const rightName = String(right.member.name || "").trim().toLowerCase();
+      const leftCurrent = String(left.member.current_job || "").trim();
+      const rightCurrent = String(right.member.current_job || "").trim();
+      const leftScore = (left.rank * 100) + ((loads.get(leftName) || 0) * 10) + (leftCurrent ? (leftCurrent.toUpperCase().startsWith("BRK-") ? 1 : 2) : 0) + (leftName === lastEngineer ? 1 : 0);
+      const rightScore = (right.rank * 100) + ((loads.get(rightName) || 0) * 10) + (rightCurrent ? (rightCurrent.toUpperCase().startsWith("BRK-") ? 1 : 2) : 0) + (rightName === lastEngineer ? 1 : 0);
+      return leftScore - rightScore || left.index - right.index;
+    });
+    const selected = sorted[0].member;
+    const engineer = String(selected.name || "").trim();
+    state.discord_breakdown_last_engineer = engineer;
+    await writeState(state);
+    return {
+      engineer,
+      availability: String(selected.availability || "Assigned").trim(),
+      source: "portal-roster"
+    };
+  };
+
+  const upsertBreakdown = async (record) => {
+    if (!record?.id) return { changed: false, record: null };
+    const breakdowns = await readCollection("breakdowns");
+    const index = breakdowns.findIndex((item) =>
+      String(item.id || "") === record.id ||
+      String(item.source_discord_message_id || "") === record.source_discord_message_id
+    );
+    const existing = index >= 0 ? breakdowns[index] : {};
+    const parsedEngineer = String(record.engineer || record.assigned_to || record.technician || "").trim();
+    if (!record.assignment_source && record.source_bot_message_id && parsedEngineer) {
+      record.assignment_source = "openclaw-judgement";
+    }
+    const assignment = await selectEngineerForBreakdown(record, breakdowns, existing);
+    const selectedEngineer = assignment.engineer || parsedEngineer;
+    const saved = {
+      ...existing,
+      ...record,
+      original_openclaw_engineer: existing.original_openclaw_engineer || parsedEngineer,
+      assignment_source: assignment.source,
+      engineer: selectedEngineer,
+      assigned_to: selectedEngineer,
+      technician: selectedEngineer,
+      engineer_availability: assignment.availability || record.engineer_availability || existing.engineer_availability || "Assigned",
+      status: selectedEngineer ? "Scheduled" : (record.status || existing.status || "Open"),
+      created_at: existing.created_at || record.created_at,
+      updated_at: now()
+    };
+    if (index >= 0) breakdowns[index] = saved;
+    else breakdowns.unshift(saved);
+    await writeCollection("breakdowns", breakdowns);
+
+    if (selectedEngineer) {
+      const team = await readCollection("install_team");
+      const previousEngineer = String(existing.engineer || existing.assigned_to || "").trim().toLowerCase();
+      const selectedEngineerKey = selectedEngineer.toLowerCase();
+      const previousIndex = team.findIndex((member) => String(member.name || "").trim().toLowerCase() === previousEngineer);
+      if (previousIndex >= 0 && previousEngineer !== selectedEngineerKey && String(team[previousIndex].current_job || "") === record.id) {
+        team[previousIndex] = {
+          ...team[previousIndex],
+          current_job: "",
+          availability: "Available",
+          updated_at: now()
+        };
+      }
+      const teamIndex = team.findIndex((member) => String(member.name || "").trim().toLowerCase() === selectedEngineerKey);
+      if (teamIndex >= 0) {
+        team[teamIndex] = {
+          ...team[teamIndex],
+          availability: "Scheduled",
+          current_job: record.id,
+          updated_at: now()
+        };
+        await writeCollection("install_team", team);
+      }
+    }
+    return { changed: true, record: saved };
+  };
+
+  const sync = async ({ force = false, limit = config.limit } = {}) => {
+    const channelId = await discordChannelId();
+    const token = await discordBotToken();
+    if (!channelId || !token) return { ok: false, imported: 0, message: "Discord breakdown channel or bot token is not configured." };
+    const state = await readState();
+    const cursors = state.discord_cursors && typeof state.discord_cursors === "object" ? state.discord_cursors : {};
+    const cursor = String(cursors.breakdown_last_message_id || "");
+    const endpoint = `${String(config.apiBaseUrl || "").replace(/\/+$/g, "")}/channels/${encodeURIComponent(channelId)}/messages?limit=${encodeURIComponent(limit)}`;
+    const response = await fetchImpl(endpoint, { headers: { Authorization: `Bot ${token}` } });
+    if (!response.ok) return { ok: false, imported: 0, status: response.status, message: "Discord messages could not be fetched." };
+    const messages = await response.json();
+    if (!Array.isArray(messages)) return { ok: false, imported: 0, message: "Discord response did not include a message list." };
+    const ordered = messages.slice().sort((a, b) => idGreaterThan(a.id, b.id) ? 1 : -1);
+    const imported = [];
+    let newestId = cursor;
+    for (const message of ordered) {
+      const messageId = String(message.id || "");
+      if (!force && cursor && !idGreaterThan(messageId, cursor)) continue;
+      const record = parseConfirmation(message);
+      if (record) {
+        const result = await upsertBreakdown(record);
+        if (result.changed) imported.push(result.record);
+      }
+      if (idGreaterThan(messageId, newestId)) newestId = messageId;
+    }
+    if (newestId && idGreaterThan(newestId, cursor)) {
+      state.discord_cursors = { ...cursors, breakdown_last_message_id: newestId };
+      await writeState(state);
+    }
+    return { ok: true, imported: imported.length, records: imported };
+  };
+
+  const createFromDiscordMessage = async (body = {}) => {
+    const incoming = parseHumanBreakdownMessage(body);
+    if (!incoming.source_discord_message_id) return { ok: false, status: 400, message: "Discord message id is required." };
+    if (!incoming.unit && !incoming.fault) return { ok: false, status: 400, message: "Breakdown message text is required." };
+    const openClawEngineer = selectedEngineerFromBody(body);
+    const openClawAvailability = String(body.engineer_availability || body.availability || "").trim();
+    const breakdowns = await readCollection("breakdowns");
+    const existing = breakdowns.find((item) => String(item.source_discord_message_id || "") === incoming.source_discord_message_id);
+    const record = {
+      ...incoming,
+      ...(openClawEngineer ? {
+        engineer: openClawEngineer,
+        assigned_to: openClawEngineer,
+        technician: openClawEngineer,
+        engineer_availability: openClawAvailability,
+        assignment_source: "openclaw-judgement"
+      } : {}),
+      id: existing?.id || nextRecordId(breakdowns, "BRK")
+    };
+    const result = await upsertBreakdown(record);
+    return { ok: true, record: result.record, reply: formatBreakdownReply(result.record) };
+  };
+
+  const getAssignmentContext = async (body = {}) => {
+    const incoming = parseHumanBreakdownMessage(body);
+    if (!incoming.unit && !incoming.fault) return { ok: false, status: 400, message: "Breakdown message text is required." };
+    const [team, breakdowns, state] = await Promise.all([
+      readCollection("install_team"),
+      readCollection("breakdowns"),
+      readState()
+    ]);
+    const loads = activeBreakdownLoad(breakdowns);
+    const activeBreakdowns = breakdowns
+      .filter((item) => !["closed", "resolved", "done", "cancelled"].includes(String(item.status || "").trim().toLowerCase()))
+      .slice(0, 12)
+      .map((item) => ({
+        id: item.id,
+        unit: item.unit,
+        site: item.site || item.location,
+        status: item.status,
+        priority: item.priority,
+        engineer: item.engineer || item.assigned_to || item.technician
+      }));
+    const engineers = team
+      .filter((member) => String(member.name || "").trim())
+      .map((member) => {
+        const name = String(member.name || "").trim();
+        const rank = availabilityRank(member);
+        return {
+          name,
+          availability: member.availability || "",
+          current_job: member.current_job || "",
+          active_breakdown_load: loads.get(name.toLowerCase()) || 0,
+          selectable: rank !== null,
+          selection_hint: rank === null ? "Do not assign unless explicitly necessary." : (rank === 0 ? "Best availability." : "Assignable with caution.")
+        };
+      });
+    return {
+      ok: true,
+      report: incoming,
+      last_openclaw_engineer: state.discord_breakdown_last_openclaw_engineer || "",
+      engineers,
+      active_breakdowns: activeBreakdowns,
+      guidance: [
+        "Choose the scheduled engineer from engineers using current availability, current_job, and active_breakdown_load.",
+        "Do not copy a prior transcript assignment.",
+        "Avoid assigning the same engineer repeatedly when another selectable engineer has a lower or equal load.",
+        "After choosing, POST to /api/openclaw/breakdown/from-discord with scheduled_engineer set to the chosen engineer."
+      ]
+    };
+  };
+
+  return { createFromDiscordMessage, getAssignmentContext, sync };
+}
+
 function normalizedOpsRecord(record, prefix, index) {
   return {
     id: record.id || `${prefix}-LEGACY-${String(index + 1).padStart(3, "0")}`,
@@ -670,6 +1677,31 @@ async function listCollection(routeName, res) {
   return res.json({ ok: true, [config.key]: publicRecords(config.key, Array.isArray(records) ? records : [records]), records });
 }
 
+async function linkedCrmCustomerPayload(body, res) {
+  const customerId = String(body?.customer_id || "").trim();
+  if (!customerId) {
+    res.status(400).json({ ok: false, message: "Select a CRM customer before saving a service record." });
+    return null;
+  }
+  const customers = await readJson(listFiles.customers, []);
+  const inquiries = await readJson(listFiles.sales_inquiries, []);
+  const customer = customers.find((item) => String(item.id || "") === customerId) ||
+    inquiries.find((item) => String(item.customer_id || item.id || item.enquiry_no || "") === customerId);
+  if (!customer) {
+    res.status(400).json({ ok: false, message: "Selected CRM customer was not found." });
+    return null;
+  }
+  const customerName = String(customer.name || customer.customer || customer.lead_name || customer.contact_name || customerId).trim();
+  return {
+    customer_id: customerId,
+    source_inquiry_id: String(body?.source_inquiry_id || customer.id || customer.enquiry_no || "").trim(),
+    customer: customerName,
+    phone: String(body?.phone || customer.phone || customer.whatsapp_no || "").trim(),
+    site: String(body?.site || customer.site || customer.site_address || customer.address || "").trim(),
+    crm_linked_at: new Date().toISOString(),
+  };
+}
+
 async function createCollectionRecord(routeName, body, res) {
   const config = resolveCollection(routeName);
   if (!config) return res.status(404).json({ ok: false, message: "Unknown portal module." });
@@ -681,7 +1713,9 @@ async function createCollectionRecord(routeName, body, res) {
   }
   const records = await readJson(config.file, []);
   const now = new Date().toISOString();
-  const record = { id: nextId(records, config.prefix), ...cleanPayload(body), created_at: now, updated_at: now };
+  const serviceLink = routeName === "service" ? await linkedCrmCustomerPayload(body, res) : {};
+  if (routeName === "service" && !serviceLink) return;
+  const record = { id: nextId(records, config.prefix), ...cleanPayload(body), ...serviceLink, created_at: now, updated_at: now };
   records.unshift(record);
   await writeJson(config.file, records);
   return res.json({ ok: true, record, [config.key.slice(0, -1) || "record"]: record });
@@ -694,9 +1728,12 @@ async function updateCollectionRecord(routeName, id, body, res) {
   const index = findRecordIndex(records, id);
   if (index < 0) return res.status(404).json({ ok: false, message: "Record not found." });
   const actionStatus = defaultStatusForAction(body?.action);
+  const serviceLink = routeName === "service" && body?.customer_id ? await linkedCrmCustomerPayload(body, res) : {};
+  if (routeName === "service" && body?.customer_id && !serviceLink) return;
   const nextRecord = {
     ...records[index],
     ...cleanPayload(body),
+    ...serviceLink,
     ...(actionStatus ? { status: actionStatus } : {}),
     updated_at: new Date().toISOString()
   };
@@ -790,16 +1827,64 @@ const app = express();
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: "5mb" }));
 
+const communicationService = createOpenClawCommunicationService({
+  config: defaultOpenClawCommunicationData(process.env, rootDir),
+  env: process.env,
+  readText: async (filePath) => {
+    try {
+      return await fs.readFile(filePath, "utf8");
+    } catch {
+      return "";
+    }
+  },
+  runCommand: (command, args, timeoutMs) => new Promise((resolve) => {
+    execFile(command, args, { timeout: timeoutMs, windowsHide: true }, (error, stdout, stderr) => {
+      resolve([stdout, stderr, error?.message || ""].filter(Boolean).join("\n"));
+    });
+  }),
+  fetchImpl: fetch,
+  readState: readOperationsState,
+  writeState: writeOperationsState,
+  nextRecordId: nextId,
+  now: () => new Date().toISOString()
+});
+
+const discordBreakdownSyncService = createDiscordBreakdownSyncService({
+  config: defaultDiscordBreakdownSyncData(process.env, rootDir),
+  env: process.env,
+  readText: async (filePath) => {
+    try {
+      return await fs.readFile(filePath, "utf8");
+    } catch {
+      return "";
+    }
+  },
+  fetchImpl: fetch,
+  readState: readOperationsState,
+  writeState: writeOperationsState,
+  readCollection: async (key) => await readJson(listFiles[key], []),
+  writeCollection: async (key, records) => await writeJson(listFiles[key], records),
+  nextRecordId: nextId,
+  now: () => new Date().toISOString()
+});
+
 app.post("/api/portal/auth/login", async (req, res) => {
-  const users = await ensureDepartmentHeadUsers();
+  const users = await ensureSharedStaffPortalPassword();
   const username = String(req.body?.username || "").trim().toLowerCase();
   const password = String(req.body?.password || "");
+  const attempt = loginAttemptState(req, username);
+  if (attempt.state.count >= loginMaxAttempts) {
+    const retryAfter = Math.max(1, Math.ceil((attempt.state.resetAt - Date.now()) / 1000));
+    return res.status(429).json({ ok: false, message: `Too many login attempts. Try again in ${retryAfter} seconds.` });
+  }
   const user = users.find((item) => String(item.username || "").toLowerCase() === username && item.active !== false);
   if (!user || !verifyWerkzeugPassword(user.password_hash, password)) {
+    recordFailedLogin(req, username);
     return res.status(401).json({ ok: false, message: "Invalid username or password." });
   }
-  const token = crypto.randomBytes(32).toString("base64url");
-  tokens.set(token, user);
+  clearLoginAttempts(req, username);
+  const token = crypto.randomBytes(48).toString("base64url");
+  tokens.set(token, { user, createdAt: Date.now(), expiresAt: Date.now() + tokenTtlMs });
   return res.json({ ok: true, token, user: publicUser(user), access: accessForUser(user), must_change_password: Boolean(user.must_change_password) });
 });
 
@@ -813,12 +1898,20 @@ app.post("/api/portal/auth/logout", authRequired, (req, res) => {
 });
 
 app.get("/api/portal/data", authRequired, async (req, res) => {
-  await ensureDepartmentHeadUsers();
+  await ensureSharedStaffPortalPassword();
   res.json(portalData(await loadPortalCollections(), req.user));
 });
 
 app.post("/api/portal/action", authRequired, async (req, res) => {
-  res.json({ ok: true, action: req.body?.action || "noted", message: "Portal action recorded by the Node API." });
+  const action = String(req.body?.action || "noted").trim();
+  const target = String(req.body?.target || req.body?.label || "").trim();
+  const delivery = await communicationService.sendBusinessChannelUpdate("portal-action", {
+    agent: String(req.body?.agent || defaultAgentForCommunicationAction(action, target)).trim(),
+    action,
+    target,
+    summary: target ? `${action} executed for ${target}.` : `${action} executed.`
+  });
+  res.json({ ok: true, action, message: "Portal action recorded by the Node API.", delivery });
 });
 
 app.post("/api/portal/crm-query", authRequired, async (req, res) => {
@@ -827,7 +1920,36 @@ app.post("/api/portal/crm-query", authRequired, async (req, res) => {
   const matches = query
     ? customers.filter((customer) => JSON.stringify(customer).toLowerCase().includes(query)).slice(0, 10)
     : customers.slice(0, 10);
-  res.json({ ok: true, matches, answer: matches.length ? `${matches.length} matching customer records found.` : "No matching customer records found." });
+  const answer = matches.length ? `${matches.length} matching customer records found.` : "No matching customer records found.";
+  const delivery = await communicationService.sendBusinessChannelUpdate("crm-query", {
+    agent: "CRM Query Agent",
+    question: query,
+    summary: answer,
+    details: matches.map((customer) => customer.name || customer.id).filter(Boolean).slice(0, 5)
+  });
+  res.json({ ok: true, matches, answer, delivery });
+});
+
+app.post("/api/openclaw/webhook", async (req, res) => {
+  const result = await communicationService.saveInboundPlatformMessage(req.body || {});
+  if (!result.ok) return res.status(result.status || 400).json({ ok: false, message: result.error || "Inbound platform message could not be saved." });
+  res.json(result);
+});
+
+app.post("/api/openclaw/send", authRequired, async (req, res) => {
+  const eventType = String(req.body?.event_type || "manual-message").trim();
+  const delivery = await communicationService.sendBusinessChannelUpdate(eventType, req.body || {});
+  res.status(delivery.ok ? 200 : 502).json({ ok: delivery.ok, delivery });
+});
+
+app.post("/api/openclaw/breakdown/from-discord", async (req, res) => {
+  const result = await discordBreakdownSyncService.createFromDiscordMessage(req.body || {});
+  res.status(result.ok ? 200 : (result.status || 400)).json(result);
+});
+
+app.post("/api/openclaw/breakdown/context", async (req, res) => {
+  const result = await discordBreakdownSyncService.getAssignmentContext(req.body || {});
+  res.status(result.ok ? 200 : (result.status || 400)).json(result);
 });
 
 app.get("/api/portal/service-agent/messages", authRequired, async (_req, res) => {
@@ -932,7 +2054,12 @@ app.post("/api/portal/service-agent/messages/:id/work-order", authRequired, asyn
   state.work_orders = workOrders;
   state.messages = messages;
   await writeOperationsState(state);
-  res.json({ ok: true, work_order: workOrder, message: normalizedOpsRecord(messages[messageIndex], "MSG", messageIndex) });
+  const delivery = await communicationService.sendBusinessChannelUpdate("work-order", {
+    agent: "Site Walkthrough to Work Order",
+    work_order: workOrder,
+    summary: `${workOrder.id} created from ${message.channel || "service"} message for ${workOrder.customer || "customer"}.`
+  });
+  res.json({ ok: true, work_order: workOrder, message: normalizedOpsRecord(messages[messageIndex], "MSG", messageIndex), delivery });
 });
 
 app.post("/api/portal/customers", authRequired, async (req, res) => {
@@ -964,7 +2091,7 @@ app.post("/api/portal/users", authRequired, async (req, res) => {
   if (req.user.role !== "admin") return res.status(403).json({ ok: false, message: "Admin access required." });
   const users = await readJson(listFiles.users, []);
   const username = String(req.body?.username || "").trim().toLowerCase();
-  const password = String(req.body?.password || "ChangeMe123!");
+  const password = String(req.body?.password || sharedPortalPassword);
   if (!username) return res.status(400).json({ ok: false, message: "Username is required." });
   if (users.some((user) => String(user.username || "").toLowerCase() === username)) {
     return res.status(409).json({ ok: false, message: "Username already exists." });
@@ -977,7 +2104,8 @@ app.post("/api/portal/users", authRequired, async (req, res) => {
     department: String(req.body?.department || "").trim(),
     linked_org_node: String(req.body?.linked_org_node || "").trim(),
     active: req.body?.active !== false,
-    must_change_password: req.body?.must_change_password !== false,
+    must_change_password: false,
+    password_policy: "shared-staff-portal",
     password_hash: makeWerkzeugScryptHash(password),
     created_at: new Date().toISOString()
   };
@@ -1004,14 +2132,16 @@ app.patch("/api/portal/users/:id", authRequired, async (req, res) => {
     username: nextUsername,
     ...(req.body?.password || req.body?.temporary_password ? {
       password_hash: makeWerkzeugScryptHash(String(req.body.password || req.body.temporary_password)),
-      must_change_password: true
+      must_change_password: false,
+      password_policy: "shared-staff-portal",
+      password_synced_at: new Date().toISOString()
     } : {}),
     updated_at: new Date().toISOString()
   };
   users[index] = nextUser;
   await writeJson(listFiles.users, users);
   for (const [token, user] of tokens.entries()) {
-    if (String(user.id) === String(nextUser.id)) tokens.set(token, nextUser);
+    if (String(user.user?.id) === String(nextUser.id)) tokens.set(token, { ...user, user: nextUser });
   }
   res.json({ ok: true, record: publicUser(nextUser), user: publicUser(nextUser) });
 });
@@ -1051,6 +2181,14 @@ app.post("/api/portal/breakdown", authRequired, async (req, res) => {
   }, res);
 });
 
+app.post("/api/portal/breakdown/sync-discord", authRequired, async (req, res) => {
+  const result = await discordBreakdownSyncService.sync({
+    force: req.body?.force !== false,
+    limit: Number(req.body?.limit || 50)
+  });
+  res.status(result.ok ? 200 : 502).json(result);
+});
+
 app.post("/api/portal/site-visits", authRequired, async (req, res) => {
   const customerId = String(req.body?.customer_id || "").trim();
   const customers = await readJson(listFiles.customers, []);
@@ -1066,6 +2204,10 @@ app.post("/api/portal/site-visits", authRequired, async (req, res) => {
     customer_id: customerId,
     customer_name: customer.name || customer.customer || customer.lead_name || customer.contact_name || customerId,
     address: customer.address || "",
+    submitted_by: req.user?.display_name || req.user?.username || "",
+    submitted_by_username: req.user?.username || "",
+    submitted_by_department: req.user?.department || "",
+    submitted_by_staff_id: req.user?.linked_org_node || "",
     created_at: now,
     updated_at: now
   };
@@ -1092,6 +2234,8 @@ app.patch("/api/portal/site-visits/:id", authRequired, async (req, res) => {
     customer_id: customerId,
     customer_name: customer.name || customer.customer || customer.lead_name || customer.contact_name || customerId,
     address: customer.address || siteVisits[index].address || "",
+    updated_by: req.user?.display_name || req.user?.username || "",
+    updated_by_username: req.user?.username || "",
     updated_at: new Date().toISOString()
   };
   siteVisits[index] = siteVisit;
@@ -1154,6 +2298,15 @@ app.get("/api/portal/inventory/ai-insights", authRequired, async (_req, res) => 
   const normalized = inventory.map(normalizeInventoryItem);
   const low_stock = normalized.filter((item) => item.available_stock <= item.reorder_point);
   res.json({ ok: true, low_stock, recommendations: low_stock.map((item) => `Reorder ${item.item || item.name || item.id}.`) });
+});
+
+app.get("/api/portal/costing-source-data", authRequired, async (_req, res) => {
+  try {
+    const data = await parseCostingWorkbooks();
+    res.json({ ok: true, ...data });
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error instanceof Error ? error.message : "Could not read costing source files." });
+  }
 });
 
 app.post("/api/portal/inventory/raise-po", authRequired, async (req, res) => {
@@ -1266,7 +2419,16 @@ app.post("/api/portal/estimates/:id/approve-offer", authRequired, async (req, re
 });
 
 app.post("/api/portal/estimates/:id/send", authRequired, async (req, res) => {
-  await updateCollectionRecord("estimates", req.params.id, { ...req.body, status: "Sent" }, res);
+  const estimates = await readJson(listFiles.estimates, []);
+  const estimate = estimates.find((item) => String(item.id) === String(req.params.id));
+  const delivery = await communicationService.sendBusinessChannelUpdate("estimate-send", {
+    agent: "Contract Renewal CRM Agent",
+    estimate_id: req.params.id,
+    target: req.body?.target || req.body?.recipient || estimate?.customer_phone || estimate?.phone || "",
+    channel: req.body?.channel,
+    summary: `Estimate ${req.params.id} sent${estimate?.customer_name ? ` to ${estimate.customer_name}` : ""}.`
+  });
+  await updateCollectionRecord("estimates", req.params.id, { ...req.body, status: "Sent", delivery_status: delivery.ok ? "Sent" : "Delivery failed" }, res);
 });
 
 app.post("/api/portal/customer-users", authRequired, async (req, res) => {
@@ -1394,7 +2556,14 @@ app.post("/api/portal/install-jobs/:jobId/send-commissioning", authRequired, asy
   jobs[jobIndex] = { ...job, status: "Installed - Sent to Commissioning", commissioning_id: commissioning.id, commissioning_handoff_at: now };
   await writeJson(listFiles.install_jobs, jobs);
 
-  res.json({ ok: true, commissioning, message, job: jobs[jobIndex] });
+  const delivery = await communicationService.sendBusinessChannelUpdate("installation-complete", {
+    agent: "Field Installation Manager",
+    job_id: job.id || job.job_id,
+    site: job.site,
+    crew: job.crew,
+    summary: `Install handoff sent for ${job.site || job.id}.`
+  });
+  res.json({ ok: true, commissioning, message, job: jobs[jobIndex], delivery });
 });
 
 app.post("/api/portal/attendance", authRequired, async (req, res) => {
@@ -1420,6 +2589,8 @@ app.post("/api/portal/attendance", authRequired, async (req, res) => {
     status: String(payload.status || "present").trim(),
     check_in: String(payload.check_in || "").trim(),
     check_out: String(payload.check_out || "").trim(),
+    check_in_location: payload.check_in_location || (existingIndex >= 0 ? records[existingIndex].check_in_location : null) || null,
+    check_out_location: payload.check_out_location || (existingIndex >= 0 ? records[existingIndex].check_out_location : null) || null,
     notes: String(payload.notes || "").trim(),
     marked_by: payload.marked_by || req.user?.username || "",
     marked_at: payload.marked_at || now,
@@ -1467,6 +2638,23 @@ app.get("/", (_req, res) => {
   });
 });
 
+let discordBreakdownSyncWarned = false;
+async function runDiscordBreakdownSync() {
+  const result = await discordBreakdownSyncService.sync();
+  if (!result.ok && !discordBreakdownSyncWarned) {
+    discordBreakdownSyncWarned = true;
+    console.warn(`Discord breakdown sync unavailable: ${result.message || result.status || "unknown error"}`);
+  }
+  if (result.ok) discordBreakdownSyncWarned = false;
+  return result;
+}
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`FUZI Node API listening on http://127.0.0.1:${port}`);
+  runDiscordBreakdownSync().catch((error) => console.warn(`Discord breakdown sync failed: ${error?.message || error}`));
+  const pollMs = defaultDiscordBreakdownSyncData(process.env, rootDir).pollMs;
+  const interval = setInterval(() => {
+    runDiscordBreakdownSync().catch((error) => console.warn(`Discord breakdown sync failed: ${error?.message || error}`));
+  }, pollMs);
+  interval.unref?.();
 });

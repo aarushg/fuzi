@@ -43,10 +43,10 @@ npm run android
 **Default admin credentials:**
 ```
 Username: admin
-Password: fuzi2026
+Password: Fuzi@2026!Portal
 ```
 
-Seeded staff accounts are stored in `fuzi.sqlite3`. Some seeded department accounts still have temporary-password flags; rotate them from the Team Accounts workflow before sharing with the team.
+Seeded staff accounts are stored in `fuzi.sqlite3`. Staff portal accounts use the shared portal password by default. Override it for both API and Expo quick-login builds with `FUZI_SHARED_PORTAL_PASSWORD` and `EXPO_PUBLIC_FUZI_PORTAL_PASSWORD`.
 
 ---
 
@@ -80,7 +80,7 @@ $env:EXPO_PUBLIC_FUZI_API_URL="http://YOUR_COMPUTER_IP:5000"
 npm run android
 ```
 
-The Expo app includes login, live metrics, saved estimates and site visit reports inside Customer CRM. Its navigation mirrors the staff portal modules: Overview, Platform Modules, Customers, Fleet Monitor, Project Tickets, Projects, Installations, Install Team, Team Accounts, Service Agent, Renewals, Work Orders, Inventory, Staff & Attendance, Installation Dept, Breakdown, Service, GAD Drawings, Accounts, Commissioning, Back Office, Tender, Factory, and Dept Comms.
+The Expo app includes login, live metrics, saved estimates, customer lifecycle tracking, `.xlsx` costing source review, and site visit reports inside Customer CRM. Its navigation mirrors the staff portal modules: Overview, Platform Modules, Customers, Fleet Monitor, Project Tickets, Projects, Installations, Install Team, Team Accounts, Service Agent, Renewals, Work Orders, Inventory, Staff & Attendance, Installation Dept, Breakdown Portal, Service, GAD Drawings, Accounts, Commissioning, Back Office, Tender, Factory, and Dept Comms.
 
 Most module pages include shared add/update controls backed by the Node compatibility API, so the React/Expo portal can create and update the same SQLite-backed operational records that the legacy portal used: project tickets, install jobs, install team, users, inventory, estimates, payments, sales inquiries, breakdowns, service records, GAD drawings, commissioning, factory jobs, tenders, department comms, org chart, and attendance.
 
@@ -88,8 +88,9 @@ Customer/Site Visit rule:
 - Select a CRM customer or imported enquiry/customer row first.
 - Site Visit Reports are saved in `fuzi.sqlite3` from inside Customer CRM.
 - A Site Visit Report must include an existing CRM `customer_id`; the API rejects reports that are not tied to a CRM customer.
+- The Site Visit form asks "How many stops?" and creates one opening row per stop/opening for floor, floor-to-floor height, and lintel height.
 
-API: `POST /api/portal/auth/login`, `GET /api/portal/auth/session`, `POST /api/portal/auth/logout`, `GET /api/portal/data`, `POST /api/portal/customers`, `POST /api/portal/site-visits`, plus legacy-compatible collection routes like `GET/POST/PATCH /api/portal/inventory`, `GET/POST/PATCH /api/portal/tender`, and `GET/POST/PATCH /api/portal/sales/inquiries`.
+API: `POST /api/portal/auth/login`, `GET /api/portal/auth/session`, `POST /api/portal/auth/logout`, `GET /api/portal/data`, `POST /api/portal/customers`, `POST /api/portal/site-visits`, `GET /api/portal/costing-source-data`, plus legacy-compatible collection routes like `GET/POST/PATCH /api/portal/inventory`, `GET/POST/PATCH /api/portal/tender`, and `GET/POST/PATCH /api/portal/sales/inquiries`.
 
 ---
 
@@ -121,7 +122,8 @@ API: `POST /api/portal/users`, `PATCH /api/portal/users/<id>`
 
 - Every new customer is saved with a unique random 4-digit customer ID, persisted as the primary key in `fuzi.sqlite3`, and reused by estimator/customer-portal links.
 - Older saved customer IDs are migrated to 4-digit IDs on portal load, with linked `customer_id` references updated across the local collections.
-- Customer records capture the visible `sitevisit.pdf` form fields: address, main mobile phone, site person name/mobile, reference given by/mobile, pit size in mm, machine room available (`Y`/`N`), visit date, offer/enquiry numbers, floor/FF/lintel height notes, offer type, motor/finish/door requirement, openings/stops, opening type, door size, car size, capacity, shaft size, brick wall, civil door height, and visited-by.
+- Customer records capture the visible `sitevisit.pdf` form fields: address, main mobile phone, site person name/mobile, reference given by/mobile, pit size in mm, machine room available (`Y`/`N`), visit date, offer/enquiry numbers, offer type, motor/finish/door requirement, openings/stops, opening type, door size, car size, capacity, shaft size, brick wall, civil door height, and visited-by.
+- Site visit opening details are structured instead of one free-text line: enter the number of stops/openings, then fill each opening's floor, floor-to-floor height in mm, and lintel height in mm. The app saves this as `opening_schedule` and also keeps a generated `floor_height_profile` summary.
 - The Customers portal view shows the site-visit details beside the customer contact record so follow-up, quotation, and portal access all stay tied to the same customer ID.
 
 API: `POST /api/portal/customers`, `PATCH /api/portal/customers/<id>`
@@ -272,6 +274,7 @@ Build professional customer-linked elevator costing records and send bid reports
 - Passenger mode uses passenger-capacity options, while Goods and Dumbwaiter switch to the load-capacity options automatically.
 - Fixed rupee margin mirrors the Excel costing sheets and recalculates price live.
 - Recipient email, valid-until date, free-text notes, and add-ons remain available.
+- The **Complete .xlsx costing data** panel reads every non-empty cell from workbooks in `docs/costing`, shows values step by step, shows formulas where present, and lets staff attach the complete extracted source data to the costing as normal user-entered app data. This is a review/attach workflow, not a dashboard upload/import control.
 
 **Live pricing:** Cost engine reads workbook-style component costs, applies capacity/specification selections, and adds the approved rupee margin in real time.
 
@@ -288,7 +291,7 @@ Build professional customer-linked elevator costing records and send bid reports
 
 SMTP (optional): set `FUZI_SMTP_HOST`, `FUZI_SMTP_PORT`, `FUZI_SMTP_USER`, `FUZI_SMTP_PASS`, `FUZI_SMTP_FROM` to enable server-side delivery.
 
-API: `GET /api/portal/estimates`, `POST /api/portal/estimates`, `PATCH /api/portal/estimates/<id>`, `DELETE /api/portal/estimates/<id>`, `GET /api/portal/estimates/<id>/report`, `GET /api/portal/estimates/<id>/offer.pdf`, `POST /api/portal/estimates/<id>/send`, `POST /api/portal/estimates/calculate`
+API: `GET /api/portal/estimates`, `POST /api/portal/estimates`, `PATCH /api/portal/estimates/<id>`, `DELETE /api/portal/estimates/<id>`, `GET /api/portal/estimates/<id>/report`, `GET /api/portal/estimates/<id>/offer.pdf`, `POST /api/portal/estimates/<id>/send`, `POST /api/portal/estimates/calculate`, `GET /api/portal/costing-source-data`
 
 ---
 
@@ -334,7 +337,10 @@ It also includes Offer creation and the imported Offer Report from `docs/Offer R
 - Costing estimate records are linked to enquiries by source inquiry/customer ID and customer name, so each CRM row shows whether costing exists and the latest costing number/date/value/status.
 - Automatic follow-up settings are stored on each CRM enquiry: channel, cadence in days, next follow-up date, status, and last follow-up date.
 - The CRM Follow-up Queue shows records due today or overdue and can mark them followed up, close the follow-up, or reschedule by 3/7/14/30 days.
-- Quick pipeline actions update an enquiry to `Site Visit`, `Offer Pending`, `Offer Submitted`, or `Lost`.
+- Enquiry lifecycle statuses are fixed to: `Inquiry Pending`, `Inquiry Lost`, `Site Visit Pending`, `Site Visit Done`, `Site Not Visited, Offer Pending`, `Site Visit Lost`, `Offer Pending`, `Offer Submitted`, `Offer Lost`, `Order Received`, `Order Lost`, `Work In Progress`, `Hand Over`, `Warranty Running`, `Warranty Lost`, `AMC Running`, and `One Time Service`.
+- The selected lifecycle status is displayed in the top-right of each enquiry/customer card.
+- Lifecycle status can only be changed after clicking **Edit**. Lost statuses require a lost reason before saving.
+- Quick follow-up intervals can only be changed after clicking **Edit**. The normal card displays follow-up state but does not show the `+3d`, `+7d`, `+14d`, or `+30d` mutation buttons.
 - The report import has been merged into `fuzi.sqlite3`; the CRM now has 2,022 enquiry records available for intake and follow-up, with 20 records per page in the Enquiry Report Records section.
 - `docs/Offer Report.csv` has been merged into `fuzi.sqlite3`; imported offer report records plus newly created offers are now managed from the matching CRM enquiry/customer row.
 
@@ -389,7 +395,7 @@ Add and manage building/customer records:
 - Name, contact person, phone, email, address, segment, renewal date, notes.
 - India CRM fields: GSTIN, PAN, state/place of supply, lead source, account owner, preferred channel, next follow-up.
 - Consent tracking: DPDP consent, marketing/DLT consent, DLT consent reference, and consent/compliance notes.
-- Modern CRM workspace: lead/account pipeline, merged enquiry intake, all imported enquiry report records, editable customer records, search, stage filters, due follow-up badges, consent review badges, quick stage updates, quick consent capture, follow-up scheduling, and 20-record pagination for both customers and enquiry records.
+- Modern CRM workspace: lead/account pipeline, merged enquiry intake, all imported enquiry report records, editable customer records, search, stage filters, due follow-up badges, consent review badges, edit-only lifecycle status updates, edit-only follow-up scheduling, quick consent capture, and 20-record pagination for both customers and enquiry records.
 - Status tracking: `Active`, `At Risk`, `Renewal Due`, `Paused`, `Closed`.
 - **Grant Portal Access** (admin): create a customer portal login directly from the customer row — generates username, temporary password, and portal URL to share with the customer.
 
@@ -533,18 +539,32 @@ API: `GET /api/portal/renewals`, `POST /api/portal/renewals`, `PATCH /api/portal
 
 ### Platform Modules
 
-10 operating areas with owner, status, KPIs, and quick actions:
+Operating areas with owner, status, KPIs, and quick actions:
 
 1. Lift Quotation Management
 2. AMC & Preventive Maintenance
-3. Elevator Breakdown Management
-4. Field Service Management
-5. Attendance Management
-6. Elevator Inventory Management
-7. Elevator CRM & Lead Management
-8. Elevator Modernization Management
-9. Elevator Project Tracking
-10. Elevator MIS Reporting Dashboard
+3. Breakdown Control
+4. Installation Projects
+5. Inventory & Stores
+6. Customer CRM
+7. Site Visit Reports
+8. GAD Drawings
+9. Accounts
+10. Department Comms
+11. Fleet Monitor
+12. Project Tickets
+13. Projects
+14. Install Team
+15. Team Accounts
+16. Service Agent
+17. Renewals
+18. Work Orders
+19. Staff & Attendance
+20. Installation Dept
+21. Commissioning
+22. Back Office
+23. Tender
+24. Factory
 
 ---
 
@@ -583,7 +603,7 @@ A separate self-service portal for customers at `/customer/login`.
 
 ## Department-Based Login Accounts
 
-Auto-seeded manager accounts (temporary password `ChangeMe123!`):
+Auto-seeded manager accounts use the shared staff portal password:
 
 - `service.control.manager`
 - `project.office.manager`
@@ -600,14 +620,19 @@ All portal data persists to the local SQLite database `fuzi.sqlite3`. The Node A
 
 Primary collections include staff portal accounts, customer/building records, customer portal credentials, project tickets, installation jobs, install team roster, inventory, costing estimates, sales/admin records, org chart, attendance, site visits, live fleet, messages, renewals, work orders, and activity history.
 
+Site visit records keep structured opening data under `opening_schedule`. Sales inquiries keep the selected lifecycle `status`/`lead_status`; lost statuses also store `lost_reason` / `status_lost_reason`.
+
 ---
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `FUZI_PORTAL_USER` | `admin` | Initial admin username |
-| `FUZI_PORTAL_PASSWORD` | `fuzi2026` | Initial admin password |
+| `FUZI_SHARED_PORTAL_PASSWORD` | `Fuzi@2026!Portal` | Shared staff portal password applied to all staff accounts |
+| `EXPO_PUBLIC_FUZI_PORTAL_PASSWORD` | `Fuzi@2026!Portal` | Expo quick-login password; set to the same value as `FUZI_SHARED_PORTAL_PASSWORD` |
+| `FUZI_PORTAL_TOKEN_TTL_MINUTES` | `480` | Sliding staff portal token lifetime in minutes |
+| `FUZI_LOGIN_WINDOW_MINUTES` | `10` | Login throttling window |
+| `FUZI_LOGIN_MAX_ATTEMPTS` | `8` | Failed attempts allowed per username/IP window |
 | `FUZI_SMTP_HOST` | *(off)* | SMTP server for estimate emails |
 | `FUZI_SMTP_PORT` | `587` | SMTP port |
 | `FUZI_SMTP_USER` | *(off)* | SMTP username |
@@ -666,7 +691,11 @@ node -e "const db=require('better-sqlite3')('fuzi.sqlite3'); console.log(db.prep
 - Staff login works in the Expo app at `http://127.0.0.1:8081`.
 - `GET /api/portal/data` returns `401` without a bearer token.
 - Customer CRM and Site Visit Reports work in the Expo app.
+- Site Visit Reports create opening rows from stops/openings and save floor, FF height, and lintel height.
+- Customer/enquiry status can only be changed after clicking Edit; lost statuses require a reason.
+- The normal customer/enquiry card does not show `+3d/+7d/+14d/+30d`; follow-up interval controls appear in edit mode.
 - Costing Estimator saved estimates render in the Expo app.
+- Costing Estimator shows `.xlsx` source values step by step and can attach the complete source payload.
 - Sales Admin Panel shows FY (Apr-Mar) KPI totals and selected-date KPI drilldown.
 - "Send" on a saved estimate triggers the email client (or SMTP if configured).
 - Customers can log in and view their quotes.

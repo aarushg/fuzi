@@ -47,6 +47,11 @@ export type SiteVisit = {
   site_offer_no?: string;
   site_enquiry_no?: string;
   floor_height_profile?: string;
+  opening_schedule?: Array<{
+    floor: string;
+    ff_height_mm: string;
+    lintel_height_mm: string;
+  }>;
   site_offer_type?: string;
   site_motor_required?: string;
   site_finish_required?: string;
@@ -65,6 +70,14 @@ export type SiteVisit = {
   brick_wall_available?: string;
   civil_door_height_mm?: string;
   visited_by?: string;
+  submitted_by?: string;
+  submitted_by_username?: string;
+  submitted_by_department?: string;
+  submitted_by_staff_id?: string;
+  updated_by?: string;
+  updated_by_username?: string;
+  created_at?: string;
+  updated_at?: string;
   notes?: string;
 };
 
@@ -97,7 +110,7 @@ export type PortalData = {
   org_chart?: Array<Record<string, unknown>>;
   leave_requests?: Array<Record<string, unknown>>;
   payments?: Array<Record<string, unknown>>;
-  viewer?: { display_name?: string; username?: string; department?: string; role?: string };
+  viewer?: { display_name?: string; username?: string; department?: string; role?: string; linked_org_node?: string; linked_team_member?: string };
   access?: { allowed_views?: string[]; selected_view?: string; default_view?: string; is_restricted?: boolean };
   synced_at?: string;
 };
