@@ -648,12 +648,12 @@ Site visit records keep structured opening data under `opening_schedule`. Sales 
 
 ## OpenClaw Agent Relay
 
-Agent actions route through OpenClaw's authenticated gateway (`/tools/invoke`). FUZI now uses one inbound OpenClaw entrypoint and one outbound OpenClaw send path:
+Agent actions route through OpenClaw's authenticated gateway (`/tools/invoke`) and the FUZI API. The integration is intentionally split into two directions:
 
-- Inbound user messages are pushed into the app with an authenticated `POST` to `/api/openclaw/inbound/messages`.
-- FUZI normalizes the incoming payload, matches the target against the configured `FUZI_OPENCLAW_TARGET_*` values, and routes the message into the correct workflow.
-- Outbound operational updates are emitted through `send_business_channel_update()` in [server/index.mjs](server/index.mjs), which applies deduplication and then sends through the injected OpenClaw message transport.
-- Phone-style delivery remains isolated behind `resolve_injected_whatsapp_transport()` in [server/index.mjs](server/index.mjs).
+- Inbound platform/service messages are pushed into FUZI with `POST /api/openclaw/webhook`. FUZI saves them into the Service Agent messages collection.
+- Outbound operational updates are emitted through `sendBusinessChannelUpdate()` in [server/index.mjs](server/index.mjs), which chooses a configured free communication channel and sends through OpenClaw `/tools/invoke`.
+- Free outbound channels are WhatsApp, Telegram, Signal, Discord, and Slack. Phone-style targets can be routed through an injected backend channel such as Discord when WhatsApp is not the active transport.
+- OpenClaw config/env loading, channel selection, and send behavior are provided by dependency injection in `createOpenClawCommunicationService()` and `createDiscordBreakdownSyncService()`.
 
 The main routing targets are:
 
@@ -666,12 +666,73 @@ The main routing targets are:
 - `FUZI_OPENCLAW_TARGET_WORK_ORDERS` → `#site-work-orders`
 - `FUZI_OPENCLAW_TARGET_INSTALLATIONS` → `#field-installations`
 
+Also set `FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL` for Discord `#fuzi-breakdown`.
+
+### `#fuzi-breakdown` Chat Input And Output
+
+OpenClaw handles `#fuzi-breakdown` as the chat input surface for live breakdown reports. FUZI is the durable source of portal data, while OpenClaw decides the engineer from live FUZI context.
+
+For each actionable breakdown message, OpenClaw should:
+
+1. Parse the raw Discord text and message id.
+2. Call `POST /api/openclaw/breakdown/context` with `message_id`, `text`, and `sender`.
+3. Choose `scheduled_engineer` from the returned `engineers` list using availability, `current_job`, `active_breakdown_load`, and `last_openclaw_engineer`.
+4. Call `POST /api/openclaw/breakdown/from-discord` with the same message details plus `scheduled_engineer`.
+5. Reply in Discord with the returned `reply` field.
+
+The response body from `/api/openclaw/breakdown/from-discord` contains:
+
+- `record`: the saved portal breakdown, including site, unit, fault, selected engineer, status, and source Discord message id.
+- `summary`: the full operational summary for dashboards/logs.
+- `reply`: the short human-facing chat sentence OpenClaw should type in Discord.
+
+The chat `reply` is intentionally concise and should sound like normal dispatch handling, for example:
+
+- `Ok, Ravi Sharma is going to Hotel Bisau Palace.`
+- `Ok, Pawan Meena is going to Yogesh Ji, B-149 Sitapura near GIT College, unit 10956.`
+- `Done, Hotel Star Place is marked Done.`
+
+Do not replace the short `reply` with the full `summary` unless someone explicitly asks for details. The detailed data already appears in the Breakdown Portal.
+
+Pure status/acknowledgement words are meaningful in the channel:
+
+- `Ok` acknowledges that the breakdown was logged or accepted.
+- `Going to` means an available/scheduled engineer is being sent.
+- `Done` means the job has been completed or closed.
+
+### Breakdown Sync And Duplicate Protection
+
+FUZI can also poll the configured Discord channel and import bot confirmation messages with `POST /api/portal/breakdown/sync-discord` or the background poller in [server/index.mjs](server/index.mjs). The sync path preserves existing `assignment_source: "openclaw-judgement"` records so a later confirmation import cannot overwrite the engineer that OpenClaw already selected.
+
+Existing Discord message ids are idempotent. Reprocessing the same `message_id` returns the existing breakdown and does not overwrite saved site, unit, phone, or fault text unless OpenClaw explicitly sends replacement fields.
+
+### OpenClaw Memory Files
+
+OpenClaw injects workspace guidance and can also load local memory from `C:\Users\User\.openclaw\workspace\memory`. These files are outside the repo but are important operational context for Discord behavior.
+
+Current FUZI-related memory files:
+
+- `C:\Users\User\.openclaw\workspace\memory\2026-06-01-breakdown-assignment.md`
+- `C:\Users\User\.openclaw\workspace\memory\2026-06-01-breakdown-981.md`
+
+Those files document that old examples repeatedly assigning unit `981` to Nadeem Khan are stale. They also tell OpenClaw to call the FUZI context endpoint, choose from live FUZI engineer data, save the chosen engineer, and reply with the short returned sentence.
+
+If OpenClaw starts repeating old engineer assignments or long `Breakdown BRK-*` messages in Discord, inspect:
+
+- `C:\Users\User\.openclaw\agents\main\sessions\sessions.json`
+- the active `#fuzi-breakdown` session JSONL file referenced by `sessionFile`
+- the FUZI memory files under `C:\Users\User\.openclaw\workspace\memory`
+
+Reset the specific `#fuzi-breakdown` session after changing OpenClaw instructions so `systemSent` becomes false and the next Discord turn reloads `AGENTS.md` plus corrected memory.
+
 Recommended related settings:
 
 - `FUZI_OPENCLAW_URL` for the local gateway base URL.
 - `FUZI_OPENCLAW_TIMEOUT` for request timeout control.
 - `FUZI_OPENCLAW_CHANNEL` for the default outbound delivery channel.
 - `FUZI_OPENCLAW_PUSH_INGEST_ENABLED` to keep the inbound push route enabled.
+- `FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL` for the Discord channel id or `channel:<id>` target used by breakdown sync.
+- `FUZI_BREAKDOWN_DISCORD_POLL_MS` for the background breakdown sync interval.
 
 ---
 

@@ -1292,20 +1292,32 @@ function createDiscordBreakdownSyncService({
   const parseHumanBreakdownMessage = (body = {}) => {
     const text = String(body.text || body.message || body.body || body.content || "").trim();
     const messageId = String(body.message_id || body.discord_message_id || body.id || "").trim();
+    const phoneMatch = text.match(/(?:\+?91[\s-]?)?[6-9]\d{4}[\s-]?\d{5}/);
+    const phone = String(body.phone || body.caller_mobile || body.caller_phone || (phoneMatch ? phoneMatch[0].replace(/[\s-]/g, "") : "")).trim();
     const [unitToken, ...rest] = text.split(/\s+/);
-    const unit = String(body.unit || (/^\d+[A-Za-z-]*$/.test(unitToken || "") ? unitToken : "")).trim();
-    let site = String(body.site || body.location || rest.join(" ")).trim();
+    const startsWithSplitPhone = Boolean(phone && /^\d{5}$/.test(unitToken || "") && /^\d{5}$/.test(rest[0] || ""));
+    const unit = String(body.unit || (!startsWithSplitPhone && /^\d+[A-Za-z-]*$/.test(unitToken || "") ? unitToken : "")).trim();
+    const inferredSite = unit ? rest.join(" ") : text;
+    let site = String(body.site || body.location || inferredSite).trim();
     site = site.replace(/^Place\s+Exists\s+/i, "").trim();
+    site = site
+      .replace(/\s+Dear User,\s*Phone received from.*$/i, "")
+      .replace(/\s+Knowlarity Communications Pvt\. Ltd\.\s*$/i, "")
+      .trim();
     const priority = String(body.priority || (/urgent|stuck|trapped|breakdown|emergency|not working|fault/i.test(text) ? "High" : "Normal")).trim();
+    const status = String(body.status || body.breakdown_status || "").trim();
     return {
       source_discord_message_id: messageId,
       unit,
       site,
       location: site,
       customer: site || (unit ? `Discord unit ${unit}` : "Discord breakdown"),
+      phone,
+      caller_mobile: phone,
       fault: String(body.fault || body.issue || (unit && site ? `Inbound Discord report for unit ${unit} at ${site}.` : text)).trim(),
       issue: String(body.issue || body.fault || (unit && site ? `Inbound Discord report for unit ${unit} at ${site}.` : text)).trim(),
       priority,
+      ...(status ? { status } : {}),
       source: "Discord",
       channel: "discord",
       created_at: now(),
@@ -1321,7 +1333,7 @@ function createDiscordBreakdownSyncService({
     ""
   ).trim();
 
-  const formatBreakdownReply = (record) => [
+  const formatBreakdownSummary = (record) => [
     `Breakdown ${record.id} assigned from Discord message ${record.source_discord_message_id || "unknown"}.`,
     `Unit: ${record.unit || "-"}.`,
     `Site: ${record.site || record.location || "-"}.`,
@@ -1330,6 +1342,22 @@ function createDiscordBreakdownSyncService({
     `Scheduled engineer: ${record.engineer || record.assigned_to || "-"} (${record.engineer_availability || "Scheduled"}).`,
     `Technician: ${record.technician || record.engineer || record.assigned_to || "-"}.`
   ].join("\n");
+
+  const formatBreakdownChannelReply = (record) => {
+    const status = String(record.status || "").trim().toLowerCase();
+    const engineer = String(record.engineer || record.assigned_to || record.technician || "").trim();
+    const site = String(record.site || record.location || record.customer || "").trim();
+    const unit = String(record.unit || "").trim();
+    const siteLabel = site || (unit ? `unit ${unit}` : "the breakdown");
+    const unitLabel = unit && site ? `, unit ${unit}` : "";
+    if (["done", "closed", "resolved", "completed"].includes(status)) {
+      return `Done, ${siteLabel}${unitLabel} is marked ${record.status || "Done"}.`;
+    }
+    if (engineer) {
+      return `Ok, ${engineer} is going to ${siteLabel}${unitLabel}.`;
+    }
+    return `Ok, ${siteLabel}${unitLabel} is logged.`;
+  };
 
   const idGreaterThan = (left, right) => {
     if (!left) return false;
@@ -1522,8 +1550,25 @@ function createDiscordBreakdownSyncService({
     const openClawAvailability = String(body.engineer_availability || body.availability || "").trim();
     const breakdowns = await readCollection("breakdowns");
     const existing = breakdowns.find((item) => String(item.source_discord_message_id || "") === incoming.source_discord_message_id);
+    const preserveExisting = existing ? {
+      ...(body.unit === undefined ? { unit: existing.unit || "" } : {}),
+      ...(body.site === undefined && body.location === undefined ? {
+        site: existing.site || existing.location || "",
+        location: existing.location || existing.site || "",
+        customer: existing.customer || existing.site || existing.location || ""
+      } : {}),
+      ...(body.fault === undefined && body.issue === undefined ? {
+        fault: existing.fault || existing.issue || "",
+        issue: existing.issue || existing.fault || ""
+      } : {}),
+      ...(body.phone === undefined && body.caller_mobile === undefined && body.caller_phone === undefined ? {
+        phone: existing.phone || "",
+        caller_mobile: existing.caller_mobile || existing.phone || ""
+      } : {})
+    } : {};
     const record = {
       ...incoming,
+      ...preserveExisting,
       ...(openClawEngineer ? {
         engineer: openClawEngineer,
         assigned_to: openClawEngineer,
@@ -1534,7 +1579,12 @@ function createDiscordBreakdownSyncService({
       id: existing?.id || nextRecordId(breakdowns, "BRK")
     };
     const result = await upsertBreakdown(record);
-    return { ok: true, record: result.record, reply: formatBreakdownReply(result.record) };
+    return {
+      ok: true,
+      record: result.record,
+      reply: formatBreakdownChannelReply(result.record),
+      summary: formatBreakdownSummary(result.record)
+    };
   };
 
   const getAssignmentContext = async (body = {}) => {
