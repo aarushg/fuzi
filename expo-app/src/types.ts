@@ -83,9 +83,33 @@ export type SiteVisit = {
 
 export type Estimate = {
   id: string;
+  customer_id?: string;
   customer_name: string;
   site?: string;
   elevator_type?: string;
+  offer_type?: string;
+  job_no?: string;
+  offer_date?: string;
+  stops?: string;
+  capacity?: string;
+  speed?: string;
+  drive_type?: string;
+  door_type?: string;
+  finish?: string;
+  material_cost?: number;
+  install_cost?: number;
+  overhead_cost?: number;
+  margin_percent?: number;
+  margin_amount?: number;
+  discount?: number;
+  gst_percent?: number;
+  gst_amount?: number;
+  calculated_total_cost?: number;
+  offer_valid_until?: string;
+  payment_terms?: string;
+  delivery_timeline?: string;
+  warranty_terms?: string;
+  offer_letter_status?: string;
   status?: string;
   total_cost?: number;
   created_at?: string;
@@ -106,6 +130,7 @@ export type PortalData = {
   fleet?: Array<Record<string, unknown>>;
   renewals?: Array<Record<string, unknown>>;
   work_orders?: Array<Record<string, unknown>>;
+  international_vendors?: Array<Record<string, unknown>>;
   attendance_today?: Array<Record<string, unknown>>;
   org_chart?: Array<Record<string, unknown>>;
   leave_requests?: Array<Record<string, unknown>>;

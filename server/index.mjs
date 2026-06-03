@@ -53,6 +53,7 @@ const listFiles = {
   factory_jobs: "factory_jobs.json",
   tenders: "tenders.json",
   dept_comms: "dept_comms.json",
+  international_vendors: "international_vendors.json",
   attendance: "attendance.json",
   leave_requests: "leave_requests.json",
   org_chart: "org_chart.json"
@@ -89,6 +90,7 @@ const platformModules = [
   ["Installation Projects", "Installation Dept", "Active", "Track install stages, crew assignments, and handover dates."],
   ["Inventory & Stores", "Stores", "Active", "Watch stock levels, reorder thresholds, and purchase requests."],
   ["Customer CRM", "Customer Success", "Active", "Maintain customer, site, contact, and follow-up records."],
+  ["Offer Manager", "Sales Desk", "Active", "Create customer-linked elevator offers from internal costing and prepare client offer letters."],
   ["Site Visit Reports", "Sales Desk", "Active", "Capture site measurements tied to saved customer IDs."],
   ["GAD Drawings", "GAD", "Active", "Track drawing submissions, revisions, and approvals."],
   ["Accounts", "Accounts", "Active", "Follow payment milestones and outstanding balances."],
@@ -97,7 +99,6 @@ const platformModules = [
   ["Projects", "Installation Dept", "Active", "Keep project records aligned with installation jobs."],
   ["Install Team", "Installation Dept", "Active", "Maintain technicians, roles, availability, and current assignments."],
   ["Team Accounts", "Admin", "Active", "Manage portal users, departments, roles, and access state."],
-  ["Service Agent", "Service Desk", "Active", "Track service messages and customer follow-up items."],
   ["Renewals", "AMC Team", "Active", "Manage renewal dates, customer outreach, and contract status."],
   ["Work Orders", "Service Desk", "Active", "Capture and update work order execution status."],
   ["Staff & Attendance", "HR", "Active", "Record attendance and staff visibility."],
@@ -105,11 +106,11 @@ const platformModules = [
   ["Commissioning", "Commissioning", "Active", "Track commissioning checks and final handover readiness."],
   ["Back Office", "Back Office", "Active", "Keep customer records, documents, and operational admin data together."],
   ["Tender", "Tender", "Active", "Track tender opportunities, submissions, revisions, and result."],
-  ["Factory", "Factory", "Active", "Track production stages, materials, and dispatch readiness."]
-].map(([name, owner, status, summary]) => ({ name, owner, status, summary }));
+  ["Factory", "Factory", "Active", "Track production stages, materials, and dispatch readiness."],
+  ["International Vendor", "Admin", "Active", "Track USA/Canada elevator-company partners, landed kit cost, tenders, and outreach."]
+  ].map(([name, owner, status, summary]) => ({ name, owner, status, summary }));
 
 const operationsPrefixes = {
-  messages: "MSG",
   renewals: "REN",
   work_orders: "WO"
 };
@@ -169,23 +170,23 @@ function isDepartmentHead(person) {
 
 function accessForUser(user = {}) {
   const allViews = [
-    "overview", "modules", "customers", "tickets", "projects", "installations", "team", "accounts", "messages",
+    "overview", "modules", "customers", "offerManager", "tickets", "projects", "installations", "team", "accounts",
     "renewals", "workorders", "inventory", "estimator", "orgchart", "sales", "installation_dept", "breakdown", "service",
-    "gad", "finance", "commissioning", "backoffice", "tender", "factory", "comms", "siteVisits"
+    "gad", "finance", "commissioning", "backoffice", "tender", "factory", "internationalVendor", "comms", "siteVisits"
   ];
   if (user.role === "admin" || String(user.department || "").toLowerCase() === "executive office") {
     return { allowed_views: allViews, selected_view: "overview", default_view: "overview", is_restricted: false };
   }
   const byDepartment = {
-    sales: ["overview", "customers", "sales", "renewals", "estimator", "siteVisits", "comms"],
+    sales: ["overview", "customers", "offerManager", "sales", "renewals", "estimator", "siteVisits", "comms"],
     installation: ["overview", "customers", "installations", "team", "installation_dept", "commissioning", "siteVisits", "orgchart", "comms"],
     "install operations": ["overview", "customers", "installations", "team", "installation_dept", "commissioning", "siteVisits", "orgchart", "comms"],
-    breakdown: ["overview", "customers", "breakdown", "messages", "workorders", "orgchart", "comms"],
-    service: ["overview", "customers", "messages", "workorders", "service", "orgchart", "comms"],
+    breakdown: ["overview", "customers", "breakdown", "workorders", "orgchart", "comms"],
+    service: ["overview", "customers", "workorders", "service", "orgchart", "comms"],
     gad: ["overview", "customers", "gad", "projects", "comms"],
-    accounts: ["overview", "customers", "finance", "estimator", "comms"],
+    accounts: ["overview", "customers", "offerManager", "finance", "estimator", "comms"],
     commissioning: ["overview", "customers", "commissioning", "installations", "orgchart", "comms"],
-    tender: ["overview", "customers", "tender", "estimator", "comms"],
+    tender: ["overview", "customers", "offerManager", "tender", "estimator", "comms"],
     factory: ["overview", "factory", "inventory", "installations", "comms"],
     "back office": ["overview", "customers", "backoffice", "accounts", "orgchart", "siteVisits", "comms"],
     "project office": ["overview", "tickets", "projects", "installations", "team", "orgchart", "comms"],
@@ -201,12 +202,12 @@ function accessForUser(user = {}) {
 const viewDataKeys = {
   modules: ["platform_modules"],
   customers: ["customers", "customer_users", "sales_inquiries", "estimates", "payments", "site_visits"],
+  offerManager: ["customers", "sales_inquiries", "estimates"],
   tickets: ["project_tickets"],
   projects: ["projects", "install_jobs"],
   installations: ["installations", "install_jobs"],
   team: ["install_team", "install_jobs"],
   accounts: ["users"],
-  messages: ["messages"],
   renewals: ["renewals"],
   workorders: ["work_orders"],
   inventory: ["inventory", "inventory_insights"],
@@ -222,15 +223,16 @@ const viewDataKeys = {
   backoffice: ["customers", "site_visits"],
   tender: ["tenders", "customers", "estimates"],
   factory: ["factory_jobs", "inventory"],
+  internationalVendor: ["international_vendors"],
   comms: ["dept_comms"],
   siteVisits: ["site_visits", "customers", "sales_inquiries", "org_chart"]
 };
 
 const restrictedPayloadKeys = [
-  "projects", "installations", "messages", "renewals", "work_orders", "project_tickets", "install_jobs", "install_team",
+  "projects", "installations", "renewals", "work_orders", "project_tickets", "install_jobs", "install_team",
   "users", "customers", "site_visits", "platform_modules", "inventory", "inventory_insights", "org_chart", "attendance_today",
   "leave_requests", "estimates", "payments", "customer_users", "sales_inquiries", "sales_admin_panel", "breakdowns", "service_records",
-  "gad_records", "commissionings", "factory_jobs", "tenders", "dept_comms"
+  "gad_records", "commissionings", "factory_jobs", "tenders", "international_vendors", "dept_comms"
 ];
 
 function parseCostingWorkbooks() {
@@ -663,6 +665,40 @@ function cleanPayload(body = {}) {
   return cleaned;
 }
 
+function htmlEscape(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function moneyInr(value) {
+  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Number(value || 0));
+}
+
+function numberFromInput(value, fallback = 0) {
+  const parsed = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function offerCostSummary(record = {}) {
+  const materialCost = numberFromInput(record.material_cost);
+  const installCost = numberFromInput(record.install_cost);
+  const overheadCost = numberFromInput(record.overhead_cost);
+  const marginPercent = numberFromInput(record.margin_percent, 15);
+  const discount = numberFromInput(record.discount);
+  const gstPercent = numberFromInput(record.gst_percent, 18);
+  const baseCost = materialCost + installCost + overheadCost;
+  const marginAmount = Math.round((baseCost * marginPercent) / 100);
+  const subtotal = Math.max(0, baseCost + marginAmount - discount);
+  const gstAmount = Math.round((subtotal * gstPercent) / 100);
+  const calculatedTotal = subtotal + gstAmount;
+  const savedTotal = numberFromInput(record.total_cost);
+  const totalCost = savedTotal || calculatedTotal;
+  return { materialCost, installCost, overheadCost, marginPercent, marginAmount, discount, gstPercent, gstAmount, baseCost, subtotal, totalCost };
+}
+
 function inventoryNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -825,10 +861,9 @@ function defaultOpenClawCommunicationData(env, baseDir) {
     configFile: path.join(homeDir, ".openclaw", "openclaw.json"),
     envFile: path.join(homeDir, ".openclaw", ".env"),
     allowedDashboardCommand: ["openclaw", "dashboard", "--no-open"],
-    freeChannels: ["whatsapp", "telegram", "signal", "discord", "slack"],
+    freeChannels: ["whatsapp", "telegram", "signal", "discord", "slack", "email"],
     agentTargetEnvKeys: {
       "Modernization Project Coordinator": "FUZI_OPENCLAW_TARGET_MODERNIZATION_COORDINATOR",
-      "24/7 Customer Service Agent": "FUZI_OPENCLAW_TARGET_CUSTOMER_SERVICE",
       "Morning Operations Brief": "FUZI_OPENCLAW_TARGET_MORNING_BRIEF",
       "Live Operations Dashboard": "FUZI_OPENCLAW_TARGET_LIVE_DASHBOARD",
       "Contract Renewal CRM Agent": "FUZI_OPENCLAW_TARGET_RENEWALS",
@@ -881,7 +916,6 @@ function defaultAgentForCommunicationAction(action, target) {
     "FSM": "Site Walkthrough to Work Order"
   };
   const actionMap = {
-    "Escalate emergencies": "24/7 Customer Service Agent",
     "Send SMS brief": "Morning Operations Brief",
     "Draft outreach": "Contract Renewal CRM Agent",
     "Push to FSM": "Site Walkthrough to Work Order",
@@ -2082,6 +2116,135 @@ async function siteVisitCrmCustomerPayload(body, res) {
   };
 }
 
+async function offerCrmCustomerPayload(body, res) {
+  const customerId = String(body?.customer_id || "").trim();
+  if (!customerId) {
+    res.status(400).json({ ok: false, message: "Select a CRM customer before creating an offer." });
+    return null;
+  }
+  const [customers, inquiries] = await Promise.all([
+    readJson(listFiles.customers, []),
+    readJson(listFiles.sales_inquiries, [])
+  ]);
+  const customer = customers.find((item) => String(item.id || "") === customerId);
+  const inquiry = !customer ? inquiries.find((item) =>
+    String(item.customer_id || "") === customerId ||
+    String(item.id || "") === customerId ||
+    String(item.enquiry_no || item.source_enquiry_no || "") === customerId
+  ) : null;
+  const record = customer || inquiry;
+  if (!record) {
+    res.status(400).json({ ok: false, message: "Offers must be linked to a saved CRM customer." });
+    return null;
+  }
+  const resolvedCustomerId = String(record.customer_id || record.id || customerId).trim();
+  const sourceInquiryId = String(body?.source_inquiry_id || inquiry?.id || inquiry?.enquiry_no || record.enquiry_no || "").trim();
+  return {
+    customer_id: resolvedCustomerId,
+    source_inquiry_id: sourceInquiryId,
+    customer_name: String(record.name || record.customer || record.lead_name || body?.customer_name || resolvedCustomerId).trim(),
+    offer_name: String(body?.offer_name || record.name || record.customer || record.lead_name || resolvedCustomerId).trim(),
+    customer_phone: String(body?.customer_phone || record.phone || record.whatsapp_no || "").trim(),
+    customer_email: String(body?.customer_email || record.email || "").trim(),
+    site: String(body?.site || record.address || record.site_address || record.site || "").trim(),
+  };
+}
+
+async function normalizeOfferPayload(body, res) {
+  const customerLink = await offerCrmCustomerPayload(body, res);
+  if (!customerLink) return null;
+  const payload = cleanPayload(body);
+  const cost = offerCostSummary(payload);
+  return {
+    ...payload,
+    ...customerLink,
+    job_no: String(payload.job_no || "").trim(),
+    offer_date: String(payload.offer_date || new Date().toISOString().slice(0, 10)).trim(),
+    offer_type: String(payload.offer_type || payload.elevator_type || "Individual").trim(),
+    elevator_type: String(payload.elevator_type || payload.offer_type || "Passenger Elevator").trim(),
+    status: String(payload.status || payload.lead_status || "Offer Pending").trim(),
+    lead_status: String(payload.lead_status || payload.status || "Offer Pending").trim(),
+    material_cost: cost.materialCost,
+    install_cost: cost.installCost,
+    overhead_cost: cost.overheadCost,
+    margin_percent: cost.marginPercent,
+    margin_amount: cost.marginAmount,
+    discount: cost.discount,
+    gst_percent: cost.gstPercent,
+    gst_amount: cost.gstAmount,
+    base_cost: cost.baseCost,
+    subtotal: cost.subtotal,
+    total_cost: cost.totalCost,
+    calculated_total_cost: cost.totalCost,
+    payment_terms: String(payload.payment_terms || "40% advance, 50% before dispatch, 10% after installation").trim(),
+    delivery_timeline: String(payload.delivery_timeline || "As per final technical approval and material readiness").trim(),
+    warranty_terms: String(payload.warranty_terms || "12 months from handover against manufacturing defects").trim(),
+    offer_letter_status: String(payload.offer_letter_status || "Prepared").trim(),
+    source: String(payload.source || "CRM Offer Manager").trim()
+  };
+}
+
+function buildOfferLetterHtml(estimate = {}) {
+  const cost = offerCostSummary(estimate);
+  const rows = [
+    ["Offer no.", estimate.job_no || estimate.id || "-"],
+    ["Offer date", estimate.offer_date || estimate.created_at || "-"],
+    ["Customer", estimate.customer_name || estimate.offer_name || "-"],
+    ["Site", estimate.site || "-"],
+    ["Elevator type", estimate.elevator_type || estimate.offer_type || "-"],
+    ["Stops / floors", estimate.stops || "-"],
+    ["Capacity", estimate.capacity || "-"],
+    ["Speed", estimate.speed || "-"],
+    ["Drive type", estimate.drive_type || "-"],
+    ["Door type", estimate.door_type || "-"],
+    ["Cabin / finish", estimate.finish || "-"],
+    ["Offer valid until", estimate.offer_valid_until || "-"]
+  ];
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>FUZI Offer ${htmlEscape(estimate.id || "")}</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #14151a; margin: 32px; line-height: 1.45; }
+    header { border-bottom: 3px solid #e11b22; padding-bottom: 16px; margin-bottom: 24px; }
+    h1 { margin: 0; font-size: 30px; }
+    h2 { color: #b91414; margin-top: 28px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    td, th { border: 1px solid #d9dde7; padding: 10px; text-align: left; }
+    th { background: #f5f7fb; }
+    .total { font-size: 24px; font-weight: 800; color: #b91414; }
+    .muted { color: #646b7a; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>FUZI Classic Elevators Pvt. Ltd.</h1>
+    <p class="muted">Client Offer Letter</p>
+  </header>
+  <p>Dear ${htmlEscape(estimate.customer_name || "Customer")},</p>
+  <p>We are pleased to submit this offer for the elevator scope below. The offer value is prepared from FUZI internal costing and is subject to final technical approval, site conditions, and statutory/tax requirements.</p>
+  <h2>Offer Summary</h2>
+  <table>${rows.map(([label, value]) => `<tr><th>${htmlEscape(label)}</th><td>${htmlEscape(value)}</td></tr>`).join("")}</table>
+  <h2>Commercial Value</h2>
+  <table>
+    <tr><th>Base internal cost</th><td>${moneyInr(cost.baseCost)}</td></tr>
+    <tr><th>Margin</th><td>${htmlEscape(cost.marginPercent)}% (${moneyInr(cost.marginAmount)})</td></tr>
+    <tr><th>Discount</th><td>${moneyInr(cost.discount)}</td></tr>
+    <tr><th>GST</th><td>${htmlEscape(cost.gstPercent)}% (${moneyInr(cost.gstAmount)})</td></tr>
+    <tr><th>Total client offer value</th><td class="total">${moneyInr(cost.totalCost)}</td></tr>
+  </table>
+  <h2>Terms</h2>
+  <p><strong>Payment:</strong> ${htmlEscape(estimate.payment_terms || "-")}</p>
+  <p><strong>Delivery:</strong> ${htmlEscape(estimate.delivery_timeline || "-")}</p>
+  <p><strong>Warranty:</strong> ${htmlEscape(estimate.warranty_terms || "-")}</p>
+  <h2>Notes</h2>
+  <p>${htmlEscape(estimate.notes || "Technical details, civil readiness, and final measurements will be confirmed before production.")}</p>
+  <p>Regards,<br>FUZI Classic Elevators Pvt. Ltd.</p>
+</body>
+</html>`;
+}
+
 async function createCollectionRecord(routeName, body, res) {
   const config = resolveCollection(routeName);
   if (!config) return res.status(404).json({ ok: false, message: "Unknown portal module." });
@@ -2095,7 +2258,9 @@ async function createCollectionRecord(routeName, body, res) {
   const now = new Date().toISOString();
   const serviceLink = routeName === "service" ? await linkedCrmCustomerPayload(body, res) : {};
   if (routeName === "service" && !serviceLink) return;
-  const record = { id: nextId(records, config.prefix), ...cleanPayload(body), ...serviceLink, created_at: now, updated_at: now };
+  const offerPayload = routeName === "estimates" ? await normalizeOfferPayload(body, res) : null;
+  if (routeName === "estimates" && !offerPayload) return;
+  const record = { id: nextId(records, config.prefix), ...(offerPayload || cleanPayload(body)), ...serviceLink, created_at: now, updated_at: now };
   records.unshift(record);
   await writeJson(config.file, records);
   return res.json({ ok: true, record, [config.key.slice(0, -1) || "record"]: record });
@@ -2110,9 +2275,11 @@ async function updateCollectionRecord(routeName, id, body, res) {
   const actionStatus = defaultStatusForAction(body?.action);
   const serviceLink = routeName === "service" && body?.customer_id ? await linkedCrmCustomerPayload(body, res) : {};
   if (routeName === "service" && body?.customer_id && !serviceLink) return;
+  const offerPayload = routeName === "estimates" ? await normalizeOfferPayload({ ...records[index], ...body }, res) : null;
+  if (routeName === "estimates" && !offerPayload) return;
   const nextRecord = {
     ...records[index],
-    ...cleanPayload(body),
+    ...(offerPayload || cleanPayload(body)),
     ...serviceLink,
     ...(actionStatus ? { status: actionStatus } : {}),
     updated_at: new Date().toISOString()
@@ -2133,15 +2300,15 @@ async function deleteCollectionRecord(routeName, id, res) {
 }
 
 function buildMetrics(data) {
-  const messages = data.operations_state?.messages || [];
+  const workOrders = data.operations_state?.work_orders || [];
   const renewals = data.operations_state?.renewals || [];
   const tickets = data.project_tickets || [];
   const inventory = data.inventory || [];
-  const openMessages = messages.filter((item) => !["closed", "resolved", "done"].includes(String(item.status || item.state || "").toLowerCase()));
+  const openWorkOrders = workOrders.filter((item) => !["closed", "resolved", "done"].includes(String(item.status || item.state || "").toLowerCase()));
   const lowStock = inventory.filter((item) => Number(item.stock || item.qty_on_hand || 0) <= Number(item.min_stock || item.reorder_point || 0));
   const openTickets = tickets.filter((item) => !["closed", "done", "resolved"].includes(String(item.status || "").toLowerCase()));
   return [
-    { label: "Service Inbox", value: String(openMessages.length), delta: "open customer messages", tone: openMessages.length ? "warn" : "good" },
+    { label: "Work Orders", value: String(openWorkOrders.length), delta: "open service execution records", tone: openWorkOrders.length ? "warn" : "good" },
     { label: "Open Tickets", value: String(openTickets.length), delta: `${openTickets.filter((t) => String(t.status || "").toLowerCase() === "blocked").length} blocked`, tone: openTickets.length ? "warn" : "good" },
     { label: "Parts Stockouts", value: String(lowStock.length), delta: "stock watch", tone: lowStock.length ? "warn" : "good" },
     { label: "Upcoming Renewals", value: String(renewals.length), delta: "renewal pipeline", tone: renewals.length ? "info" : "good" }
@@ -2168,7 +2335,6 @@ function portalData(collections, user) {
     refresh_interval_minutes: 5,
     projects: collections.operations_state?.projects || [],
     installations: collections.operations_state?.installations || [],
-    messages: collections.operations_state?.messages || [],
     renewals: collections.operations_state?.renewals || [],
     work_orders: collections.operations_state?.work_orders || [],
     project_tickets: collections.project_tickets,
@@ -2197,6 +2363,7 @@ function portalData(collections, user) {
     commissionings: collections.commissionings,
     factory_jobs: collections.factory_jobs,
     tenders: collections.tenders,
+    international_vendors: collections.international_vendors,
     dept_comms: collections.dept_comms,
     synced_at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
   };
@@ -2357,6 +2524,189 @@ app.post("/api/openclaw/send", authRequired, async (req, res) => {
   res.status(delivery.ok ? 200 : 502).json({ ok: delivery.ok, delivery });
 });
 
+function adminRequired(req, res) {
+  if (isAdminUser(req.user)) return true;
+  res.status(403).json({ ok: false, message: "Only admin can manage International Vendor records." });
+  return false;
+}
+
+function numberFromPayload(value, fallback = 0) {
+  const parsed = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function internationalVendorCost(body = {}) {
+  const fuziCost = numberFromPayload(body.fuzi_cost);
+  const installCost = numberFromPayload(body.install_cost);
+  const packageCount = Math.max(1, numberFromPayload(body.package_count, 1));
+  const lengthCm = numberFromPayload(body.length_cm);
+  const widthCm = numberFromPayload(body.width_cm);
+  const heightCm = numberFromPayload(body.height_cm);
+  const actualWeightKg = numberFromPayload(body.actual_weight_kg);
+  const freightRate = numberFromPayload(body.freight_rate);
+  const cbm = lengthCm && widthCm && heightCm ? (lengthCm * widthCm * heightCm * packageCount) / 1000000 : 0;
+  const volumetricWeightKg = lengthCm && widthCm && heightCm ? (lengthCm * widthCm * heightCm * packageCount) / 5000 : 0;
+  const mode = String(body.freight_mode || "Ocean LCL");
+  const chargeableWeightKg = mode.toLowerCase().includes("ocean") ? Math.max(cbm, actualWeightKg / 1000) : Math.max(actualWeightKg, volumetricWeightKg);
+  const calculatedFreightCost = freightRate ? Math.round(chargeableWeightKg * freightRate) : 0;
+  const shippingCost = numberFromPayload(body.shipping_cost, calculatedFreightCost);
+  const customsDutyPercent = numberFromPayload(body.customs_duty_percent);
+  const importTaxPercent = numberFromPayload(body.import_tax_percent);
+  const brokerFee = numberFromPayload(body.broker_fee);
+  const portFee = numberFromPayload(body.port_fee);
+  const insurancePercent = numberFromPayload(body.insurance_percent, 1);
+  const partnerPercent = numberFromPayload(body.partner_percent, 2);
+  const kitBaseCost = Math.max(0, fuziCost - installCost);
+  const customsDuty = Math.round((kitBaseCost * customsDutyPercent) / 100);
+  const importTax = Math.round(((kitBaseCost + shippingCost + customsDuty) * importTaxPercent) / 100);
+  const insuranceCost = Math.round((kitBaseCost * insurancePercent) / 100);
+  const landedCost = kitBaseCost + shippingCost + customsDuty + importTax + brokerFee + portFee + insuranceCost;
+  const partnerFee = Math.round((landedCost * partnerPercent) / 100);
+  const vendorCost = landedCost + partnerFee;
+  return { fuzi_cost: fuziCost, install_cost: installCost, package_count: packageCount, length_cm: lengthCm, width_cm: widthCm, height_cm: heightCm, actual_weight_kg: actualWeightKg, cbm, volumetric_weight_kg: volumetricWeightKg, chargeable_weight_kg: chargeableWeightKg, freight_rate: freightRate, calculated_freight_cost: calculatedFreightCost, shipping_cost: shippingCost, customs_duty_percent: customsDutyPercent, customs_duty: customsDuty, import_tax_percent: importTaxPercent, import_tax: importTax, broker_fee: brokerFee, port_fee: portFee, insurance_percent: insurancePercent, insurance_cost: insuranceCost, partner_percent: partnerPercent, kit_base_cost: kitBaseCost, landed_cost: landedCost, partner_fee: partnerFee, vendor_cost: vendorCost };
+}
+
+function internationalVendorEmailTemplate(record = {}, stage = "") {
+  const company = String(record.company || "there").trim();
+  const tenderTitle = String(record.tender_title || record.closest_tender_title || "").trim();
+  const tenderArea = String(record.tender_area || record.closest_tender_region || record.region || "your area").trim();
+  const tenderDeadline = String(record.tender_deadline || record.closest_tender_deadline || "").trim();
+  const tenderRef = String(record.tender_ref || record.closest_tender_ref || "").trim();
+  const normalizedStage = String(stage || record.followup_stage || record.pipeline_stage || "").toLowerCase();
+  const vendorCost = record.vendor_cost || record.calculated_vendor_cost || "ready to calculate";
+  if (normalizedStage.includes("tender") || normalizedStage.includes("bid") || normalizedStage.includes("meeting") || normalizedStage.includes("draft")) {
+    const tenderLine = tenderTitle
+      ? `We noticed ${tenderTitle} in ${tenderArea}${tenderDeadline ? ` with a deadline of ${tenderDeadline}` : ""}${tenderRef ? `, ref ${tenderRef}` : ""}.`
+      : `We noticed an elevator tender/opportunity near ${tenderArea}.`;
+    return `Hello ${company}, a friend mentioned they had used your service, so we wanted to set a short meeting. ${tenderLine} Your company could bid locally while FUZI supplies manufactured elevator parts and kits at a competitive landed cost; our current vendor-cost estimate is ${vendorCost}. Would you be open to a call to discuss partnering on this contract?`;
+  }
+  if (normalizedStage.includes("cost")) {
+    return `Hello ${company}, FUZI has prepared a landed-cost sheet for ${String(record.destination_country || record.country || "your market").trim()} with freight, duty/tax placeholders, broker fees, insurance, and the 2% local partner margin. The current vendor-cost estimate is ${vendorCost}.`;
+  }
+  if (normalizedStage.includes("sample") || normalizedStage.includes("smart")) {
+    return `Hello ${company}, FUZI can start with smaller smart elevator parts or sample kits before a heavy shipment. We can quote parts, packing weight, courier/ocean freight, and import assumptions for your local review.`;
+  }
+  return `Hello ${company}, FUZI manufactures elevator parts and lift kits internationally. We are looking for USA and Canada elevator companies that can install locally while FUZI supplies manufactured parts and kits. Please reply if you would like our catalog, landed-cost sheet, and partnership terms.`;
+}
+
+function normalizeInternationalVendor(body = {}) {
+  const cost = internationalVendorCost(body);
+  const company = String(body.company || body.name || "").trim();
+  const pipelineStage = String(body.pipeline_stage || body.status || "Lead identified").trim();
+  return {
+    ...cleanPayload(body),
+    company,
+    country: String(body.country || "Canada").trim(),
+    region: String(body.region || body.state || body.province || "").trim(),
+    website: String(body.website || "").trim(),
+    email: String(body.email || body.contact_email || "").trim(),
+    phone: String(body.phone || "").trim(),
+    contact_name: String(body.contact_name || body.contact || "").trim(),
+    product_interest: String(body.product_interest || "Elevator parts and kits").trim(),
+    freight_mode: String(body.freight_mode || "Ocean LCL").trim(),
+    destination_country: String(body.destination_country || body.country || "Canada").trim(),
+    destination_port: String(body.destination_port || "").trim(),
+    tender_area: String(body.tender_area || "").trim(),
+    tender_source: String(body.tender_source || "").trim(),
+    tender_title: String(body.tender_title || body.closest_tender_title || "").trim(),
+    tender_deadline: String(body.tender_deadline || body.closest_tender_deadline || "").trim(),
+    tender_ref: String(body.tender_ref || body.closest_tender_ref || "").trim(),
+    tender_link: String(body.tender_link || body.closest_tender_link || "").trim(),
+    closest_tender_title: String(body.closest_tender_title || body.tender_title || "").trim(),
+    closest_tender_region: String(body.closest_tender_region || body.tender_area || "").trim(),
+    closest_tender_deadline: String(body.closest_tender_deadline || body.tender_deadline || "").trim(),
+    closest_tender_ref: String(body.closest_tender_ref || body.tender_ref || "").trim(),
+    closest_tender_link: String(body.closest_tender_link || body.tender_link || "").trim(),
+    friend_referral_note: String(body.friend_referral_note || "A friend mentioned they used your service.").trim(),
+    openclaw_email_plan: String(body.openclaw_email_plan || "Draft intro email, request a meeting, follow up with catalog and landed-cost sheet, then support tender bid pricing with FUZI manufactured parts.").trim(),
+    outreach_sequence: String(body.outreach_sequence || "1. Tender meeting intro; 2. Catalog and cost sheet; 3. Bid support follow-up; 4. Meeting reminder; 5. Close/lost decision.").trim(),
+    bid_value: numberFromPayload(body.bid_value),
+    status: String(body.status || pipelineStage).trim(),
+    followup_stage: String(body.followup_stage || "1. Catalog intro").trim(),
+    pipeline_stage: pipelineStage,
+    incoterm: String(body.incoterm || "FOB India").trim(),
+    export_docs_status: String(body.export_docs_status || "Not started").trim(),
+    production_status: String(body.production_status || "Not started").trim(),
+    shipment_status: String(body.shipment_status || "Not booked").trim(),
+    tracking_ref: String(body.tracking_ref || body.tracking || "").trim(),
+    next_followup: String(body.next_followup || body.next_follow_up || "").trim(),
+    openclaw_target: String(body.openclaw_target || "").trim(),
+    notes: String(body.notes || "").trim(),
+    ...cost,
+    calculated_vendor_cost: cost.vendor_cost
+  };
+}
+
+app.get("/api/portal/international-vendors", authRequired, async (req, res) => {
+  if (!adminRequired(req, res)) return;
+  const records = await readJson(listFiles.international_vendors, []);
+  res.json({ ok: true, international_vendors: records });
+});
+
+app.post("/api/portal/international-vendors", authRequired, async (req, res) => {
+  if (!adminRequired(req, res)) return;
+  const records = await readJson(listFiles.international_vendors, []);
+  const vendor = normalizeInternationalVendor(req.body || {});
+  if (!vendor.company) return res.status(400).json({ ok: false, message: "Company name is required." });
+  const now = new Date().toISOString();
+  const record = { id: nextId(records, "IV"), ...vendor, email_template: internationalVendorEmailTemplate(vendor), created_at: now, updated_at: now };
+  records.unshift(record);
+  await writeJson(listFiles.international_vendors, records);
+  res.json({ ok: true, record, international_vendor: record });
+});
+
+app.patch("/api/portal/international-vendors/:id", authRequired, async (req, res) => {
+  if (!adminRequired(req, res)) return;
+  const records = await readJson(listFiles.international_vendors, []);
+  const index = findRecordIndex(records, req.params.id);
+  if (index < 0) return res.status(404).json({ ok: false, message: "International vendor not found." });
+  const updated = normalizeInternationalVendor({ ...records[index], ...cleanPayload(req.body) });
+  records[index] = { ...records[index], ...updated, email_template: internationalVendorEmailTemplate(updated), updated_at: new Date().toISOString() };
+  await writeJson(listFiles.international_vendors, records);
+  res.json({ ok: true, record: records[index], international_vendor: records[index] });
+});
+
+app.post("/api/portal/international-vendors/:id/outreach", authRequired, async (req, res) => {
+  if (!adminRequired(req, res)) return;
+  const records = await readJson(listFiles.international_vendors, []);
+  const index = findRecordIndex(records, req.params.id);
+  if (index < 0) return res.status(404).json({ ok: false, message: "International vendor not found." });
+  const stage = String(req.body?.stage || records[index].followup_stage || "1. Catalog intro").trim();
+  const message = String(req.body?.message || internationalVendorEmailTemplate(records[index], stage)).trim();
+  const delivery = await communicationService.sendBusinessChannelUpdate("international-vendor-outreach", {
+    agent: "International Vendor Partnering",
+    channel: req.body?.channel || "email",
+    target: req.body?.target || records[index].email || records[index].openclaw_target || "",
+    email: records[index].email || "",
+    company: records[index].company,
+    stage,
+    tender: {
+      title: records[index].tender_title || records[index].closest_tender_title || "",
+      area: records[index].tender_area || records[index].closest_tender_region || records[index].region || "",
+      deadline: records[index].tender_deadline || records[index].closest_tender_deadline || "",
+      ref: records[index].tender_ref || records[index].closest_tender_ref || "",
+      link: records[index].tender_link || records[index].closest_tender_link || ""
+    },
+    openclaw_email_plan: records[index].openclaw_email_plan || "",
+    friend_referral_note: records[index].friend_referral_note || "",
+    instruction: "Draft a concise email from FUZI to this elevator company. Mention the closest tender, say a friend mentioned they used the company's service, ask to set a meeting, and explain they can bid locally using FUZI manufactured elevator parts/kits.",
+    message,
+    summary: `International vendor outreach for ${records[index].company || req.params.id}: ${stage}.`
+  });
+  records[index] = {
+    ...records[index],
+    followup_stage: stage,
+    pipeline_stage: stage.toLowerCase().includes("draft") ? "OpenClaw email drafted" : (stage.toLowerCase().includes("meeting") ? "Meeting requested" : records[index].pipeline_stage),
+    status: stage.toLowerCase().includes("draft") ? "OpenClaw email drafted" : (stage.toLowerCase().includes("meeting") ? "Meeting requested" : records[index].status),
+    last_outreach_message: message,
+    last_outreach_at: new Date().toISOString(),
+    delivery_status: delivery.ok ? "Sent to OpenClaw/email handoff" : "Delivery failed",
+    updated_at: new Date().toISOString()
+  };
+  await writeJson(listFiles.international_vendors, records);
+  res.status(delivery.ok ? 200 : 502).json({ ok: delivery.ok, record: records[index], delivery, message });
+});
+
 app.post("/api/openclaw/breakdown/from-discord", async (req, res) => {
   const result = await discordBreakdownSyncService.createFromDiscordMessage(req.body || {});
   res.status(result.ok ? 200 : (result.status || 400)).json(result);
@@ -2374,42 +2724,6 @@ app.post("/api/openclaw/breakdown/context", async (req, res) => {
 app.post("/api/openclaw/breakdown/available-context", async (req, res) => {
   const result = await discordBreakdownSyncService.getAvailableAssignmentContext(req.body || {});
   res.status(result.ok ? 200 : (result.status || 400)).json(result);
-});
-
-app.get("/api/portal/service-agent/messages", authRequired, async (_req, res) => {
-  const state = await readOperationsState();
-  const messages = Array.isArray(state.messages) ? state.messages.map((item, index) => normalizedOpsRecord(item, "MSG", index)) : [];
-  res.json({ ok: true, messages });
-});
-
-app.post("/api/portal/service-agent/messages", authRequired, async (req, res) => {
-  const state = await readOperationsState();
-  const messages = Array.isArray(state.messages) ? state.messages : [];
-  const now = new Date().toISOString();
-  const message = {
-    id: nextId(messages, "MSG"),
-    channel: String(req.body?.channel || "Phone").trim(),
-    customer: String(req.body?.customer || "").trim(),
-    phone: String(req.body?.phone || "").trim(),
-    from: String(req.body?.from || req.body?.customer || "Customer").trim(),
-    priority: String(req.body?.priority || "Normal").trim(),
-    state: String(req.body?.state || req.body?.status || "New").trim(),
-    status: String(req.body?.status || req.body?.state || "New").trim(),
-    assigned_to: String(req.body?.assigned_to || "").trim(),
-    text: String(req.body?.text || req.body?.message || "").trim(),
-    next_action: String(req.body?.next_action || "").trim(),
-    created_at: now,
-    updated_at: now
-  };
-  if (!message.text) return res.status(400).json({ ok: false, message: "Service message is required." });
-  messages.unshift(message);
-  state.messages = messages;
-  await writeOperationsState(state);
-  res.json({ ok: true, message });
-});
-
-app.patch("/api/portal/service-agent/messages/:id", authRequired, async (req, res) => {
-  await updateOperationsRecord("messages", req.params.id, req.body, res);
 });
 
 app.get("/api/portal/renewals", authRequired, async (_req, res) => {
@@ -2450,40 +2764,6 @@ app.post("/api/portal/renewals", authRequired, async (req, res) => {
 
 app.patch("/api/portal/renewals/:id", authRequired, async (req, res) => {
   await updateOperationsRecord("renewals", req.params.id, req.body, res);
-});
-
-app.post("/api/portal/service-agent/messages/:id/work-order", authRequired, async (req, res) => {
-  const state = await readOperationsState();
-  const messages = Array.isArray(state.messages) ? state.messages : [];
-  const messageIndex = messages.findIndex((record, index) => normalizedOpsRecord(record, "MSG", index).id === req.params.id);
-  if (messageIndex < 0) return res.status(404).json({ ok: false, message: "Service message not found." });
-  const message = normalizedOpsRecord(messages[messageIndex], "MSG", messageIndex);
-  const workOrders = Array.isArray(state.work_orders) ? state.work_orders : [];
-  const now = new Date().toISOString();
-  const workOrder = {
-    id: nextId(workOrders, "WO"),
-    title: req.body?.title || `Service follow-up for ${message.customer || message.from || message.channel}`,
-    customer: message.customer || message.from || "",
-    channel: message.channel || "",
-    priority: message.priority || "Normal",
-    status: "Open",
-    assigned_to: req.body?.assigned_to || message.assigned_to || "",
-    source_message_id: message.id,
-    notes: message.text || "",
-    created_at: now,
-    updated_at: now
-  };
-  workOrders.unshift(workOrder);
-  messages[messageIndex] = { ...messages[messageIndex], status: "Work Order Created", state: "Work Order Created", work_order_id: workOrder.id, updated_at: now };
-  state.work_orders = workOrders;
-  state.messages = messages;
-  await writeOperationsState(state);
-  const delivery = await communicationService.sendBusinessChannelUpdate("work-order", {
-    agent: "Site Walkthrough to Work Order",
-    work_order: workOrder,
-    summary: `${workOrder.id} created from ${message.channel || "service"} message for ${workOrder.customer || "customer"}.`
-  });
-  res.json({ ok: true, work_order: workOrder, message: normalizedOpsRecord(messages[messageIndex], "MSG", messageIndex), delivery });
 });
 
 app.post("/api/portal/customers", authRequired, async (req, res) => {
@@ -2767,6 +3047,10 @@ app.post("/api/portal/inventory/raise-po", authRequired, async (req, res) => {
     item_name: String(req.body?.item_name || req.body?.name || "").trim(),
     vendor: String(req.body?.vendor || "").trim(),
     quantity: requestedQty,
+    customer_id: String(req.body?.customer_id || "").trim(),
+    customer_name: String(req.body?.customer_name || req.body?.customer || "").trim(),
+    offer_id: String(req.body?.offer_id || req.body?.estimate_id || "").trim(),
+    offer_name: String(req.body?.offer_name || "").trim(),
     status: "Raised",
     created_at: now
   };
@@ -2848,15 +3132,44 @@ app.get("/api/portal/estimates/:id/report", authRequired, async (req, res) => {
   const estimates = await readJson(listFiles.estimates, []);
   const estimate = estimates.find((item) => String(item.id) === String(req.params.id));
   if (!estimate) return res.status(404).send("Estimate not found.");
-  res.type("html").send(`<h1>Estimate ${estimate.id}</h1><pre>${JSON.stringify(estimate, null, 2)}</pre>`);
+  const cost = offerCostSummary(estimate);
+  res.type("html").send(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>FUZI Internal Costing ${htmlEscape(estimate.id)}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 32px; color: #14151a; }
+    h1 { margin-bottom: 4px; }
+    table { width: 100%; border-collapse: collapse; margin: 18px 0; }
+    th, td { border: 1px solid #d9dde7; padding: 9px; text-align: left; }
+    th { background: #f5f7fb; }
+    pre { white-space: pre-wrap; background: #f8fafc; border: 1px solid #d9dde7; padding: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Internal Costing Report ${htmlEscape(estimate.id)}</h1>
+  <p>${htmlEscape(estimate.customer_name || "-")} - Customer ${htmlEscape(estimate.customer_id || "-")}</p>
+  <table>
+    <tr><th>Material cost</th><td>${moneyInr(cost.materialCost)}</td></tr>
+    <tr><th>Install cost</th><td>${moneyInr(cost.installCost)}</td></tr>
+    <tr><th>Overhead</th><td>${moneyInr(cost.overheadCost)}</td></tr>
+    <tr><th>Margin</th><td>${htmlEscape(cost.marginPercent)}% (${moneyInr(cost.marginAmount)})</td></tr>
+    <tr><th>Discount</th><td>${moneyInr(cost.discount)}</td></tr>
+    <tr><th>GST</th><td>${htmlEscape(cost.gstPercent)}% (${moneyInr(cost.gstAmount)})</td></tr>
+    <tr><th>Client offer value</th><td><strong>${moneyInr(cost.totalCost)}</strong></td></tr>
+  </table>
+  <h2>Full saved costing data</h2>
+  <pre>${htmlEscape(JSON.stringify(estimate, null, 2))}</pre>
+</body>
+</html>`);
 });
 
 app.get("/api/portal/estimates/:id/offer.:format", authRequired, async (req, res) => {
   const estimates = await readJson(listFiles.estimates, []);
   const estimate = estimates.find((item) => String(item.id) === String(req.params.id));
   if (!estimate) return res.status(404).send("Estimate not found.");
-  const format = req.params.format === "pdf" ? "pdf" : "vnd.openxmlformats-officedocument.wordprocessingml.document";
-  res.type(format).send(Buffer.from(`FUZI offer\n\n${JSON.stringify(estimate, null, 2)}`));
+  res.type("html").send(buildOfferLetterHtml(estimate));
 });
 
 app.post("/api/portal/estimates/:id/approve-offer", authRequired, async (req, res) => {

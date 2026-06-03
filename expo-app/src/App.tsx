@@ -23,12 +23,12 @@ type TabKey =
   | "overview"
   | "modules"
   | "customers"
+  | "offerManager"
   | "tickets"
   | "projects"
   | "installations"
   | "team"
   | "accounts"
-  | "messages"
   | "renewals"
   | "workorders"
   | "inventory"
@@ -44,6 +44,7 @@ type TabKey =
   | "backoffice"
   | "tender"
   | "factory"
+  | "internationalVendor"
   | "comms"
   | "siteVisits";
 
@@ -74,12 +75,12 @@ const navItems: Array<{ key: TabKey; label: string; icon: string }> = [
   { key: "overview", label: "Overview", icon: "⌂" },
   { key: "modules", label: "Platform Modules", icon: "▦" },
   { key: "customers", label: "Customers", icon: "◉" },
+  { key: "offerManager", label: "Offer Manager", icon: "▥" },
   { key: "tickets", label: "Project Tickets", icon: "✓" },
   { key: "projects", label: "Projects", icon: "◇" },
   { key: "installations", label: "Installations", icon: "⇧" },
   { key: "team", label: "Install Team", icon: "☷" },
   { key: "accounts", label: "Team Accounts", icon: "◌" },
-  { key: "messages", label: "Service Agent", icon: "✉" },
   { key: "renewals", label: "Renewals", icon: "↻" },
   { key: "workorders", label: "Work Orders", icon: "▤" },
   { key: "inventory", label: "Inventory", icon: "▣" },
@@ -94,6 +95,7 @@ const navItems: Array<{ key: TabKey; label: string; icon: string }> = [
   { key: "backoffice", label: "Back Office", icon: "◫" },
   { key: "tender", label: "Tender", icon: "◈" },
   { key: "factory", label: "Factory", icon: "▧" },
+  { key: "internationalVendor", label: "International Vendor", icon: "⇄" },
   { key: "comms", label: "Dept Comms", icon: "☰" },
 ];
 
@@ -131,19 +133,11 @@ const moduleConfigs: Partial<Record<TabKey, ModuleConfig>> = {
   backoffice: { route: "/api/portal/customers", titleLabel: "Customer / building name", titleKey: "name", customerKey: "address", notesKey: "notes" },
   tender: { route: "/api/portal/tender", titleLabel: "Tender title", titleKey: "title", customerKey: "customer", notesKey: "notes" },
   factory: { route: "/api/portal/factory", titleLabel: "Factory order ref", titleKey: "order_ref", customerKey: "customer", notesKey: "materials" },
+  internationalVendor: { route: "/api/portal/international-vendors", titleLabel: "Company", titleKey: "company", customerKey: "country", notesKey: "notes" },
   comms: { route: "/api/portal/comms", titleLabel: "Subject", titleKey: "subject", customerKey: "department", notesKey: "message" },
 };
 
 const emptyModuleDraft = { title: "", customer: "", customer_id: "", status: "Open", notes: "" };
-const emptyServiceDraft = {
-  customer: "",
-  phone: "",
-  channel: "Phone",
-  priority: "Normal",
-  assigned_to: "",
-  text: "",
-  next_action: "",
-};
 const emptyPaymentDraft = {
   estimate_id: "",
   milestone: "Advance",
@@ -156,6 +150,12 @@ const emptyPaymentDraft = {
 const emptyInventoryDraft = {
   name: "",
   category: "",
+  customer_id: "",
+  customer_name: "",
+  offer_id: "",
+  offer_name: "",
+  source_inquiry_id: "",
+  reserved_for: "",
   qty_on_hand: "",
   qty_reserved: "",
   reorder_point: "",
@@ -167,6 +167,71 @@ const emptyInventoryDraft = {
   bin_location: "",
   notes: "",
 };
+const emptyInternationalVendorDraft = {
+  company: "",
+  country: "Canada",
+  region: "",
+  website: "",
+  email: "",
+  phone: "",
+  contact_name: "",
+  product_interest: "Elevator parts and kits",
+  fuzi_cost: "",
+  install_cost: "",
+  shipping_cost: "",
+  freight_mode: "Ocean LCL",
+  destination_country: "Canada",
+  destination_port: "",
+  package_count: "1",
+  length_cm: "",
+  width_cm: "",
+  height_cm: "",
+  actual_weight_kg: "",
+  freight_rate: "",
+  customs_duty_percent: "",
+  import_tax_percent: "",
+  broker_fee: "",
+  port_fee: "",
+  insurance_percent: "1",
+  partner_percent: "2",
+  bid_value: "",
+  tender_area: "",
+  tender_source: "",
+  status: "Prospect",
+  followup_stage: "1. Catalog intro",
+  pipeline_stage: "Lead identified",
+  incoterm: "FOB India",
+  export_docs_status: "Not started",
+  production_status: "Not started",
+  shipment_status: "Not booked",
+  tracking_ref: "",
+  next_followup: "",
+  openclaw_target: "",
+  notes: "",
+};
+
+const internationalVendorPipelineStages = [
+  "Lead identified",
+  "Qualified partner",
+  "Catalog sent",
+  "Cost sheet sent",
+  "Tender found",
+  "Bid partnership",
+  "OpenClaw email drafted",
+  "Meeting requested",
+  "Meeting booked",
+  "Sample/smart parts quoted",
+  "Heavy kit quoted",
+  "PO requested",
+  "Production planned",
+  "Export docs ready",
+  "Freight booked",
+  "Customs/import review",
+  "Shipped",
+  "Delivered",
+  "Partner active",
+  "Lost",
+];
 const emptyBreakdownDraft = {
   customer_id: "",
   customer: "",
@@ -269,8 +334,25 @@ const emptyOfferDraft = {
   customer_name: "",
   offer_name: "",
   offer_type: "Individual",
-  lead_status: "Costing Pending",
+  lead_status: "Offer Pending",
+  elevator_type: "Passenger Elevator",
+  stops: "",
+  capacity: "",
+  speed: "",
+  drive_type: "",
+  door_type: "",
+  finish: "",
+  material_cost: "",
+  install_cost: "",
+  overhead_cost: "",
+  margin_percent: "15",
+  discount: "",
+  gst_percent: "18",
   total_cost: "",
+  offer_valid_until: "",
+  payment_terms: "40% advance, 50% before dispatch, 10% after installation",
+  delivery_timeline: "As per final technical approval and material readiness",
+  warranty_terms: "12 months from handover against manufacturing defects",
   createdbyname: "",
   lastmodifiedbyname: "",
   notes: "",
@@ -416,6 +498,28 @@ function formatMoney(value?: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(value || 0);
 }
 
+function offerNumber(value: unknown, fallback = 0) {
+  const parsed = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function offerCostSummary(record: Record<string, unknown>) {
+  const materialCost = offerNumber(record.material_cost);
+  const installCost = offerNumber(record.install_cost);
+  const overheadCost = offerNumber(record.overhead_cost);
+  const marginPercent = offerNumber(record.margin_percent, 15);
+  const discount = offerNumber(record.discount);
+  const gstPercent = offerNumber(record.gst_percent, 18);
+  const baseCost = materialCost + installCost + overheadCost;
+  const marginAmount = Math.round((baseCost * marginPercent) / 100);
+  const subtotal = Math.max(0, baseCost + marginAmount - discount);
+  const gstAmount = Math.round((subtotal * gstPercent) / 100);
+  const calculatedTotal = subtotal + gstAmount;
+  const savedTotal = offerNumber(record.total_cost);
+  const totalCost = savedTotal || calculatedTotal;
+  return { materialCost, installCost, overheadCost, marginPercent, marginAmount, discount, gstPercent, gstAmount, baseCost, subtotal, totalCost };
+}
+
 export default function App() {
   const { width } = useWindowDimensions();
   const [username, setUsername] = useState("admin");
@@ -436,7 +540,6 @@ export default function App() {
   const [serviceCustomerDropdownOpen, setServiceCustomerDropdownOpen] = useState(false);
   const [serviceCustomerSearch, setServiceCustomerSearch] = useState("");
   const [serviceRecordSearch, setServiceRecordSearch] = useState("");
-  const [serviceDraft, setServiceDraft] = useState(emptyServiceDraft);
   const [paymentDraft, setPaymentDraft] = useState(emptyPaymentDraft);
   const [breakdownDraft, setBreakdownDraft] = useState(emptyBreakdownDraft);
   const [installTeamDraft, setInstallTeamDraft] = useState(emptyInstallTeamDraft);
@@ -453,7 +556,10 @@ export default function App() {
   const [accountDraft, setAccountDraft] = useState(emptyAccountDraft);
   const [renewalDraft, setRenewalDraft] = useState(emptyRenewalDraft);
   const [inventoryDraft, setInventoryDraft] = useState(emptyInventoryDraft);
+  const [inventorySearch, setInventorySearch] = useState("");
   const [inventoryEdits, setInventoryEdits] = useState<Record<string, { reorder_point: string; target_stock: string }>>({});
+  const [internationalVendorDraft, setInternationalVendorDraft] = useState(emptyInternationalVendorDraft);
+  const [internationalVendorSearch, setInternationalVendorSearch] = useState("");
   const [salesInquiryDraft, setSalesInquiryDraft] = useState(emptySalesInquiryDraft);
   const [salesInquiryEditorOpen, setSalesInquiryEditorOpen] = useState(false);
   const [offerDraft, setOfferDraft] = useState<Record<string, any>>(emptyOfferDraft);
@@ -473,10 +579,11 @@ export default function App() {
   const isAdmin = String(data?.viewer?.role || "").trim().toLowerCase() === "admin";
   const visibleNavItems = useMemo(() => {
     const allowed = data?.access?.allowed_views;
-    if (!allowed?.length) return navItems;
+    const roleFiltered = navItems.filter((item) => item.key !== "internationalVendor" || isAdmin);
+    if (!allowed?.length) return roleFiltered;
     const allowedSet = new Set(allowed);
-    return navItems.filter((item) => allowedSet.has(item.key));
-  }, [data?.access]);
+    return roleFiltered.filter((item) => allowedSet.has(item.key));
+  }, [data?.access, isAdmin]);
   const lowStock = useMemo(
     () => (data?.inventory || []).filter((item) => {
       const onHand = Number(item.qty_on_hand ?? item.stock ?? 0);
@@ -867,6 +974,161 @@ export default function App() {
         </View>
         {config && renderModuleForm(config)}
         {renderRecordCards(records, titleKeys, detailKeys, config)}
+      </View>
+    );
+  }
+
+  function renderOverviewAnalytics() {
+    const records = {
+      inquiries: asRecords(data?.sales_inquiries),
+      estimates: asRecords(data?.estimates),
+      payments: asRecords(data?.payments),
+      breakdowns: asRecords(data?.breakdowns),
+      service: asRecords(data?.service_records),
+      tickets: asRecords(data?.project_tickets),
+      workOrders: asRecords(data?.work_orders),
+      renewals: asRecords(data?.renewals),
+      siteVisits: asRecords(data?.site_visits),
+      inventory: asRecords(data?.inventory),
+    };
+    const today = new Date().toISOString().slice(0, 10);
+    const isClosed = (status: unknown) => ["closed", "resolved", "done", "completed", "cancelled"].includes(String(status || "").trim().toLowerCase());
+    const isLost = (status: unknown) => String(status || "").toLowerCase().includes("lost");
+    const moneyValue = (record: Record<string, unknown>, keys: string[]) => keys.reduce((value, key) => {
+      if (value) return value;
+      const parsed = Number(String(record[key] || "0").replace(/[^0-9.-]/g, ""));
+      return Number.isFinite(parsed) ? parsed : 0;
+    }, 0);
+    const totalEstimateValue = records.estimates.reduce((sum, item) => sum + moneyValue(item, ["total_cost", "amount", "value"]), 0);
+    const collectedValue = records.payments
+      .filter((item) => ["paid", "received", "collected", "complete", "completed"].includes(String(item.status || "").toLowerCase()))
+      .reduce((sum, item) => sum + moneyValue(item, ["amount", "paid_amount", "value"]), 0);
+    const duePayments = records.payments.filter((item) => {
+      const status = String(item.status || "").toLowerCase();
+      const dueDate = String(item.due_date || item.next_due_date || "").slice(0, 10);
+      return !["paid", "received", "collected", "complete", "completed"].includes(status) && (!dueDate || dueDate <= today);
+    });
+    const openBreakdowns = records.breakdowns.filter((item) => !isClosed(item.status));
+    const trappedBreakdowns = records.breakdowns.filter((item) => ["y", "yes", "true"].includes(String(item.trapped_passenger || item.passenger_trapped || "").toLowerCase()));
+    const openService = records.service.filter((item) => !isClosed(item.status || item.state));
+    const openTickets = records.tickets.filter((item) => !isClosed(item.status));
+    const dueFollowUps = records.inquiries.filter((item) => {
+      const date = followupDate(item);
+      const status = String(item.followup_status || item.status || item.lead_status || "").toLowerCase();
+      return date && date <= today && !status.includes("closed") && !status.includes("lost");
+    });
+    const availableEngineers = assignableStaff.filter((member) => staffAvailabilityInfo(member).availableNow).length;
+    const activeStatuses = inquiryLifecycleStatuses.filter((status) => !status.toLowerCase().includes("lost"));
+    const pipelineRows = activeStatuses.map((status) => ({
+      status,
+      count: records.inquiries.filter((item) => String(item.status || item.lead_status || "Inquiry Pending").toLowerCase() === status.toLowerCase()).length,
+    })).filter((item) => item.count > 0 || ["Inquiry Pending", "Site Visit Pending", "Offer Pending", "Order Received", "Work In Progress"].includes(item.status));
+    const maxPipelineCount = Math.max(1, ...pipelineRows.map((item) => item.count));
+    const attentionItems = [
+      { label: "Follow-ups due", value: dueFollowUps.length, detail: "Sales enquiries need action today", tab: "customers" as TabKey },
+      { label: "Active breakdowns", value: openBreakdowns.length, detail: `${trappedBreakdowns.length} trapped-passenger flags`, tab: "breakdown" as TabKey },
+      { label: "Payment follow-up", value: duePayments.length, detail: "Milestones unpaid or due now", tab: "finance" as TabKey },
+      { label: "Stock risk", value: lowStock.length, detail: "Inventory at reorder threshold", tab: "inventory" as TabKey },
+      { label: "Open project tickets", value: openTickets.length, detail: "Cross-department work still active", tab: "tickets" as TabKey },
+    ].filter((item) => item.value > 0);
+    return (
+      <View>
+        <View style={styles.commandBand}>
+          <View style={styles.commandCopy}>
+            <Text style={styles.eyebrow}>System analytics</Text>
+            <Text style={styles.commandTitle}>Live FUZI performance across CRM, service, projects, stock, and accounts.</Text>
+            <Text style={styles.commandText}>Analytics are calculated from the records already loaded in this portal, so the overview reflects your current operating system data.</Text>
+          </View>
+        </View>
+
+        <Text style={styles.sectionTitle}>Executive Snapshot</Text>
+        <View style={styles.metricGrid}>
+          {(data?.metrics || []).map((metric) => (
+            <View key={metric.label} style={styles.card}>
+              <Text style={styles.cardLabel}>{metric.label}</Text>
+              <Text style={styles.metricValue}>{metric.value}</Text>
+              <Text style={styles.muted}>{metric.delta}</Text>
+            </View>
+          ))}
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Estimate value</Text>
+            <Text style={styles.metricValue}>{formatMoney(totalEstimateValue)}</Text>
+            <Text style={styles.muted}>{records.estimates.length} costing and offer records.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Collected</Text>
+            <Text style={styles.metricValue}>{formatMoney(collectedValue)}</Text>
+            <Text style={styles.muted}>{duePayments.length} payment milestones need follow-up.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Available engineers</Text>
+            <Text style={styles.metricValue}>{availableEngineers}</Text>
+            <Text style={styles.muted}>{assignableStaff.length} breakdown staff in dispatch pool.</Text>
+          </View>
+        </View>
+
+        <Text style={styles.sectionTitle}>Sales Pipeline</Text>
+        <View style={styles.analyticsPanel}>
+          {pipelineRows.map((item) => (
+            <View key={`overview-pipeline-${item.status}`} style={styles.analyticsRow}>
+              <View style={styles.analyticsRowHeader}>
+                <Text style={styles.cardTitle}>{item.status}</Text>
+                <Text style={styles.statusPill}>{item.count}</Text>
+              </View>
+              <View style={styles.analyticsBarTrack}>
+                <View style={[styles.analyticsBarFill, { width: `${Math.max(6, (item.count / maxPipelineCount) * 100)}%` }]} />
+              </View>
+            </View>
+          ))}
+        </View>
+
+        <Text style={styles.sectionTitle}>Workload Analytics</Text>
+        <View style={styles.metricGrid}>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Open service</Text>
+            <Text style={styles.metricValue}>{openService.length}</Text>
+            <Text style={styles.muted}>Service records that are not closed.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Breakdowns active</Text>
+            <Text style={styles.metricValue}>{openBreakdowns.length}</Text>
+            <Text style={styles.muted}>{trappedBreakdowns.length} trapped-passenger priority flags.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Site visits</Text>
+            <Text style={styles.metricValue}>{records.siteVisits.length}</Text>
+            <Text style={styles.muted}>Customer-linked site reports captured.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Work orders</Text>
+            <Text style={styles.metricValue}>{records.workOrders.filter((item) => !isClosed(item.status)).length}</Text>
+            <Text style={styles.muted}>Open work-order execution records.</Text>
+          </View>
+        </View>
+
+        <Text style={styles.sectionTitle}>Attention Needed</Text>
+        {attentionItems.length ? attentionItems.map((item) => (
+          <Pressable key={`attention-${item.label}`} style={styles.alertCard} onPress={() => setActiveTab(item.tab)}>
+            <View style={styles.cardHeaderRow}>
+              <View style={styles.cardTitleBlock}>
+                <Text style={styles.cardLabel}>{item.label}</Text>
+                <Text style={styles.cardTitle}>{item.detail}</Text>
+              </View>
+              <Text style={styles.metricValue}>{item.value}</Text>
+            </View>
+          </Pressable>
+        )) : (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>No urgent exceptions</Text>
+            <Text style={styles.muted}>Follow-ups, stock, payments, tickets, and breakdowns are clear for now.</Text>
+          </View>
+        )}
+
+        <Pressable style={styles.portalShortcut} onPress={() => setActiveTab("breakdown")}>
+          <Text style={styles.cardLabel}>Emergency access</Text>
+          <Text style={styles.cardTitle}>Open Breakdown Portal</Text>
+          <Text style={styles.muted}>Log a call, mark trapped-passenger priority, dispatch an engineer, and close the case.</Text>
+        </Pressable>
       </View>
     );
   }
@@ -1372,103 +1634,6 @@ export default function App() {
         <Pressable style={styles.primaryButton} onPress={() => saveModuleRecord(config)} disabled={loading || (needsCustomer && !moduleDraft.customer_id)}>
           <Text style={styles.primaryButtonText}>Save module record</Text>
         </Pressable>
-      </View>
-    );
-  }
-
-  function renderServiceAgentPage() {
-    const messages = asRecords((data as Record<string, unknown> | null)?.messages);
-    const openMessages = messages.filter((item) => !["closed", "resolved", "done"].includes(String(item.status || item.state || "").toLowerCase()));
-    const urgentMessages = messages.filter((item) => ["urgent", "high", "critical"].includes(String(item.priority || item.severity || "").toLowerCase()));
-    return (
-      <View>
-        <View style={styles.moduleHero}>
-          <Text style={styles.eyebrow}>Service Agent</Text>
-          <Text style={styles.moduleHeroTitle}>Customer Service Inbox</Text>
-          <Text style={styles.moduleHeroText}>Capture WhatsApp, phone, email, and web-chat requests, triage priority, assign ownership, and convert real issues into work orders.</Text>
-        </View>
-
-        <View style={styles.metricGrid}>
-          <View style={styles.card}>
-            <Text style={styles.cardLabel}>Open inbox</Text>
-            <Text style={styles.metricValue}>{openMessages.length}</Text>
-            <Text style={styles.muted}>Messages waiting for follow-up or dispatch.</Text>
-          </View>
-          <View style={styles.card}>
-            <Text style={styles.cardLabel}>High priority</Text>
-            <Text style={styles.metricValue}>{urgentMessages.length}</Text>
-            <Text style={styles.muted}>Urgent customer requests and escalations.</Text>
-          </View>
-        </View>
-
-        <View style={styles.formCard}>
-          <Text style={styles.cardLabel}>New service intake</Text>
-          <View style={styles.formGrid}>
-            {[
-              ["customer", "Customer / building"],
-              ["phone", "Mobile phone"],
-              ["channel", "Channel"],
-              ["priority", "Priority"],
-              ["assigned_to", "Assigned to"],
-              ["next_action", "Next action"],
-            ].map(([key, label]) => (
-              <View key={key} style={styles.field}>
-                <Text style={styles.label}>{label}</Text>
-                <TextInput
-                  style={styles.input}
-                  value={String(serviceDraft[key as keyof typeof serviceDraft] || "")}
-                  onChangeText={(value) => setServiceDraft((draft) => ({ ...draft, [key]: value }))}
-                />
-              </View>
-            ))}
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>Customer message</Text>
-            <TextInput
-              style={[styles.input, styles.textarea]}
-              value={serviceDraft.text}
-              onChangeText={(value) => setServiceDraft((draft) => ({ ...draft, text: value }))}
-              multiline
-            />
-          </View>
-          <Pressable style={styles.primaryButton} onPress={saveServiceMessage} disabled={loading}>
-            <Text style={styles.primaryButtonText}>Save service message</Text>
-          </Pressable>
-        </View>
-
-        <Text style={styles.sectionTitle}>Inbox & Triage</Text>
-        {!messages.length && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Inbox is clear</Text>
-            <Text style={styles.muted}>New customer calls, WhatsApp notes, web-chat requests, and email follow-ups will appear here.</Text>
-          </View>
-        )}
-        {messages.slice(0, 40).map((item, index) => {
-          const id = recordIdentity(item) || String(item.id || `MSG-LEGACY-${index + 1}`);
-          return (
-            <View key={id} style={styles.card}>
-              <View style={styles.cardHeaderRow}>
-                <Text style={styles.cardTitle}>{fieldText(item, ["customer", "from", "channel"])}</Text>
-                <Text style={styles.statusPill}>{fieldText(item, ["priority", "severity"])}</Text>
-              </View>
-              <Text style={styles.muted}>{fieldText(item, ["channel"])} - {fieldText(item, ["status", "state"])}</Text>
-              <Text style={styles.bodyText}>{fieldText(item, ["text", "message", "body", "summary"])}</Text>
-              <Text style={styles.bodyText}>Owner: {fieldText(item, ["assigned_to", "owner"])} - Next: {fieldText(item, ["next_action", "action"])}</Text>
-              {!!item.work_order_id && <Text style={styles.bodyText}>Work order: {String(item.work_order_id)}</Text>}
-              <View style={styles.inlineActions}>
-                <Pressable style={styles.smallButton} onPress={() => updateServiceMessage(id, "Contacted")} disabled={loading}>
-                  <Text style={styles.smallButtonText}>Contacted</Text>
-                </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => createServiceWorkOrder(id)} disabled={loading}>
-                  <Text style={styles.smallButtonText}>Create work order</Text>
-                </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateServiceMessage(id, "Closed")} disabled={loading}>
-                  <Text style={styles.smallButtonText}>Close</Text>
-                </Pressable>
-              </View>
-            </View>
-          );
-        })}
       </View>
     );
   }
@@ -2638,7 +2803,8 @@ export default function App() {
       customer_name: customer.name,
       offer_name: customer.name,
       offer_type: customer.segment || "Passenger",
-      lead_status: "Costing Pending",
+      lead_status: "Offer Pending",
+      elevator_type: customer.segment || "Passenger Elevator",
       createdbyname: data?.viewer?.display_name || username,
     });
     setCostingEditorOpen(true);
@@ -2651,13 +2817,228 @@ export default function App() {
       customer_name: customerName,
       offer_name: customerName,
       offer_type: String(record.lead_type || record.leadtype || "Individual"),
-      lead_status: "Costing Pending",
+      lead_status: "Offer Pending",
+      elevator_type: String(record.lead_type || record.leadtype || "Passenger Elevator"),
       createdbyname: data?.viewer?.display_name || username,
       customer_id: String(record.customer_id || ""),
       source_inquiry_id: recordIdentity(record) || String(record.enquiry_no || ""),
       notes: String(record.enquiry_remark || record.requirement || ""),
     });
     setCostingEditorOpen(true);
+  }
+
+  function renderOfferEditorModal() {
+    return (
+      <Modal visible={costingEditorOpen} transparent animationType="fade" onRequestClose={() => setCostingEditorOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.cardLabel}>Offer Manager</Text>
+                <Text style={styles.muted}>Customer ID: {offerDraft.customer_id || "-"}</Text>
+              </View>
+              <Pressable style={styles.secondaryButton} onPress={() => setCostingEditorOpen(false)} disabled={loading}>
+                <Text style={styles.secondaryButtonText}>Close</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+              <View style={styles.formGrid}>
+                {[
+                  ["customer_id", "Customer ID"],
+                  ["job_no", "Offer / job no"],
+                  ["offer_date", "Offer date"],
+                  ["customer_name", "Customer name"],
+                  ["offer_type", "Offer type"],
+                  ["lead_status", "Offer status"],
+                  ["elevator_type", "Elevator type"],
+                  ["stops", "Stops / floors"],
+                  ["capacity", "Capacity"],
+                  ["speed", "Speed"],
+                  ["drive_type", "Drive type"],
+                  ["door_type", "Door type"],
+                  ["finish", "Cabin / finish"],
+                  ["material_cost", "Internal material cost"],
+                  ["install_cost", "Internal install cost"],
+                  ["overhead_cost", "Internal overhead"],
+                  ["margin_percent", "Margin percent"],
+                  ["discount", "Discount"],
+                  ["gst_percent", "GST percent"],
+                  ["total_cost", "Client offer value override"],
+                  ["offer_valid_until", "Offer valid until"],
+                ].map(([key, label]) => (
+                  <View key={`standalone-offer-field-${key}`} style={styles.field}>
+                    <Text style={styles.label}>{label}</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={String(offerDraft[key] || "")}
+                      editable={key !== "customer_id"}
+                      onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, [key]: key === "customer_name" ? value : value, ...(key === "customer_name" ? { offer_name: value } : {}) }))}
+                      keyboardType={["material_cost", "install_cost", "overhead_cost", "margin_percent", "discount", "gst_percent", "total_cost"].includes(key) ? "numeric" : "default"}
+                    />
+                  </View>
+                ))}
+              </View>
+              <View style={styles.linkedSystemsPanel}>
+                <Text style={styles.cardLabel}>Client offer preview</Text>
+                <Text style={styles.metricValue}>{formatMoney(offerCostSummary(offerDraft).totalCost)}</Text>
+                <Text style={styles.muted}>Base {formatMoney(offerCostSummary(offerDraft).baseCost)} + margin {offerCostSummary(offerDraft).marginPercent}% + GST {offerCostSummary(offerDraft).gstPercent}% after discount.</Text>
+              </View>
+              <View style={styles.formGrid}>
+                <View style={styles.field}>
+                  <Text style={styles.label}>Payment terms</Text>
+                  <TextInput style={[styles.input, styles.textarea]} value={offerDraft.payment_terms} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, payment_terms: value }))} multiline />
+                </View>
+                <View style={styles.field}>
+                  <Text style={styles.label}>Delivery timeline</Text>
+                  <TextInput style={[styles.input, styles.textarea]} value={offerDraft.delivery_timeline} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, delivery_timeline: value }))} multiline />
+                </View>
+                <View style={styles.field}>
+                  <Text style={styles.label}>Warranty terms</Text>
+                  <TextInput style={[styles.input, styles.textarea]} value={offerDraft.warranty_terms} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, warranty_terms: value }))} multiline />
+                </View>
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>Internal costing notes</Text>
+                <TextInput style={[styles.input, styles.textarea]} value={offerDraft.notes} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, notes: value }))} multiline />
+              </View>
+              <View style={styles.costingSourcePanel}>
+                <View style={styles.sectionHeaderRow}>
+                  <View>
+                    <Text style={styles.sectionTitle}>Complete .xlsx costing data</Text>
+                    <Text style={styles.muted}>Attach an internal costing source so the saved offer keeps the source data used to prepare the client letter.</Text>
+                  </View>
+                  <Pressable style={styles.smallButton} onPress={loadCostingSourceData} disabled={loading || costingSourcesLoading}>
+                    <Text style={styles.smallButtonText}>{costingSourcesLoading ? "Loading..." : "Refresh source data"}</Text>
+                  </Pressable>
+                </View>
+                {selectedCostingSource ? (
+                  <>
+                    <View style={styles.costingStepper}>
+                      <Pressable style={styles.smallButton} onPress={() => setCostingSourceIndex((index) => Math.max(0, index - 1))} disabled={costingSourceIndex <= 0}>
+                        <Text style={styles.smallButtonText}>Previous source</Text>
+                      </Pressable>
+                      <View style={styles.costingStepMeta}>
+                        <Text style={styles.cardTitle}>{selectedCostingSource.source_file}</Text>
+                        <Text style={styles.muted}>Source {costingSourceIndex + 1} of {costingSources.length} - {selectedCostingSource.non_empty_cell_count} values</Text>
+                      </View>
+                      <Pressable style={styles.smallButton} onPress={() => setCostingSourceIndex((index) => Math.min(costingSources.length - 1, index + 1))} disabled={costingSourceIndex >= costingSources.length - 1}>
+                        <Text style={styles.smallButtonText}>Next source</Text>
+                      </Pressable>
+                      <Pressable style={styles.primaryButtonInline} onPress={attachSelectedCostingSource} disabled={loading}>
+                        <Text style={styles.primaryButtonText}>Attach source data</Text>
+                      </Pressable>
+                    </View>
+                    <Text style={styles.muted}>Attached source: {offerDraft.costing_source_file || "none yet"}.</Text>
+                  </>
+                ) : (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.muted}>{costingSourcesLoading ? "Loading source values..." : "No costing source data loaded yet."}</Text>
+                  </View>
+                )}
+              </View>
+            </ScrollView>
+            <View style={styles.modalActions}>
+              <Pressable style={styles.secondaryButton} onPress={() => setCostingEditorOpen(false)} disabled={loading}>
+                <Text style={styles.secondaryButtonText}>Cancel</Text>
+              </Pressable>
+              <Pressable style={styles.primaryButtonInline} onPress={saveOffer} disabled={loading || !offerDraft.customer_id.trim() || !offerDraft.customer_name.trim()}>
+                <Text style={styles.primaryButtonText}>Save offer</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+
+  function renderOfferManagerPage() {
+    const offers = [...asRecords(data?.estimates)].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
+    const customers = [...(data?.customers || [])].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+    const activeOffers = offers.filter((offer) => !String(offer.status || offer.lead_status || "").toLowerCase().includes("lost"));
+    return (
+      <View>
+        <View style={styles.moduleHero}>
+          <Text style={styles.eyebrow}>Offer Manager</Text>
+          <Text style={styles.moduleHeroTitle}>Customer-Linked Elevator Offers</Text>
+          <Text style={styles.moduleHeroText}>Create FUZI offers from internal elevator costing, keep each offer tied to a CRM customer, and prepare the client offer letter from the same record.</Text>
+        </View>
+        <View style={styles.metricGrid}>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Offers</Text>
+            <Text style={styles.metricValue}>{offers.length}</Text>
+            <Text style={styles.muted}>Saved offer and costing records.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Active offers</Text>
+            <Text style={styles.metricValue}>{activeOffers.length}</Text>
+            <Text style={styles.muted}>Not marked lost.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Sent</Text>
+            <Text style={styles.metricValue}>{offers.filter((offer) => String(offer.status || "").toLowerCase() === "sent").length}</Text>
+            <Text style={styles.muted}>Client offer letters sent.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Approved</Text>
+            <Text style={styles.metricValue}>{offers.filter((offer) => ["approved", "accepted"].includes(String(offer.status || "").toLowerCase())).length}</Text>
+            <Text style={styles.muted}>Approved customer offers.</Text>
+          </View>
+        </View>
+
+        <View style={styles.formCard}>
+          <Text style={styles.cardLabel}>Create offer from CRM customer</Text>
+          <Text style={styles.muted}>Select a saved CRM customer first. Offer Manager will use that customer ID for the costing record and offer letter.</Text>
+          {!customers.length && <Text style={styles.muted}>No saved customer accounts are available yet.</Text>}
+          <View style={styles.inlineActions}>
+            {customers.slice(0, 16).map((customer) => (
+              <Pressable key={`offer-customer-${customer.id}`} style={styles.smallButton} onPress={() => openCostingForCustomer(customer)} disabled={loading}>
+                <Text style={styles.smallButtonText}>{customer.name || customer.id}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <Text style={styles.sectionTitle}>Offer Pipeline</Text>
+        {!offers.length && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>No offers yet</Text>
+            <Text style={styles.muted}>Create an offer from a CRM customer to prepare internal costing and a client offer letter.</Text>
+          </View>
+        )}
+        {offers.slice(0, 40).map((offer, index) => {
+          const id = recordIdentity(offer) || String(offer.job_no || index);
+          const cost = offerCostSummary(offer);
+          return (
+            <View key={`standalone-offer-${id}`} style={styles.card}>
+              <View style={styles.cardHeaderRow}>
+                <View style={styles.cardTitleBlock}>
+                  <Text style={styles.cardTitle}>{String(offer.customer_name || offer.offer_name || "-")}</Text>
+                  <Text style={styles.muted}>{id} - Customer {String(offer.customer_id || "-")} - {String(offer.offer_date || offer.created_at || "-")}</Text>
+                </View>
+                <Text style={styles.statusPill}>{String(offer.status || offer.lead_status || "Offer Pending")}</Text>
+              </View>
+              <Text style={styles.bodyText}>{String(offer.elevator_type || offer.offer_type || "Elevator")} - Stops {String(offer.stops || "-")} - Capacity {String(offer.capacity || "-")} - {formatMoney(cost.totalCost)}</Text>
+              <Text style={styles.muted}>Internal base {formatMoney(cost.baseCost)} + margin {cost.marginPercent}% + GST {cost.gstPercent}%.</Text>
+              <View style={styles.inlineActions}>
+                <Pressable style={styles.smallButton} onPress={() => openEstimateArtifact(id, "report")} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Costing report</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => openEstimateArtifact(id, "offer.pdf")} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Offer letter</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => estimateAction(id, "send")} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Send offer</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => estimateAction(id, "approve-offer")} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Approve offer</Text>
+                </Pressable>
+              </View>
+            </View>
+          );
+        })}
+        {renderOfferEditorModal()}
+      </View>
+    );
   }
 
   function renderCustomerCrmPage() {
@@ -2731,7 +3112,7 @@ export default function App() {
           <View style={styles.card}>
             <Text style={styles.cardLabel}>Customers with costing</Text>
             <Text style={styles.metricValue}>{inquiriesWithEstimates.length}</Text>
-            <Text style={styles.muted}>{offers.length} costing estimates tied into CRM.</Text>
+            <Text style={styles.muted}>{offers.length} customer-linked offers tied into CRM.</Text>
           </View>
         </View>
 
@@ -2986,7 +3367,7 @@ export default function App() {
                   <Text style={styles.statusPill}>{costingStatus}</Text>
                 </View>
                 <Text style={styles.muted}>{customer.id} - {customer.address || "No address"} - Pipeline: {customer.pipeline_stage || "Lead"}</Text>
-                <Text style={styles.bodyText}>Costing estimates: {customerEstimates.length}{latestEstimate ? ` - Latest ${String(latestEstimate.job_no || latestEstimate.id || "-")} - ${String(latestEstimate.offer_date || latestEstimate.created_at || "-")} - ${formatMoney(Number(latestEstimate.total_cost || 0))}` : ""}</Text>
+                <Text style={styles.bodyText}>Offers: {customerEstimates.length}{latestEstimate ? ` - Latest ${String(latestEstimate.job_no || latestEstimate.id || "-")} - ${String(latestEstimate.offer_date || latestEstimate.created_at || "-")} - ${formatMoney(offerCostSummary(latestEstimate).totalCost)}` : ""}</Text>
                 <Text style={styles.bodyText}>{customer.contact_person || "No contact"} - {customer.phone || "No mobile"} - {customer.email || "No email"}</Text>
                 <Text style={styles.bodyText}>Owner: {customer.account_owner || "-"} - Source: {customer.lead_source || "-"} - Channel: {customer.preferred_channel || "-"}</Text>
                 <View style={styles.inlineActions}>
@@ -3001,7 +3382,7 @@ export default function App() {
                     onPress={() => openCostingForCustomer(customer)}
                     disabled={loading}
                   >
-                    <Text style={styles.smallButtonText}>New costing</Text>
+                    <Text style={styles.smallButtonText}>Create offer</Text>
                   </Pressable>
                   <Pressable
                     style={styles.smallButton}
@@ -3167,7 +3548,7 @@ export default function App() {
                   <Text style={styles.bodyText}>Address: {String(item.address || item.site_address || item.site || "-")}</Text>
                   <Text style={styles.bodyText}>Referral: {String(item.referral_by || "-")} - Created by: {String(item.createdbyname || "-")} - Last modified by: {String(item.lastmodifiedbyname || "-")}</Text>
                   <Text style={styles.bodyText}>Follow-up: {followupDate(item) || "-"} - {String(item.followup_channel || "WhatsApp")} - Every {followupFrequency(item)}d - {String(item.followup_status || "Open")}</Text>
-                  <Text style={styles.bodyText}>Costing: {latestEstimate ? `${String(latestEstimate.job_no || latestEstimate.id || "-")} - ${String(latestEstimate.offer_type || latestEstimate.elevator_type || "-")} - ${String(latestEstimate.offer_date || latestEstimate.created_at || "-")} - ${formatMoney(Number(latestEstimate.total_cost || 0))}` : "No costing estimate yet"}</Text>
+              <Text style={styles.bodyText}>Offer: {latestEstimate ? `${String(latestEstimate.job_no || latestEstimate.id || "-")} - ${String(latestEstimate.offer_type || latestEstimate.elevator_type || "-")} - ${String(latestEstimate.offer_date || latestEstimate.created_at || "-")} - ${formatMoney(offerCostSummary(latestEstimate).totalCost)}` : "No offer yet"}</Text>
                   {isLostInquiryStatus(status) && !!(item.lost_reason || item.status_lost_reason) ? <Text style={styles.muted}>Lost reason: {String(item.lost_reason || item.status_lost_reason)}</Text> : null}
                   {!!(item.requirement || item.enquiry_remark || item.notes) && <Text style={styles.muted}>{String(item.requirement || item.enquiry_remark || item.notes)}</Text>}
                   <View style={styles.inlineActions}>
@@ -3181,7 +3562,7 @@ export default function App() {
                       <Text style={styles.smallButtonText}>{existingSiteVisit ? "Edit site visit" : "Site Visit"}</Text>
                     </Pressable>
                     <Pressable style={styles.smallButton} onPress={() => openCostingForInquiry(item)} disabled={loading}>
-                      <Text style={styles.smallButtonText}>New costing</Text>
+                    <Text style={styles.smallButtonText}>Create offer</Text>
                     </Pressable>
                     <Pressable
                       style={styles.smallButton}
@@ -3206,7 +3587,7 @@ export default function App() {
             <View style={styles.modalCard}>
               <View style={styles.modalHeader}>
                 <View>
-                  <Text style={styles.cardLabel}>New customer costing</Text>
+                  <Text style={styles.cardLabel}>Offer Manager</Text>
                   <Text style={styles.muted}>Customer ID: {offerDraft.customer_id || "-"}</Text>
                 </View>
                 <Pressable style={styles.secondaryButton} onPress={() => setCostingEditorOpen(false)} disabled={loading}>
@@ -3220,11 +3601,11 @@ export default function App() {
                     <TextInput style={styles.input} value={offerDraft.customer_id} editable={false} placeholder="Select from CRM row" />
                   </View>
                   <View style={styles.field}>
-                    <Text style={styles.label}>Costing / job no</Text>
+                    <Text style={styles.label}>Offer / job no</Text>
                     <TextInput style={styles.input} value={offerDraft.job_no} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, job_no: value }))} placeholder="Auto if blank" />
                   </View>
                   <View style={styles.field}>
-                    <Text style={styles.label}>Costing date</Text>
+                    <Text style={styles.label}>Offer date</Text>
                     <TextInput style={styles.input} value={offerDraft.offer_date} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, offer_date: value }))} placeholder="YYYY-MM-DD" />
                   </View>
                   <View style={styles.field}>
@@ -3232,20 +3613,65 @@ export default function App() {
                     <TextInput style={styles.input} value={offerDraft.customer_name} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, customer_name: value, offer_name: value }))} />
                   </View>
                   <View style={styles.field}>
-                    <Text style={styles.label}>Lift / costing type</Text>
+                    <Text style={styles.label}>Offer type</Text>
                     <TextInput style={styles.input} value={offerDraft.offer_type} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, offer_type: value }))} />
                   </View>
                   <View style={styles.field}>
-                    <Text style={styles.label}>Costing status</Text>
+                    <Text style={styles.label}>Offer status</Text>
                     <TextInput style={styles.input} value={offerDraft.lead_status} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, lead_status: value }))} />
                   </View>
                   <View style={styles.field}>
-                    <Text style={styles.label}>Estimated value</Text>
+                    <Text style={styles.label}>Client offer value</Text>
                     <TextInput style={styles.input} value={offerDraft.total_cost} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, total_cost: value }))} keyboardType="numeric" />
+                  </View>
+                  {[
+                    ["elevator_type", "Elevator type"],
+                    ["stops", "Stops / floors"],
+                    ["capacity", "Capacity"],
+                    ["speed", "Speed"],
+                    ["drive_type", "Drive type"],
+                    ["door_type", "Door type"],
+                    ["finish", "Cabin / finish"],
+                    ["material_cost", "Internal material cost"],
+                    ["install_cost", "Internal install cost"],
+                    ["overhead_cost", "Internal overhead"],
+                    ["margin_percent", "Margin percent"],
+                    ["discount", "Discount"],
+                    ["gst_percent", "GST percent"],
+                    ["offer_valid_until", "Offer valid until"],
+                  ].map(([key, label]) => (
+                    <View key={`offer-field-${key}`} style={styles.field}>
+                      <Text style={styles.label}>{label}</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={String(offerDraft[key] || "")}
+                        onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, [key]: value }))}
+                        keyboardType={["material_cost", "install_cost", "overhead_cost", "margin_percent", "discount", "gst_percent"].includes(key) ? "numeric" : "default"}
+                      />
+                    </View>
+                  ))}
+                </View>
+                <View style={styles.linkedSystemsPanel}>
+                  <Text style={styles.cardLabel}>Client offer preview</Text>
+                  <Text style={styles.metricValue}>{formatMoney(offerCostSummary(offerDraft).totalCost)}</Text>
+                  <Text style={styles.muted}>Base {formatMoney(offerCostSummary(offerDraft).baseCost)} + margin {offerCostSummary(offerDraft).marginPercent}% + GST {offerCostSummary(offerDraft).gstPercent}% after discount.</Text>
+                </View>
+                <View style={styles.formGrid}>
+                  <View style={styles.field}>
+                    <Text style={styles.label}>Payment terms</Text>
+                    <TextInput style={[styles.input, styles.textarea]} value={offerDraft.payment_terms} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, payment_terms: value }))} multiline />
+                  </View>
+                  <View style={styles.field}>
+                    <Text style={styles.label}>Delivery timeline</Text>
+                    <TextInput style={[styles.input, styles.textarea]} value={offerDraft.delivery_timeline} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, delivery_timeline: value }))} multiline />
+                  </View>
+                  <View style={styles.field}>
+                    <Text style={styles.label}>Warranty terms</Text>
+                    <TextInput style={[styles.input, styles.textarea]} value={offerDraft.warranty_terms} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, warranty_terms: value }))} multiline />
                   </View>
                 </View>
                 <View style={styles.field}>
-                  <Text style={styles.label}>Costing notes</Text>
+                  <Text style={styles.label}>Internal costing notes</Text>
                   <TextInput style={[styles.input, styles.textarea]} value={offerDraft.notes} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, notes: value }))} multiline />
                 </View>
                 <View style={styles.costingSourcePanel}>
@@ -3327,7 +3753,7 @@ export default function App() {
                   <Text style={styles.secondaryButtonText}>Cancel</Text>
                 </Pressable>
                 <Pressable style={styles.primaryButtonInline} onPress={saveOffer} disabled={loading || !offerDraft.customer_name.trim()}>
-                  <Text style={styles.primaryButtonText}>Save costing</Text>
+                  <Text style={styles.primaryButtonText}>Save offer</Text>
                 </Pressable>
               </View>
             </View>
@@ -3779,17 +4205,476 @@ export default function App() {
     );
   }
 
+  function internationalVendorCost(draft: Record<string, unknown>) {
+    const parse = (value: unknown, fallback = 0) => {
+      const parsed = Number(String(value || "").replace(/[^0-9.-]/g, ""));
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+    const fuziCost = parse(draft.fuzi_cost);
+    const installCost = parse(draft.install_cost);
+    const packageCount = Math.max(1, parse(draft.package_count, 1));
+    const lengthCm = parse(draft.length_cm);
+    const widthCm = parse(draft.width_cm);
+    const heightCm = parse(draft.height_cm);
+    const actualWeightKg = parse(draft.actual_weight_kg);
+    const freightRate = parse(draft.freight_rate);
+    const cbm = lengthCm && widthCm && heightCm ? (lengthCm * widthCm * heightCm * packageCount) / 1000000 : 0;
+    const volumetricWeightKg = lengthCm && widthCm && heightCm ? (lengthCm * widthCm * heightCm * packageCount) / 5000 : 0;
+    const mode = String(draft.freight_mode || "Ocean LCL");
+    const chargeableWeightKg = mode.toLowerCase().includes("ocean")
+      ? Math.max(cbm, actualWeightKg / 1000)
+      : Math.max(actualWeightKg, volumetricWeightKg);
+    const calculatedFreightCost = freightRate ? Math.round(chargeableWeightKg * freightRate) : 0;
+    const shippingCost = parse(draft.shipping_cost, calculatedFreightCost);
+    const brokerFee = parse(draft.broker_fee);
+    const portFee = parse(draft.port_fee);
+    const dutyPercent = parse(draft.customs_duty_percent);
+    const importTaxPercent = parse(draft.import_tax_percent);
+    const insurancePercent = parse(draft.insurance_percent, 1);
+    const partnerPercent = parse(draft.partner_percent, 2);
+    const kitBaseCost = Math.max(0, fuziCost - installCost);
+    const customsDuty = Math.round((kitBaseCost * dutyPercent) / 100);
+    const importTax = Math.round(((kitBaseCost + shippingCost + customsDuty) * importTaxPercent) / 100);
+    const insuranceCost = Math.round((kitBaseCost * insurancePercent) / 100);
+    const landedCost = kitBaseCost + shippingCost + customsDuty + importTax + brokerFee + portFee + insuranceCost;
+    const partnerFee = Math.round((landedCost * partnerPercent) / 100);
+    const vendorCost = landedCost + partnerFee;
+    const recommendation = actualWeightKg <= 70 && cbm <= 0.5
+      ? "Small smart parts: quote courier/air using chargeable kg."
+      : cbm >= 15 || actualWeightKg >= 8000
+        ? "Heavy kits: ask forwarder for FCL ocean quote."
+        : "Palletized kits/parts: quote ocean LCL by W/M, compare air only if urgent.";
+    return { fuziCost, installCost, packageCount, cbm, actualWeightKg, volumetricWeightKg, chargeableWeightKg, freightRate, calculatedFreightCost, shippingCost, brokerFee, portFee, customsDuty, importTax, insuranceCost, partnerPercent, kitBaseCost, landedCost, partnerFee, vendorCost, recommendation };
+  }
+
+  function internationalVendorEmailText(record: Record<string, unknown>) {
+    const company = String(record.company || "there").trim();
+    const stage = String(record.followup_stage || record.pipeline_stage || "1. Catalog intro").toLowerCase();
+    const tenderTitle = String(record.tender_title || record.closest_tender_title || "").trim();
+    const tenderArea = String(record.tender_area || record.closest_tender_region || record.region || "your area").trim();
+    const tenderDeadline = String(record.tender_deadline || record.closest_tender_deadline || "").trim();
+    const tenderRef = String(record.tender_ref || record.closest_tender_ref || "").trim();
+    const cost = internationalVendorCost(record);
+    if (stage.includes("tender") || stage.includes("bid") || stage.includes("meeting") || stage.includes("draft")) {
+      const tenderLine = tenderTitle
+        ? `We noticed ${tenderTitle} in ${tenderArea}${tenderDeadline ? ` with a deadline of ${tenderDeadline}` : ""}${tenderRef ? `, ref ${tenderRef}` : ""}.`
+        : `We noticed an elevator tender/opportunity near ${tenderArea}.`;
+      return `Hello ${company}, a friend mentioned they had used your service, so we wanted to set a short meeting. ${tenderLine} Your company could bid locally while FUZI supplies manufactured elevator parts and kits at a competitive landed cost; our current estimate is ${formatMoney(cost.vendorCost)} before final freight/customs confirmation. Would you be open to a call to discuss partnering on this contract?`;
+    }
+    if (stage.includes("sample") || stage.includes("smart")) {
+      return `Hello ${company}, FUZI can also supply smaller smart elevator parts, controller accessories, and sample kits internationally. We can quote courier/air freight by chargeable kg and share a small-parts catalog for quick evaluation.`;
+    }
+    if (stage.includes("cost")) {
+      return `Hello ${company}, we prepared a landed-cost estimate for FUZI manufactured elevator parts/kits. The current calculated vendor cost is ${formatMoney(cost.vendorCost)}, including freight/import assumptions and the local partner fee. Please confirm destination, dimensions, and preferred Incoterm so we can firm up the quote.`;
+    }
+    return `Hello ${company}, FUZI manufactures elevator parts and lift kits internationally. We are looking for USA and Canada elevator companies that can install locally while FUZI supplies manufactured parts and kits. Please reply if you would like our catalog, landed-cost sheet, and partnership terms.`;
+  }
+
+  function renderInternationalVendorPage() {
+    const vendors = asRecords(data?.international_vendors);
+    const query = internationalVendorSearch.trim().toLowerCase();
+    const visibleVendors = vendors.filter((item) => !query || JSON.stringify(item).toLowerCase().includes(query));
+    const activeVendors = vendors.filter((item) => !String(item.status || "").toLowerCase().includes("lost"));
+    const tenderPartners = vendors.filter((item) => String(item.followup_stage || "").toLowerCase().includes("tender") || String(item.tender_source || "").trim());
+    const sentVendors = vendors.filter((item) => String(item.last_outreach_at || item.delivery_status || "").trim());
+    const shippedVendors = vendors.filter((item) => ["shipped", "delivered", "partner active"].includes(String(item.pipeline_stage || item.shipment_status || "").toLowerCase()));
+    const draftCost = internationalVendorCost(internationalVendorDraft);
+    if (!isAdmin) {
+      return (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Admin only</Text>
+          <Text style={styles.muted}>International Vendor is available only in the admin portal.</Text>
+        </View>
+      );
+    }
+    return (
+      <View>
+        <View style={styles.moduleHero}>
+          <Text style={styles.eyebrow}>International Vendor</Text>
+          <Text style={styles.moduleHeroTitle}>USA & Canada Partner Sales System</Text>
+          <Text style={styles.moduleHeroText}>Track elevator companies that can buy FUZI manufactured parts/kits, calculate landed partner cost, manage bids, and hand outreach to OpenClaw/email.</Text>
+        </View>
+
+        <View style={styles.metricGrid}>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Prospects</Text>
+            <Text style={styles.metricValue}>{vendors.length}</Text>
+            <Text style={styles.muted}>USA/Canada elevator-company targets.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Active pipeline</Text>
+            <Text style={styles.metricValue}>{activeVendors.length}</Text>
+            <Text style={styles.muted}>Not marked lost or inactive.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Tender partners</Text>
+            <Text style={styles.metricValue}>{tenderPartners.length}</Text>
+            <Text style={styles.muted}>Companies linked to bid/tender opportunities.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Outreach sent</Text>
+            <Text style={styles.metricValue}>{sentVendors.length}</Text>
+            <Text style={styles.muted}>Records touched by OpenClaw/email handoff.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Shipping pipeline</Text>
+            <Text style={styles.metricValue}>{shippedVendors.length}</Text>
+            <Text style={styles.muted}>Shipped, delivered, or active partner accounts.</Text>
+          </View>
+        </View>
+
+        <View style={styles.formCard}>
+          <Text style={styles.cardLabel}>FUZI international vendor sales plan</Text>
+          <Text style={styles.bodyText}>1. Match each elevator company to the closest Canada/USA tender by province, region, or national scope.</Text>
+          <Text style={styles.bodyText}>2. Ask OpenClaw to draft the first email with the friend-referral opener, nearest tender, meeting request, and FUZI manufactured-parts partnership offer.</Text>
+          <Text style={styles.bodyText}>3. Follow up with catalog, landed-cost sheet, bid support pricing, sample/smart-parts quote, then meeting reminder.</Text>
+          <Text style={styles.bodyText}>4. Move interested companies to bid partnership, PO request, production, freight, shipped, delivered, and partner active.</Text>
+        </View>
+
+        <View style={styles.formCard}>
+          <Text style={styles.cardLabel}>New USA/Canada vendor prospect</Text>
+          <View style={styles.formGrid}>
+            {[
+              ["company", "Company name"],
+              ["country", "Country"],
+              ["region", "State / province"],
+              ["website", "Website"],
+              ["email", "Email"],
+              ["phone", "Phone"],
+              ["contact_name", "Contact name"],
+              ["product_interest", "Parts / kit interest"],
+            ].map(([key, label]) => (
+              <View key={`ivendor-${key}`} style={styles.field}>
+                <Text style={styles.label}>{label}</Text>
+                <TextInput
+                  style={styles.input}
+                  value={String(internationalVendorDraft[key as keyof typeof internationalVendorDraft] || "")}
+                  onChangeText={(value) => setInternationalVendorDraft((draft) => ({ ...draft, [key]: value }))}
+                />
+              </View>
+            ))}
+          </View>
+
+          <Text style={styles.sectionTitle}>Cost calculator</Text>
+          <View style={styles.formGrid}>
+            {[
+              ["fuzi_cost", "FUZI total cost"],
+              ["install_cost", "Install cost removed"],
+              ["shipping_cost", "Override shipping cost"],
+              ["partner_percent", "Canada/USA partner percent"],
+              ["bid_value", "Bid / tender value"],
+            ].map(([key, label]) => (
+              <View key={`ivendor-cost-${key}`} style={styles.field}>
+                <Text style={styles.label}>{label}</Text>
+                <TextInput
+                  style={styles.input}
+                  value={String(internationalVendorDraft[key as keyof typeof internationalVendorDraft] || "")}
+                  onChangeText={(value) => setInternationalVendorDraft((draft) => ({ ...draft, [key]: value }))}
+                  keyboardType="numeric"
+                />
+              </View>
+            ))}
+          </View>
+          <Text style={styles.sectionTitle}>Freight weight and import cost</Text>
+          <View style={styles.formGrid}>
+            {[
+              ["freight_mode", "Freight mode"],
+              ["destination_country", "Destination country"],
+              ["destination_port", "Destination port / city"],
+              ["package_count", "Packages / crates"],
+              ["length_cm", "Length cm"],
+              ["width_cm", "Width cm"],
+              ["height_cm", "Height cm"],
+              ["actual_weight_kg", "Actual weight kg"],
+              ["freight_rate", "Rate per chargeable unit"],
+              ["customs_duty_percent", "Duty percent"],
+              ["import_tax_percent", "GST/HST/sales tax percent"],
+              ["broker_fee", "Broker fee"],
+              ["port_fee", "Port/CFS/delivery fee"],
+              ["insurance_percent", "Insurance percent"],
+            ].map(([key, label]) => (
+              <View key={`ivendor-freight-${key}`} style={styles.field}>
+                <Text style={styles.label}>{label}</Text>
+                <TextInput
+                  style={styles.input}
+                  value={String(internationalVendorDraft[key as keyof typeof internationalVendorDraft] || "")}
+                  onChangeText={(value) => setInternationalVendorDraft((draft) => ({ ...draft, [key]: value }))}
+                  keyboardType={["package_count", "length_cm", "width_cm", "height_cm", "actual_weight_kg", "freight_rate", "customs_duty_percent", "import_tax_percent", "broker_fee", "port_fee", "insurance_percent"].includes(key) ? "numeric" : "default"}
+                />
+              </View>
+            ))}
+          </View>
+          <View style={styles.inventoryStats}>
+            <View style={styles.inventoryStat}>
+              <Text style={styles.cardLabel}>Kit base</Text>
+              <Text style={styles.inventoryValue}>{formatMoney(draftCost.kitBaseCost)}</Text>
+            </View>
+            <View style={styles.inventoryStat}>
+              <Text style={styles.cardLabel}>CBM</Text>
+              <Text style={styles.inventoryValue}>{draftCost.cbm.toFixed(2)}</Text>
+            </View>
+            <View style={styles.inventoryStat}>
+              <Text style={styles.cardLabel}>Chargeable</Text>
+              <Text style={styles.inventoryValue}>{draftCost.chargeableWeightKg.toFixed(1)}</Text>
+            </View>
+            <View style={styles.inventoryStat}>
+              <Text style={styles.cardLabel}>Freight</Text>
+              <Text style={styles.inventoryValue}>{formatMoney(draftCost.shippingCost)}</Text>
+            </View>
+            <View style={styles.inventoryStat}>
+              <Text style={styles.cardLabel}>Landed</Text>
+              <Text style={styles.inventoryValue}>{formatMoney(draftCost.landedCost)}</Text>
+            </View>
+            <View style={styles.inventoryStat}>
+              <Text style={styles.cardLabel}>Partner 2%</Text>
+              <Text style={styles.inventoryValue}>{formatMoney(draftCost.partnerFee)}</Text>
+            </View>
+            <View style={styles.inventoryStat}>
+              <Text style={styles.cardLabel}>Vendor cost</Text>
+              <Text style={styles.inventoryValue}>{formatMoney(draftCost.vendorCost)}</Text>
+            </View>
+          </View>
+          <View style={styles.linkedSystemsPanel}>
+            <Text style={styles.cardLabel}>Freight recommendation</Text>
+            <Text style={styles.muted}>{draftCost.recommendation}</Text>
+            <Text style={styles.muted}>Ocean LCL uses CBM vs metric ton chargeable units. Air/courier uses actual kg vs volumetric kg using L x W x H / 5000.</Text>
+          </View>
+
+          <View style={styles.formGrid}>
+            {[
+              ["tender_area", "Tender area"],
+              ["tender_source", "Tender / bid source"],
+              ["tender_title", "Closest tender title"],
+              ["tender_deadline", "Tender deadline"],
+              ["tender_ref", "Tender ref"],
+              ["friend_referral_note", "Friend referral note"],
+              ["status", "Status"],
+              ["followup_stage", "Follow-up stage"],
+              ["pipeline_stage", "Pipeline stage"],
+              ["incoterm", "Incoterm"],
+              ["export_docs_status", "Export docs status"],
+              ["production_status", "Production status"],
+              ["shipment_status", "Shipment status"],
+              ["tracking_ref", "Tracking / BL / AWB ref"],
+              ["next_followup", "Next follow-up"],
+              ["openclaw_target", "OpenClaw/email target"],
+            ].map(([key, label]) => (
+              <View key={`ivendor-followup-${key}`} style={styles.field}>
+                <Text style={styles.label}>{label}</Text>
+                <TextInput
+                  style={styles.input}
+                  value={String(internationalVendorDraft[key as keyof typeof internationalVendorDraft] || "")}
+                  onChangeText={(value) => setInternationalVendorDraft((draft) => ({ ...draft, [key]: value }))}
+                />
+              </View>
+            ))}
+          </View>
+          <View style={styles.inlineActions}>
+            {["1. Catalog intro", "2. Tender partner pitch", "3. Cost sheet follow-up", "4. Meeting requested", "5. Bid support follow-up"].map((stage) => (
+              <Pressable key={stage} style={styles.smallButton} onPress={() => setInternationalVendorDraft((draft) => ({ ...draft, followup_stage: stage }))}>
+                <Text style={styles.smallButtonText}>{stage}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <View style={styles.statusSelectorPanel}>
+            <Text style={styles.cardLabel}>Pipeline stage</Text>
+            <View style={styles.statusChoiceGrid}>
+              {internationalVendorPipelineStages.map((stage) => (
+                <Pressable
+                  key={`ivendor-stage-${stage}`}
+                  style={[styles.statusChoice, internationalVendorDraft.pipeline_stage === stage && styles.statusChoiceActive]}
+                  onPress={() => setInternationalVendorDraft((draft) => ({ ...draft, pipeline_stage: stage, status: stage === "Lost" ? "Lost" : draft.status }))}
+                >
+                  <Text style={[styles.statusChoiceText, internationalVendorDraft.pipeline_stage === stage && styles.statusChoiceTextActive]}>{stage}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Notes / missing ideas</Text>
+            <TextInput
+              style={[styles.input, styles.textarea]}
+              value={internationalVendorDraft.notes}
+              onChangeText={(value) => setInternationalVendorDraft((draft) => ({ ...draft, notes: value }))}
+              placeholder="Add certifications, catalog sent, local code requirements, insurance, dealer margin, exclusivity, or territory notes"
+              multiline
+            />
+          </View>
+          <View style={styles.linkedSystemsPanel}>
+            <Text style={styles.cardLabel}>Email sequence preview</Text>
+            <Text style={styles.muted}>{internationalVendorEmailText(internationalVendorDraft)}</Text>
+          </View>
+          <Pressable style={styles.primaryButton} onPress={saveInternationalVendor} disabled={loading || !internationalVendorDraft.company.trim()}>
+            <Text style={styles.primaryButtonText}>Save international vendor</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.formCard}>
+          <Text style={styles.cardLabel}>Find vendors and bids</Text>
+          <TextInput
+            style={styles.input}
+            value={internationalVendorSearch}
+            onChangeText={setInternationalVendorSearch}
+            placeholder="Search company, country, region, tender, email, status"
+          />
+        </View>
+
+        <Text style={styles.sectionTitle}>International Vendor Pipeline</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.kanbanBoard}>
+          {internationalVendorPipelineStages.filter((stage) => stage !== "Lost").map((stage) => {
+            const stageRecords = visibleVendors.filter((vendor) => String(vendor.pipeline_stage || vendor.status || "Lead identified").toLowerCase() === stage.toLowerCase());
+            return (
+              <View key={`ivendor-column-${stage}`} style={styles.kanbanColumn}>
+                <View style={styles.kanbanColumnHeader}>
+                  <Text style={styles.cardTitle}>{stage}</Text>
+                  <Text style={styles.statusPill}>{stageRecords.length}</Text>
+                </View>
+                {!stageRecords.length && (
+                  <View style={styles.kanbanEmpty}>
+                    <Text style={styles.muted}>No partners here.</Text>
+                  </View>
+                )}
+                {stageRecords.slice(0, 8).map((vendor, index) => {
+                  const id = recordIdentity(vendor) || String(vendor.id || index);
+                  const stageIndex = internationalVendorPipelineStages.indexOf(stage);
+                  const nextStage = internationalVendorPipelineStages[Math.min(stageIndex + 1, internationalVendorPipelineStages.length - 2)];
+                  return (
+                    <View key={`ivendor-kanban-${id}`} style={styles.kanbanCard}>
+                      <Text style={styles.cardTitle}>{fieldText(vendor, ["company", "name", "id"])}</Text>
+                      <Text style={styles.muted}>{fieldText(vendor, ["country"])} - {fieldText(vendor, ["region"])} - {fieldText(vendor, ["email"])}</Text>
+                      <Text style={styles.bodyText}>Tender: {fieldText(vendor, ["tender_title", "closest_tender_title", "tender_area"])}</Text>
+                      <Text style={styles.bodyText}>Freight: {fieldText(vendor, ["freight_mode"])} - {fieldText(vendor, ["shipment_status"])}</Text>
+                      <View style={styles.inlineActions}>
+                        <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: nextStage, status: nextStage })} disabled={loading || !recordIdentity(vendor)}>
+                          <Text style={styles.smallButtonText}>Move next</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            );
+          })}
+        </ScrollView>
+        {!visibleVendors.length && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>No vendors yet</Text>
+            <Text style={styles.muted}>Add Canadian and USA elevator companies, then use OpenClaw/email to run the catalog and tender-partner follow-up sequence.</Text>
+          </View>
+        )}
+        {visibleVendors.map((vendor, index) => {
+          const id = recordIdentity(vendor) || String(vendor.id || index);
+          const cost = internationalVendorCost(vendor);
+          return (
+            <View key={`ivendor-card-${id}`} style={styles.card}>
+              <View style={styles.cardHeaderRow}>
+                <View style={styles.cardTitleBlock}>
+                  <Text style={styles.cardTitle}>{fieldText(vendor, ["company", "name", "id"])}</Text>
+                  <Text style={styles.muted}>{fieldText(vendor, ["country"])} - {fieldText(vendor, ["region"])} - {fieldText(vendor, ["email"])}</Text>
+                </View>
+                <Text style={styles.statusPill}>{fieldText(vendor, ["status", "followup_stage"])}</Text>
+              </View>
+              <View style={styles.inventoryStats}>
+                <View style={styles.inventoryStat}>
+                  <Text style={styles.cardLabel}>Vendor cost</Text>
+                  <Text style={styles.inventoryValue}>{formatMoney(cost.vendorCost)}</Text>
+                </View>
+                <View style={styles.inventoryStat}>
+                  <Text style={styles.cardLabel}>CBM</Text>
+                  <Text style={styles.inventoryValue}>{cost.cbm.toFixed(2)}</Text>
+                </View>
+                <View style={styles.inventoryStat}>
+                  <Text style={styles.cardLabel}>Chargeable</Text>
+                  <Text style={styles.inventoryValue}>{cost.chargeableWeightKg.toFixed(1)}</Text>
+                </View>
+                <View style={styles.inventoryStat}>
+                  <Text style={styles.cardLabel}>Partner fee</Text>
+                  <Text style={styles.inventoryValue}>{formatMoney(cost.partnerFee)}</Text>
+                </View>
+                <View style={styles.inventoryStat}>
+                  <Text style={styles.cardLabel}>Bid value</Text>
+                  <Text style={styles.inventoryValue}>{formatMoney(Number(vendor.bid_value || 0))}</Text>
+                </View>
+              </View>
+              <Text style={styles.bodyText}>Freight: {fieldText(vendor, ["freight_mode"])} to {fieldText(vendor, ["destination_country"])} {fieldText(vendor, ["destination_port"])} - {cost.recommendation}</Text>
+              <Text style={styles.bodyText}>Tender: {fieldText(vendor, ["tender_title", "closest_tender_title"])} - {fieldText(vendor, ["tender_area", "closest_tender_region"])} - Deadline {fieldText(vendor, ["tender_deadline", "closest_tender_deadline"])} - Ref {fieldText(vendor, ["tender_ref", "closest_tender_ref"])}</Text>
+              <Text style={styles.bodyText}>OpenClaw plan: {fieldText(vendor, ["openclaw_email_plan", "outreach_sequence"])}</Text>
+              <Text style={styles.bodyText}>Referral opener: {fieldText(vendor, ["friend_referral_note"])}</Text>
+              <Text style={styles.bodyText}>Pipeline: {fieldText(vendor, ["pipeline_stage"])} - Docs: {fieldText(vendor, ["export_docs_status"])} - Production: {fieldText(vendor, ["production_status"])} - Shipment: {fieldText(vendor, ["shipment_status"])} {vendor.tracking_ref ? `- ${String(vendor.tracking_ref)}` : ""}</Text>
+              <Text style={styles.bodyText}>Interest: {fieldText(vendor, ["product_interest"])} - Contact: {fieldText(vendor, ["contact_name", "phone"])}</Text>
+              <Text style={styles.muted}>{String(vendor.email_template || internationalVendorEmailText(vendor))}</Text>
+              {!!vendor.delivery_status && <Text style={styles.bodyText}>Delivery: {String(vendor.delivery_status)} - {String(vendor.last_outreach_at || "-")}</Text>}
+              <View style={styles.inlineActions}>
+                <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "1. Catalog intro")} disabled={loading || !recordIdentity(vendor)}>
+                  <Text style={styles.smallButtonText}>Send catalog intro</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "2. Tender partner pitch")} disabled={loading || !recordIdentity(vendor)}>
+                  <Text style={styles.smallButtonText}>Tender pitch</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "OpenClaw email drafted")} disabled={loading || !recordIdentity(vendor)}>
+                  <Text style={styles.smallButtonText}>OpenClaw draft</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "4. Meeting requested")} disabled={loading || !recordIdentity(vendor)}>
+                  <Text style={styles.smallButtonText}>Meeting email</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "5. Bid support follow-up")} disabled={loading || !recordIdentity(vendor)}>
+                  <Text style={styles.smallButtonText}>Bid follow-up</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { status: "Replied", followup_stage: "3. Cost sheet follow-up" })} disabled={loading || !recordIdentity(vendor)}>
+                  <Text style={styles.smallButtonText}>Mark replied</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Meeting booked", status: "Meeting booked", followup_stage: "Meeting booked" })} disabled={loading || !recordIdentity(vendor)}>
+                  <Text style={styles.smallButtonText}>Meeting booked</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "PO requested", status: "PO requested" })} disabled={loading || !recordIdentity(vendor)}>
+                  <Text style={styles.smallButtonText}>PO requested</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Production planned", production_status: "Planned", status: "Production planned" })} disabled={loading || !recordIdentity(vendor)}>
+                  <Text style={styles.smallButtonText}>Plan production</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Export docs ready", export_docs_status: "Commercial invoice, packing list, COO/HS review ready", status: "Export docs ready" })} disabled={loading || !recordIdentity(vendor)}>
+                  <Text style={styles.smallButtonText}>Docs ready</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Freight booked", shipment_status: "Freight booked", status: "Freight booked" })} disabled={loading || !recordIdentity(vendor)}>
+                  <Text style={styles.smallButtonText}>Book freight</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Shipped", shipment_status: "Shipped", status: "Shipped" })} disabled={loading || !recordIdentity(vendor)}>
+                  <Text style={styles.smallButtonText}>Shipped</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Delivered", shipment_status: "Delivered", status: "Delivered" })} disabled={loading || !recordIdentity(vendor)}>
+                  <Text style={styles.smallButtonText}>Delivered</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Lost", status: "Lost" })} disabled={loading || !recordIdentity(vendor)}>
+                  <Text style={styles.smallButtonText}>Lost</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Partner active", status: "Partner active" })} disabled={loading || !recordIdentity(vendor)}>
+                  <Text style={styles.smallButtonText}>Partner active</Text>
+                </Pressable>
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    );
+  }
+
   function renderInventoryPage() {
     const inventory = asRecords(data?.inventory);
+    const offers = asRecords(data?.estimates);
+    const query = inventorySearch.trim().toLowerCase();
+    const visibleInventory = inventory.filter((item) => !query || JSON.stringify(item).toLowerCase().includes(query));
     const reorderItems = inventory.filter((item) => inventoryAvailable(item) <= inventoryQuantity(item, "reorder_point", inventoryQuantity(item, "min_stock")));
     const onOrderItems = inventory.filter((item) => inventoryDisplayStatus(item) === "On Order");
     const totalAvailable = inventory.reduce((sum, item) => sum + inventoryAvailable(item), 0);
+    const customerReservedItems = inventory.filter((item) => String(item.customer_id || item.customer_name || item.offer_id || "").trim());
+    const selectedOffer = offers.find((offer) => recordIdentity(offer) === inventoryDraft.offer_id);
+    const offerOptions = offers.slice(0, 16);
     return (
       <View>
         <View style={styles.moduleHero}>
           <Text style={styles.eyebrow}>Warehouse Inventory</Text>
-          <Text style={styles.moduleHeroTitle}>Stock Control & Reorder Triggers</Text>
-          <Text style={styles.moduleHeroText}>Manage warehouse parts, reserved stock, bin locations, vendor details, and reorder points that trigger purchase orders before stock runs out.</Text>
+          <Text style={styles.moduleHeroTitle}>Customer-Linked Stock Control</Text>
+          <Text style={styles.moduleHeroText}>Reserve parts against customer offers, track available stock, and raise purchase orders before committed material runs short.</Text>
         </View>
 
         <View style={styles.metricGrid}>
@@ -3813,10 +4698,56 @@ export default function App() {
             <Text style={styles.metricValue}>{totalAvailable}</Text>
             <Text style={styles.muted}>On hand minus reserved stock.</Text>
           </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Customer reserved</Text>
+            <Text style={styles.metricValue}>{customerReservedItems.length}</Text>
+            <Text style={styles.muted}>Items tied to a customer offer or account.</Text>
+          </View>
         </View>
 
         <View style={styles.formCard}>
           <Text style={styles.cardLabel}>Add warehouse item</Text>
+          <Text style={styles.label}>Link to customer offer</Text>
+          {!offerOptions.length && (
+            <View style={styles.emptyState}>
+              <Text style={styles.muted}>Create a customer offer/costing first, then inventory can be reserved against that customer.</Text>
+            </View>
+          )}
+          {!!offerOptions.length && (
+            <View style={styles.selectorList}>
+              {offerOptions.map((offer) => {
+                const offerId = recordIdentity(offer);
+                const customerName = String(offer.customer_name || offer.offer_name || offer.customer || "");
+                return (
+                  <Pressable
+                    key={`inventory-offer-${offerId || customerName}`}
+                    style={[styles.selectorPill, inventoryDraft.offer_id === offerId && styles.selectorPillActive]}
+                    onPress={() => setInventoryDraft((draft) => ({
+                      ...draft,
+                      offer_id: offerId,
+                      offer_name: String(offer.offer_name || offer.job_no || offerId),
+                      customer_id: String(offer.customer_id || draft.customer_id || ""),
+                      customer_name: customerName,
+                      source_inquiry_id: String(offer.source_inquiry_id || ""),
+                      reserved_for: customerName,
+                    }))}
+                  >
+                    <Text style={[styles.selectorText, inventoryDraft.offer_id === offerId && styles.selectorTextActive]}>
+                      {offerId || "Offer"} - {customerName || "Customer"} - {formatMoney(Number(offer.total_cost || 0))}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+          {!!selectedOffer && (
+            <View style={styles.linkedSystemsPanel}>
+              <Text style={styles.cardLabel}>Selected offer</Text>
+              <Text style={styles.muted}>
+                {String(selectedOffer.customer_name || selectedOffer.offer_name || "-")} - {String(selectedOffer.offer_type || selectedOffer.elevator_type || "Offer")} - {formatMoney(Number(selectedOffer.total_cost || 0))}
+              </Text>
+            </View>
+          )}
           <View style={styles.formGrid}>
             <View style={styles.field}>
               <Text style={styles.label}>Item name</Text>
@@ -3859,6 +4790,20 @@ export default function App() {
               <TextInput style={styles.input} value={inventoryDraft.bin_location} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, bin_location: value }))} />
             </View>
           </View>
+          <View style={styles.formGrid}>
+            <View style={styles.field}>
+              <Text style={styles.label}>Customer ID</Text>
+              <TextInput style={styles.input} value={inventoryDraft.customer_id} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, customer_id: value }))} placeholder="From selected offer" />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Customer name</Text>
+              <TextInput style={styles.input} value={inventoryDraft.customer_name} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, customer_name: value, reserved_for: value }))} placeholder="From selected offer" />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Offer ID</Text>
+              <TextInput style={styles.input} value={inventoryDraft.offer_id} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, offer_id: value }))} placeholder="Offer/costing record" />
+            </View>
+          </View>
           <View style={styles.field}>
             <Text style={styles.label}>Notes</Text>
             <TextInput style={[styles.input, styles.textarea]} value={inventoryDraft.notes} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, notes: value }))} multiline />
@@ -3868,6 +4813,16 @@ export default function App() {
           </Pressable>
         </View>
 
+        <View style={styles.formCard}>
+          <Text style={styles.cardLabel}>Find stock</Text>
+          <TextInput
+            style={styles.input}
+            value={inventorySearch}
+            onChangeText={setInventorySearch}
+            placeholder="Search item, customer, offer, vendor, bin, PO"
+          />
+        </View>
+
         <Text style={styles.sectionTitle}>Reorder Watchlist</Text>
         {!reorderItems.length && (
           <View style={styles.card}>
@@ -3875,10 +4830,10 @@ export default function App() {
             <Text style={styles.muted}>Available stock is above every configured reorder point.</Text>
           </View>
         )}
-        {reorderItems.slice(0, 12).map((item, index) => renderInventoryCard(item, index, true))}
+        {reorderItems.filter((item) => !query || JSON.stringify(item).toLowerCase().includes(query)).slice(0, 12).map((item, index) => renderInventoryCard(item, index, true))}
 
         <Text style={styles.sectionTitle}>Warehouse Stock</Text>
-        {inventory.slice(0, 80).map((item, index) => renderInventoryCard(item, index, false))}
+        {visibleInventory.slice(0, 80).map((item, index) => renderInventoryCard(item, index, false))}
       </View>
     );
   }
@@ -3894,6 +4849,9 @@ export default function App() {
     const needsOrder = available <= reorderPoint;
     const edit = inventoryEdits[id] || { reorder_point: String(reorderPoint), target_stock: String(target) };
     const displayStatus = inventoryDisplayStatus(item);
+    const linkedCustomer = String(item.customer_name || item.customer || item.reserved_for || "").trim();
+    const linkedCustomerId = String(item.customer_id || "").trim();
+    const linkedOffer = String(item.offer_id || item.estimate_id || item.offer_no || "").trim();
     return (
       <View key={`${id}-${compact ? "watch" : "stock"}`} style={[styles.card, needsOrder && styles.alertCard]}>
         <View style={styles.cardHeaderRow}>
@@ -3930,6 +4888,26 @@ export default function App() {
           </View>
         </View>
         <Text style={styles.bodyText}>Vendor: {String(item.vendor || "-")} · Lead time: {String(item.lead_time_days || 0)} days · Unit: {String(item.unit || "pcs")}</Text>
+        {!!(linkedCustomer || linkedOffer) && (
+          <View style={styles.linkedSystemsPanel}>
+            <Text style={styles.cardLabel}>Reserved for offer</Text>
+            <Text style={styles.muted}>
+              {linkedCustomer || "Customer pending"}{linkedCustomerId ? ` - ${linkedCustomerId}` : ""}{linkedOffer ? ` - Offer ${linkedOffer}` : ""}
+            </Text>
+            <View style={styles.inlineActions}>
+              <Pressable
+                style={styles.smallButton}
+                onPress={() => openCrmForCustomerNumber(linkedCustomerId || linkedCustomer)}
+                disabled={loading || !(linkedCustomerId || linkedCustomer)}
+              >
+                <Text style={styles.smallButtonText}>Open CRM</Text>
+              </Pressable>
+              <Pressable style={styles.smallButton} onPress={() => setActiveTab("estimator")} disabled={loading}>
+                <Text style={styles.smallButtonText}>Open offers</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
         {!!item.po_number && <Text style={styles.bodyText}>Purchase order: {String(item.po_number)} · {String(item.po_status || "Raised")}</Text>}
         {!!item.notes && <Text style={styles.muted}>{String(item.notes)}</Text>}
         <View style={styles.inlineEditRow}>
@@ -4137,8 +5115,6 @@ export default function App() {
         return renderInstallTeamPage();
       case "accounts":
         return renderAccountsPage();
-      case "messages":
-        return renderServiceAgentPage();
       case "renewals":
         return renderRenewalsPage();
       case "workorders":
@@ -4149,6 +5125,8 @@ export default function App() {
         return renderStaffManagementPage();
       case "siteVisits":
         return renderSiteVisitReportsPage();
+      case "offerManager":
+        return renderOfferManagerPage();
       case "sales":
         return renderCustomerCrmPage();
       case "installation_dept":
@@ -4169,6 +5147,8 @@ export default function App() {
         return renderFeaturePage("Tender", "Tender records and result tracking.", asRecords((data as Record<string, unknown> | null)?.tenders), ["title", "id"], [["customer"], ["status"], ["result"]]);
       case "factory":
         return renderFeaturePage("Factory", "Factory jobs, dispatch status, and material readiness.", asRecords((data as Record<string, unknown> | null)?.factory_jobs), ["order_ref", "id"], [["customer"], ["stage"], ["materials"]]);
+      case "internationalVendor":
+        return renderInternationalVendorPage();
       case "comms":
         return renderFeaturePage("Dept Comms", "Department communications and read status.", asRecords((data as Record<string, unknown> | null)?.dept_comms), ["subject", "title", "id"], [["department"], ["message"], ["status"]]);
       default:
@@ -4474,12 +5454,85 @@ export default function App() {
           item_name: record.name || record.item,
           vendor: record.vendor || "",
           quantity,
+          customer_id: record.customer_id || "",
+          customer_name: record.customer_name || record.customer || record.reserved_for || "",
+          offer_id: record.offer_id || record.estimate_id || "",
+          offer_name: record.offer_name || "",
         }),
       });
       await loadPortal();
       setMessage(`Purchase order raised for ${String(record.name || record.item || id)}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Purchase order could not be raised.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveInternationalVendor() {
+    if (!isAdmin) {
+      setMessage("Only admin can manage International Vendor records.");
+      return;
+    }
+    if (!internationalVendorDraft.company.trim()) {
+      const text = "Company name is required.";
+      Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
+      return;
+    }
+    setLoading(true);
+    try {
+      await apiFetch("/api/portal/international-vendors", {
+        method: "POST",
+        token,
+        body: JSON.stringify(internationalVendorDraft),
+      });
+      setInternationalVendorDraft(emptyInternationalVendorDraft);
+      await loadPortal();
+      setMessage("International vendor prospect saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "International vendor could not be saved.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function updateInternationalVendor(record: Record<string, unknown>, patch: Record<string, unknown>) {
+    const id = recordIdentity(record);
+    if (!id) return;
+    setLoading(true);
+    try {
+      await apiFetch(`/api/portal/international-vendors/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify(patch),
+      });
+      await loadPortal();
+      setMessage("International vendor updated.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "International vendor could not be updated.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function sendInternationalVendorOutreach(record: Record<string, unknown>, stage: string) {
+    const id = recordIdentity(record);
+    if (!id) return;
+    setLoading(true);
+    try {
+      const response = await apiFetch<{ message?: string }>(`/api/portal/international-vendors/${encodeURIComponent(id)}/outreach`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          stage,
+          target: record.email || record.openclaw_target || "",
+          message: internationalVendorEmailText({ ...record, followup_stage: stage }),
+        }),
+      });
+      await loadPortal();
+      setMessage(response.message ? "International vendor outreach sent to OpenClaw/email handoff." : "International vendor outreach queued.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "International vendor outreach could not be sent.");
     } finally {
       setLoading(false);
     }
@@ -4609,12 +5662,17 @@ export default function App() {
       source_inquiry_id: recordIdentity(record) || String(record.enquiry_no || ""),
       notes: String(record.enquiry_remark || record.requirement || ""),
     });
-    setMessage(`Costing draft prepared for ${customerName}. Complete the costing form and save.`);
+    setMessage(`Offer draft prepared for ${customerName}. Complete the Offer Manager form and save.`);
   }
 
   async function saveOffer() {
+    if (!offerDraft.customer_id.trim()) {
+      const text = "Select a CRM customer before creating an offer.";
+      Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing customer", text);
+      return;
+    }
     if (!offerDraft.customer_name.trim()) {
-      const text = "Customer name is required for costing.";
+      const text = "Customer name is required for the offer.";
       Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
       return;
     }
@@ -4623,9 +5681,11 @@ export default function App() {
       const payload = {
         ...offerDraft,
         offer_name: offerDraft.offer_name || offerDraft.customer_name,
-        status: offerDraft.lead_status || "Costing Pending",
-        total_cost: Number(offerDraft.total_cost || 0),
-        source: "CRM costing",
+        status: offerDraft.lead_status || "Offer Pending",
+        total_cost: offerCostSummary(offerDraft).totalCost,
+        calculated_total_cost: offerCostSummary(offerDraft).totalCost,
+        source: "CRM Offer Manager",
+        offer_letter_status: "Prepared",
       };
       await apiFetch("/api/portal/estimates", {
         method: "POST",
@@ -4642,9 +5702,9 @@ export default function App() {
       setOfferDraft(emptyOfferDraft);
       setCostingEditorOpen(false);
       await loadPortal();
-      setMessage("Costing saved.");
+      setMessage("Offer saved and client offer letter prepared.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Costing could not be saved.");
+      setMessage(error instanceof Error ? error.message : "Offer could not be saved.");
     } finally {
       setLoading(false);
     }
@@ -4661,66 +5721,9 @@ export default function App() {
         body: JSON.stringify(patch),
       });
       await loadPortal();
-      setMessage("Costing updated.");
+      setMessage("Offer updated.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Costing could not be updated.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function saveServiceMessage() {
-    if (!serviceDraft.text.trim()) {
-      const text = "Customer message is required.";
-      Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
-      return;
-    }
-    setLoading(true);
-    try {
-      await apiFetch("/api/portal/service-agent/messages", {
-        method: "POST",
-        token,
-        body: JSON.stringify(serviceDraft),
-      });
-      setServiceDraft(emptyServiceDraft);
-      await loadPortal();
-      setMessage("Service message saved to the inbox.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Service message could not be saved.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function updateServiceMessage(id: string, status: string) {
-    setLoading(true);
-    try {
-      await apiFetch(`/api/portal/service-agent/messages/${encodeURIComponent(id)}`, {
-        method: "PATCH",
-        token,
-        body: JSON.stringify({ status, state: status }),
-      });
-      await loadPortal();
-      setMessage(`Service message marked ${status}.`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Service message could not be updated.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function createServiceWorkOrder(id: string) {
-    setLoading(true);
-    try {
-      await apiFetch(`/api/portal/service-agent/messages/${encodeURIComponent(id)}/work-order`, {
-        method: "POST",
-        token,
-        body: JSON.stringify({}),
-      });
-      await loadPortal();
-      setMessage("Work order created from service message.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Work order could not be created.");
+      setMessage(error instanceof Error ? error.message : "Offer could not be updated.");
     } finally {
       setLoading(false);
     }
@@ -5524,7 +6527,7 @@ export default function App() {
       ))}
     </ScrollView>
   ) : (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs} contentContainerStyle={styles.mobileNavRail}>
+    <ScrollView showsVerticalScrollIndicator={false} style={styles.tabs} contentContainerStyle={styles.mobileNavRail}>
       {visibleNavItems.map((item) => (
         <Pressable
           key={item.key}
@@ -5644,37 +6647,7 @@ export default function App() {
           {!!message && <Text style={styles.banner}>{message}</Text>}
 
           <ScrollView contentContainerStyle={styles.content}>
-        {activeTab === "overview" && (
-          <View>
-            <View style={styles.commandBand}>
-              <View style={styles.commandCopy}>
-                <Text style={styles.eyebrow}>24/7 agentic operations layer</Text>
-                <Text style={styles.commandTitle}>Coordinate service, sales, site visits, and estimates from one dashboard.</Text>
-                <Text style={styles.commandText}>Built for daily use across service, sales, installation, accounts, and back-office teams.</Text>
-              </View>
-            </View>
-            <Text style={styles.sectionTitle}>Live Operations</Text>
-            <View style={styles.metricGrid}>
-              {(data?.metrics || []).map((metric) => (
-                <View key={metric.label} style={styles.card}>
-                  <Text style={styles.cardLabel}>{metric.label}</Text>
-                  <Text style={styles.metricValue}>{metric.value}</Text>
-                  <Text style={styles.muted}>{metric.delta}</Text>
-                </View>
-              ))}
-            </View>
-            <View style={styles.card}>
-              <Text style={styles.cardLabel}>Stock watch</Text>
-              <Text style={styles.metricValue}>{lowStock.length}</Text>
-              <Text style={styles.muted}>Items at or below reorder threshold.</Text>
-            </View>
-            <Pressable style={styles.portalShortcut} onPress={() => setActiveTab("breakdown")}>
-              <Text style={styles.cardLabel}>Emergency access</Text>
-              <Text style={styles.cardTitle}>Open Breakdown Portal</Text>
-              <Text style={styles.muted}>Log a call, mark trapped-passenger priority, dispatch an engineer, and close the case.</Text>
-            </Pressable>
-          </View>
-        )}
+        {activeTab === "overview" && renderOverviewAnalytics()}
 
         {activeTab === "customers" && (
           renderCustomerCrmPage()
@@ -5761,7 +6734,7 @@ const styles = StyleSheet.create({
   mobileBrandRow: { paddingHorizontal: 16, paddingVertical: 14, backgroundColor: "#11131b", flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   mobileDepartment: { color: "rgba(255,255,255,0.7)", fontWeight: "800", fontSize: 12 },
   tabs: { backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e4e7ee" },
-  mobileNavRail: { gap: 8, padding: 12 },
+  mobileNavRail: { gap: 8, padding: 12, flexDirection: "row", flexWrap: "wrap" },
   tab: { minWidth: 126, minHeight: 46, borderRadius: 10, borderWidth: 1, borderColor: "#e4e7ee", backgroundColor: "#fff", alignItems: "center", justifyContent: "center", paddingHorizontal: 10, flexDirection: "row", gap: 7 },
   activeTab: { backgroundColor: "#e02020", borderColor: "#e02020" },
   tabIcon: { color: "#747b8d", fontSize: 14, lineHeight: 16, fontWeight: "900" },
@@ -5783,6 +6756,11 @@ const styles = StyleSheet.create({
   kanbanColumnHeader: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, borderBottomWidth: 1, borderBottomColor: "#e4e7ee", paddingBottom: 8 },
   kanbanCard: { borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", backgroundColor: "#fff", padding: 12, gap: 6 },
   kanbanEmpty: { minHeight: 82, borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", borderStyle: "dashed", backgroundColor: "#fff", padding: 12, justifyContent: "center" },
+  analyticsPanel: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", padding: 14, gap: 12, marginBottom: 10 },
+  analyticsRow: { gap: 7 },
+  analyticsRowHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
+  analyticsBarTrack: { height: 10, borderRadius: 999, backgroundColor: "#eef1f5", overflow: "hidden" },
+  analyticsBarFill: { height: "100%", borderRadius: 999, backgroundColor: "#e02020" },
   linkedSystemsPanel: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 10, marginTop: 8, gap: 4 },
   alertCard: { borderColor: "rgba(224,32,32,0.4)", backgroundColor: "#fffafa" },
   portalShortcut: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 2, borderColor: "#e02020", padding: 16, marginBottom: 10, gap: 6 },

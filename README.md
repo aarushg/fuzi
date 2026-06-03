@@ -80,7 +80,7 @@ $env:EXPO_PUBLIC_FUZI_API_URL="http://YOUR_COMPUTER_IP:5000"
 npm run android
 ```
 
-The Expo app includes login, live metrics, saved estimates, customer lifecycle tracking, `.xlsx` costing source review, and site visit reports inside Customer CRM. Its navigation mirrors the staff portal modules: Overview, Platform Modules, Customers, Fleet Monitor, Project Tickets, Projects, Installations, Install Team, Team Accounts, Service Agent, Renewals, Work Orders, Inventory, Staff & Attendance, Installation Dept, Breakdown Portal, Service, GAD Drawings, Accounts, Commissioning, Back Office, Tender, Factory, and Dept Comms.
+The Expo app includes login, live metrics, saved estimates, customer lifecycle tracking, `.xlsx` costing source review, and site visit reports inside Customer CRM. Its navigation mirrors the staff portal modules: Overview, Platform Modules, Customers, Project Tickets, Projects, Installations, Install Team, Team Accounts, Renewals, Work Orders, Inventory, Staff & Attendance, Installation Dept, Breakdown Portal, Service, GAD Drawings, Accounts, Commissioning, Back Office, Tender, Factory, International Vendor, and Dept Comms.
 
 Most module pages include shared add/update controls backed by the Node compatibility API, so the React/Expo portal can create and update the same SQLite-backed operational records that the legacy portal used: project tickets, install jobs, install team, users, inventory, estimates, payments, sales inquiries, breakdowns, service records, GAD drawings, commissioning, factory jobs, tenders, department comms, org chart, and attendance.
 
@@ -105,12 +105,12 @@ API: `POST /api/portal/auth/login`, `GET /api/portal/auth/session`, `POST /api/p
 - Department heads see only the portal views needed for their department.
 - Admin Team Accounts can create accounts, change usernames/passwords, reset passwords, and activate/deactivate staff logins when staff changes.
 - Department managers land on a focused workspace:
-  - `Service Control` → Fleet Monitor, Service Agent, Staff & Attendance
+  - `Service Control` → Service, Work Orders, Staff & Attendance
   - `Project Office` → Project Tickets, Projects, Staff & Attendance
   - `Install Operations` → Installations, Install Team, Staff & Attendance
   - `Stores & Procurement` → Inventory, Staff & Attendance
   - `CRM & Renewals` → Customers, Renewals, Staff & Attendance
-  - `Customer Success` → Customers, Service Agent, Work Orders, Staff & Attendance
+  - `Customer Success` → Customers, Service, Work Orders, Staff & Attendance
 - First-use accounts are blocked until the user rotates their temporary password.
 - Admin can reset any team password from the Team Accounts view.
 
@@ -493,15 +493,6 @@ API: `GET /api/portal/org-chart`, `POST /api/portal/org-chart`, `PATCH /api/port
 
 ---
 
-### Fleet Monitor
-
-Live fleet health overview from `fuzi.sqlite3`:
-
-- Fault severity badges, motor temperatures, door cycle deltas.
-- On-call phone number and open ticket links per unit.
-
----
-
 ### Owner Control Tower
 
 Rolls up all department data into a single leadership view:
@@ -512,17 +503,15 @@ Rolls up all department data into a single leadership view:
 
 ---
 
-### Service Agent & Work Orders
+### Service & Work Orders
 
-- Inbound customer messages from WhatsApp, web chat, and email.
-- Phone/manual service intake in the Expo app with customer, mobile, channel, priority, owner, next action, and message details.
-- Inbox triage actions for contacted/closed state updates.
-- Service message to work-order conversion.
+- Customer-linked service records with job number, building, owner, and notes.
+- Service records must be linked to an existing CRM customer before they can be created.
 - Work order status tracking.
 - Breakdown Portal dispatch assigns install/service staff from the saved team roster and supports dispatch, reached-site, and close statuses.
 - Breakdown calls must be linked to an existing customer ID before they can be logged.
 
-API: `GET /api/portal/service-agent/messages`, `POST /api/portal/service-agent/messages`, `PATCH /api/portal/service-agent/messages/<id>`, `POST /api/portal/service-agent/messages/<id>/work-order`
+API: `GET/POST/PATCH /api/portal/service`, `GET/POST/PATCH /api/portal/work-orders`
 
 ---
 
@@ -551,20 +540,35 @@ Operating areas with owner, status, KPIs, and quick actions:
 8. GAD Drawings
 9. Accounts
 10. Department Comms
-11. Fleet Monitor
-12. Project Tickets
-13. Projects
-14. Install Team
-15. Team Accounts
-16. Service Agent
-17. Renewals
-18. Work Orders
-19. Staff & Attendance
-20. Installation Dept
-21. Commissioning
-22. Back Office
-23. Tender
-24. Factory
+11. Project Tickets
+12. Projects
+13. Install Team
+14. Team Accounts
+15. Renewals
+16. Work Orders
+17. Staff & Attendance
+18. Installation Dept
+19. Commissioning
+20. Back Office
+21. Tender
+22. Factory
+23. International Vendor
+
+---
+
+### International Vendor
+
+Admin-only pipeline for FUZI international sales and shipping to USA and Canada elevator companies.
+
+- Tracks partner prospects from `Lead identified` through qualification, catalog/cost-sheet outreach, tender partnership, PO request, production, export documents, freight booking, shipment, delivery, and active partner status.
+- Lost partners are saved in CRM-style records but are not shown as active kanban work.
+- Calculates vendor cost from FUZI manufacturing cost minus local install cost, shipping/freight, customs duty, import tax, broker and port fees, insurance, and the 2% Canada/USA partner margin.
+- Supports both heavy lift kits and smaller smart-parts/sample shipments with freight mode, package count, dimensions, actual weight, CBM, volumetric weight, chargeable units, and destination country/port.
+- Stores shipping execution fields: incoterm, export document status, production status, shipment status, tracking or BL/AWB reference, next follow-up, and OpenClaw/email target.
+- Email sequence previews include catalog intro, tender partner pitch, cost-sheet follow-up, and smaller sample/smart-parts outreach.
+- Outreach posts through the OpenClaw business channel delivery path so email/OpenClaw automation can send or hand off partner messages.
+
+API: `GET /api/portal/international-vendors`, `POST /api/portal/international-vendors`, `PATCH /api/portal/international-vendors/<id>`, `POST /api/portal/international-vendors/<id>/outreach`
 
 ---
 
@@ -618,7 +622,7 @@ Auto-seeded manager accounts use the shared staff portal password:
 
 All portal data persists to the local SQLite database `fuzi.sqlite3`. The Node API stores each operational collection in the SQLite `json_collections` table so existing React/Expo forms can keep using the same collection names while runtime inputs are database writes. The old root-level operational JSON files have been removed after import.
 
-Primary collections include staff portal accounts, customer/building records, customer portal credentials, project tickets, installation jobs, install team roster, inventory, costing estimates, sales/admin records, org chart, attendance, site visits, live fleet, messages, renewals, work orders, and activity history.
+Primary collections include staff portal accounts, customer/building records, customer portal credentials, project tickets, installation jobs, install team roster, inventory, costing estimates, sales/admin records, org chart, attendance, site visits, renewals, work orders, service records, and activity history.
 
 Site visit records keep structured opening data under `opening_schedule`. Sales inquiries keep the selected lifecycle `status`/`lead_status`; lost statuses also store `lost_reason` / `status_lost_reason`.
 
@@ -650,16 +654,14 @@ Site visit records keep structured opening data under `opening_schedule`. Sales 
 
 Agent actions route through OpenClaw's authenticated gateway (`/tools/invoke`) and the FUZI API. The integration is intentionally split into two directions:
 
-- Inbound platform/service messages are pushed into FUZI with `POST /api/openclaw/webhook`. FUZI saves them into the Service Agent messages collection.
+- Inbound platform/service messages are pushed into FUZI with `POST /api/openclaw/webhook`. FUZI saves them as background operational messages for dispatch/work-order automation.
 - Outbound operational updates are emitted through `sendBusinessChannelUpdate()` in [server/index.mjs](server/index.mjs), which chooses a configured free communication channel and sends through OpenClaw `/tools/invoke`.
 - Free outbound channels are WhatsApp, Telegram, Signal, Discord, and Slack. Phone-style targets can be routed through an injected backend channel such as Discord when WhatsApp is not the active transport.
 - OpenClaw config/env loading, channel selection, and send behavior are provided by dependency injection in `createOpenClawCommunicationService()` and `createDiscordBreakdownSyncService()`.
 
 The main routing targets are:
 
-- `FUZI_OPENCLAW_TARGET_FLEET_MONITOR` → `#fleet-monitor`
 - `FUZI_OPENCLAW_TARGET_MODERNIZATION_COORDINATOR` → `#modernization-coordinator`
-- `FUZI_OPENCLAW_TARGET_CUSTOMER_SERVICE` → `#customer-service`
 - `FUZI_OPENCLAW_TARGET_MORNING_BRIEF` → `#morning-brief`
 - `FUZI_OPENCLAW_TARGET_LIVE_DASHBOARD` → `#live-operations`
 - `FUZI_OPENCLAW_TARGET_RENEWALS` → `#renewals-crm`
