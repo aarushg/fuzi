@@ -93,7 +93,6 @@ const platformModules = [
   ["GAD Drawings", "GAD", "Active", "Track drawing submissions, revisions, and approvals."],
   ["Accounts", "Accounts", "Active", "Follow payment milestones and outstanding balances."],
   ["Department Comms", "Operations", "Active", "Share department messages and read-status updates."],
-  ["Fleet Monitor", "Service Desk", "Active", "Monitor unit health, location, priority, and open faults."],
   ["Project Tickets", "Project Office", "Active", "Create, assign, and close cross-department project tickets."],
   ["Projects", "Installation Dept", "Active", "Keep project records aligned with installation jobs."],
   ["Install Team", "Installation Dept", "Active", "Maintain technicians, roles, availability, and current assignments."],
@@ -144,6 +143,10 @@ function publicUser(user) {
   return safe;
 }
 
+function isAdminUser(user = {}) {
+  return String(user.role || "").trim().toLowerCase() === "admin";
+}
+
 function makeWerkzeugScryptHash(password) {
   const salt = crypto.randomBytes(16).toString("base64url");
   const N = 32768;
@@ -166,7 +169,7 @@ function isDepartmentHead(person) {
 
 function accessForUser(user = {}) {
   const allViews = [
-    "overview", "modules", "customers", "fleet", "tickets", "projects", "installations", "team", "accounts", "messages",
+    "overview", "modules", "customers", "tickets", "projects", "installations", "team", "accounts", "messages",
     "renewals", "workorders", "inventory", "estimator", "orgchart", "sales", "installation_dept", "breakdown", "service",
     "gad", "finance", "commissioning", "backoffice", "tender", "factory", "comms", "siteVisits"
   ];
@@ -178,7 +181,7 @@ function accessForUser(user = {}) {
     installation: ["overview", "customers", "installations", "team", "installation_dept", "commissioning", "siteVisits", "orgchart", "comms"],
     "install operations": ["overview", "customers", "installations", "team", "installation_dept", "commissioning", "siteVisits", "orgchart", "comms"],
     breakdown: ["overview", "customers", "breakdown", "messages", "workorders", "orgchart", "comms"],
-    service: ["overview", "customers", "fleet", "messages", "workorders", "service", "orgchart", "comms"],
+    service: ["overview", "customers", "messages", "workorders", "service", "orgchart", "comms"],
     gad: ["overview", "customers", "gad", "projects", "comms"],
     accounts: ["overview", "customers", "finance", "estimator", "comms"],
     commissioning: ["overview", "customers", "commissioning", "installations", "orgchart", "comms"],
@@ -198,7 +201,6 @@ function accessForUser(user = {}) {
 const viewDataKeys = {
   modules: ["platform_modules"],
   customers: ["customers", "customer_users", "sales_inquiries", "estimates", "payments", "site_visits"],
-  fleet: ["fleet"],
   tickets: ["project_tickets"],
   projects: ["projects", "install_jobs"],
   installations: ["installations", "install_jobs"],
@@ -225,7 +227,7 @@ const viewDataKeys = {
 };
 
 const restrictedPayloadKeys = [
-  "fleet", "projects", "installations", "messages", "renewals", "work_orders", "project_tickets", "install_jobs", "install_team",
+  "projects", "installations", "messages", "renewals", "work_orders", "project_tickets", "install_jobs", "install_team",
   "users", "customers", "site_visits", "platform_modules", "inventory", "inventory_insights", "org_chart", "attendance_today",
   "leave_requests", "estimates", "payments", "customer_users", "sales_inquiries", "sales_admin_panel", "breakdowns", "service_records",
   "gad_records", "commissionings", "factory_jobs", "tenders", "dept_comms"
@@ -599,6 +601,53 @@ async function ensureOfferInquiryLinks() {
   if (changed) await writeJson(listFiles.estimates, nextEstimates);
 }
 
+function resolvedSiteVisitCrmLink(body, customers, inquiries) {
+  const customerId = String(body?.customer_id || "").trim();
+  if (!customerId) return null;
+  const customer = customers.find((item) => String(item.id || "") === customerId);
+  const inquiry = !customer ? inquiries.find((item) =>
+    String(item.customer_id || "") === customerId ||
+    String(item.id || "") === customerId ||
+    String(item.enquiry_no || item.source_enquiry_no || "") === customerId
+  ) : null;
+  const record = customer || inquiry;
+  if (!record) return null;
+  const resolvedCustomerId = String(record.customer_id || record.id || customerId).trim();
+  return {
+    customer_id: resolvedCustomerId,
+    customer_name: String(record.name || record.customer || record.lead_name || record.contact_name || resolvedCustomerId).trim(),
+    address: String(record.address || record.site_address || record.site || "").trim(),
+    site_person_name: String(body?.site_person_name || record.contact_person || record.customer || record.lead_name || record.name || "").trim(),
+    site_person_mobile: String(body?.site_person_mobile || record.phone || record.whatsapp_no || "").trim(),
+    site_enquiry_no: String(body?.site_enquiry_no || record.enquiry_no || record.source_enquiry_no || "").trim()
+  };
+}
+
+async function ensureSiteVisitCustomerLinks() {
+  const [siteVisits, customers, inquiries] = await Promise.all([
+    readJson(listFiles.site_visits, []),
+    readJson(listFiles.customers, []),
+    readJson(listFiles.sales_inquiries, [])
+  ]);
+  let changed = false;
+  const nextVisits = siteVisits.map((visit) => {
+    const link = resolvedSiteVisitCrmLink(visit, customers, inquiries);
+    if (!link) return visit;
+    const nextVisit = {
+      ...visit,
+      customer_id: link.customer_id,
+      customer_name: link.customer_name,
+      address: link.address || visit.address || "",
+      site_person_name: visit.site_person_name || link.site_person_name,
+      site_person_mobile: visit.site_person_mobile || link.site_person_mobile,
+      site_enquiry_no: visit.site_enquiry_no || link.site_enquiry_no
+    };
+    if (JSON.stringify(nextVisit) !== JSON.stringify(visit)) changed = true;
+    return nextVisit;
+  });
+  if (changed) await writeJson(listFiles.site_visits, nextVisits);
+}
+
 function resolveCollection(routeName) {
   const config = routeCollections[routeName] || (listFiles[routeName] ? { key: routeName, prefix: routeName.toUpperCase() } : null);
   if (!config || !listFiles[config.key]) return null;
@@ -778,7 +827,6 @@ function defaultOpenClawCommunicationData(env, baseDir) {
     allowedDashboardCommand: ["openclaw", "dashboard", "--no-open"],
     freeChannels: ["whatsapp", "telegram", "signal", "discord", "slack"],
     agentTargetEnvKeys: {
-      "Self-Healing Fleet Monitor": "FUZI_OPENCLAW_TARGET_FLEET_MONITOR",
       "Modernization Project Coordinator": "FUZI_OPENCLAW_TARGET_MODERNIZATION_COORDINATOR",
       "24/7 Customer Service Agent": "FUZI_OPENCLAW_TARGET_CUSTOMER_SERVICE",
       "Morning Operations Brief": "FUZI_OPENCLAW_TARGET_MORNING_BRIEF",
@@ -829,14 +877,12 @@ function defaultAgentForCommunicationAction(action, target) {
     "Elevator Modernization Management": "Modernization Project Coordinator",
     "Elevator Project Tracking": "Field Installation Manager",
     "Elevator MIS Reporting Dashboard": "Live Operations Dashboard",
-    "selected fleet alert": "Self-Healing Fleet Monitor",
     "uncontacted renewals": "Contract Renewal CRM Agent",
     "FSM": "Site Walkthrough to Work Order"
   };
   const actionMap = {
     "Escalate emergencies": "24/7 Customer Service Agent",
     "Send SMS brief": "Morning Operations Brief",
-    "Text technician": "Self-Healing Fleet Monitor",
     "Draft outreach": "Contract Renewal CRM Agent",
     "Push to FSM": "Site Walkthrough to Work Order",
     "Send snapshot": "Live Operations Dashboard"
@@ -1292,19 +1338,24 @@ function createDiscordBreakdownSyncService({
   const parseHumanBreakdownMessage = (body = {}) => {
     const text = String(body.text || body.message || body.body || body.content || "").trim();
     const messageId = String(body.message_id || body.discord_message_id || body.id || "").trim();
-    const phoneMatch = text.match(/(?:\+?91[\s-]?)?[6-9]\d{4}[\s-]?\d{5}/);
-    const phone = String(body.phone || body.caller_mobile || body.caller_phone || (phoneMatch ? phoneMatch[0].replace(/[\s-]/g, "") : "")).trim();
-    const [unitToken, ...rest] = text.split(/\s+/);
+    const phoneMatch = text.match(/(?:\+?91[\s-]?)?[6-9]\d{4}[\s-]?\d{4,5}/);
+    const phone = String(body.phone || body.caller_mobile || body.caller_phone || (phoneMatch ? phoneMatch[0] : "")).trim();
+    const textWithoutPhone = phoneMatch ? text.replace(phoneMatch[0], " ").replace(/\s+/g, " ").trim() : text;
+    const temporaryOnRequest = /\btemporary\b/i.test(text) && /\bon\b/i.test(text) && /krwa|karwa|karva|krawa/i.test(text);
+    const [unitToken, ...rest] = textWithoutPhone.split(/\s+/);
     const startsWithSplitPhone = Boolean(phone && /^\d{5}$/.test(unitToken || "") && /^\d{5}$/.test(rest[0] || ""));
     const unit = String(body.unit || (!startsWithSplitPhone && /^\d+[A-Za-z-]*$/.test(unitToken || "") ? unitToken : "")).trim();
-    const inferredSite = unit ? rest.join(" ") : text;
-    let site = String(body.site || body.location || inferredSite).trim();
+    const inferredSite = unit ? rest.join(" ") : textWithoutPhone;
+    let site = String(body.site || body.location || (temporaryOnRequest ? "Temporary switch-on request" : inferredSite)).trim();
     site = site.replace(/^Place\s+Exists\s+/i, "").trim();
     site = site
       .replace(/\s+Dear User,\s*Phone received from.*$/i, "")
       .replace(/\s+Knowlarity Communications Pvt\. Ltd\.\s*$/i, "")
       .trim();
-    const priority = String(body.priority || (/urgent|stuck|trapped|breakdown|emergency|not working|fault/i.test(text) ? "High" : "Normal")).trim();
+    const defaultFault = temporaryOnRequest
+      ? "Customer requested temporary lift switch-on/operation; handle politely and urgently."
+      : (unit && site ? `Inbound Discord report for unit ${unit} at ${site}.` : (textWithoutPhone || text));
+    const priority = String(body.priority || (temporaryOnRequest || /urgent|stuck|trapped|breakdown|emergency|not working|fault/i.test(text) ? "High" : "Normal")).trim();
     const status = String(body.status || body.breakdown_status || "").trim();
     return {
       source_discord_message_id: messageId,
@@ -1314,8 +1365,8 @@ function createDiscordBreakdownSyncService({
       customer: site || (unit ? `Discord unit ${unit}` : "Discord breakdown"),
       phone,
       caller_mobile: phone,
-      fault: String(body.fault || body.issue || (unit && site ? `Inbound Discord report for unit ${unit} at ${site}.` : text)).trim(),
-      issue: String(body.issue || body.fault || (unit && site ? `Inbound Discord report for unit ${unit} at ${site}.` : text)).trim(),
+      fault: String(body.fault || body.issue || defaultFault).trim(),
+      issue: String(body.issue || body.fault || defaultFault).trim(),
       priority,
       ...(status ? { status } : {}),
       source: "Discord",
@@ -1343,20 +1394,39 @@ function createDiscordBreakdownSyncService({
     `Technician: ${record.technician || record.engineer || record.assigned_to || "-"}.`
   ].join("\n");
 
+  const formatPhoneForReply = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const digits = raw.replace(/\D/g, "");
+    const india = digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : (digits.length === 10 ? digits : "");
+    if (india) return `+91 ${india.slice(0, 5)} ${india.slice(5)}`;
+    return raw;
+  };
+
   const formatBreakdownChannelReply = (record) => {
     const status = String(record.status || "").trim().toLowerCase();
     const engineer = String(record.engineer || record.assigned_to || record.technician || "").trim();
     const site = String(record.site || record.location || record.customer || "").trim();
     const unit = String(record.unit || "").trim();
+    const phone = formatPhoneForReply(record.phone || record.caller_mobile || record.caller_phone);
+    const currentTask = String(record.current_task || record.current_job || record.id || "").trim();
     const siteLabel = site || (unit ? `unit ${unit}` : "the breakdown");
     const unitLabel = unit && site ? `, unit ${unit}` : "";
+    const taskLabel = currentTask || "not assigned";
+    const withDetails = (message) => {
+      const details = [
+        phone ? `phone is ${phone}` : "",
+        `current task is ${taskLabel}`
+      ].filter(Boolean);
+      return `${message.replace(/\.$/, "")}; ${details.join(", and ")}.`;
+    };
     if (["done", "closed", "resolved", "completed"].includes(status)) {
-      return `Done, ${siteLabel}${unitLabel} is marked ${record.status || "Done"}.`;
+      return withDetails(`Done, ${siteLabel}${unitLabel} is marked ${record.status || "Done"}.`);
     }
     if (engineer) {
-      return `Ok, ${engineer} is going to ${siteLabel}${unitLabel}.`;
+      return withDetails(`Ok, ${engineer} is going to ${siteLabel}${unitLabel}.`);
     }
-    return `Ok, ${siteLabel}${unitLabel} is logged.`;
+    return withDetails(`Ok, ${siteLabel}${unitLabel} is logged.`);
   };
 
   const idGreaterThan = (left, right) => {
@@ -1381,14 +1451,134 @@ function createDiscordBreakdownSyncService({
     return load;
   };
 
-  const availabilityRank = (member) => {
-    const availability = String(member.availability || "").trim().toLowerCase();
+  const availableLabels = /available|standby|ready|free/i;
+  const unavailableLabels = /inactive|off|leave|holiday|unavailable|busy|scheduled|on site|onsite/i;
+
+  const parseTimeOfDay = (value) => {
+    const match = String(value || "").trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+    if (!match) return null;
+    let hour = Number(match[1]);
+    const minute = Number(match[2] || 0);
+    const meridiem = String(match[3] || "").toUpperCase();
+    if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour > 23 || minute > 59) return null;
+    if (meridiem === "PM" && hour < 12) hour += 12;
+    if (meridiem === "AM" && hour === 12) hour = 0;
+    return (hour * 60) + minute;
+  };
+
+  const parseShiftWindow = (shift) => {
+    const text = String(shift || "").trim();
+    const match = text.match(/(\d{1,2}(?::\d{2})?\s*(?:AM|PM)?)\s*(?:-|to|–|—)\s*(\d{1,2}(?::\d{2})?\s*(?:AM|PM)?)/i);
+    if (!match) return null;
+    const start = parseTimeOfDay(match[1]);
+    const end = parseTimeOfDay(match[2]);
+    if (start === null || end === null) return null;
+    return { start, end, label: text };
+  };
+
+  const shiftStatus = (member, date = new Date()) => {
+    const shift = String(member.shift || "").trim();
+    const window = parseShiftWindow(shift);
+    if (!window) return { shift, inShift: Boolean(shift), minutesUntilStart: shift ? 0 : 9999, score: shift ? 1 : 4 };
+    const nowMinutes = (date.getHours() * 60) + date.getMinutes();
+    const inShift = window.start <= window.end
+      ? nowMinutes >= window.start && nowMinutes <= window.end
+      : nowMinutes >= window.start || nowMinutes <= window.end;
+    const minutesUntilStart = inShift ? 0 : (
+      window.start >= nowMinutes ? window.start - nowMinutes : (24 * 60) - nowMinutes + window.start
+    );
+    return { shift, inShift, minutesUntilStart, score: inShift ? 0 : 2 + Math.min(6, Math.ceil(minutesUntilStart / 120)) };
+  };
+
+  const staffAvailabilityDetails = (member, loads = new Map(), state = {}) => {
+    const name = String(member.name || "").trim();
+    const availability = String(member.availability || "Available").trim();
     const currentJob = String(member.current_job || "").trim();
-    if (/inactive|off|leave|holiday|unavailable/.test(availability)) return null;
-    if (currentJob) return 2;
-    if (!currentJob && /available|standby|ready|free/.test(availability || "available")) return 0;
-    if (/available|standby|ready|free/.test(availability)) return 1;
-    return 2;
+    const nextAvailable = String(member.next_available_at || "").trim();
+    const notes = String(member.notes || "").trim();
+    const shift = String(member.shift || "").trim();
+    const activeLoad = loads.get(name.toLowerCase()) || 0;
+    const statusText = availability.toLowerCase();
+    const shiftInfo = shiftStatus(member);
+    const hasActiveBreakdown = activeLoad > 0;
+    const availableNow = !currentJob && !hasActiveBreakdown && availableLabels.test(availability || "Available") && !unavailableLabels.test(statusText);
+    const when = availableNow
+      ? "Available now"
+        : currentJob
+          ? `Busy on ${currentJob}${nextAvailable ? ` until ${nextAvailable}` : ""}`
+        : hasActiveBreakdown
+          ? `Busy on ${activeLoad} active breakdown${activeLoad === 1 ? "" : "s"} - available after current breakdown`
+          : unavailableLabels.test(statusText)
+          ? (nextAvailable || shift ? `${availability} - available ${nextAvailable || shift}` : availability)
+          : availability;
+    const lastEngineer = String(state.discord_breakdown_last_openclaw_engineer || state.discord_breakdown_last_engineer || "").trim().toLowerCase();
+    const score = (availableNow ? 0 : 1000) + shiftInfo.score + (activeLoad * 10) + (name.toLowerCase() === lastEngineer ? 5 : 0);
+    return {
+      name,
+      availability,
+      shift,
+      current_job: currentJob,
+      next_available_at: nextAvailable,
+      notes,
+      active_breakdown_load: activeLoad,
+      available_now: availableNow,
+      busy: Boolean(currentJob) || hasActiveBreakdown || unavailableLabels.test(statusText),
+      shift_in_window: shiftInfo.inShift,
+      minutes_until_shift_start: shiftInfo.minutesUntilStart,
+      assignment_score: score,
+      availability_summary: [when, shift && !when.includes(shift) ? `Shift ${shift}` : "", notes].filter(Boolean).join(" - ")
+    };
+  };
+
+  const readAssignableStaff = async () => {
+    const [orgChart, users] = await Promise.all([
+      readCollection("org_chart"),
+      readCollection("users")
+    ]);
+    const usersByOrgNode = new Map(users.map((user) => [String(user.linked_org_node || ""), user]));
+    const usersByName = new Map(users.map((user) => [String(user.display_name || user.username || "").trim().toLowerCase(), user]));
+    const breakdownStaff = orgChart
+      .filter((person) => String(person.department || "").trim().toLowerCase() === "breakdown")
+      .filter((person) => !String(person.title || "").toLowerCase().includes("supervisor"))
+      .map((person) => {
+        const name = String(person.name || "").trim();
+        const linkedUser = usersByOrgNode.get(String(person.id || "")) || usersByName.get(name.toLowerCase());
+        const currentJob = String(person.current_job || person.current_task || "").trim();
+        const availability = String(person.availability || (currentJob ? "Scheduled" : "Available")).trim();
+        return {
+          id: String(person.id || name),
+          name,
+          role: String(person.title || "Breakdown Staff"),
+          phone: String(person.phone || linkedUser?.phone || ""),
+          availability: String(linkedUser?.active === false ? "Inactive" : availability),
+          current_job: currentJob,
+          next_available_at: String(person.next_available_at || (currentJob ? "after current task" : "")).trim(),
+          shift: String(person.shift || "24/7 emergency rotation").trim(),
+          notes: String(person.notes || "Breakdown dispatch pool").trim()
+        };
+      });
+    const seen = new Set();
+    return breakdownStaff.filter((member) => {
+      const key = String(member.name || "").trim().toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const readBreakdownSupervisor = async () => {
+    const orgChart = await readCollection("org_chart");
+    return orgChart.find((person) =>
+      String(person.department || "").trim().toLowerCase() === "breakdown" &&
+      String(person.title || "").toLowerCase().includes("supervisor")
+    ) || null;
+  };
+
+  const availabilityRank = (member) => {
+    const details = staffAvailabilityDetails(member);
+    if (details.busy) return null;
+    if (details.available_now) return details.shift_in_window ? 0 : 1;
+    return null;
   };
 
   const selectEngineerForBreakdown = async (record, breakdowns, existing = {}) => {
@@ -1408,7 +1598,7 @@ function createDiscordBreakdownSyncService({
 
     if (record.assignment_source === "openclaw-judgement" && String(record.engineer || record.assigned_to || record.technician || "").trim()) {
       const requestedEngineer = String(record.engineer || record.assigned_to || record.technician).trim();
-      const team = await readCollection("install_team");
+      const team = await readAssignableStaff();
       const teamMember = team.find((member) => String(member.name || "").trim().toLowerCase() === requestedEngineer.toLowerCase());
       const state = await readState();
       state.discord_breakdown_last_openclaw_engineer = teamMember ? String(teamMember.name || "").trim() : requestedEngineer;
@@ -1420,7 +1610,7 @@ function createDiscordBreakdownSyncService({
       };
     }
 
-    const team = await readCollection("install_team");
+    const team = await readAssignableStaff();
     const candidates = team
       .map((member, index) => ({ member, index, rank: availabilityRank(member) }))
       .filter((candidate) => candidate.rank !== null && String(candidate.member.name || "").trim());
@@ -1435,10 +1625,10 @@ function createDiscordBreakdownSyncService({
     const sorted = candidates.slice().sort((left, right) => {
       const leftName = String(left.member.name || "").trim().toLowerCase();
       const rightName = String(right.member.name || "").trim().toLowerCase();
-      const leftCurrent = String(left.member.current_job || "").trim();
-      const rightCurrent = String(right.member.current_job || "").trim();
-      const leftScore = (left.rank * 100) + ((loads.get(leftName) || 0) * 10) + (leftCurrent ? (leftCurrent.toUpperCase().startsWith("BRK-") ? 1 : 2) : 0) + (leftName === lastEngineer ? 1 : 0);
-      const rightScore = (right.rank * 100) + ((loads.get(rightName) || 0) * 10) + (rightCurrent ? (rightCurrent.toUpperCase().startsWith("BRK-") ? 1 : 2) : 0) + (rightName === lastEngineer ? 1 : 0);
+      const leftDetails = staffAvailabilityDetails(left.member, loads, state);
+      const rightDetails = staffAvailabilityDetails(right.member, loads, state);
+      const leftScore = (left.rank * 100) + leftDetails.assignment_score + (leftName === lastEngineer ? 1 : 0);
+      const rightScore = (right.rank * 100) + rightDetails.assignment_score + (rightName === lastEngineer ? 1 : 0);
       return leftScore - rightScore || left.index - right.index;
     });
     const selected = sorted[0].member;
@@ -1471,6 +1661,7 @@ function createDiscordBreakdownSyncService({
       ...record,
       original_openclaw_engineer: existing.original_openclaw_engineer || parsedEngineer,
       assignment_source: assignment.source,
+      scheduled_engineer: selectedEngineer,
       engineer: selectedEngineer,
       assigned_to: selectedEngineer,
       technician: selectedEngineer,
@@ -1550,6 +1741,58 @@ function createDiscordBreakdownSyncService({
     const openClawAvailability = String(body.engineer_availability || body.availability || "").trim();
     const breakdowns = await readCollection("breakdowns");
     const existing = breakdowns.find((item) => String(item.source_discord_message_id || "") === incoming.source_discord_message_id);
+    if (!openClawEngineer && !existing) {
+      const reason = "Choose an available scheduled_engineer from /api/openclaw/breakdown/available-context and try again.";
+      return {
+        ok: false,
+        status: 409,
+        retry_required: true,
+        available_engineer_required: true,
+        message: reason,
+        reply: reason
+      };
+    }
+    if (openClawEngineer) {
+      const team = await readAssignableStaff();
+      const teamMember = team.find((member) => String(member.name || "").trim().toLowerCase() === openClawEngineer.toLowerCase());
+      if (!teamMember) {
+        const reason = `${openClawEngineer} is not in the Breakdown dispatch staff list; choose a Breakdown engineer from /api/openclaw/breakdown/available-context and try again.`;
+        return {
+          ok: false,
+          status: 409,
+          retry_required: true,
+          engineer_not_in_breakdown_roster: true,
+          scheduled_engineer: openClawEngineer,
+          message: reason,
+          reply: reason
+        };
+      }
+      const busyJob = String(teamMember?.current_job || "").trim();
+      const existingId = String(existing?.id || "").trim();
+      const busyJobIsSameRecord = Boolean(existingId && busyJob === existingId);
+      const otherBreakdowns = existing
+        ? breakdowns.filter((item) =>
+            String(item.id || "") !== existingId &&
+            String(item.source_discord_message_id || "") !== incoming.source_discord_message_id
+          )
+        : breakdowns;
+      const busyDetails = teamMember ? staffAvailabilityDetails(teamMember, activeBreakdownLoad(otherBreakdowns)) : null;
+      if (teamMember && ((!busyJobIsSameRecord && busyJob) || busyDetails?.busy || !busyDetails?.available_now)) {
+        const reason = busyJob
+          ? `${openClawEngineer} is busy on ${busyJob}; choose a different available engineer and try again.`
+          : `${openClawEngineer} is not available now; choose a different available engineer and try again.`;
+        return {
+          ok: false,
+          status: 409,
+          retry_required: true,
+          engineer_busy: true,
+          scheduled_engineer: openClawEngineer,
+          current_job: busyJob,
+          message: reason,
+          reply: reason
+        };
+      }
+    }
     const preserveExisting = existing ? {
       ...(body.unit === undefined ? { unit: existing.unit || "" } : {}),
       ...(body.site === undefined && body.location === undefined ? {
@@ -1570,6 +1813,7 @@ function createDiscordBreakdownSyncService({
       ...incoming,
       ...preserveExisting,
       ...(openClawEngineer ? {
+        scheduled_engineer: openClawEngineer,
         engineer: openClawEngineer,
         assigned_to: openClawEngineer,
         technician: openClawEngineer,
@@ -1590,10 +1834,11 @@ function createDiscordBreakdownSyncService({
   const getAssignmentContext = async (body = {}) => {
     const incoming = parseHumanBreakdownMessage(body);
     if (!incoming.unit && !incoming.fault) return { ok: false, status: 400, message: "Breakdown message text is required." };
-    const [team, breakdowns, state] = await Promise.all([
-      readCollection("install_team"),
+    const [team, breakdowns, state, supervisor] = await Promise.all([
+      readAssignableStaff(),
       readCollection("breakdowns"),
-      readState()
+      readState(),
+      readBreakdownSupervisor()
     ]);
     const loads = activeBreakdownLoad(breakdowns);
     const activeBreakdowns = breakdowns
@@ -1611,12 +1856,15 @@ function createDiscordBreakdownSyncService({
       .filter((member) => String(member.name || "").trim())
       .map((member) => {
         const name = String(member.name || "").trim();
+        const details = staffAvailabilityDetails(member, loads, state);
         const rank = availabilityRank(member);
         return {
           name,
           availability: member.availability || "",
+          shift: member.shift || "",
+          availability_summary: details.availability_summary,
           current_job: member.current_job || "",
-          active_breakdown_load: loads.get(name.toLowerCase()) || 0,
+          active_breakdown_load: details.active_breakdown_load,
           selectable: rank !== null,
           selection_hint: rank === null ? "Do not assign unless explicitly necessary." : (rank === 0 ? "Best availability." : "Assignable with caution.")
         };
@@ -1625,10 +1873,17 @@ function createDiscordBreakdownSyncService({
       ok: true,
       report: incoming,
       last_openclaw_engineer: state.discord_breakdown_last_openclaw_engineer || "",
+      supervisor: supervisor ? {
+        name: supervisor.name || "",
+        title: supervisor.title || "",
+        department: supervisor.department || ""
+      } : null,
+      dispatch_staff_count: team.length,
+      available_engineer_count: engineers.filter((member) => member.selectable).length,
       engineers,
       active_breakdowns: activeBreakdowns,
       guidance: [
-        "Choose the scheduled engineer from engineers using current availability, current_job, and active_breakdown_load.",
+        "Choose the scheduled engineer only from the Breakdown dispatch staff in engineers.",
         "Do not copy a prior transcript assignment.",
         "Avoid assigning the same engineer repeatedly when another selectable engineer has a lower or equal load.",
         "After choosing, POST to /api/openclaw/breakdown/from-discord with scheduled_engineer set to the chosen engineer."
@@ -1636,7 +1891,50 @@ function createDiscordBreakdownSyncService({
     };
   };
 
-  return { createFromDiscordMessage, getAssignmentContext, sync };
+  const getAvailableAssignmentContext = async (body = {}) => {
+    const incoming = parseHumanBreakdownMessage(body);
+    if (!incoming.unit && !incoming.fault) return { ok: false, status: 400, message: "Breakdown message text is required." };
+    const [team, breakdowns, state, supervisor] = await Promise.all([
+      readAssignableStaff(),
+      readCollection("breakdowns"),
+      readState(),
+      readBreakdownSupervisor()
+    ]);
+    const loads = activeBreakdownLoad(breakdowns);
+    const engineers = team
+      .filter((member) => String(member.name || "").trim())
+      .map((member, index) => ({ ...staffAvailabilityDetails(member, loads, state), index }))
+      .filter((member) => member.available_now && !member.current_job)
+      .sort((left, right) => left.assignment_score - right.assignment_score || left.index - right.index)
+      .map(({ index, ...member }) => ({
+        ...member,
+        selectable: true,
+        selection_hint: member.shift
+          ? `Available now; include shift in judgement (${member.availability_summary}).`
+          : "Available now."
+      }));
+    return {
+      ok: true,
+      report: incoming,
+      last_openclaw_engineer: state.discord_breakdown_last_openclaw_engineer || "",
+      supervisor: supervisor ? {
+        name: supervisor.name || "",
+        title: supervisor.title || "",
+        department: supervisor.department || ""
+      } : null,
+      dispatch_staff_count: team.length,
+      available_engineer_count: engineers.length,
+      engineers,
+      guidance: [
+        "Only choose scheduled_engineer from this Breakdown dispatch engineers list.",
+        "This endpoint excludes supervisors, non-Breakdown staff, engineers with current_job, and busy/unavailable status.",
+        "Use assignment_score, active_breakdown_load, and shift details such as 'Available now - Shift 10:00 AM - 7:00 PM' when deciding.",
+        "If /from-discord says the selected engineer is busy, call this endpoint again and choose a different available engineer."
+      ]
+    };
+  };
+
+  return { createFromDiscordMessage, getAssignmentContext, getAvailableAssignmentContext, sync };
 }
 
 function normalizedOpsRecord(record, prefix, index) {
@@ -1752,6 +2050,38 @@ async function linkedCrmCustomerPayload(body, res) {
   };
 }
 
+async function siteVisitCrmCustomerPayload(body, res) {
+  const customerId = String(body?.customer_id || "").trim();
+  if (!customerId) {
+    res.status(400).json({ ok: false, message: "Select a CRM customer before saving a site visit report." });
+    return null;
+  }
+  const [customers, inquiries] = await Promise.all([
+    readJson(listFiles.customers, []),
+    readJson(listFiles.sales_inquiries, [])
+  ]);
+  const customer = customers.find((item) => String(item.id || "") === customerId);
+  const inquiry = !customer ? inquiries.find((item) =>
+    String(item.customer_id || "") === customerId ||
+    String(item.id || "") === customerId ||
+    String(item.enquiry_no || item.source_enquiry_no || "") === customerId
+  ) : null;
+  const record = customer || inquiry;
+  if (!record) {
+    res.status(400).json({ ok: false, message: "Site visits must be saved against a CRM customer. Select a customer from CRM before saving." });
+    return null;
+  }
+  const resolvedCustomerId = String(record.customer_id || record.id || customerId).trim();
+  return {
+    customer_id: resolvedCustomerId,
+    customer_name: String(record.name || record.customer || record.lead_name || record.contact_name || resolvedCustomerId).trim(),
+    address: String(record.address || record.site_address || record.site || "").trim(),
+    site_person_name: String(body?.site_person_name || record.contact_person || record.customer || record.lead_name || record.name || "").trim(),
+    site_person_mobile: String(body?.site_person_mobile || record.phone || record.whatsapp_no || "").trim(),
+    site_enquiry_no: String(body?.site_enquiry_no || record.enquiry_no || record.source_enquiry_no || "").trim()
+  };
+}
+
 async function createCollectionRecord(routeName, body, res) {
   const config = resolveCollection(routeName);
   if (!config) return res.status(404).json({ ok: false, message: "Unknown portal module." });
@@ -1803,15 +2133,15 @@ async function deleteCollectionRecord(routeName, id, res) {
 }
 
 function buildMetrics(data) {
-  const fleet = data.operations_state?.fleet || [];
+  const messages = data.operations_state?.messages || [];
   const renewals = data.operations_state?.renewals || [];
   const tickets = data.project_tickets || [];
   const inventory = data.inventory || [];
-  const faultUnits = fleet.filter((item) => ["fault", "watch", "critical"].includes(String(item.status || item.state || "").toLowerCase()));
+  const openMessages = messages.filter((item) => !["closed", "resolved", "done"].includes(String(item.status || item.state || "").toLowerCase()));
   const lowStock = inventory.filter((item) => Number(item.stock || item.qty_on_hand || 0) <= Number(item.min_stock || item.reorder_point || 0));
   const openTickets = tickets.filter((item) => !["closed", "done", "resolved"].includes(String(item.status || "").toLowerCase()));
   return [
-    { label: "Fleet Health", value: String(Math.max(0, 100 - faultUnits.length * 15)), delta: `${faultUnits.length} units in fault/watch`, tone: faultUnits.length ? "warn" : "good" },
+    { label: "Service Inbox", value: String(openMessages.length), delta: "open customer messages", tone: openMessages.length ? "warn" : "good" },
     { label: "Open Tickets", value: String(openTickets.length), delta: `${openTickets.filter((t) => String(t.status || "").toLowerCase() === "blocked").length} blocked`, tone: openTickets.length ? "warn" : "good" },
     { label: "Parts Stockouts", value: String(lowStock.length), delta: "stock watch", tone: lowStock.length ? "warn" : "good" },
     { label: "Upcoming Renewals", value: String(renewals.length), delta: "renewal pipeline", tone: renewals.length ? "info" : "good" }
@@ -1823,6 +2153,7 @@ async function loadPortalCollections() {
   await ensureSalesInquiryCustomerIds();
   await ensureOfferInquiryLinks();
   await ensureRenewalCustomerLinks();
+  await ensureSiteVisitCustomerLinks();
   const entries = await Promise.all(Object.entries(listFiles).map(async ([key, file]) => [key, await readJson(file, [])]));
   const data = Object.fromEntries(entries);
   data.operations_state = await readJson("operations_state.json", {});
@@ -1835,7 +2166,6 @@ function portalData(collections, user) {
     metrics: buildMetrics(collections),
     dashboard_overview: {},
     refresh_interval_minutes: 5,
-    fleet: collections.operations_state?.fleet || [],
     projects: collections.operations_state?.projects || [],
     installations: collections.operations_state?.installations || [],
     messages: collections.operations_state?.messages || [],
@@ -1952,6 +2282,41 @@ app.get("/api/portal/data", authRequired, async (req, res) => {
   res.json(portalData(await loadPortalCollections(), req.user));
 });
 
+app.get("/api/portal/crm/export", authRequired, async (req, res) => {
+  if (!isAdminUser(req.user)) return res.status(403).json({ ok: false, message: "Only admin can download CRM data." });
+  const [customers, salesInquiries, estimates, payments, siteVisits, customerUsers] = await Promise.all([
+    readJson(listFiles.customers, []),
+    readJson(listFiles.sales_inquiries, []),
+    readJson(listFiles.estimates, []),
+    readJson(listFiles.payments, []),
+    readJson(listFiles.site_visits, []),
+    readJson(listFiles.customer_users, [])
+  ]);
+  const exportedAt = new Date().toISOString();
+  const payload = {
+    exported_at: exportedAt,
+    exported_by: publicUser(req.user),
+    counts: {
+      customers: customers.length,
+      sales_inquiries: salesInquiries.length,
+      estimates: estimates.length,
+      payments: payments.length,
+      site_visits: siteVisits.length,
+      customer_users: customerUsers.length
+    },
+    customers,
+    sales_inquiries: salesInquiries,
+    estimates,
+    payments,
+    site_visits: siteVisits,
+    customer_users: customerUsers
+  };
+  const stamp = exportedAt.replace(/[:.]/g, "-");
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="fuzi-crm-export-${stamp}.json"`);
+  res.send(JSON.stringify(payload, null, 2));
+});
+
 app.post("/api/portal/action", authRequired, async (req, res) => {
   const action = String(req.body?.action || "noted").trim();
   const target = String(req.body?.target || req.body?.label || "").trim();
@@ -1998,7 +2363,16 @@ app.post("/api/openclaw/breakdown/from-discord", async (req, res) => {
 });
 
 app.post("/api/openclaw/breakdown/context", async (req, res) => {
-  const result = await discordBreakdownSyncService.getAssignmentContext(req.body || {});
+  res.status(410).json({
+    ok: false,
+    deprecated_endpoint: true,
+    retry_required: true,
+    message: "Do not call /api/openclaw/breakdown/context for breakdown dispatch. Call POST /api/openclaw/breakdown/available-context instead."
+  });
+});
+
+app.post("/api/openclaw/breakdown/available-context", async (req, res) => {
+  const result = await discordBreakdownSyncService.getAvailableAssignmentContext(req.body || {});
   res.status(result.ok ? 200 : (result.status || 400)).json(result);
 });
 
@@ -2200,6 +2574,11 @@ app.patch("/api/portal/customers/:id", authRequired, async (req, res) => {
   await updateCollectionRecord("customers", req.params.id, req.body, res);
 });
 
+app.delete("/api/portal/customers/:id", authRequired, async (req, res) => {
+  if (!isAdminUser(req.user)) return res.status(403).json({ ok: false, message: "Only admin can remove CRM customer records." });
+  await deleteCollectionRecord("customers", req.params.id, res);
+});
+
 app.post("/api/portal/install-jobs", authRequired, async (req, res) => {
   const customerId = String(req.body?.customer_id || "").trim();
   const customers = await readJson(listFiles.customers, []);
@@ -2239,21 +2618,42 @@ app.post("/api/portal/breakdown/sync-discord", authRequired, async (req, res) =>
   res.status(result.ok ? 200 : 502).json(result);
 });
 
+app.patch("/api/portal/breakdown-engineer-task", authRequired, async (req, res) => {
+  const engineerName = String(req.body?.engineer || req.body?.name || "").trim();
+  if (!engineerName) return res.status(400).json({ ok: false, message: "Engineer name is required." });
+  const orgChart = await readJson(listFiles.org_chart, []);
+  const index = orgChart.findIndex((person) =>
+    String(person.name || "").trim().toLowerCase() === engineerName.toLowerCase() &&
+    String(person.department || "").trim().toLowerCase() === "breakdown" &&
+    !String(person.title || "").toLowerCase().includes("supervisor")
+  );
+  if (index < 0) {
+    return res.status(404).json({ ok: false, message: "Only saved Breakdown staff engineers can have their current task changed from Breakdown Portal." });
+  }
+  const task = String(req.body?.current_job || req.body?.current_task || req.body?.task || "").trim();
+  const nextAvailable = String(req.body?.next_available_at || "").trim();
+  const record = {
+    ...orgChart[index],
+    current_job: task,
+    current_task: task,
+    availability: task ? "Scheduled" : "Available",
+    next_available_at: task ? (nextAvailable || orgChart[index].next_available_at || "after current task") : "",
+    updated_at: new Date().toISOString()
+  };
+  orgChart[index] = record;
+  await writeJson(listFiles.org_chart, orgChart);
+  res.json({ ok: true, record, message: task ? `${engineerName}'s current task updated.` : `${engineerName} marked available with no current task.` });
+});
+
 app.post("/api/portal/site-visits", authRequired, async (req, res) => {
-  const customerId = String(req.body?.customer_id || "").trim();
-  const customers = await readJson(listFiles.customers, []);
-  const inquiries = await readJson(listFiles.sales_inquiries, []);
-  const customer = customers.find((item) => String(item.id) === customerId) ||
-    inquiries.find((item) => String(item.customer_id || item.id || item.enquiry_no || "") === customerId);
-  if (!customer) return res.status(400).json({ ok: false, message: "Select a CRM customer before saving a site visit report." });
+  const customerLink = await siteVisitCrmCustomerPayload(req.body, res);
+  if (!customerLink) return;
   const siteVisits = await readJson(listFiles.site_visits, []);
   const now = new Date().toISOString();
   const siteVisit = {
     ...req.body,
     id: nextId(siteVisits, "SV"),
-    customer_id: customerId,
-    customer_name: customer.name || customer.customer || customer.lead_name || customer.contact_name || customerId,
-    address: customer.address || "",
+    ...customerLink,
     submitted_by: req.user?.display_name || req.user?.username || "",
     submitted_by_username: req.user?.username || "",
     submitted_by_department: req.user?.department || "",
@@ -2263,17 +2663,13 @@ app.post("/api/portal/site-visits", authRequired, async (req, res) => {
   };
   siteVisits.unshift(siteVisit);
   await writeJson(listFiles.site_visits, siteVisits);
-  res.json({ ok: true, site_visit: siteVisit, message: `Site visit report saved for ${customer.name}.` });
+  res.json({ ok: true, site_visit: siteVisit, message: `Site visit report saved for ${customerLink.customer_name}.` });
 });
 
 app.patch("/api/portal/site-visits/:id", authRequired, async (req, res) => {
   const id = String(req.params.id || "");
-  const customerId = String(req.body?.customer_id || "").trim();
-  const customers = await readJson(listFiles.customers, []);
-  const inquiries = await readJson(listFiles.sales_inquiries, []);
-  const customer = customers.find((item) => String(item.id) === customerId) ||
-    inquiries.find((item) => String(item.customer_id || item.id || item.enquiry_no || "") === customerId);
-  if (!customer) return res.status(400).json({ ok: false, message: "Select a CRM customer before saving a site visit report." });
+  const customerLink = await siteVisitCrmCustomerPayload(req.body, res);
+  if (!customerLink) return;
   const siteVisits = await readJson(listFiles.site_visits, []);
   const index = siteVisits.findIndex((visit) => String(visit.id || "") === id);
   if (index === -1) return res.status(404).json({ ok: false, message: "Site visit report not found." });
@@ -2281,9 +2677,7 @@ app.patch("/api/portal/site-visits/:id", authRequired, async (req, res) => {
     ...siteVisits[index],
     ...req.body,
     id,
-    customer_id: customerId,
-    customer_name: customer.name || customer.customer || customer.lead_name || customer.contact_name || customerId,
-    address: customer.address || siteVisits[index].address || "",
+    ...customerLink,
     updated_by: req.user?.display_name || req.user?.username || "",
     updated_by_username: req.user?.username || "",
     updated_at: new Date().toISOString()
@@ -2328,6 +2722,7 @@ app.patch("/api/portal/sales/inquiries/:id", authRequired, async (req, res) => {
 });
 
 app.delete("/api/portal/sales/inquiries/:id", authRequired, async (req, res) => {
+  if (!isAdminUser(req.user)) return res.status(403).json({ ok: false, message: "Only admin can remove CRM enquiry records." });
   const records = await readJson(listFiles.sales_inquiries, []);
   const nextRecords = records.filter((record) => findRecordIndex([record], req.params.id) !== 0);
   if (nextRecords.length === records.length) return res.status(404).json({ ok: false, message: "Sales inquiry not found." });
@@ -2670,6 +3065,7 @@ for (const routeName of Object.keys(routeCollections).filter((route) => !route.i
     });
   }
   app.delete(`/api/portal/${routeName}/:id`, authRequired, async (req, res) => {
+    if (routeName === "customers" && !isAdminUser(req.user)) return res.status(403).json({ ok: false, message: "Only admin can remove CRM customer records." });
     await deleteCollectionRecord(routeName, req.params.id, res);
   });
 }

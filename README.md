@@ -675,22 +675,32 @@ OpenClaw handles `#fuzi-breakdown` as the chat input surface for live breakdown 
 For each actionable breakdown message, OpenClaw should:
 
 1. Parse the raw Discord text and message id.
-2. Call `POST /api/openclaw/breakdown/context` with `message_id`, `text`, and `sender`.
-3. Choose `scheduled_engineer` from the returned `engineers` list using availability, `current_job`, `active_breakdown_load`, and `last_openclaw_engineer`.
+2. Call `POST /api/openclaw/breakdown/available-context` with `message_id`, `text`, and `sender`.
+3. Choose `scheduled_engineer` only from the returned `engineers` list. This list excludes busy engineers and includes `availability_summary`, `shift`, `active_breakdown_load`, and `assignment_score`; shift text such as `Available now - Shift 10:00 AM - 7:00 PM` is part of the assignment calculation.
 4. Call `POST /api/openclaw/breakdown/from-discord` with the same message details plus `scheduled_engineer`.
-5. Reply in Discord with the returned `reply` field.
+5. If `/from-discord` returns `retry_required: true` or `engineer_busy: true`, do not reply as assigned; call `/api/openclaw/breakdown/available-context` again and choose a different available engineer.
+6. Reply in Discord with the returned `reply` field.
+
+Actionable messages include ordinary breakdown text and polite Hinglish temporary operation requests such as `Sir plz temporary hi on krwa dijiye pr plz krwa dijiye it's a humble request`. FUZI stores that as a high-priority temporary switch-on/operation request.
+
+OpenClaw may output `NO_REPLY` only when a Discord message is genuinely unrelated to breakdown dispatch, such as casual chatter, thanks, or messages that do not describe a service action. In `#fuzi-breakdown`, do not use `NO_REPLY` for temporary operation phrases that include `temporary`, `on`, and `krwa`/`karwa`/`karva`, even when the text does not contain the word `breakdown`. Those messages must go through the FUZI context and save flow, then Discord should receive the returned `reply`.
 
 The response body from `/api/openclaw/breakdown/from-discord` contains:
 
 - `record`: the saved portal breakdown, including site, unit, fault, selected engineer, status, and source Discord message id.
 - `summary`: the full operational summary for dashboards/logs.
-- `reply`: the short human-facing chat sentence OpenClaw should type in Discord.
+- `reply`: the human-facing chat response OpenClaw should type in Discord. It is always one proper sentence that includes dispatch status, the current task id, and phone information when a phone number is available.
+
+OpenClaw dispatch must use `POST /api/openclaw/breakdown/available-context`, which returns only available engineers. The older `/api/openclaw/breakdown/context` path is retired for dispatch and returns HTTP `410 Gone`; callers must switch to `/available-context`. FUZI also rejects a selected engineer at save time if that engineer is busy, unavailable, or missing, returning a retry response instead of writing the assignment.
 
 The chat `reply` is intentionally concise and should sound like normal dispatch handling, for example:
 
 - `Ok, Ravi Sharma is going to Hotel Bisau Palace.`
 - `Ok, Pawan Meena is going to Yogesh Ji, B-149 Sitapura near GIT College, unit 10956.`
-- `Done, Hotel Star Place is marked Done.`
+- `Ok, Shobhit Mudgal is going to current infra lift break down; phone is +91 90000 13010, and current task is BRK-080.`
+- `Done, Hotel Star Place is marked Done; current task is BRK-080.`
+
+Every returned `reply` is a single grammatical sentence. If no phone was detected, FUZI omits phone information from the sentence. The current task shows the active breakdown id assigned to the scheduled engineer, so Discord shows the same task id that appears in the Breakdown Portal.
 
 Do not replace the short `reply` with the full `summary` unless someone explicitly asks for details. The detailed data already appears in the Breakdown Portal.
 

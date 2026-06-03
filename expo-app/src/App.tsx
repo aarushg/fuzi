@@ -23,7 +23,6 @@ type TabKey =
   | "overview"
   | "modules"
   | "customers"
-  | "fleet"
   | "tickets"
   | "projects"
   | "installations"
@@ -75,7 +74,6 @@ const navItems: Array<{ key: TabKey; label: string; icon: string }> = [
   { key: "overview", label: "Overview", icon: "⌂" },
   { key: "modules", label: "Platform Modules", icon: "▦" },
   { key: "customers", label: "Customers", icon: "◉" },
-  { key: "fleet", label: "Fleet Monitor", icon: "◆" },
   { key: "tickets", label: "Project Tickets", icon: "✓" },
   { key: "projects", label: "Projects", icon: "◇" },
   { key: "installations", label: "Installations", icon: "⇧" },
@@ -429,6 +427,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [customerDraft, setCustomerDraft] = useState<Partial<Customer>>(emptyCustomer);
+  const [customerEditorOpen, setCustomerEditorOpen] = useState(false);
   const [siteVisitDraft, setSiteVisitDraft] = useState<Partial<SiteVisit>>(emptySiteVisit);
   const [siteVisitEditorOpen, setSiteVisitEditorOpen] = useState(false);
   const [siteVisitCustomerSearch, setSiteVisitCustomerSearch] = useState("");
@@ -456,6 +455,7 @@ export default function App() {
   const [inventoryDraft, setInventoryDraft] = useState(emptyInventoryDraft);
   const [inventoryEdits, setInventoryEdits] = useState<Record<string, { reorder_point: string; target_stock: string }>>({});
   const [salesInquiryDraft, setSalesInquiryDraft] = useState(emptySalesInquiryDraft);
+  const [salesInquiryEditorOpen, setSalesInquiryEditorOpen] = useState(false);
   const [offerDraft, setOfferDraft] = useState<Record<string, any>>(emptyOfferDraft);
   const [costingEditorOpen, setCostingEditorOpen] = useState(false);
   const [costingSources, setCostingSources] = useState<CostingSource[]>([]);
@@ -470,6 +470,7 @@ export default function App() {
   const isSignedIn = Boolean(token);
   const isWide = width >= 920;
   const asRecords = (value: unknown): Array<Record<string, unknown>> => (Array.isArray(value) ? (value as Array<Record<string, unknown>>) : []);
+  const isAdmin = String(data?.viewer?.role || "").trim().toLowerCase() === "admin";
   const visibleNavItems = useMemo(() => {
     const allowed = data?.access?.allowed_views;
     if (!allowed?.length) return navItems;
@@ -486,30 +487,49 @@ export default function App() {
     [data],
   );
   const assignableStaff = useMemo(() => {
-    const team = asRecords(data?.install_team).map((member) => ({
-      id: String(member.id || member.name || ""),
-      name: String(member.name || ""),
-      role: String(member.role || "Technician"),
-      phone: String(member.phone || ""),
-      availability: String(member.availability || ""),
-      current_job: String(member.current_job || ""),
-      shift: String(member.shift || ""),
-      notes: String(member.notes || ""),
-    }));
-    const technicians = asRecords(data?.users)
-      .filter((user) => String(user.role || "").toLowerCase().includes("technician"))
-      .map((user) => ({
-        id: String(user.id || user.username || ""),
-        name: String(user.display_name || user.username || ""),
-        role: String(user.department || "Technician"),
-        phone: "",
-        availability: String(user.active === false ? "Inactive" : "Available"),
-        current_job: "",
-        shift: "",
-        notes: "",
-      }));
+    const activeBreakdownByEngineer = new Map<string, string>();
+    asRecords(data?.breakdowns).forEach((breakdown) => {
+      const status = String(breakdown.status || "").trim().toLowerCase();
+      if (["closed", "resolved", "done", "cancelled"].includes(status)) return;
+      const engineer = String(
+        breakdown.scheduled_engineer ||
+        breakdown.engineer ||
+        breakdown.assigned_to ||
+        breakdown.technician ||
+        ""
+      ).trim();
+      const task = String(breakdown.id || breakdown.current_task || breakdown.current_job || "").trim();
+      if (engineer && task && !activeBreakdownByEngineer.has(engineer.toLowerCase())) {
+        activeBreakdownByEngineer.set(engineer.toLowerCase(), task);
+      }
+    });
+    const usersByOrgNode = new Map(asRecords(data?.users).map((user) => [String(user.linked_org_node || ""), user]));
+    const usersByName = new Map(asRecords(data?.users).map((user) => [String(user.display_name || user.username || "").trim().toLowerCase(), user]));
+    const breakdownStaff = asRecords(data?.org_chart)
+      .filter((person) => String(person.department || "").trim().toLowerCase() === "breakdown")
+      .filter((person) => !String(person.title || "").toLowerCase().includes("supervisor"))
+      .map((person) => {
+        const name = String(person.name || "");
+        const linkedUser = usersByOrgNode.get(String(person.id || "")) || usersByName.get(name.trim().toLowerCase());
+        const savedTask = String(person.current_job || person.current_task || "").trim();
+        const activeTask = savedTask || activeBreakdownByEngineer.get(name.trim().toLowerCase()) || "";
+        const savedAvailability = String(person.availability || "").trim();
+        const savedNextAvailable = String(person.next_available_at || "").trim();
+        return {
+          id: String(person.id || name),
+          name,
+          role: String(person.title || "Breakdown Staff"),
+          phone: String(person.phone || linkedUser?.phone || ""),
+          availability: String(linkedUser?.active === false ? "Inactive" : (activeTask ? "Scheduled" : (savedAvailability || "Available"))),
+          current_job: savedTask,
+          active_breakdown: activeBreakdownByEngineer.get(name.trim().toLowerCase()) || "",
+          next_available_at: activeTask ? (savedNextAvailable || "after current task") : savedNextAvailable,
+          shift: String(person.shift || "24/7 emergency rotation"),
+          notes: String(person.notes || "Breakdown dispatch pool"),
+        };
+      });
     const seen = new Set<string>();
-    return [...team, ...technicians].filter((member) => {
+    return breakdownStaff.filter((member) => {
       const key = member.name.toLowerCase();
       if (!key || seen.has(key)) return false;
       seen.add(key);
@@ -662,7 +682,7 @@ export default function App() {
   function staffAvailabilityInfo(member: Record<string, unknown>) {
     const availability = String(member.availability || "Available").trim();
     const shift = String(member.shift || "").trim();
-    const currentJob = String(member.current_job || "").trim();
+    const currentJob = String(member.current_job || member.active_breakdown || "").trim();
     const nextAvailable = String(member.next_available_at || "").trim();
     const notes = String(member.notes || "").trim();
     const availableNow = ["available", "standby", "ready"].includes(availability.toLowerCase()) && !currentJob;
@@ -671,7 +691,7 @@ export default function App() {
       : availability.toLowerCase() === "off duty"
         ? (nextAvailable || shift ? `Off duty - available ${nextAvailable || shift}` : "Off duty")
         : currentJob
-          ? `Busy on ${currentJob}${nextAvailable ? ` until ${nextAvailable}` : ""}`
+          ? `Busy on ${currentJob}${nextAvailable ? ` - available ${nextAvailable}` : ""}`
           : availability;
     return {
       availableNow,
@@ -726,6 +746,77 @@ export default function App() {
     return status.toLowerCase().includes("lost");
   }
 
+  function recordCustomerContext(record: Record<string, unknown>) {
+    const explicitId = fieldText(record, ["customer_id", "crm_customer_id", "customerId"]).replace("-", "").trim();
+    const customerName = fieldText(record, ["customer", "customer_name", "building", "account", "client", "name"]).replace("-", "").trim();
+    const siteName = fieldText(record, ["site", "location", "address"]).replace("-", "").trim();
+    const customers = data?.customers || [];
+    const inquiries = asRecords(data?.sales_inquiries);
+    const customer = customers.find((item) => explicitId && String(item.id || "") === explicitId)
+      || customers.find((item) => customerName && crmNameKey(item.name) === crmNameKey(customerName))
+      || customers.find((item) => siteName && crmNameKey(item.address) === crmNameKey(siteName));
+    const inquiry = inquiries.find((item) =>
+      explicitId && [item.customer_id, item.id, item.enquiry_no, item.source_enquiry_no].some((value) => String(value || "") === explicitId)
+    ) || inquiries.find((item) =>
+      customerName && crmNameKey(item.customer || item.lead_name || item.name) === crmNameKey(customerName)
+    );
+    const id = String(customer?.id || inquiry?.customer_id || explicitId || "").trim();
+    const name = String(customer?.name || inquiry?.customer || inquiry?.lead_name || customerName || "").trim();
+    const key = crmNameKey(name);
+    const inquiryIds = new Set<string>();
+    if (inquiry) {
+      [inquiry.id, inquiry.enquiry_no, inquiry.source_enquiry_no, inquiry.customer_id].forEach((value) => {
+        const text = String(value || "").trim();
+        if (text) inquiryIds.add(text);
+      });
+    }
+    if (!id && !name) return null;
+    const matchesName = (value: unknown) => Boolean(key && crmNameKey(value) === key);
+    const matchesId = (value: unknown) => Boolean(id && String(value || "").trim() === id);
+    const estimates = asRecords(data?.estimates).filter((item) =>
+      matchesId(item.customer_id) || matchesName(item.customer_name || item.offer_name || item.customer) || inquiryIds.has(String(item.source_inquiry_id || "").trim())
+    );
+    const estimateIds = new Set(estimates.map((item) => recordIdentity(item)).filter(Boolean));
+    const related = {
+      estimates: estimates.length,
+      payments: asRecords(data?.payments).filter((item) =>
+        estimateIds.has(String(item.estimate_id || "").trim()) || matchesId(item.customer_id) || matchesName(item.customer_name || item.customer)
+      ).length,
+      siteVisits: asRecords(data?.site_visits).filter((item) => matchesId(item.customer_id) || matchesName(item.customer_name)).length,
+      breakdowns: asRecords(data?.breakdowns).filter((item) => matchesId(item.customer_id) || matchesName(item.customer) || matchesName(item.location || item.site)).length,
+      service: asRecords(data?.service_records).filter((item) => matchesId(item.customer_id) || matchesName(item.customer) || matchesName(item.building)).length,
+      installJobs: asRecords(data?.install_jobs).filter((item) => matchesId(item.customer_id) || matchesName(item.customer) || matchesName(item.site)).length,
+    };
+    return { id, name, related };
+  }
+
+  function renderLinkedSystems(record: Record<string, unknown>) {
+    const customerContext = recordCustomerContext(record);
+    if (!customerContext) return null;
+    return (
+      <View style={styles.linkedSystemsPanel}>
+        <Text style={styles.cardLabel}>Linked systems</Text>
+        <Text style={styles.muted}>
+          CRM {customerContext.id || customerContext.name} - Estimates {customerContext.related.estimates} - Payments {customerContext.related.payments} - Site visits {customerContext.related.siteVisits} - Service {customerContext.related.service} - Breakdowns {customerContext.related.breakdowns} - Install jobs {customerContext.related.installJobs}
+        </Text>
+        <View style={styles.inlineActions}>
+          <Pressable style={styles.smallButton} onPress={() => openCrmForCustomerNumber(customerContext.id || customerContext.name)} disabled={loading}>
+            <Text style={styles.smallButtonText}>Open CRM</Text>
+          </Pressable>
+          <Pressable
+            style={styles.smallButton}
+            onPress={() => {
+              setSiteVisitCustomerSearch(customerContext.id || customerContext.name);
+              setActiveTab("siteVisits");
+            }}
+            disabled={loading}
+          >
+            <Text style={styles.smallButtonText}>Site visits</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
   function renderRecordCards(records: Array<Record<string, unknown>>, titleKeys: string[], detailKeys: string[][], config?: ModuleConfig) {
     if (!records.length) {
@@ -736,24 +827,27 @@ export default function App() {
         </View>
       );
     }
-    return records.slice(0, 30).map((record, index) => (
-      <View key={String(record.id || record.name || index)} style={styles.card}>
-        <Text style={styles.cardTitle}>{fieldText(record, titleKeys)}</Text>
-        {detailKeys.map((keys) => (
-          <Text key={keys.join("-")} style={styles.bodyText}>{fieldText(record, keys)}</Text>
-        ))}
-        {!!config && !!recordIdentity(record) && (
-          <View style={styles.inlineActions}>
-            <Pressable style={styles.smallButton} onPress={() => updateModuleRecord(record, "In Progress")} disabled={loading}>
-              <Text style={styles.smallButtonText}>Start</Text>
-            </Pressable>
-            <Pressable style={styles.smallButton} onPress={() => updateModuleRecord(record, "Closed")} disabled={loading}>
-              <Text style={styles.smallButtonText}>Close</Text>
-            </Pressable>
-          </View>
-        )}
-      </View>
-    ));
+    return records.slice(0, 30).map((record, index) => {
+      return (
+        <View key={String(record.id || record.name || index)} style={styles.card}>
+          <Text style={styles.cardTitle}>{fieldText(record, titleKeys)}</Text>
+          {detailKeys.map((keys) => (
+            <Text key={keys.join("-")} style={styles.bodyText}>{fieldText(record, keys)}</Text>
+          ))}
+          {renderLinkedSystems(record)}
+          {!!config && !!recordIdentity(record) && (
+            <View style={styles.inlineActions}>
+              <Pressable style={styles.smallButton} onPress={() => updateModuleRecord(record, "In Progress")} disabled={loading}>
+                <Text style={styles.smallButtonText}>Start</Text>
+              </Pressable>
+              <Pressable style={styles.smallButton} onPress={() => updateModuleRecord(record, "Closed")} disabled={loading}>
+                <Text style={styles.smallButtonText}>Close</Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
+      );
+    });
   }
 
   function renderFeaturePage(
@@ -777,6 +871,107 @@ export default function App() {
     );
   }
 
+  function renderProjectTicketBoard() {
+    const allRecords = asRecords(data?.project_tickets);
+    const config = moduleConfigs.tickets;
+    const statuses = inquiryLifecycleStatuses.filter((status) => !status.toLowerCase().includes("lost"));
+    const normalizeProjectStatus = (status: string) => {
+      const cleaned = status.replace("-", "").trim();
+      const exactStatus = inquiryLifecycleStatuses.find((item) => item.toLowerCase() === cleaned.toLowerCase());
+      if (exactStatus) return exactStatus;
+      const normalized = cleaned.toLowerCase();
+      if (!normalized || normalized === "open" || normalized === "lead") return "Inquiry Pending";
+      if (normalized.includes("lost")) return "Inquiry Lost";
+      if (normalized.includes("site") && normalized.includes("done")) return "Site Visit Done";
+      if (normalized.includes("site")) return "Site Visit Pending";
+      if (normalized.includes("offer") && (normalized.includes("submit") || normalized.includes("quote"))) return "Offer Submitted";
+      if (normalized.includes("offer")) return "Offer Pending";
+      if (normalized.includes("order") && normalized.includes("received")) return "Order Received";
+      if (normalized.includes("order")) return "Order Lost";
+      if (normalized.includes("progress") || normalized.includes("start")) return "Work In Progress";
+      if (normalized.includes("handover") || normalized.includes("hand over") || normalized.includes("closed") || normalized.includes("done") || normalized.includes("resolved")) return "Hand Over";
+      if (normalized.includes("warranty")) return "Warranty Running";
+      if (normalized.includes("amc")) return "AMC Running";
+      if (normalized.includes("service")) return "One Time Service";
+      return "Inquiry Pending";
+    };
+    const records = allRecords.filter((record) => !normalizeProjectStatus(fieldText(record, ["status"])).toLowerCase().includes("lost"));
+    const orderCount = records.filter((record) => normalizeProjectStatus(fieldText(record, ["status"])) === "Order Received").length;
+    const activeWorkCount = records.filter((record) => ["Work In Progress", "Hand Over", "Warranty Running", "AMC Running", "One Time Service"].includes(normalizeProjectStatus(fieldText(record, ["status"])))).length;
+    return (
+      <View>
+        <View style={styles.moduleHero}>
+          <Text style={styles.eyebrow}>Project Board</Text>
+          <Text style={styles.moduleHeroTitle}>Project Tickets Kanban</Text>
+          <Text style={styles.moduleHeroText}>Track cross-department work by status, move tickets between columns, and keep linked customer systems visible on each card.</Text>
+        </View>
+        <View style={styles.metricGrid}>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Tickets</Text>
+            <Text style={styles.metricValue}>{records.length}</Text>
+            <Text style={styles.muted}>Active project-office records shown on this board.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Orders received</Text>
+            <Text style={styles.metricValue}>{orderCount}</Text>
+            <Text style={styles.muted}>Won work ready for project execution.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Active work</Text>
+            <Text style={styles.metricValue}>{activeWorkCount}</Text>
+            <Text style={styles.muted}>Installation, handover, warranty, AMC, and service.</Text>
+          </View>
+        </View>
+        {config && renderModuleForm(config)}
+        <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.kanbanBoard}>
+          {statuses.map((status) => {
+            const columnRecords = records.filter((record) => {
+              const recordStatus = normalizeProjectStatus(fieldText(record, ["status"]));
+              return recordStatus === status;
+            });
+            return (
+              <View key={`project-column-${status}`} style={styles.kanbanColumn}>
+                <View style={styles.kanbanColumnHeader}>
+                  <Text style={styles.cardTitle}>{status}</Text>
+                  <Text style={styles.statusPill}>{columnRecords.length}</Text>
+                </View>
+                {!columnRecords.length && (
+                  <View style={styles.kanbanEmpty}>
+                    <Text style={styles.muted}>No tickets in this status.</Text>
+                  </View>
+                )}
+                {columnRecords.map((record, index) => {
+                  const id = recordIdentity(record) || String(record.title || index);
+                  const currentIndex = statuses.indexOf(status);
+                  const forwardStatuses = statuses.slice(currentIndex + 1, currentIndex + 5);
+                  const quickStatuses = forwardStatuses.length ? forwardStatuses : statuses.filter((nextStatus) => nextStatus !== status).slice(0, 4);
+                  return (
+                    <View key={`ticket-${status}-${id}-${index}`} style={styles.kanbanCard}>
+                      <View style={styles.cardHeaderRow}>
+                        <Text style={styles.cardTitle}>{fieldText(record, ["title", "id"])}</Text>
+                        <Text style={styles.statusPill}>{fieldText(record, ["owner", "assigned_to"])}</Text>
+                      </View>
+                      <Text style={styles.muted}>{fieldText(record, ["project", "customer", "site"])}</Text>
+                      <Text style={styles.bodyText}>{fieldText(record, ["notes", "summary", "description"])}</Text>
+                      {renderLinkedSystems(record)}
+                      <View style={styles.inlineActions}>
+                        {quickStatuses.map((nextStatus) => (
+                          <Pressable key={`${id}-${nextStatus}`} style={styles.smallButton} onPress={() => updateModuleRecord(record, nextStatus)} disabled={loading || !recordIdentity(record)}>
+                            <Text style={styles.smallButtonText}>{nextStatus}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  }
+
   function openCrmForCustomerNumber(customerId: string) {
     const nextSearch = String(customerId || "").trim();
     if (!nextSearch) return;
@@ -792,12 +987,14 @@ export default function App() {
       id: String(customer.id || ""),
       name: String(customer.name || customer.contact_person || customer.id || ""),
       phone: String(customer.phone || ""),
+      address: String(customer.address || ""),
       source_inquiry_id: "",
     }));
     const inquiries = asRecords(data?.sales_inquiries).map((item) => ({
       id: String(item.customer_id || item.id || ""),
       name: String(item.customer || item.lead_name || item.name || item.customer_id || item.id || ""),
       phone: String(item.phone || item.whatsapp_no || ""),
+      address: String(item.address || item.site_address || item.site || ""),
       source_inquiry_id: String(item.id || item.enquiry_no || ""),
     }));
     const seen = new Set<string>();
@@ -806,6 +1003,32 @@ export default function App() {
       seen.add(item.id);
       return true;
     });
+  }
+
+  function crmCustomerForSiteVisit(visit: Record<string, unknown>) {
+    const customerId = String(visit.customer_id || "").trim();
+    const enquiryNo = String(visit.site_enquiry_no || "").trim();
+    return crmCustomerOptions().find((customer) =>
+      String(customer.id || "") === customerId ||
+      Boolean(enquiryNo && String(customer.source_inquiry_id || "") === enquiryNo)
+    );
+  }
+
+  function normalizedPhoneKey(value: unknown) {
+    const digits = String(value || "").replace(/\D/g, "");
+    if (digits.length > 10 && digits.endsWith(digits.slice(-10))) return digits.slice(-10);
+    return digits;
+  }
+
+  function findCustomerPhoneDuplicate(phone: unknown) {
+    const phoneKey = normalizedPhoneKey(phone);
+    if (!phoneKey) return null;
+    const customer = (data?.customers || []).find((item) => normalizedPhoneKey(item.phone) === phoneKey);
+    if (customer) return { type: "customer" as const, record: customer };
+    const inquiry = asRecords(data?.sales_inquiries).find((item) =>
+      [item.phone, item.whatsapp_no, item.mobile, item.mobile_no, item.caller_mobile].some((value) => normalizedPhoneKey(value) === phoneKey)
+    );
+    return inquiry ? { type: "inquiry" as const, record: inquiry } : null;
   }
 
   function startServiceEdit(record: Record<string, unknown>) {
@@ -1388,6 +1611,10 @@ export default function App() {
     const activeBreakdowns = breakdowns.filter((item) => !["closed", "resolved", "done"].includes(String(item.status || "").toLowerCase()));
     const trappedCalls = breakdowns.filter((item) => ["y", "yes", "true"].includes(String(item.trapped_passenger || item.passenger_trapped || "").toLowerCase()));
     const availableEngineers = assignableStaff.filter((member) => staffAvailabilityInfo(member).availableNow);
+    const breakdownSupervisor = asRecords(data?.org_chart).find((person) =>
+      String(person.department || "").trim().toLowerCase() === "breakdown" &&
+      String(person.title || "").toLowerCase().includes("supervisor")
+    );
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -1413,15 +1640,18 @@ export default function App() {
             <Text style={styles.muted}>Highest-priority rescue cases.</Text>
           </View>
           <View style={styles.card}>
-            <Text style={styles.cardLabel}>Engineers available</Text>
-            <Text style={styles.metricValue}>{availableEngineers.length}</Text>
-            <Text style={styles.muted}>Available now for breakdown scheduling.</Text>
+            <Text style={styles.cardLabel}>Breakdown staff</Text>
+            <Text style={styles.metricValue}>{assignableStaff.length}</Text>
+            <Text style={styles.muted}>{availableEngineers.length} available now under {fieldText(breakdownSupervisor || {}, ["name"]) || "Breakdown Supervisor"}.</Text>
           </View>
         </View>
 
         <View style={styles.formCard}>
           <Text style={styles.cardLabel}>Schedule Engineer</Text>
-          <Text style={styles.muted}>Engineer availability for breakdown dispatch. Select an engineer below while logging a new call, or use the schedule controls on an existing breakdown.</Text>
+          <Text style={styles.muted}>
+            Breakdown dispatch availability is limited to the {assignableStaff.length} Breakdown staff managed by {fieldText(breakdownSupervisor || {}, ["name"]) || "the Breakdown Supervisor"}.
+            Select one while logging a new call, or use the schedule controls on an existing breakdown.
+          </Text>
           <View style={styles.selectorList}>
             {assignableStaff.map((member) => {
               const availability = staffAvailabilityInfo(member);
@@ -1444,10 +1674,10 @@ export default function App() {
                     />
                   </View>
                   <View style={styles.inlineActions}>
-                    <Pressable style={styles.smallButton} onPress={() => updateBreakdownEngineerTask(member, taskDraft)} disabled={loading}>
+                    <Pressable style={styles.smallButton} onPress={() => updateBreakdownEngineerTask(member, taskDraft, member.name)} disabled={loading}>
                       <Text style={styles.smallButtonText}>Save task</Text>
                     </Pressable>
-                    <Pressable style={styles.smallButton} onPress={() => updateBreakdownEngineerTask(member, "")} disabled={loading}>
+                    <Pressable style={styles.smallButton} onPress={() => updateBreakdownEngineerTask(member, "", member.name)} disabled={loading}>
                       <Text style={styles.smallButtonText}>Clear task</Text>
                     </Pressable>
                   </View>
@@ -1603,7 +1833,7 @@ export default function App() {
               </View>
               <Text style={styles.label}>Schedule Engineer</Text>
               <View style={styles.inlineActions}>
-                {assignableStaff.slice(0, 6).map((member) => {
+                {assignableStaff.map((member) => {
                   const availability = staffAvailabilityInfo(member);
                   const scheduleTime = breakdownScheduleDrafts[id] ?? String(item.scheduled_at || item.scheduled_time || item.dispatch_time || defaultBreakdownScheduleTime());
                   const taskDraft = breakdownEngineerTaskDrafts[`${id}-${member.name}`] ?? String(member.current_job || "");
@@ -1619,7 +1849,7 @@ export default function App() {
                         onChangeText={(value) => setBreakdownEngineerTaskDrafts((draft) => ({ ...draft, [`${id}-${member.name}`]: value }))}
                         placeholder="Change current task"
                       />
-                      <Pressable style={styles.smallButton} onPress={() => updateBreakdownEngineerTask(member, taskDraft || id)} disabled={loading}>
+                      <Pressable style={styles.smallButton} onPress={() => updateBreakdownEngineerTask(member, taskDraft || id, `${id}-${member.name}`)} disabled={loading}>
                         <Text style={styles.smallButtonText}>Save task</Text>
                       </Pressable>
                     </View>
@@ -2280,7 +2510,7 @@ export default function App() {
     setSiteVisitEditorOpen(true);
   }
 
-  function openSiteVisitForCrmOption(customer: { id: string; name: string; phone?: string; source_inquiry_id?: string }) {
+  function openSiteVisitForCrmOption(customer: { id: string; name: string; phone?: string; address?: string; source_inquiry_id?: string }) {
     const existing = (data?.site_visits || []).find((visit) => String(visit.customer_id || "") === String(customer.id || ""));
     setSiteVisitDraft({
       ...emptySiteVisit,
@@ -2314,6 +2544,7 @@ export default function App() {
   }
 
   function renderSiteVisitEditorModal() {
+    const linkedCustomer = siteVisitDraft.customer_id ? crmCustomerForSiteVisit(siteVisitDraft as Record<string, unknown>) : undefined;
     return (
       <Modal visible={siteVisitEditorOpen} transparent animationType="fade" onRequestClose={() => setSiteVisitEditorOpen(false)}>
         <View style={styles.modalOverlay}>
@@ -2321,7 +2552,10 @@ export default function App() {
             <View style={styles.modalHeader}>
               <View>
                 <Text style={styles.cardLabel}>{siteVisitDraft.id ? "Edit site visit report" : "Create site visit report"}</Text>
-                <Text style={styles.muted}>Customer ID: {String(siteVisitDraft.customer_id || "-")}</Text>
+                <Text style={styles.muted}>
+                  Customer ID: {String(siteVisitDraft.customer_id || "-")}
+                  {linkedCustomer ? ` - ${linkedCustomer.name}${linkedCustomer.address ? ` - ${linkedCustomer.address}` : ""}` : " - select from CRM"}
+                </Text>
               </View>
               <Pressable style={styles.secondaryButton} onPress={() => setSiteVisitEditorOpen(false)} disabled={loading}>
                 <Text style={styles.secondaryButtonText}>Close</Text>
@@ -2465,6 +2699,13 @@ export default function App() {
           <Text style={styles.eyebrow}>Customer CRM</Text>
           <Text style={styles.moduleHeroTitle}>Modern Customer Relationship Workspace</Text>
           <Text style={styles.moduleHeroText}>Manage leads, accounts, follow-ups, compliance consent, tax details, portal access, and customer-linked operations from one CRM board.</Text>
+          {isAdmin && (
+            <View style={styles.inlineActions}>
+              <Pressable style={styles.primaryButtonInline} onPress={downloadCrmData} disabled={loading}>
+                <Text style={styles.primaryButtonText}>Download CRM data</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
         <View style={styles.metricGrid}>
           <View style={styles.card}>
@@ -2496,53 +2737,80 @@ export default function App() {
 
         <View style={styles.formCard}>
           <Text style={styles.cardLabel}>{customerDraft.id ? "Edit customer account" : "New account / lead"}</Text>
-          {customerFields.map((field) => (
-            <View key={field.key} style={styles.field}>
-              <Text style={styles.label}>{field.label}</Text>
-              <TextInput
-                style={[styles.input, field.multiline && styles.textarea]}
-                value={String(customerDraft[field.key] || "")}
-                onChangeText={(value) => setCustomerDraft((draft) => ({ ...draft, [field.key]: value }))}
-                keyboardType={field.keyboard || "default"}
-                multiline={field.multiline}
-              />
-            </View>
-          ))}
-          {!!customerDraft.id && (
-            <View style={styles.inlineRecordEditor}>
-              <View style={styles.inlineActions}>
+          <Pressable
+            style={[styles.dropdownButton, (customerEditorOpen || !!customerDraft.id) && styles.selectorPillActive]}
+            onPress={() => setCustomerEditorOpen((open) => !open)}
+            disabled={loading || !!customerDraft.id}
+          >
+            <Text style={styles.selectorText}>
+              {customerDraft.id ? `Editing ${customerDraft.name || customerDraft.id}` : "Add new CRM account / lead"}
+            </Text>
+            <Text style={styles.dropdownChevron}>{customerEditorOpen || customerDraft.id ? "▲" : "▼"}</Text>
+          </Pressable>
+          {(customerEditorOpen || !!customerDraft.id) && (
+            <>
+              {customerFields.map((field) => (
+                <View key={field.key} style={styles.field}>
+                  <Text style={styles.label}>{field.label}</Text>
+                  <TextInput
+                    style={[styles.input, field.multiline && styles.textarea]}
+                    value={String(customerDraft[field.key] || "")}
+                    onChangeText={(value) => setCustomerDraft((draft) => ({ ...draft, [field.key]: value }))}
+                    keyboardType={field.keyboard || "default"}
+                    multiline={field.multiline}
+                  />
+                </View>
+              ))}
+              {!!customerDraft.id && (
+                <View style={styles.inlineRecordEditor}>
+                  <View style={styles.inlineActions}>
+                    <Pressable
+                      style={styles.smallButton}
+                      onPress={() => {
+                        openSiteVisitForCustomer(customerDraft as Customer);
+                      }}
+                      disabled={loading}
+                    >
+                      <Text style={styles.smallButtonText}>Add site report</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+              <Pressable style={styles.primaryButton} onPress={() => saveCustomer()} disabled={loading}>
+                <Text style={styles.primaryButtonText}>{customerDraft.id ? "Update customer" : "Save customer"}</Text>
+              </Pressable>
+              {!!customerDraft.id && (
                 <Pressable
-                  style={styles.smallButton}
+                  style={styles.secondaryButton}
                   onPress={() => {
-                    openSiteVisitForCustomer(customerDraft as Customer);
+                    setCustomerDraft(emptyCustomer);
+                    setCustomerEditorOpen(false);
+                    setSiteVisitEditorOpen(false);
                   }}
                   disabled={loading}
                 >
-                  <Text style={styles.smallButtonText}>Add site report</Text>
+                  <Text style={styles.secondaryButtonText}>Cancel edit</Text>
                 </Pressable>
-              </View>
-            </View>
-          )}
-          <Pressable style={styles.primaryButton} onPress={saveCustomer} disabled={loading}>
-            <Text style={styles.primaryButtonText}>{customerDraft.id ? "Update customer" : "Save customer"}</Text>
-          </Pressable>
-          {!!customerDraft.id && (
-            <Pressable
-              style={styles.secondaryButton}
-              onPress={() => {
-                setCustomerDraft(emptyCustomer);
-                setSiteVisitEditorOpen(false);
-              }}
-              disabled={loading}
-            >
-              <Text style={styles.secondaryButtonText}>Cancel edit</Text>
-            </Pressable>
+              )}
+            </>
           )}
         </View>
 
         <View style={styles.formCard}>
           <Text style={styles.cardLabel}>Sales enquiry intake</Text>
           <Text style={styles.muted}>New enquiries are captured in CRM using the same fields as the enquiry report.</Text>
+          <Pressable
+            style={[styles.dropdownButton, (salesInquiryEditorOpen || !!salesInquiryDraft.id) && styles.selectorPillActive]}
+            onPress={() => setSalesInquiryEditorOpen((open) => !open)}
+            disabled={loading || !!salesInquiryDraft.id}
+          >
+            <Text style={styles.selectorText}>
+              {salesInquiryDraft.id ? `Editing ${salesInquiryDraft.customer || salesInquiryDraft.enquiry_no || salesInquiryDraft.id}` : "Add new sales enquiry"}
+            </Text>
+            <Text style={styles.dropdownChevron}>{salesInquiryEditorOpen || salesInquiryDraft.id ? "▲" : "▼"}</Text>
+          </Pressable>
+          {(salesInquiryEditorOpen || !!salesInquiryDraft.id) && (
+            <>
           <View style={styles.formGrid}>
             <View style={styles.field}>
               <Text style={styles.label}>System customer ID</Text>
@@ -2624,9 +2892,18 @@ export default function App() {
             <Text style={styles.primaryButtonText}>{salesInquiryDraft.id ? "Update enquiry record" : "Save enquiry intake"}</Text>
           </Pressable>
           {!!salesInquiryDraft.id && (
-            <Pressable style={styles.secondaryButton} onPress={() => setSalesInquiryDraft(emptySalesInquiryDraft)} disabled={loading}>
+            <Pressable
+              style={styles.secondaryButton}
+              onPress={() => {
+                setSalesInquiryDraft(emptySalesInquiryDraft);
+                setSalesInquiryEditorOpen(false);
+              }}
+              disabled={loading}
+            >
               <Text style={styles.secondaryButtonText}>Cancel enquiry edit</Text>
             </Pressable>
+          )}
+            </>
           )}
         </View>
 
@@ -2733,9 +3010,11 @@ export default function App() {
                   >
                     <Text style={styles.smallButtonText}>{existingSiteVisit ? "Edit site visit" : "Start site visit"}</Text>
                   </Pressable>
-                  <Pressable style={styles.dangerButton} onPress={() => deleteCustomer(customer)} disabled={loading}>
-                    <Text style={styles.dangerButtonText}>Remove</Text>
-                  </Pressable>
+                  {isAdmin && (
+                    <Pressable style={styles.dangerButton} onPress={() => deleteCustomer(customer)} disabled={loading}>
+                      <Text style={styles.dangerButtonText}>Remove</Text>
+                    </Pressable>
+                  )}
                 </View>
               </View>
             );
@@ -2911,9 +3190,11 @@ export default function App() {
                     >
                       <Text style={styles.smallButtonText}>{existingSiteVisit ? "Edit site visit" : "Start site visit"}</Text>
                     </Pressable>
-                    <Pressable style={styles.dangerButton} onPress={() => deleteSalesInquiry(item)} disabled={loading}>
-                      <Text style={styles.dangerButtonText}>Remove</Text>
-                    </Pressable>
+                    {isAdmin && (
+                      <Pressable style={styles.dangerButton} onPress={() => deleteSalesInquiry(item)} disabled={loading}>
+                        <Text style={styles.dangerButtonText}>Remove</Text>
+                      </Pressable>
+                    )}
                   </View>
                 </>
               )}
@@ -3134,20 +3415,24 @@ export default function App() {
         </Modal>
 
         <Text style={styles.sectionTitle}>Saved Site Visits</Text>
-        {(data?.site_visits || []).map((visit) => (
-          <View key={visit.id} style={styles.card}>
-            <Text style={styles.cardTitle}>{visit.id} - {visit.customer_name || visit.customer_id}</Text>
-            <Text style={styles.muted}>{visit.customer_id} - {visit.address || "No address"}</Text>
-            <Text style={styles.bodyText}>Site: {visit.site_person_name || "Not set"} - {visit.site_person_mobile || "No mobile"}</Text>
-            <Text style={styles.bodyText}>Pit {visit.pit_size_mm || "-"} mm - Machine room {visit.machine_room_available || "N"}</Text>
-            <Text style={styles.bodyText}>Offer {visit.site_offer_type || "-"} - Stops {visit.site_stops || "-"}</Text>
-            {Array.isArray(visit.opening_schedule) && visit.opening_schedule.length ? (
-              <Text style={styles.muted}>
-                Openings: {visit.opening_schedule.map((row) => `${row.floor || "-"} FF ${row.ff_height_mm || "-"} / Lintel ${row.lintel_height_mm || "-"}`).join("; ")}
-              </Text>
-            ) : null}
-          </View>
-        ))}
+        {(data?.site_visits || []).map((visit) => {
+          const linkedCustomer = crmCustomerForSiteVisit(visit as Record<string, unknown>);
+          return (
+            <View key={visit.id} style={styles.card}>
+              <Text style={styles.cardTitle}>{visit.id} - {linkedCustomer?.name || visit.customer_name || visit.customer_id}</Text>
+              <Text style={styles.muted}>{visit.customer_id} - {linkedCustomer?.address || visit.address || "CRM customer address not set"}</Text>
+              {!linkedCustomer && <Text style={styles.statusPill}>Needs CRM customer link</Text>}
+              <Text style={styles.bodyText}>Site contact: {visit.site_person_name || linkedCustomer?.name || "Not set"} - {visit.site_person_mobile || linkedCustomer?.phone || "No mobile"}</Text>
+              <Text style={styles.bodyText}>Pit {visit.pit_size_mm || "-"} mm - Machine room {visit.machine_room_available || "N"}</Text>
+              <Text style={styles.bodyText}>Offer {visit.site_offer_type || "-"} - Stops {visit.site_stops || "-"}</Text>
+              {Array.isArray(visit.opening_schedule) && visit.opening_schedule.length ? (
+                <Text style={styles.muted}>
+                  Openings: {visit.opening_schedule.map((row) => `${row.floor || "-"} FF ${row.ff_height_mm || "-"} / Lintel ${row.lintel_height_mm || "-"}`).join("; ")}
+                </Text>
+              ) : null}
+            </View>
+          );
+        })}
       </View>
     );
   }
@@ -3234,17 +3519,20 @@ export default function App() {
         {renderSiteVisitEditorModal()}
 
         <Text style={styles.sectionTitle}>Saved Site Visits</Text>
-        {siteVisits.map((visit) => (
+        {siteVisits.map((visit) => {
+          const linkedCustomer = crmCustomerForSiteVisit(visit);
+          return (
           <View key={visit.id} style={styles.card}>
             <View style={styles.cardHeaderRow}>
               <View style={styles.cardTitleBlock}>
-                <Text style={styles.cardTitle}>{visit.id} - {visit.customer_name || visit.customer_id}</Text>
-                <Text style={styles.muted}>{visit.customer_id} - {visit.address || "No address"}</Text>
+                <Text style={styles.cardTitle}>{visit.id} - {linkedCustomer?.name || visit.customer_name || visit.customer_id}</Text>
+                <Text style={styles.muted}>{visit.customer_id} - {linkedCustomer?.address || visit.address || "CRM customer address not set"}</Text>
               </View>
               <Text style={styles.statusPill}>{visit.site_visit_date || "No date"}</Text>
             </View>
+            {!linkedCustomer && <Text style={styles.statusPill}>Needs CRM customer link</Text>}
             <Text style={styles.bodyText}>Staff: {visit.visited_by || visit.submitted_by || "Not set"}{visit.submitted_by_department ? ` - ${visit.submitted_by_department}` : ""}</Text>
-            <Text style={styles.bodyText}>Site: {visit.site_person_name || "Not set"} - {visit.site_person_mobile || "No mobile"}</Text>
+            <Text style={styles.bodyText}>Site contact: {visit.site_person_name || linkedCustomer?.name || "Not set"} - {visit.site_person_mobile || linkedCustomer?.phone || "No mobile"}</Text>
             <Text style={styles.bodyText}>Pit {visit.pit_size_mm || "-"} mm - Machine room {visit.machine_room_available || "N"} - Stops {visit.site_stops || "-"}</Text>
             {Array.isArray(visit.opening_schedule) && visit.opening_schedule.length ? (
               <Text style={styles.muted}>
@@ -3253,12 +3541,13 @@ export default function App() {
             ) : null}
             {!!visit.notes && <Text style={styles.bodyText}>{visit.notes}</Text>}
             <View style={styles.inlineActions}>
-              <Pressable style={styles.smallButton} onPress={() => openSiteVisitForCrmOption({ id: String(visit.customer_id || ""), name: String(visit.customer_name || visit.customer_id || ""), phone: String(visit.site_person_mobile || ""), source_inquiry_id: String(visit.site_enquiry_no || "") })} disabled={loading}>
+              <Pressable style={styles.smallButton} onPress={() => openSiteVisitForCrmOption({ id: String(visit.customer_id || ""), name: String(linkedCustomer?.name || visit.customer_name || visit.customer_id || ""), phone: String(linkedCustomer?.phone || visit.site_person_mobile || ""), address: String(linkedCustomer?.address || visit.address || ""), source_inquiry_id: String(visit.site_enquiry_no || linkedCustomer?.source_inquiry_id || "") })} disabled={loading || !linkedCustomer}>
                 <Text style={styles.smallButtonText}>Edit notes</Text>
               </Pressable>
             </View>
           </View>
-        ))}
+          );
+        })}
         {!siteVisits.length && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No site visits saved</Text>
@@ -3838,10 +4127,8 @@ export default function App() {
     switch (activeTab) {
       case "modules":
         return renderFeaturePage("Platform Modules", "Operating modules from the FUZI README are available in this Expo shell.", asRecords(data?.platform_modules), ["name"], [["owner"], ["status"], ["summary"]]);
-      case "fleet":
-        return renderFeaturePage("Fleet Monitor", "Live unit health, fault/watch status, and FSM signals.", asRecords(data?.fleet), ["unit", "id", "name"], [["status", "state"], ["location", "site"], ["ticket", "notes"]]);
       case "tickets":
-        return renderFeaturePage("Project Tickets", "Project-office tickets and SLA risk tracking.", asRecords(data?.project_tickets), ["title", "id"], [["project"], ["status"], ["owner"]]);
+        return renderProjectTicketBoard();
       case "projects":
         return renderFeaturePage("Projects", "Installation project progress and stage status.", asRecords(data?.install_jobs), ["job_id", "id"], [["customer"], ["site"], ["status"]]);
       case "installations":
@@ -3946,21 +4233,55 @@ export default function App() {
     }
   }
 
-  async function saveCustomer() {
+  async function saveCustomer(allowDuplicatePhone = false) {
     if (!customerDraft.name?.trim()) {
       const text = "Customer name is required.";
       Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
       return;
     }
+    const id = String(customerDraft.id || "");
+    const duplicate = !id && !allowDuplicatePhone ? findCustomerPhoneDuplicate(customerDraft.phone) : null;
+    if (duplicate) {
+      const duplicateName = duplicate.type === "customer"
+        ? String(duplicate.record.name || duplicate.record.contact_person || duplicate.record.id || "existing customer")
+        : String(duplicate.record.customer || duplicate.record.lead_name || duplicate.record.name || duplicate.record.customer_id || duplicate.record.id || "existing enquiry");
+      const duplicatePhone = String(duplicate.type === "customer" ? duplicate.record.phone || "" : duplicate.record.phone || duplicate.record.whatsapp_no || "");
+      const editExisting = () => {
+        if (duplicate.type === "customer") {
+          editCustomer(duplicate.record);
+        } else {
+          editSalesInquiry(duplicate.record);
+        }
+        setMessage(`Existing CRM record opened for ${duplicateName}${duplicatePhone ? ` (${duplicatePhone})` : ""}.`);
+      };
+      const addNew = () => {
+        void saveCustomer(true);
+      };
+      const promptText = `Phone ${duplicatePhone || customerDraft.phone} already exists for ${duplicateName}. Modify the existing CRM record?`;
+      if (Platform.OS === "web" && typeof globalThis.confirm === "function") {
+        if (globalThis.confirm(`${promptText}\n\nOK: modify existing record\nCancel: add this as a new customer`)) {
+          editExisting();
+        } else {
+          addNew();
+        }
+      } else {
+        Alert.alert("Phone already exists", promptText, [
+          { text: "Modify existing", onPress: editExisting },
+          { text: "Add new", style: "destructive", onPress: addNew },
+          { text: "Cancel", style: "cancel" },
+        ]);
+      }
+      return;
+    }
     setLoading(true);
     try {
-      const id = String(customerDraft.id || "");
       await apiFetch(id ? `/api/portal/customers/${encodeURIComponent(id)}` : "/api/portal/customers", {
         method: id ? "PATCH" : "POST",
         token,
         body: JSON.stringify(customerDraft),
       });
       setCustomerDraft(emptyCustomer);
+      setCustomerEditorOpen(false);
       await loadPortal();
       setMessage(id ? "Customer CRM record updated." : "Customer CRM record saved. Select that customer before adding a site visit report.");
     } catch (error) {
@@ -3976,6 +4297,12 @@ export default function App() {
       Platform.OS === "web" ? setMessage(text) : Alert.alert("Customer required", text);
       return;
     }
+    const linkedCustomer = crmCustomerForSiteVisit(siteVisitDraft as Record<string, unknown>);
+    if (!linkedCustomer) {
+      const text = "Site visits must be saved against a CRM customer. Select a customer from the CRM list before saving.";
+      Platform.OS === "web" ? setMessage(text) : Alert.alert("Customer required", text);
+      return;
+    }
     setLoading(true);
     try {
       const siteVisitId = String(siteVisitDraft.id || "");
@@ -3985,6 +4312,11 @@ export default function App() {
         token,
         body: JSON.stringify({
           ...siteVisitDraft,
+          customer_id: linkedCustomer.id,
+          customer_name: linkedCustomer.name,
+          address: linkedCustomer.address || "",
+          site_person_name: siteVisitDraft.site_person_name || linkedCustomer.name,
+          site_person_mobile: siteVisitDraft.site_person_mobile || linkedCustomer.phone || "",
           visited_by: siteVisitDraft.visited_by || viewer.display_name || username,
           submitted_by: viewer.display_name || username,
           submitted_by_username: viewer.username || username,
@@ -4178,6 +4510,7 @@ export default function App() {
         }),
       });
       setSalesInquiryDraft(emptySalesInquiryDraft);
+      setSalesInquiryEditorOpen(false);
       await loadPortal();
       setMessage(id ? "Enquiry record updated." : "Sales enquiry intake saved.");
     } catch (error) {
@@ -4217,6 +4550,7 @@ export default function App() {
     });
     setSiteVisitDraft((draft) => ({ ...draft, customer_id: customerId, site_enquiry_no: enquiryNo || draft.site_enquiry_no }));
     setSiteVisitEditorOpen(false);
+    setSalesInquiryEditorOpen(true);
     setMessage(`Editing enquiry ${String(record.enquiry_no || record.id || "")}. Site visit entry is ready for this customer.`);
   }
 
@@ -4240,6 +4574,10 @@ export default function App() {
   }
 
   async function deleteSalesInquiry(record: Record<string, unknown>) {
+    if (!isAdmin) {
+      setMessage("Only admin can remove CRM enquiry records.");
+      return;
+    }
     const id = recordIdentity(record) || String(record.enquiry_no || "");
     if (!id) return;
     setLoading(true);
@@ -4430,6 +4768,7 @@ export default function App() {
 
   function editCustomer(customer: Customer) {
     setCustomerDraft({ ...emptyCustomer, ...customer });
+    setCustomerEditorOpen(true);
     setSiteVisitDraft((draft) => ({ ...draft, customer_id: customer.id }));
     setSiteVisitEditorOpen(false);
     setActiveTab("customers");
@@ -4454,6 +4793,10 @@ export default function App() {
   }
 
   async function deleteCustomer(customer: Customer) {
+    if (!isAdmin) {
+      setMessage("Only admin can remove CRM customer records.");
+      return;
+    }
     setLoading(true);
     try {
       await apiFetch(`/api/portal/customers/${encodeURIComponent(customer.id)}`, {
@@ -4465,6 +4808,53 @@ export default function App() {
       setMessage(`${customer.name} removed from CRM.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Customer could not be removed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function downloadCrmData() {
+    if (!isAdmin) {
+      setMessage("Only admin can download CRM data.");
+      return;
+    }
+    if (Platform.OS !== "web") {
+      setMessage("CRM download is available from the web admin portal.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/portal/crm/export`, {
+        method: "GET",
+        credentials: "include",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        let message = `CRM download failed with ${response.status}.`;
+        try {
+          message = JSON.parse(errorText).message || message;
+        } catch {
+          if (errorText) message = errorText;
+        }
+        throw new Error(message);
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || `fuzi-crm-export-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setMessage("CRM data download started.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "CRM data could not be downloaded.");
     } finally {
       setLoading(false);
     }
@@ -4748,6 +5138,16 @@ export default function App() {
             next_available_at: scheduledAt,
           }),
         });
+      } else {
+        await apiFetch("/api/portal/breakdown-engineer-task", {
+          method: "PATCH",
+          token,
+          body: JSON.stringify({
+            engineer: engineerName,
+            current_job: id,
+            next_available_at: scheduledAt,
+          }),
+        });
       }
       setBreakdownScheduleDrafts((draft) => {
         const next = { ...draft };
@@ -4763,31 +5163,34 @@ export default function App() {
     }
   }
 
-  async function updateBreakdownEngineerTask(member: Record<string, unknown>, task: string) {
+  async function updateBreakdownEngineerTask(member: Record<string, unknown>, task: string, draftKey?: string) {
     const engineerName = String(member.name || "").trim();
-    const teamMember = asRecords(data?.install_team).find((item) => String(item.name || "").trim().toLowerCase() === engineerName.toLowerCase());
-    const teamMemberId = teamMember ? recordIdentity(teamMember) : "";
-    if (!teamMemberId) {
-      setMessage("Only saved install-team engineers can have their current task changed from Breakdown Portal.");
-      return;
-    }
+    if (!engineerName) return;
+    const nextTask = task.trim();
     setLoading(true);
     try {
-      await apiFetch(`/api/portal/install-team/${encodeURIComponent(teamMemberId)}`, {
+      await apiFetch("/api/portal/breakdown-engineer-task", {
         method: "PATCH",
         token,
         body: JSON.stringify({
-          current_job: task,
-          availability: task.trim() ? "Scheduled" : "Available",
+          engineer: engineerName,
+          current_job: nextTask,
         }),
       });
       setBreakdownEngineerTaskDrafts((draft) => {
         const next = { ...draft };
-        delete next[engineerName];
+        next[engineerName] = nextTask;
+        if (draftKey) next[draftKey] = nextTask;
         return next;
       });
       await loadPortal();
-      setMessage(task.trim() ? `${engineerName}'s current task updated.` : `${engineerName} marked available with no current task.`);
+      setBreakdownEngineerTaskDrafts((draft) => {
+        const next = { ...draft };
+        delete next[engineerName];
+        if (draftKey) delete next[draftKey];
+        return next;
+      });
+      setMessage(nextTask ? `${engineerName}'s current task updated to ${nextTask}.` : `${engineerName} marked available with no saved current task.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Engineer task could not be updated.");
     } finally {
@@ -5375,6 +5778,12 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 19, fontWeight: "900", color: "#11131b", marginTop: 10, marginBottom: 8 },
   metricGrid: { gap: 12 },
   card: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", padding: 16, marginBottom: 10, shadowColor: "#11131b", shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } },
+  kanbanBoard: { gap: 12, paddingVertical: 4, paddingRight: 12 },
+  kanbanColumn: { width: 292, minHeight: 360, borderRadius: 8, borderWidth: 1, borderColor: "#dfe4ed", backgroundColor: "#f8fafc", padding: 10, gap: 10 },
+  kanbanColumnHeader: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, borderBottomWidth: 1, borderBottomColor: "#e4e7ee", paddingBottom: 8 },
+  kanbanCard: { borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", backgroundColor: "#fff", padding: 12, gap: 6 },
+  kanbanEmpty: { minHeight: 82, borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", borderStyle: "dashed", backgroundColor: "#fff", padding: 12, justifyContent: "center" },
+  linkedSystemsPanel: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 10, marginTop: 8, gap: 4 },
   alertCard: { borderColor: "rgba(224,32,32,0.4)", backgroundColor: "#fffafa" },
   portalShortcut: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 2, borderColor: "#e02020", padding: 16, marginBottom: 10, gap: 6 },
   cardHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" },
