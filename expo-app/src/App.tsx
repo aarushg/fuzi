@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Linking,
   Modal,
   Platform,
@@ -570,6 +571,18 @@ const inquiryLifecycleStatuses = [
   "One Time Service",
 ];
 
+const projectDepartments = [
+  "Sales",
+  "Engineering",
+  "Operations",
+  "Project Management",
+  "Finance",
+  "Customer Success",
+  "Support",
+  "QA",
+  "Compliance",
+];
+
 function formatMoney(value?: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(value || 0);
 }
@@ -664,6 +677,7 @@ export default function App() {
   const [message, setMessage] = useState("");
   const [overviewStartDate, setOverviewStartDate] = useState(currentFiscalYearRange().start);
   const [overviewEndDate, setOverviewEndDate] = useState(currentFiscalYearRange().end);
+  const [projectNow, setProjectNow] = useState(() => Date.now());
   const [customerDraft, setCustomerDraft] = useState<Partial<Customer>>(emptyCustomer);
   const [customerEditorOpen, setCustomerEditorOpen] = useState(false);
   const [siteVisitDraft, setSiteVisitDraft] = useState<Partial<SiteVisit>>(emptySiteVisit);
@@ -684,6 +698,9 @@ export default function App() {
   const [hrDepartmentFilter, setHrDepartmentFilter] = useState("All");
   const [crmSearch, setCrmSearch] = useState("");
   const [crmStageFilter, setCrmStageFilter] = useState("All");
+  const [crmStaffFilter, setCrmStaffFilter] = useState("");
+  const [crmDepartmentFilter, setCrmDepartmentFilter] = useState("All");
+  const [crmTeamFilter, setCrmTeamFilter] = useState("All");
   const [customerPage, setCustomerPage] = useState(1);
   const [enquiryPage, setEnquiryPage] = useState(1);
   const [offerPage, setOfferPage] = useState(1);
@@ -715,6 +732,7 @@ export default function App() {
   const isWide = width >= 920;
   const asRecords = (value: unknown): Array<Record<string, unknown>> => (Array.isArray(value) ? (value as Array<Record<string, unknown>>) : []);
   const isAdmin = String(data?.viewer?.role || "").trim().toLowerCase() === "admin";
+  const normalizedKey = (value: unknown) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
   const visibleNavItems = useMemo(() => {
     const allowed = data?.access?.allowed_views;
     const roleFiltered = navItems.filter((item) => item.key !== "internationalVendor" || isAdmin);
@@ -783,6 +801,56 @@ export default function App() {
       return true;
     });
   }, [data]);
+  const customerStaffDirectory = useMemo(() => {
+    const usersByOrgNode = new Map(asRecords(data?.users).map((user) => [String(user.linked_org_node || ""), user]));
+    const usersByName = new Map(asRecords(data?.users).map((user) => [normalizedKey(user.display_name || user.username), user]));
+    const staff = [
+      ...asRecords(data?.org_chart).map((person) => {
+        const name = String(person.name || person.display_name || "").trim();
+        const linkedUser = usersByOrgNode.get(String(person.id || "")) || usersByName.get(normalizedKey(name));
+        return {
+          id: String(person.id || linkedUser?.id || linkedUser?.username || name),
+          name,
+          department: String(person.department || linkedUser?.department || "Unassigned"),
+          role: String(person.title || person.position || linkedUser?.title || linkedUser?.role || ""),
+          avatar_url: String(person.avatar_url || person.profile_avatar || linkedUser?.avatar_url || ""),
+        };
+      }),
+      ...asRecords(data?.users).map((user) => ({
+        id: String(user.linked_org_node || user.id || user.username || user.display_name || ""),
+        name: String(user.display_name || user.username || "").trim(),
+        department: String(user.department || "Unassigned"),
+        role: String(user.title || user.position || user.role || ""),
+        avatar_url: String(user.avatar_url || ""),
+      })),
+    ].filter((person) => person.id && person.name);
+    const seen = new Set<string>();
+    return staff.filter((person) => {
+      const key = normalizedKey(person.id || person.name);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).sort((a, b) => a.name.localeCompare(b.name));
+  }, [data]);
+  const customerAssignmentOptions = useMemo(() => {
+    const activeAssignments = asRecords(data?.customer_assignments).filter((item) => item.active_status !== false && String(item.active_status || "true").toLowerCase() !== "false");
+    const departments = new Set<string>();
+    const teams = new Set<string>();
+    activeAssignments.forEach((item) => {
+      const department = String(item.department || "").trim();
+      const role = String(item.role || item.position || "").trim();
+      if (department) departments.add(department);
+      if (role) teams.add(role);
+    });
+    customerStaffDirectory.forEach((person) => {
+      if (person.department) departments.add(person.department);
+      if (person.role) teams.add(person.role);
+    });
+    return {
+      departments: ["All", ...[...departments].sort()],
+      teams: ["All", ...[...teams].sort()],
+    };
+  }, [customerStaffDirectory, data?.customer_assignments]);
   const costingCellsPerStep = 80;
   const selectedCostingSource = costingSources[Math.min(costingSourceIndex, Math.max(costingSources.length - 1, 0))];
   const costingCellChunks = useMemo(() => {
@@ -1193,6 +1261,10 @@ export default function App() {
       renewals: asRecords(data?.renewals),
       siteVisits: asRecords(data?.site_visits),
       inventory: asRecords(data?.inventory),
+      customerAssignments: asRecords(data?.customer_assignments),
+      departmentAssignments: asRecords(data?.department_assignments),
+      timeTracking: asRecords(data?.time_tracking),
+      departmentHistory: asRecords(data?.department_history),
     };
     const today = new Date().toISOString().slice(0, 10);
     const startDate = overviewStartDate || currentFiscalYearRange().start;
@@ -1321,6 +1393,42 @@ export default function App() {
       { label: "Maintenance in loss", value: maintenanceLosses.length, detail: "AMC value below man-hours plus spare parts cost." },
     ];
     const availableEngineers = assignableStaff.filter((member) => staffAvailabilityInfo(member).availableNow).length;
+    const viewerNameKey = normalizedKey(data?.viewer?.display_name || data?.viewer?.username);
+    const viewerStaffKeys = new Set([
+      viewerNameKey,
+      normalizedKey(data?.viewer?.username),
+      normalizedKey(data?.viewer?.linked_org_node),
+      normalizedKey(data?.viewer?.linked_team_member),
+    ].filter(Boolean));
+    const viewerDepartment = String(data?.viewer?.department || "").trim();
+    const activeCustomerAssignments = records.customerAssignments.filter((item) => item.active_status !== false && String(item.active_status || "true").toLowerCase() !== "false");
+    const assignmentCustomer = (assignment: Record<string, unknown>) => (data?.customers || []).find((customer) => String(customer.id || "") === String(assignment.customer_id || ""));
+    const myAssignedCustomers = activeCustomerAssignments
+      .filter((item) => viewerStaffKeys.has(normalizedKey(item.staff_name)) || viewerStaffKeys.has(normalizedKey(item.staff_id)) || viewerStaffKeys.has(normalizedKey(item.assigned_by_username)))
+      .map((item) => ({ assignment: item, customer: assignmentCustomer(item) }))
+      .filter((item) => item.customer);
+    const departmentAssignedCustomers = activeCustomerAssignments
+      .filter((item) => viewerDepartment && String(item.department || "") === viewerDepartment)
+      .map((item) => ({ assignment: item, customer: assignmentCustomer(item) }))
+      .filter((item) => item.customer);
+    const activeDepartmentAssignments = records.departmentAssignments.filter((item) => item.active_status !== false && String(item.active_status || "true").toLowerCase() !== "false");
+    const myActiveProjects = activeDepartmentAssignments.filter((item) => {
+      const customerAssignments = activeCustomerAssignments.filter((assignment) => String(assignment.customer_id || "") === String(item.customer_id || ""));
+      return customerAssignments.some((assignment) => viewerStaffKeys.has(normalizedKey(assignment.staff_name)) || viewerStaffKeys.has(normalizedKey(assignment.staff_id)));
+    });
+    const todaysDate = today;
+    const hoursLoggedToday = records.timeTracking
+      .filter((item) => String(item.start_time || item.created_at || "").slice(0, 10) === todaysDate)
+      .filter((item) => !viewerStaffKeys.size || viewerStaffKeys.has(normalizedKey(item.staff_name)) || viewerStaffKeys.has(normalizedKey(item.staff_id)))
+      .reduce((sum, item) => sum + (Number(item.total_hours || 0) || projectHoursBetween(item.start_time, item.end_time || undefined)), 0);
+    const departmentQueue = activeDepartmentAssignments.filter((item) => viewerDepartment && String(item.department_id || "") === viewerDepartment);
+    const departmentCapacity = projectDepartments.map((department) => ({
+      department,
+      active: activeDepartmentAssignments.filter((item) => String(item.department_id || "") === department).length,
+      hours: activeDepartmentAssignments
+        .filter((item) => String(item.department_id || "") === department)
+        .reduce((sum, item) => sum + projectHoursBetween(item.entered_at || item.assigned_date), 0),
+    }));
     const activeStatuses = inquiryLifecycleStatuses.filter((status) => !status.toLowerCase().includes("lost"));
     const pipelineRows = activeStatuses.map((status) => ({
       status,
@@ -1417,6 +1525,65 @@ export default function App() {
               </View>
             </View>
           ))}
+        </View>
+
+        <Text style={styles.sectionTitle}>Assigned Customers</Text>
+        <View style={styles.metricGrid}>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>My customers</Text>
+            <Text style={styles.metricValue}>{myAssignedCustomers.length}</Text>
+            <Text style={styles.muted}>Customer records assigned to your staff profile.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Department customers</Text>
+            <Text style={styles.metricValue}>{departmentAssignedCustomers.length}</Text>
+            <Text style={styles.muted}>{viewerDepartment || "No department"} assignment coverage.</Text>
+          </View>
+        </View>
+        <View style={styles.analyticsPanel}>
+          {[...new Map([...myAssignedCustomers, ...departmentAssignedCustomers].map((item) => [String(item.customer?.id || item.assignment.customer_id || item.assignment.id), item])).values()].slice(0, 8).map((item, index) => (
+            <View key={`assigned-overview-${String(item.assignment.id || index)}`} style={styles.assignmentRow}>
+              <View style={styles.assignmentDetails}>
+                <Text style={styles.assignmentName}>{String(item.customer?.name || item.assignment.customer_id || "-")}</Text>
+                <Text style={styles.muted}>{String(item.assignment.staff_name || "-")} - {String(item.assignment.department || "-")} - {String(item.assignment.role || "-")}</Text>
+              </View>
+              {!!item.assignment.primary_owner && <Text style={styles.statusPill}>Primary</Text>}
+            </View>
+          ))}
+          {!myAssignedCustomers.length && !departmentAssignedCustomers.length && (
+            <Text style={styles.muted}>Assigned customer lists will appear here after managers assign staff to CRM accounts.</Text>
+          )}
+        </View>
+
+        <Text style={styles.sectionTitle}>Department Workflow</Text>
+        <View style={styles.metricGrid}>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>My active projects</Text>
+            <Text style={styles.metricValue}>{myActiveProjects.length}</Text>
+            <Text style={styles.muted}>Projects tied to customers assigned to your staff profile.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Hours logged today</Text>
+            <Text style={styles.metricValue}>{hoursLoggedToday.toFixed(1)}</Text>
+            <Text style={styles.muted}>Time entries recorded for your staff profile today.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Department queue</Text>
+            <Text style={styles.metricValue}>{departmentQueue.length}</Text>
+            <Text style={styles.muted}>{viewerDepartment || "No department"} active project queue.</Text>
+          </View>
+        </View>
+        <View style={styles.analyticsPanel}>
+          {departmentCapacity.filter((item) => item.active > 0).slice(0, 9).map((item) => (
+            <View key={`capacity-${item.department}`} style={styles.analyticsRow}>
+              <View style={styles.analyticsRowHeader}>
+                <Text style={styles.cardTitle}>{item.department}</Text>
+                <Text style={styles.statusPill}>{item.active} customers</Text>
+              </View>
+              <Text style={styles.muted}>{item.hours.toFixed(1)} live hours in department.</Text>
+            </View>
+          ))}
+          {!departmentCapacity.some((item) => item.active > 0) && <Text style={styles.muted}>Department workflow metrics will appear after customers enter department queues.</Text>}
         </View>
 
         <Text style={styles.sectionTitle}>Workload Analytics</Text>
@@ -1567,6 +1734,284 @@ export default function App() {
             );
           })}
         </ScrollView>
+      </View>
+    );
+  }
+
+  function projectHoursBetween(start: unknown, end?: unknown) {
+    const startMs = new Date(String(start || "")).getTime();
+    const endMs = end ? new Date(String(end || "")).getTime() : projectNow;
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return 0;
+    return Math.max(0, Number(((endMs - startMs) / 36e5).toFixed(1)));
+  }
+
+  function projectDaysFromHours(hours: number) {
+    return Number((hours / 24).toFixed(1));
+  }
+
+  function projectBusinessDays(start: unknown, end?: unknown) {
+    const startDate = new Date(String(start || ""));
+    const endDate = end ? new Date(String(end || "")) : new Date(projectNow);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 0;
+    let days = 0;
+    const cursor = new Date(startDate);
+    cursor.setHours(0, 0, 0, 0);
+    const finish = new Date(endDate);
+    finish.setHours(0, 0, 0, 0);
+    while (cursor <= finish) {
+      const day = cursor.getDay();
+      if (day !== 0 && day !== 6) days += 1;
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return days;
+  }
+
+  function projectSlaStatus(hours: number, priority: unknown) {
+    const normalized = String(priority || "Normal").toLowerCase();
+    const limit = normalized.includes("urgent") || normalized.includes("high") ? 48 : normalized.includes("low") ? 168 : 96;
+    if (hours > limit) return "Overdue";
+    if (hours > limit * 0.75) return "Warning";
+    return "On Track";
+  }
+
+  function projectSlaStyle(status: string) {
+    if (status === "Overdue") return styles.slaOverdue;
+    if (status === "Warning") return styles.slaWarning;
+    return styles.slaOnTrack;
+  }
+
+  function activeDepartmentAssignment(customer: Customer) {
+    const records = asRecords(data?.department_assignments)
+      .filter((item) => String(item.customer_id || "") === String(customer.id || ""))
+      .filter((item) => item.active_status !== false && String(item.active_status || "true").toLowerCase() !== "false")
+      .sort((a, b) => String(b.assigned_date || b.entered_at || "").localeCompare(String(a.assigned_date || a.entered_at || "")));
+    if (records[0]) return records[0];
+    const assigned = customerAssignmentRecords(customer.id)[0];
+    const department = String(assigned?.department || customer.primary_account_owner || "").trim();
+    if (!department) return null;
+    return {
+      id: `virtual-${customer.id}-${department}`,
+      customer_id: customer.id,
+      project_name: customer.name,
+      department_id: department,
+      department_owner: department,
+      status: customer.pipeline_stage || "Active",
+      priority: "Normal",
+      assigned_date: assigned?.assigned_date || customer.next_follow_up || customer.dpdp_consent_at || new Date().toISOString(),
+      entered_at: assigned?.assigned_date || customer.next_follow_up || customer.dpdp_consent_at || new Date().toISOString(),
+      active_status: true,
+    };
+  }
+
+  function projectHistoryForCustomer(customerId: unknown) {
+    const history = asRecords(data?.department_history).filter((item) => String(item.customer_id || "") === String(customerId || ""));
+    const active = asRecords(data?.department_assignments)
+      .filter((item) => String(item.customer_id || "") === String(customerId || ""))
+      .filter((item) => item.active_status !== false && String(item.active_status || "true").toLowerCase() !== "false")
+      .map((item) => ({
+        id: `active-${String(item.id || "")}`,
+        customer_id: item.customer_id,
+        department_id: item.department_id,
+        entered_at: item.entered_at || item.assigned_date,
+        exited_at: "",
+        duration_hours: projectHoursBetween(item.entered_at || item.assigned_date),
+      }));
+    return [...history, ...active].sort((a, b) => String(a.entered_at || "").localeCompare(String(b.entered_at || "")));
+  }
+
+  function projectStaffHours(customerId: unknown, departmentId?: unknown) {
+    return asRecords(data?.time_tracking)
+      .filter((item) => String(item.customer_id || "") === String(customerId || ""))
+      .filter((item) => !departmentId || String(item.department_id || "") === String(departmentId || ""))
+      .reduce((rows, item) => {
+        const key = String(item.staff_id || item.staff_name || "Unassigned");
+        const existing = rows.get(key) || {
+          staff_id: key,
+          staff_name: String(item.staff_name || item.staff_id || "Unassigned"),
+          department_id: String(item.department_id || ""),
+          hours: 0,
+          tasks: 0,
+          last_activity: "",
+        };
+        existing.hours += Number(item.total_hours || 0) || projectHoursBetween(item.start_time, item.end_time || undefined);
+        existing.tasks += Number(item.tasks_completed || 0);
+        existing.last_activity = [existing.last_activity, String(item.last_activity || item.updated_at || item.end_time || item.start_time || "")].sort().pop() || "";
+        rows.set(key, existing);
+        return rows;
+      }, new Map<string, { staff_id: string; staff_name: string; department_id: string; hours: number; tasks: number; last_activity: string }>());
+  }
+
+  async function moveCustomerDepartment(customer: Customer, department: string) {
+    setLoading(true);
+    try {
+      await apiFetch(`/api/portal/projects/customers/${encodeURIComponent(customer.id)}/department`, {
+        method: "PUT",
+        token,
+        body: JSON.stringify({
+          department,
+          project_name: customer.name,
+          status: customer.pipeline_stage || "Active",
+          priority: "Normal",
+        }),
+      });
+      await loadPortal();
+      setMessage(`${customer.name} moved to ${department}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Department move could not be saved.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function logProjectTime(customer: Customer, department: string) {
+    const staff = customerAssignmentRecords(customer.id)[0];
+    setLoading(true);
+    try {
+      await apiFetch("/api/portal/projects/time-tracking", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          customer_id: customer.id,
+          department_id: department,
+          staff_id: String(staff?.staff_id || ""),
+          staff_name: String(staff?.staff_name || ""),
+          start_time: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+          end_time: new Date().toISOString(),
+          tasks_completed: 1,
+          notes: "Manual one-hour project work entry",
+        }),
+      });
+      await loadPortal();
+      setMessage(`Logged 1 hour for ${customer.name}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Time entry could not be saved.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function renderDepartmentProjectDashboard() {
+    const customers = data?.customers || [];
+    const activeRows = customers.map((customer) => ({ customer, assignment: activeDepartmentAssignment(customer) })).filter((row) => row.assignment);
+    const totalHoursByDepartment = new Map<string, number>();
+    const activeCountByDepartment = new Map<string, number>();
+    activeRows.forEach(({ assignment }) => {
+      const department = String(assignment?.department_id || "Operations");
+      const hours = projectHoursBetween(assignment?.entered_at || assignment?.assigned_date);
+      totalHoursByDepartment.set(department, (totalHoursByDepartment.get(department) || 0) + hours);
+      activeCountByDepartment.set(department, (activeCountByDepartment.get(department) || 0) + 1);
+    });
+    const bottleneck = [...totalHoursByDepartment.entries()].sort((a, b) => b[1] - a[1])[0];
+    const overdueCount = activeRows.filter(({ assignment }) => projectSlaStatus(projectHoursBetween(assignment?.entered_at || assignment?.assigned_date), assignment?.priority) === "Overdue").length;
+    return (
+      <View>
+        <View style={styles.moduleHero}>
+          <Text style={styles.eyebrow}>Department Projects</Text>
+          <Text style={styles.moduleHeroTitle}>Customer Workflow by Department</Text>
+          <Text style={styles.moduleHeroText}>Track where each customer project sits, who owns it, elapsed department time, logged staff hours, SLA status, and historical movement.</Text>
+        </View>
+        <View style={styles.metricGrid}>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Active customers</Text>
+            <Text style={styles.metricValue}>{activeRows.length}</Text>
+            <Text style={styles.muted}>Customers currently visible in department queues.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Overdue projects</Text>
+            <Text style={styles.metricValue}>{overdueCount}</Text>
+            <Text style={styles.muted}>Based on priority SLA thresholds.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Bottleneck</Text>
+            <Text style={styles.metricValue}>{bottleneck?.[0] || "-"}</Text>
+            <Text style={styles.muted}>{bottleneck ? `${bottleneck[1].toFixed(1)} active hours in queue.` : "No department timing yet."}</Text>
+          </View>
+        </View>
+        <Text style={styles.sectionTitle}>Department Board</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.departmentBoard}>
+          {projectDepartments.map((department) => {
+            const rows = activeRows.filter(({ assignment }) => String(assignment?.department_id || "") === department);
+            const averageHours = rows.length ? rows.reduce((sum, row) => sum + projectHoursBetween(row.assignment?.entered_at || row.assignment?.assigned_date), 0) / rows.length : 0;
+            return (
+              <View key={`dept-${department}`} style={styles.departmentColumn}>
+                <View style={styles.kanbanColumnHeader}>
+                  <Text style={styles.cardTitle}>{department}</Text>
+                  <Text style={styles.statusPill}>{rows.length}</Text>
+                </View>
+                <Text style={styles.muted}>Avg {averageHours.toFixed(1)}h - Workload {activeCountByDepartment.get(department) || 0}</Text>
+                {!rows.length && (
+                  <View style={styles.kanbanEmpty}>
+                    <Text style={styles.muted}>No customers in this department.</Text>
+                  </View>
+                )}
+                {rows.map(({ customer, assignment }) => {
+                  const enteredAt = assignment?.entered_at || assignment?.assigned_date;
+                  const hours = projectHoursBetween(enteredAt);
+                  const history = projectHistoryForCustomer(customer.id);
+                  const staffHours = [...projectStaffHours(customer.id, department).values()];
+                  const totalProjectHours = [...projectStaffHours(customer.id).values()].reduce((sum, row) => sum + row.hours, 0) + history.reduce((sum, item) => sum + Number(item.duration_hours || 0), 0);
+                  const sla = projectSlaStatus(hours, assignment?.priority);
+                  const assignedTeam = customerAssignmentRecords(customer.id);
+                  return (
+                    <View key={`dept-card-${department}-${customer.id}`} style={styles.projectCustomerCard}>
+                      <View style={styles.cardHeaderRow}>
+                        <Text style={styles.cardTitle}>{customer.name}</Text>
+                        <Text style={[styles.statusPill, projectSlaStyle(sla)]}>{sla}</Text>
+                      </View>
+                      <Text style={styles.bodyText}>Project: {String(assignment?.project_name || customer.name || "-")}</Text>
+                      <Text style={styles.muted}>Status: {String(assignment?.status || customer.pipeline_stage || "Active")} - Priority: {String(assignment?.priority || "Normal")}</Text>
+                      <Text style={styles.bodyText}>Assigned: {assignedTeam.map((item) => `${String(item.staff_name || "-")} (${String(item.department || "-")})`).join(", ") || "-"}</Text>
+                      <Text style={styles.bodyText}>Department owner: {String(assignment?.department_owner || department)}</Text>
+                      <Text style={styles.bodyText}>Entered: {String(enteredAt || "-").slice(0, 10)} - Current time: {hours.toFixed(1)}h / {projectDaysFromHours(hours)}d / {projectBusinessDays(enteredAt)} business days</Text>
+                      <Text style={styles.bodyText}>Total logged hours: {staffHours.reduce((sum, row) => sum + row.hours, 0).toFixed(1)} - Total project duration: {totalProjectHours.toFixed(1)}h</Text>
+                      <Text style={styles.muted}>Last activity: {staffHours.map((row) => row.last_activity).sort().pop()?.slice(0, 10) || String(assignment?.updated_at || assignment?.assigned_date || "-").slice(0, 10)}</Text>
+                      <View style={styles.historyPanel}>
+                        <Text style={styles.cardLabel}>Department History</Text>
+                        {history.slice(-5).map((item, index) => (
+                          <Text key={`hist-${customer.id}-${index}`} style={styles.muted}>
+                            {String(item.department_id || "-")} - {String(item.entered_at || "-").slice(0, 10)} to {item.exited_at ? String(item.exited_at).slice(0, 10) : "Present"} - {Number(item.duration_hours || projectHoursBetween(item.entered_at, item.exited_at || undefined)).toFixed(1)}h
+                          </Text>
+                        ))}
+                        {!history.length && <Text style={styles.muted}>No completed movement history yet.</Text>}
+                      </View>
+                      <View style={styles.historyPanel}>
+                        <Text style={styles.cardLabel}>Staff Hours</Text>
+                        {staffHours.slice(0, 4).map((row) => (
+                          <Text key={`staff-hours-${customer.id}-${row.staff_id}`} style={styles.muted}>{row.staff_name} - {row.department_id} - {row.hours.toFixed(1)}h - {row.tasks} tasks - {row.last_activity.slice(0, 10) || "-"}</Text>
+                        ))}
+                        {!staffHours.length && <Text style={styles.muted}>No staff time entries logged.</Text>}
+                      </View>
+                      <View style={styles.inlineActions}>
+                        {projectDepartments.filter((next) => next !== department).slice(0, 5).map((next) => (
+                          <Pressable key={`move-${customer.id}-${next}`} style={styles.smallButton} onPress={() => moveCustomerDepartment(customer, next)} disabled={loading || !canManageCustomerAssignments()}>
+                            <Text style={styles.smallButtonText}>{next}</Text>
+                          </Pressable>
+                        ))}
+                        <Pressable style={styles.smallButton} onPress={() => logProjectTime(customer, department)} disabled={loading}>
+                          <Text style={styles.smallButtonText}>Log 1h</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            );
+          })}
+        </ScrollView>
+        <Text style={styles.sectionTitle}>Reports</Text>
+        <View style={styles.metricGrid}>
+          {projectDepartments.map((department) => {
+            const rows = activeRows.filter(({ assignment }) => String(assignment?.department_id || "") === department);
+            const total = totalHoursByDepartment.get(department) || 0;
+            return (
+              <View key={`report-${department}`} style={styles.card}>
+                <Text style={styles.cardLabel}>{department}</Text>
+                <Text style={styles.metricValue}>{rows.length}</Text>
+                <Text style={styles.muted}>Average duration {rows.length ? (total / rows.length).toFixed(1) : "0.0"}h - Total active hours {total.toFixed(1)}h.</Text>
+              </View>
+            );
+          })}
+        </View>
       </View>
     );
   }
@@ -3226,12 +3671,103 @@ export default function App() {
 
   function filteredCustomers() {
     const query = crmSearch.trim().toLowerCase();
+    const staffQuery = crmStaffFilter.trim().toLowerCase();
     return (data?.customers || []).filter((customer) => {
       const stage = customer.pipeline_stage || "Lead";
+      const assignments = customerAssignmentRecords(customer.id);
+      const assignmentText = assignments.map((assignment) => [
+        assignment.staff_name,
+        assignment.department,
+        assignment.role,
+      ].join(" ")).join(" ").toLowerCase();
       const stageOk = crmStageFilter === "All" || stage === crmStageFilter;
-      const queryOk = !query || JSON.stringify(customer).toLowerCase().includes(query);
-      return stageOk && queryOk;
+      const staffOk = !staffQuery || assignmentText.includes(staffQuery);
+      const departmentOk = crmDepartmentFilter === "All" || assignments.some((assignment) => String(assignment.department || "") === crmDepartmentFilter);
+      const teamOk = crmTeamFilter === "All" || assignments.some((assignment) => String(assignment.role || "") === crmTeamFilter);
+      const queryOk = !query || `${JSON.stringify(customer)} ${assignmentText}`.toLowerCase().includes(query);
+      return stageOk && staffOk && departmentOk && teamOk && queryOk;
     });
+  }
+
+  function canManageCustomerAssignments() {
+    const viewer = data?.viewer as Record<string, unknown> | undefined;
+    const role = String(viewer?.role || "").trim().toLowerCase();
+    const title = String(viewer?.title || viewer?.position || "").trim().toLowerCase();
+    return isAdmin || role.includes("manager") || role.includes("lead") || title.includes("manager") || title.includes("lead");
+  }
+
+  function customerAssignmentRecords(customerId: unknown) {
+    return asRecords(data?.customer_assignments)
+      .filter((assignment) => String(assignment.customer_id || "") === String(customerId || ""))
+      .filter((assignment) => assignment.active_status !== false && String(assignment.active_status || "true").toLowerCase() !== "false")
+      .sort((a, b) => {
+        const primaryDiff = Number(Boolean(b.primary_owner)) - Number(Boolean(a.primary_owner));
+        if (primaryDiff) return primaryDiff;
+        return String(a.staff_name || a.name || "").localeCompare(String(b.staff_name || b.name || ""));
+      });
+  }
+
+  function assignmentStaffKey(record: Record<string, unknown>) {
+    return normalizedKey(record.staff_id || record.id || record.staff_name || record.name);
+  }
+
+  function staffInitials(name: unknown) {
+    const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+    return (parts[0]?.[0] || "S").toUpperCase() + (parts[1]?.[0] || "").toUpperCase();
+  }
+
+  function assignmentPayloadFromRecords(records: Array<Record<string, unknown>>) {
+    return records.map((record, index) => ({
+      staff_id: String(record.staff_id || record.id || ""),
+      staff_name: String(record.staff_name || record.name || ""),
+      primary_owner: Boolean(record.primary_owner) || index === 0,
+    })).filter((record) => record.staff_id || record.staff_name);
+  }
+
+  async function saveCustomerAssignments(customer: Customer, assignments: Array<Record<string, unknown>>) {
+    setLoading(true);
+    try {
+      await apiFetch(`/api/portal/customers/${encodeURIComponent(customer.id)}/assignments`, {
+        method: "PUT",
+        token,
+        body: JSON.stringify({ assignments: assignmentPayloadFromRecords(assignments) }),
+      });
+      await loadPortal();
+      setMessage(`Assigned team updated for ${customer.name || customer.id}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Customer assignments could not be updated.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function toggleCustomerStaffAssignment(customer: Customer, staff: Record<string, unknown>) {
+    const assignments = customerAssignmentRecords(customer.id);
+    const staffKey = assignmentStaffKey(staff);
+    const exists = assignments.some((assignment) => assignmentStaffKey(assignment) === staffKey);
+    const nextAssignments = exists
+      ? assignments.filter((assignment) => assignmentStaffKey(assignment) !== staffKey)
+      : [
+        ...assignments,
+        {
+          staff_id: String(staff.id || staff.staff_id || ""),
+          staff_name: String(staff.name || staff.staff_name || ""),
+          primary_owner: assignments.length === 0,
+        },
+      ];
+    await saveCustomerAssignments(customer, nextAssignments.map((assignment, index) => ({
+      ...assignment,
+      primary_owner: Boolean(assignment.primary_owner) || index === 0,
+    })));
+  }
+
+  async function setPrimaryCustomerAssignment(customer: Customer, primary: Record<string, unknown>) {
+    const primaryKey = assignmentStaffKey(primary);
+    const assignments = customerAssignmentRecords(customer.id).map((assignment) => ({
+      ...assignment,
+      primary_owner: assignmentStaffKey(assignment) === primaryKey,
+    }));
+    await saveCustomerAssignments(customer, assignments);
   }
 
   function crmNameKey(value: unknown) {
@@ -3926,7 +4462,8 @@ export default function App() {
       const bReport = String(b.imported_from || b.source || "").includes("Offer Report") ? 1 : 0;
       return bReport - aReport;
     });
-    const visibleInquiries = inquiries.filter((item) => {
+    const assignmentFiltersActive = Boolean(crmStaffFilter.trim() || crmDepartmentFilter !== "All" || crmTeamFilter !== "All");
+    const visibleInquiries = assignmentFiltersActive ? [] : inquiries.filter((item) => {
       const query = crmSearch.trim().toLowerCase();
       return !query || JSON.stringify(item).toLowerCase().includes(query);
     });
@@ -4182,8 +4719,39 @@ export default function App() {
             style={styles.input}
             value={crmSearch}
             onChangeText={setCrmSearch}
-            placeholder="Search name, phone, GSTIN, owner, site, notes"
+            placeholder="Search name, phone, GSTIN, assigned staff, department, site, notes"
           />
+          <View style={styles.formGrid}>
+            <View style={styles.field}>
+              <Text style={styles.label}>Assigned staff search</Text>
+              <TextInput
+                style={styles.input}
+                value={crmStaffFilter}
+                onChangeText={setCrmStaffFilter}
+                placeholder="Employee name"
+              />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Department</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
+                {customerAssignmentOptions.departments.map((department) => (
+                  <Pressable key={`crm-dept-${department}`} style={[styles.smallButton, crmDepartmentFilter === department && styles.selectorPillActive]} onPress={() => setCrmDepartmentFilter(department)}>
+                    <Text style={styles.smallButtonText}>{department}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Team / position</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
+                {customerAssignmentOptions.teams.map((team) => (
+                  <Pressable key={`crm-team-${team}`} style={[styles.smallButton, crmTeamFilter === team && styles.selectorPillActive]} onPress={() => setCrmTeamFilter(team)}>
+                    <Text style={styles.smallButtonText}>{team}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
           <View style={styles.inlineActions}>
             {stages.map((stage) => (
               <Pressable key={stage} style={[styles.smallButton, crmStageFilter === stage && styles.selectorPillActive]} onPress={() => setCrmStageFilter(stage)}>
@@ -4249,6 +4817,9 @@ export default function App() {
             const latestMotor = latestMotorForCustomer(customer);
             const costingStatus = latestEstimate ? String(latestEstimate.status || latestEstimate.lead_status || "Costing") : "No costing";
             const customerSiteVisits = (data?.site_visits || []).filter((visit) => String(visit.customer_id || "") === String(customer.id || ""));
+            const assignedTeam = customerAssignmentRecords(customer.id);
+            const assignedStaffKeys = new Set(assignedTeam.map(assignmentStaffKey));
+            const canEditAssignments = canManageCustomerAssignments();
             return (
               <View key={`customer-${customer.id}`} style={styles.card}>
                 <View style={styles.cardHeaderRow}>
@@ -4263,6 +4834,65 @@ export default function App() {
                 )}
                 <Text style={styles.bodyText}>{customer.contact_person || "No contact"} - {customer.phone || "No mobile"} - {customer.email || "No email"}</Text>
                 <Text style={styles.bodyText}>Owner: {customer.account_owner || "-"} - Source: {customer.lead_source || "-"} - Channel: {customer.preferred_channel || "-"}</Text>
+                <View style={styles.assignedTeamPanel}>
+                  <View style={styles.cardHeaderRow}>
+                    <Text style={styles.cardLabel}>Assigned Team</Text>
+                    {!!assignedTeam.length && <Text style={styles.statusPill}>{assignedTeam.length} staff</Text>}
+                  </View>
+                  {assignedTeam.map((assignment) => {
+                    const name = String(assignment.staff_name || assignment.name || "-");
+                    const avatarUrl = String(assignment.avatar_url || "");
+                    return (
+                      <View key={`assignment-${String(assignment.id || assignment.staff_id || name)}`} style={styles.assignmentRow}>
+                        {avatarUrl ? (
+                          <Image source={{ uri: avatarUrl }} style={styles.assignmentAvatarImage} />
+                        ) : (
+                          <View style={styles.assignmentAvatar}>
+                            <Text style={styles.assignmentAvatarText}>{staffInitials(name)}</Text>
+                          </View>
+                        )}
+                        <View style={styles.assignmentDetails}>
+                          <Text style={styles.assignmentName}>{name} - {String(assignment.department || "Unassigned")}</Text>
+                          <Text style={styles.muted}>{String(assignment.role || assignment.position || "Role not set")}</Text>
+                        </View>
+                        {!!assignment.primary_owner && <Text style={styles.statusPill}>Primary</Text>}
+                        {canEditAssignments && !assignment.primary_owner && (
+                          <Pressable style={styles.smallButton} onPress={() => setPrimaryCustomerAssignment(customer, assignment)} disabled={loading}>
+                            <Text style={styles.smallButtonText}>Make primary</Text>
+                          </Pressable>
+                        )}
+                        {canEditAssignments && (
+                          <Pressable style={styles.dangerButton} onPress={() => toggleCustomerStaffAssignment(customer, assignment)} disabled={loading}>
+                            <Text style={styles.dangerButtonText}>Remove</Text>
+                          </Pressable>
+                        )}
+                      </View>
+                    );
+                  })}
+                  {!assignedTeam.length && <Text style={styles.muted}>No staff assigned yet.</Text>}
+                  {canEditAssignments ? (
+                    <View style={styles.assignmentPicker}>
+                      <Text style={styles.label}>Add or change staff</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
+                        {customerStaffDirectory.map((staff) => {
+                          const active = assignedStaffKeys.has(assignmentStaffKey(staff));
+                          return (
+                            <Pressable
+                              key={`assign-${customer.id}-${staff.id}`}
+                              style={[styles.selectorPill, active && styles.selectorPillActive]}
+                              onPress={() => toggleCustomerStaffAssignment(customer, staff)}
+                              disabled={loading}
+                            >
+                              <Text style={styles.selectorText}>{staff.name} - {staff.department}</Text>
+                            </Pressable>
+                          );
+                        })}
+                      </ScrollView>
+                    </View>
+                  ) : (
+                    <Text style={styles.muted}>Only Admin, Manager, or Team Lead users can change assignments.</Text>
+                  )}
+                </View>
                 <View style={styles.inlineActions}>
                   <Pressable style={styles.smallButton} onPress={() => editCustomer(customer)} disabled={loading}>
                     <Text style={styles.smallButtonText}>Edit</Text>
@@ -6307,7 +6937,7 @@ export default function App() {
       case "tickets":
         return renderProjectTicketBoard();
       case "projects":
-        return renderFeaturePage("Projects", "Installation project progress and stage status.", asRecords(data?.install_jobs), ["job_id", "id"], [["customer"], ["site"], ["status"]]);
+        return renderDepartmentProjectDashboard();
       case "installations":
         return renderFeaturePage("Installations", "Field installation jobs, active stages, and target handover data.", asRecords(data?.install_jobs), ["job_id", "id"], [["customer"], ["current_stage", "stage"], ["target_handover"]]);
       case "team":
@@ -7850,10 +8480,16 @@ export default function App() {
   }, [token, activeTab]);
 
   useEffect(() => {
+    if (!token || activeTab !== "projects") return;
+    const interval = setInterval(() => setProjectNow(Date.now()), 60000);
+    return () => clearInterval(interval);
+  }, [token, activeTab]);
+
+  useEffect(() => {
     setCustomerPage(1);
     setEnquiryPage(1);
     setOfferPage(1);
-  }, [crmSearch, crmStageFilter, data?.customers?.length]);
+  }, [crmSearch, crmStageFilter, crmStaffFilter, crmDepartmentFilter, crmTeamFilter, data?.customers?.length]);
 
   useEffect(() => {
     setInternationalVendorPage(1);
@@ -8105,12 +8741,27 @@ const styles = StyleSheet.create({
   kanbanColumnHeader: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, borderBottomWidth: 1, borderBottomColor: "#e4e7ee", paddingBottom: 8 },
   kanbanCard: { borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", backgroundColor: "#fff", padding: 12, gap: 6 },
   kanbanEmpty: { minHeight: 82, borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", borderStyle: "dashed", backgroundColor: "#fff", padding: 12, justifyContent: "center" },
+  departmentBoard: { gap: 12, paddingVertical: 4, paddingRight: 12 },
+  departmentColumn: { width: 340, minHeight: 420, borderRadius: 8, borderWidth: 1, borderColor: "#dfe4ed", backgroundColor: "#f8fafc", padding: 10, gap: 10 },
+  projectCustomerCard: { borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", backgroundColor: "#fff", padding: 12, gap: 7 },
+  historyPanel: { borderTopWidth: 1, borderTopColor: "#e4e7ee", paddingTop: 8, marginTop: 6, gap: 3 },
+  slaOnTrack: { color: "#0f766e", backgroundColor: "#ecfdf5", borderColor: "rgba(15,118,110,0.2)" },
+  slaWarning: { color: "#925f00", backgroundColor: "#fff8e5", borderColor: "rgba(146,95,0,0.24)" },
+  slaOverdue: { color: "#7a2630", backgroundColor: "#fff1f2", borderColor: "rgba(122,38,48,0.25)" },
   analyticsPanel: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", padding: 14, gap: 12, marginBottom: 10 },
   analyticsRow: { gap: 7 },
   analyticsRowHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
   analyticsBarTrack: { height: 10, borderRadius: 999, backgroundColor: "#eef1f5", overflow: "hidden" },
   analyticsBarFill: { height: "100%", borderRadius: 999, backgroundColor: "#e02020" },
   linkedSystemsPanel: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 10, marginTop: 8, gap: 4 },
+  assignedTeamPanel: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 12, gap: 10, marginTop: 12 },
+  assignmentRow: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", borderTopWidth: 1, borderTopColor: "#e4e7ee", paddingTop: 10 },
+  assignmentAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#11131b", alignItems: "center", justifyContent: "center" },
+  assignmentAvatarImage: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#e4e7ee" },
+  assignmentAvatarText: { color: "#fff", fontSize: 12, fontWeight: "900" },
+  assignmentDetails: { flex: 1, minWidth: 190 },
+  assignmentName: { color: "#11131b", fontSize: 14, fontWeight: "900" },
+  assignmentPicker: { borderTopWidth: 1, borderTopColor: "#e4e7ee", paddingTop: 10, gap: 4 },
   alertCard: { borderColor: "rgba(224,32,32,0.4)", backgroundColor: "#fffafa" },
   portalShortcut: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 2, borderColor: "#e02020", padding: 16, marginBottom: 10, gap: 6 },
   cardHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" },

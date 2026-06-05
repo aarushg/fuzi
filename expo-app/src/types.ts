@@ -30,6 +30,9 @@ export type Customer = {
   dlt_reference?: string;
   consent_notes?: string;
   notes?: string;
+  assigned_staff_ids?: string[];
+  assigned_team_summary?: string;
+  primary_account_owner?: string;
 };
 
 export type SiteVisit = {
@@ -171,6 +174,10 @@ export type PortalData = {
   work_orders?: Array<Record<string, unknown>>;
   international_vendors?: Array<Record<string, unknown>>;
   marketing_assets?: Array<Record<string, unknown>>;
+  customer_assignments?: Array<Record<string, unknown>>;
+  department_assignments?: Array<Record<string, unknown>>;
+  time_tracking?: Array<Record<string, unknown>>;
+  department_history?: Array<Record<string, unknown>>;
   attendance_today?: Array<Record<string, unknown>>;
   org_chart?: Array<Record<string, unknown>>;
   leave_requests?: Array<Record<string, unknown>>;

@@ -70,6 +70,10 @@ const writeAppSecretStmt = db.prepare(`
 const listFiles = {
   users: "users.json",
   customers: "customers.json",
+  customer_assignments: "customer_assignments.json",
+  department_assignments: "department_assignments.json",
+  time_tracking: "time_tracking.json",
+  department_history: "department_history.json",
   site_visits: "site_visits.json",
   estimates: "estimates.json",
   inventory: "inventory.json",
@@ -185,6 +189,12 @@ function isAdminUser(user = {}) {
   return String(user.role || "").trim().toLowerCase() === "admin";
 }
 
+function canManageCustomerAssignments(user = {}) {
+  const role = String(user.role || "").trim().toLowerCase();
+  const title = String(user.title || user.position || "").trim().toLowerCase();
+  return isAdminUser(user) || role.includes("manager") || role.includes("lead") || title.includes("manager") || title.includes("lead");
+}
+
 function makeWerkzeugScryptHash(password) {
   const salt = crypto.randomBytes(16).toString("base64url");
   const N = 32768;
@@ -213,6 +223,56 @@ function slugName(name) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ".")
     .replace(/^\.+|\.+$/g, "");
+}
+
+function staffLookupKey(value = "") {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function isActiveAssignment(record = {}) {
+  return record.active_status !== false && String(record.active_status || "true").toLowerCase() !== "false";
+}
+
+async function staffDirectory() {
+  const [orgChart, users] = await Promise.all([
+    readJson(listFiles.org_chart, []),
+    readJson(listFiles.users, [])
+  ]);
+  const usersByOrgNode = new Map(users.map((user) => [String(user.linked_org_node || "").trim(), user]));
+  const usersByName = new Map(users.map((user) => [staffLookupKey(user.display_name || user.username), user]));
+  const records = [];
+  for (const person of orgChart) {
+    const name = String(person.name || "").trim();
+    if (!name) continue;
+    const id = String(person.id || name).trim();
+    const linkedUser = usersByOrgNode.get(id) || usersByName.get(staffLookupKey(name));
+    records.push({
+      id,
+      user_id: String(linkedUser?.id || ""),
+      username: String(linkedUser?.username || ""),
+      name,
+      department: String(person.department || linkedUser?.department || "").trim(),
+      role: String(person.title || linkedUser?.role || "").trim(),
+      avatar_url: String(person.avatar_url || person.photo_url || linkedUser?.avatar_url || ""),
+      active: linkedUser?.active !== false
+    });
+  }
+  for (const user of users) {
+    const name = String(user.display_name || user.username || "").trim();
+    const id = String(user.linked_org_node || user.id || user.username || name).trim();
+    if (!name || records.some((record) => record.id === id || staffLookupKey(record.name) === staffLookupKey(name))) continue;
+    records.push({
+      id,
+      user_id: String(user.id || ""),
+      username: String(user.username || ""),
+      name,
+      department: String(user.department || "").trim(),
+      role: String(user.role || "").trim(),
+      avatar_url: String(user.avatar_url || ""),
+      active: user.active !== false
+    });
+  }
+  return records;
 }
 
 function isDepartmentHead(person) {
@@ -251,12 +311,13 @@ function accessForUser(user = {}) {
 }
 
 const viewDataKeys = {
+  overview: ["customers", "customer_assignments", "department_assignments", "time_tracking", "department_history", "org_chart", "users"],
   modules: ["platform_modules"],
-  customers: ["customers", "customer_users", "sales_inquiries", "estimates", "payments", "site_visits"],
+  customers: ["customers", "customer_assignments", "customer_users", "sales_inquiries", "estimates", "payments", "site_visits"],
   offerManager: ["customers", "sales_inquiries", "estimates"],
   marketing: ["marketing_assets", "customers", "estimates", "international_vendors"],
   tickets: ["project_tickets"],
-  projects: ["projects", "install_jobs"],
+  projects: ["projects", "install_jobs", "customers", "customer_assignments", "department_assignments", "time_tracking", "department_history", "org_chart", "users"],
   installations: ["installations", "install_jobs"],
   team: ["install_team", "install_jobs"],
   accounts: ["users"],
@@ -282,7 +343,7 @@ const viewDataKeys = {
 
 const restrictedPayloadKeys = [
   "projects", "installations", "renewals", "work_orders", "project_tickets", "install_jobs", "install_team",
-  "users", "customers", "site_visits", "platform_modules", "inventory", "inventory_insights", "org_chart", "attendance_today",
+  "users", "customers", "customer_assignments", "department_assignments", "time_tracking", "department_history", "site_visits", "platform_modules", "inventory", "inventory_insights", "org_chart", "attendance_today",
   "leave_requests", "estimates", "payments", "customer_users", "sales_inquiries", "sales_admin_panel", "breakdowns", "service_records",
   "gad_records", "commissionings", "factory_jobs", "tenders", "international_vendors", "marketing_assets", "dept_comms"
 ];
@@ -3281,6 +3342,10 @@ function portalData(collections, user) {
     install_team: collections.install_team,
     users: collections.users.map(publicUser),
     customers: collections.customers,
+    customer_assignments: collections.customer_assignments,
+    department_assignments: collections.department_assignments,
+    time_tracking: collections.time_tracking,
+    department_history: collections.department_history,
     site_visits: collections.site_visits,
     platform_modules: platformModules,
     inventory: Array.isArray(collections.inventory) ? collections.inventory.map(normalizeInventoryItem) : [],
@@ -3825,6 +3890,260 @@ app.post("/api/portal/customers", authRequired, async (req, res) => {
   customers.unshift(customer);
   await writeJson(listFiles.customers, customers);
   res.json({ ok: true, customer, message: `${name} saved.` });
+});
+
+app.put("/api/portal/customers/:id/assignments", authRequired, async (req, res) => {
+  if (!canManageCustomerAssignments(req.user)) {
+    return res.status(403).json({ ok: false, message: "Only Admin, Manager, or Team Lead users can modify customer assignments." });
+  }
+  const customerId = String(req.params.id || "").trim();
+  const customers = await readJson(listFiles.customers, []);
+  const customer = customers.find((item) => String(item.id || "").trim() === customerId);
+  if (!customer) return res.status(404).json({ ok: false, message: "Customer not found." });
+
+  const requested = Array.isArray(req.body?.assignments) ? req.body.assignments : [];
+  const directory = await staffDirectory();
+  const directoryById = new Map(directory.map((staff) => [staff.id, staff]));
+  const directoryByName = new Map(directory.map((staff) => [staffLookupKey(staff.name), staff]));
+  const seen = new Set();
+  const nextActive = [];
+  for (const item of requested) {
+    const staffId = String(item?.staff_id || item?.id || "").trim();
+    const staffName = String(item?.staff_name || item?.name || "").trim();
+    const staff = directoryById.get(staffId) || directoryByName.get(staffLookupKey(staffName));
+    if (!staff || seen.has(staff.id)) continue;
+    seen.add(staff.id);
+    nextActive.push({
+      staff_id: staff.id,
+      staff_name: staff.name,
+      department: staff.department,
+      role: staff.role,
+      avatar_url: staff.avatar_url,
+      primary_owner: Boolean(item?.primary_owner)
+    });
+  }
+  if (nextActive.length && !nextActive.some((item) => item.primary_owner)) nextActive[0].primary_owner = true;
+
+  const now = new Date().toISOString();
+  const assignments = await readJson(listFiles.customer_assignments, []);
+  const activeForCustomer = assignments.filter((item) => String(item.customer_id || "") === customerId && isActiveAssignment(item));
+  const nextStaffIds = new Set(nextActive.map((item) => item.staff_id));
+  const nextAssignments = assignments.map((item) => {
+    if (String(item.customer_id || "") !== customerId || !isActiveAssignment(item)) return item;
+    if (!nextStaffIds.has(String(item.staff_id || ""))) {
+      return {
+        ...item,
+        active_status: false,
+        removed_by: req.user?.username || req.user?.display_name || "",
+        removed_date: now,
+        updated_at: now
+      };
+    }
+    return item;
+  });
+  for (const staff of nextActive) {
+    const existing = activeForCustomer.find((item) => String(item.staff_id || "") === staff.staff_id);
+    if (existing) {
+      const index = nextAssignments.findIndex((item) => String(item.id || "") === String(existing.id || ""));
+      if (index >= 0) {
+        nextAssignments[index] = {
+          ...nextAssignments[index],
+          staff_name: staff.staff_name,
+          department: staff.department,
+          role: staff.role,
+          avatar_url: staff.avatar_url,
+          primary_owner: staff.primary_owner,
+          updated_at: now
+        };
+      }
+      continue;
+    }
+    nextAssignments.unshift({
+      id: nextId(nextAssignments, "CTA"),
+      customer_id: customerId,
+      staff_id: staff.staff_id,
+      staff_name: staff.staff_name,
+      department: staff.department,
+      role: staff.role,
+      avatar_url: staff.avatar_url,
+      primary_owner: staff.primary_owner,
+      assigned_by: req.user?.display_name || req.user?.username || "",
+      assigned_by_username: req.user?.username || "",
+      assigned_date: now,
+      active_status: true,
+      created_at: now,
+      updated_at: now
+    });
+  }
+  const activeRecords = nextAssignments
+    .filter((item) => String(item.customer_id || "") === customerId && isActiveAssignment(item))
+    .sort((a, b) => Number(Boolean(b.primary_owner)) - Number(Boolean(a.primary_owner)) || String(a.staff_name || "").localeCompare(String(b.staff_name || "")));
+
+  const customerIndex = customers.findIndex((item) => String(item.id || "").trim() === customerId);
+  customers[customerIndex] = {
+    ...customers[customerIndex],
+    assigned_staff_ids: activeRecords.map((item) => item.staff_id),
+    assigned_team_summary: activeRecords.map((item) => `${item.staff_name}${item.department ? ` - ${item.department}` : ""}`).join("; "),
+    primary_account_owner: activeRecords.find((item) => item.primary_owner)?.staff_name || activeRecords[0]?.staff_name || "",
+    updated_at: now
+  };
+
+  await Promise.all([
+    writeJson(listFiles.customer_assignments, nextAssignments),
+    writeJson(listFiles.customers, customers)
+  ]);
+  res.json({ ok: true, customer: customers[customerIndex], assignments: activeRecords });
+});
+
+function departmentDurationHours(start, end = new Date().toISOString()) {
+  const startDate = new Date(String(start || ""));
+  const endDate = new Date(String(end || ""));
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 0;
+  return Math.max(0, Number(((endDate.getTime() - startDate.getTime()) / 36e5).toFixed(2)));
+}
+
+function departmentBusinessDays(start, end = new Date().toISOString()) {
+  const startDate = new Date(String(start || ""));
+  const endDate = new Date(String(end || ""));
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 0;
+  let days = 0;
+  const cursor = new Date(startDate);
+  cursor.setHours(0, 0, 0, 0);
+  const finish = new Date(endDate);
+  finish.setHours(0, 0, 0, 0);
+  while (cursor <= finish) {
+    const day = cursor.getDay();
+    if (day !== 0 && day !== 6) days += 1;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return days;
+}
+
+app.put("/api/portal/projects/customers/:id/department", authRequired, async (req, res) => {
+  if (!canManageCustomerAssignments(req.user)) {
+    return res.status(403).json({ ok: false, message: "Only Admin, Manager, or Team Lead users can move customer projects between departments." });
+  }
+  const customerId = String(req.params.id || "").trim();
+  const nextDepartment = String(req.body?.department_id || req.body?.department || "").trim();
+  if (!nextDepartment) return res.status(400).json({ ok: false, message: "Department is required." });
+  const now = new Date().toISOString();
+  const [customers, assignments, timeEntries, history] = await Promise.all([
+    readJson(listFiles.customers, []),
+    readJson(listFiles.department_assignments, []),
+    readJson(listFiles.time_tracking, []),
+    readJson(listFiles.department_history, [])
+  ]);
+  const customer = customers.find((item) => String(item.id || "") === customerId);
+  if (!customer) return res.status(404).json({ ok: false, message: "Customer not found." });
+  const active = assignments.find((item) => String(item.customer_id || "") === customerId && isActiveAssignment(item));
+  if (active && String(active.department_id || "") === nextDepartment) {
+    return res.json({ ok: true, assignment: active, history: history.filter((item) => String(item.customer_id || "") === customerId) });
+  }
+  const nextAssignments = assignments.map((item) => {
+    if (String(item.customer_id || "") !== customerId || !isActiveAssignment(item)) return item;
+    return {
+      ...item,
+      active_status: false,
+      completed_date: now,
+      exited_at: now,
+      total_hours: departmentDurationHours(item.assigned_date || item.entered_at, now),
+      business_days: departmentBusinessDays(item.assigned_date || item.entered_at, now),
+      updated_at: now
+    };
+  });
+  if (active) {
+    history.unshift({
+      id: nextId(history, "DH"),
+      customer_id: customerId,
+      department_id: String(active.department_id || active.department || ""),
+      entered_at: active.assigned_date || active.entered_at || active.created_at || now,
+      exited_at: now,
+      duration_hours: departmentDurationHours(active.assigned_date || active.entered_at || active.created_at, now),
+      business_days: departmentBusinessDays(active.assigned_date || active.entered_at || active.created_at, now),
+      moved_by: req.user?.username || "",
+      created_at: now
+    });
+  }
+  const nextAssignment = {
+    id: nextId(nextAssignments, "DA"),
+    customer_id: customerId,
+    project_name: String(req.body?.project_name || customer.project_name || customer.name || "").trim(),
+    department_id: nextDepartment,
+    department_owner: String(req.body?.department_owner || "").trim(),
+    status: String(req.body?.status || "Active").trim(),
+    priority: String(req.body?.priority || "Normal").trim(),
+    assigned_by: req.user?.display_name || req.user?.username || "",
+    assigned_by_username: req.user?.username || "",
+    assigned_date: now,
+    entered_at: now,
+    completed_date: "",
+    total_hours: 0,
+    active_status: true,
+    created_at: now,
+    updated_at: now
+  };
+  nextAssignments.unshift(nextAssignment);
+  const nextTimeEntries = timeEntries.map((item) => {
+    if (String(item.customer_id || "") !== customerId || !isActiveAssignment(item) || item.end_time) return item;
+    return {
+      ...item,
+      end_time: now,
+      total_hours: departmentDurationHours(item.start_time, now),
+      active_status: false,
+      updated_at: now
+    };
+  });
+  nextTimeEntries.unshift({
+    id: nextId(nextTimeEntries, "TT"),
+    customer_id: customerId,
+    department_id: nextDepartment,
+    staff_id: String(req.body?.staff_id || ""),
+    staff_name: String(req.body?.staff_name || ""),
+    start_time: now,
+    end_time: "",
+    total_hours: 0,
+    tasks_completed: Number(req.body?.tasks_completed || 0),
+    last_activity: now,
+    active_status: true,
+    created_at: now,
+    updated_at: now
+  });
+  await Promise.all([
+    writeJson(listFiles.department_assignments, nextAssignments),
+    writeJson(listFiles.time_tracking, nextTimeEntries),
+    writeJson(listFiles.department_history, history)
+  ]);
+  res.json({ ok: true, assignment: nextAssignment, history: history.filter((item) => String(item.customer_id || "") === customerId) });
+});
+
+app.post("/api/portal/projects/time-tracking", authRequired, async (req, res) => {
+  const customerId = String(req.body?.customer_id || "").trim();
+  const departmentId = String(req.body?.department_id || req.body?.department || "").trim();
+  const staffId = String(req.body?.staff_id || "").trim();
+  if (!customerId || !departmentId) return res.status(400).json({ ok: false, message: "Customer and department are required." });
+  const now = new Date().toISOString();
+  const records = await readJson(listFiles.time_tracking, []);
+  const startTime = String(req.body?.start_time || now).trim();
+  const endTime = String(req.body?.end_time || "").trim();
+  const record = {
+    id: nextId(records, "TT"),
+    customer_id: customerId,
+    department_id: departmentId,
+    staff_id: staffId,
+    staff_name: String(req.body?.staff_name || "").trim(),
+    start_time: startTime,
+    end_time: endTime,
+    total_hours: endTime ? departmentDurationHours(startTime, endTime) : Number(req.body?.total_hours || 0),
+    tasks_completed: Number(req.body?.tasks_completed || 0),
+    last_activity: String(req.body?.last_activity || now).trim(),
+    notes: String(req.body?.notes || "").trim(),
+    active_status: !endTime,
+    created_at: now,
+    updated_at: now
+  };
+  records.unshift(record);
+  await writeJson(listFiles.time_tracking, records);
+  res.json({ ok: true, record });
 });
 
 app.post("/api/portal/users", authRequired, async (req, res) => {
