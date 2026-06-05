@@ -70,6 +70,9 @@ Common environment variables:
 | `FUZI_WEB_PUBLISHED_PORT` | `8082` | Docker host port for Web |
 | `FUZI_DB_PATH` | `/data/fuzi.sqlite3` in Compose | API |
 | `EXPO_PUBLIC_FUZI_API_URL` | `http://127.0.0.1:5000` | Web |
+| `EXPO_PUBLIC_FUZI_API_PROTOCOL` | `http` | Web |
+| `EXPO_PUBLIC_FUZI_API_HOST` | `127.0.0.1` | Web |
+| `EXPO_PUBLIC_FUZI_API_PORT` | `FUZI_API_PUBLISHED_PORT` in Compose, otherwise `5000` | Web |
 | `FUZI_OPENCLAW_URL` | `http://host.docker.internal:18789/` in Compose | API integrations |
 
 Build and run both services:
@@ -134,6 +137,9 @@ Development URLs:
 
 API base URL:
 - Web and local development default to `http://127.0.0.1:5000`.
+- `EXPO_PUBLIC_FUZI_API_URL` can override the full API origin.
+- To configure only the `host:port` part, set `EXPO_PUBLIC_FUZI_API_HOST` and `EXPO_PUBLIC_FUZI_API_PORT`, for example `a` and `b` builds `http://a:b`.
+- In Docker Compose, `EXPO_PUBLIC_FUZI_API_PORT` defaults to `FUZI_API_PUBLISHED_PORT`, so changing the published API port also changes the web app API origin.
 - Android emulator automatically maps that to `http://10.0.2.2:5000`.
 - For a real Android phone, start the Node API on your LAN interface and run Expo with:
 
