@@ -24,6 +24,7 @@ type TabKey =
   | "modules"
   | "customers"
   | "offerManager"
+  | "marketing"
   | "tickets"
   | "projects"
   | "installations"
@@ -76,6 +77,7 @@ const navItems: Array<{ key: TabKey; label: string; icon: string }> = [
   { key: "modules", label: "Platform Modules", icon: "▦" },
   { key: "customers", label: "Customers", icon: "◉" },
   { key: "offerManager", label: "Offer Manager", icon: "▥" },
+  { key: "marketing", label: "Marketing Platform", icon: "✦" },
   { key: "tickets", label: "Project Tickets", icon: "✓" },
   { key: "projects", label: "Projects", icon: "◇" },
   { key: "installations", label: "Installations", icon: "⇧" },
@@ -99,20 +101,18 @@ const navItems: Array<{ key: TabKey; label: string; icon: string }> = [
   { key: "comms", label: "Dept Comms", icon: "☰" },
 ];
 
-const sharedPortalPassword = process.env.EXPO_PUBLIC_FUZI_PORTAL_PASSWORD || "Fuzi@2026!Portal";
-
 const quickLoginAccounts = [
-  { label: "Admin", username: "admin", password: sharedPortalPassword },
-  { label: "CEO", username: "atul.singhal", password: sharedPortalPassword },
-  { label: "Installation Head", username: "ashwani.kumar", password: sharedPortalPassword },
-  { label: "Breakdown Head", username: "bhanwar.choudhary", password: sharedPortalPassword },
-  { label: "Service Head", username: "jitendra.choudhary", password: sharedPortalPassword },
-  { label: "GAD Head", username: "diyanshu.bansal", password: sharedPortalPassword },
-  { label: "Accounts Head", username: "sandeep.sharma", password: sharedPortalPassword },
-  { label: "Commissioning Head", username: "vishram.kumawat", password: sharedPortalPassword },
-  { label: "Tender Head", username: "bharat.singh.choudhary", password: sharedPortalPassword },
-  { label: "Factory Head", username: "roopchand.gurjar", password: sharedPortalPassword },
-  { label: "Back Office Head", username: "jitendra.singh.hada", password: sharedPortalPassword },
+  { label: "Admin", username: "admin" },
+  { label: "CEO", username: "atul.singhal" },
+  { label: "Installation Head", username: "ashwani.kumar" },
+  { label: "Breakdown Head", username: "bhanwar.choudhary" },
+  { label: "Service Head", username: "jitendra.choudhary" },
+  { label: "GAD Head", username: "diyanshu.bansal" },
+  { label: "Accounts Head", username: "sandeep.sharma" },
+  { label: "Commissioning Head", username: "vishram.kumawat" },
+  { label: "Tender Head", username: "bharat.singh.choudhary" },
+  { label: "Factory Head", username: "roopchand.gurjar" },
+  { label: "Back Office Head", username: "jitendra.singh.hada" },
 ];
 
 const moduleConfigs: Partial<Record<TabKey, ModuleConfig>> = {
@@ -134,16 +134,35 @@ const moduleConfigs: Partial<Record<TabKey, ModuleConfig>> = {
   tender: { route: "/api/portal/tender", titleLabel: "Tender title", titleKey: "title", customerKey: "customer", notesKey: "notes" },
   factory: { route: "/api/portal/factory", titleLabel: "Factory order ref", titleKey: "order_ref", customerKey: "customer", notesKey: "materials" },
   internationalVendor: { route: "/api/portal/international-vendors", titleLabel: "Company", titleKey: "company", customerKey: "country", notesKey: "notes" },
+  marketing: { route: "/api/portal/marketing-assets", titleLabel: "Campaign", titleKey: "campaign_name", customerKey: "channel", notesKey: "notes" },
   comms: { route: "/api/portal/comms", titleLabel: "Subject", titleKey: "subject", customerKey: "department", notesKey: "message" },
 };
 
 const emptyModuleDraft = { title: "", customer: "", customer_id: "", status: "Open", notes: "" };
 const emptyPaymentDraft = {
+  payment_type: "Contract",
+  customer_id: "",
+  customer_name: "",
   estimate_id: "",
   milestone: "Advance",
   amount: "",
+  contract_basic_value: "",
+  basic_check_value: "",
+  basic_cash_value: "",
+  basic_card_value: "",
+  gst_percent: "18",
+  amount_received_check: "",
+  amount_received_cash: "",
+  amount_received_card: "",
+  credit_card_charge_percent: "2",
+  outstanding_date: "",
+  reminder_interval_days: "7",
+  next_reminder_date: "",
+  amc_from_date: "",
+  amc_to_date: "",
   due_date: "",
   method: "NEFT",
+  cheque_number: "",
   reference: "",
   notes: "",
 };
@@ -164,6 +183,10 @@ const emptyInventoryDraft = {
   vendor: "",
   lead_time_days: "",
   unit_cost: "",
+  purchase_price: "",
+  current_price: "",
+  sale_price: "",
+  price_date: new Date().toISOString().slice(0, 10),
   bin_location: "",
   notes: "",
 };
@@ -206,6 +229,24 @@ const emptyInternationalVendorDraft = {
   shipment_status: "Not booked",
   tracking_ref: "",
   next_followup: "",
+  openclaw_target: "",
+  notes: "",
+};
+
+const emptyMarketingDraft = {
+  campaign_name: "FUZI elevator campaign",
+  asset_type: "AI ad image",
+  product_line: "Passenger elevators, home lifts, hospital lifts, goods lifts, and manufactured elevator parts",
+  audience: "Builders, architects, hospitals, hotels, housing societies, factories, and elevator partner companies",
+  channel: "Instagram, Facebook, WhatsApp, email, and catalog",
+  tone: "Premium, safe, reliable, engineered in India",
+  headline: "Elevating Lives, One Floor at a Time",
+  ad_copy: "FUZI Classic Elevators delivers safe, elegant, and dependable elevator solutions for residential, commercial, hospital, hotel, and industrial projects.",
+  ai_prompt: "Create a premium advertising image for FUZI Classic Elevators showing a modern elevator in a clean Indian commercial/residential setting with red, white, and black FUZI branding, professional lighting, space for headline text, and a trustworthy safety-focused mood.",
+  catalog_title: "FUZI Classic Elevators Company Catalog",
+  catalog_sections: "Company profile; Passenger elevators; Home lifts; Hospital lifts; Goods lifts; Escalators; Manufactured parts and kits; Safety and certifications; Installation process; AMC and support; Contact details",
+  design_notes: "Use FUZI red/black/white, clean product photography style, clear headings, technical trust, and practical customer benefits.",
+  status: "Draft",
   openclaw_target: "",
   notes: "",
 };
@@ -257,8 +298,19 @@ const emptyInstallTeamDraft = {
 const emptyCommissioningDraft = {
   installation_ref: "",
   unit: "",
+  customer_id: "",
   customer: "",
   site: "",
+  assigned_engineer: "",
+  controller_type: "Closed loop",
+  drive_model_number: "",
+  motor_serial_number: "",
+  motor_nameplate_url: "",
+  motor_nameplate_file: "",
+  communication_link: "Serial link",
+  protocol_required: "Y",
+  protocol_type: "",
+  commissioning_details: "",
   install_complete_date: "",
   payment_cleared: "N",
   start_date: "",
@@ -358,6 +410,30 @@ const emptyOfferDraft = {
   notes: "",
   customer_id: "",
   source_inquiry_id: "",
+  inventory_items: [],
+  inventory_material_total: "",
+  inventory_pricing_source: "",
+  site_visit_id: "",
+  site_measurements_source: "",
+  site_address: "",
+  pit_size_mm: "",
+  machine_room_available: "",
+  floor_height_profile: "",
+  site_stops: "",
+  site_number_of_openings: "",
+  site_opening_type: "",
+  door_size_width_mm: "",
+  door_size_height_mm: "",
+  car_size_width_mm: "",
+  car_size_depth_mm: "",
+  site_capacity_persons: "",
+  site_capacity_kg: "",
+  shaft_width_mm: "",
+  shaft_depth_mm: "",
+  brick_wall_available: "",
+  civil_door_height_mm: "",
+  opening_schedule_summary: "",
+  opening_schedule: [],
 };
 
 const emptyCustomer: Partial<Customer> = {
@@ -498,9 +574,43 @@ function formatMoney(value?: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(value || 0);
 }
 
+function formatMoneyExact(value?: number) {
+  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
+}
+
 function offerNumber(value: unknown, fallback = 0) {
   const parsed = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function addDays(dateValue: unknown, daysValue: unknown) {
+  const date = new Date(String(dateValue || new Date().toISOString().slice(0, 10)));
+  if (Number.isNaN(date.getTime())) return "";
+  date.setDate(date.getDate() + Math.max(0, offerNumber(daysValue)));
+  return date.toISOString().slice(0, 10);
+}
+
+function paymentAccountSummary(record: Record<string, unknown>) {
+  const contractBasic = offerNumber(record.contract_basic_value || record.basic_contract_value || record.contract_value || record.amount);
+  const basicCheck = offerNumber(record.basic_check_value || record.check_basic_value || record.check_value);
+  const basicCash = offerNumber(record.basic_cash_value || record.cash_basic_value || record.cash_value);
+  const basicCard = offerNumber(record.basic_card_value || record.card_basic_value || record.credit_card_value);
+  const gstPercent = offerNumber(record.gst_percent, 18);
+  const cardChargePercent = offerNumber(record.credit_card_charge_percent || record.card_charge_percent, 2);
+  const checkGst = Number((basicCheck * gstPercent / 100).toFixed(2));
+  const cardCharge = Number((basicCard * cardChargePercent / 100).toFixed(2));
+  const finalContract = Number((basicCheck + checkGst + basicCash + basicCard + cardCharge).toFixed(2));
+  const receivedCheck = offerNumber(record.amount_received_check || record.received_check || (String(record.method || "").toLowerCase().includes("check") ? record.amount : 0));
+  const receivedCash = offerNumber(record.amount_received_cash || record.received_cash || (String(record.method || "").toLowerCase().includes("cash") ? record.amount : 0));
+  const receivedCard = offerNumber(record.amount_received_card || record.received_card || (String(record.method || "").toLowerCase().includes("card") ? record.amount : 0));
+  const receivedTotal = receivedCheck + receivedCash + receivedCard;
+  const outstandingCheck = Number(Math.max(0, basicCheck + checkGst - receivedCheck).toFixed(2));
+  const outstandingCash = Number(Math.max(0, basicCash - receivedCash).toFixed(2));
+  const outstandingCard = Number(Math.max(0, basicCard + cardCharge - receivedCard).toFixed(2));
+  const outstandingTotal = Number(Math.max(0, finalContract - receivedTotal).toFixed(2));
+  const splitMatches = Math.abs(contractBasic - (basicCheck + basicCash + basicCard)) < 0.01;
+  const nextReminder = String(record.next_reminder_date || addDays(record.outstanding_date || record.due_date, record.reminder_interval_days || 7));
+  return { contractBasic, basicCheck, basicCash, basicCard, gstPercent, cardChargePercent, checkGst, cardCharge, finalContract, receivedCheck, receivedCash, receivedCard, receivedTotal, outstandingCheck, outstandingCash, outstandingCard, outstandingTotal, splitMatches, nextReminder };
 }
 
 function offerCostSummary(record: Record<string, unknown>) {
@@ -520,16 +630,40 @@ function offerCostSummary(record: Record<string, unknown>) {
   return { materialCost, installCost, overheadCost, marginPercent, marginAmount, discount, gstPercent, gstAmount, baseCost, subtotal, totalCost };
 }
 
+function inventoryPrice(record: Record<string, unknown>) {
+  return offerNumber(record.current_price || record.sale_price || record.unit_price || record.unit_cost || record.purchase_price);
+}
+
+function offerInventoryLines(record: Record<string, unknown>) {
+  return Array.isArray(record.inventory_items) ? record.inventory_items as Array<Record<string, unknown>> : [];
+}
+
+function offerInventoryTotal(record: Record<string, unknown>) {
+  return offerInventoryLines(record).reduce((sum, line) => {
+    const qty = offerNumber(line.qty, 1) || 1;
+    const price = offerNumber(line.current_price || line.unit_price || line.sale_price || line.unit_cost);
+    return sum + qty * price;
+  }, 0);
+}
+
+function currentFiscalYearRange() {
+  const today = new Date();
+  const year = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1;
+  return { start: `${year}-04-01`, end: `${year + 1}-03-31` };
+}
+
 export default function App() {
   const { width } = useWindowDimensions();
   const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState(sharedPortalPassword);
+  const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
   const [data, setData] = useState<PortalData | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [showPortalLogin, setShowPortalLogin] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [overviewStartDate, setOverviewStartDate] = useState(currentFiscalYearRange().start);
+  const [overviewEndDate, setOverviewEndDate] = useState(currentFiscalYearRange().end);
   const [customerDraft, setCustomerDraft] = useState<Partial<Customer>>(emptyCustomer);
   const [customerEditorOpen, setCustomerEditorOpen] = useState(false);
   const [siteVisitDraft, setSiteVisitDraft] = useState<Partial<SiteVisit>>(emptySiteVisit);
@@ -557,9 +691,13 @@ export default function App() {
   const [renewalDraft, setRenewalDraft] = useState(emptyRenewalDraft);
   const [inventoryDraft, setInventoryDraft] = useState(emptyInventoryDraft);
   const [inventorySearch, setInventorySearch] = useState("");
-  const [inventoryEdits, setInventoryEdits] = useState<Record<string, { reorder_point: string; target_stock: string }>>({});
+  const [inventoryEdits, setInventoryEdits] = useState<Record<string, { reorder_point: string; target_stock: string; current_price: string; purchase_price: string; price_date: string }>>({});
   const [internationalVendorDraft, setInternationalVendorDraft] = useState(emptyInternationalVendorDraft);
   const [internationalVendorSearch, setInternationalVendorSearch] = useState("");
+  const [internationalVendorFilter, setInternationalVendorFilter] = useState("All");
+  const [internationalVendorPage, setInternationalVendorPage] = useState(1);
+  const [marketingDraft, setMarketingDraft] = useState(emptyMarketingDraft);
+  const [marketingSearch, setMarketingSearch] = useState("");
   const [salesInquiryDraft, setSalesInquiryDraft] = useState(emptySalesInquiryDraft);
   const [salesInquiryEditorOpen, setSalesInquiryEditorOpen] = useState(false);
   const [offerDraft, setOfferDraft] = useState<Record<string, any>>(emptyOfferDraft);
@@ -620,16 +758,18 @@ export default function App() {
         const linkedUser = usersByOrgNode.get(String(person.id || "")) || usersByName.get(name.trim().toLowerCase());
         const savedTask = String(person.current_job || person.current_task || "").trim();
         const activeTask = savedTask || activeBreakdownByEngineer.get(name.trim().toLowerCase()) || "";
+        // current_job is the task text shown everywhere; active_breakdown is only a boolean state flag.
         const savedAvailability = String(person.availability || "").trim();
         const savedNextAvailable = String(person.next_available_at || "").trim();
         return {
           id: String(person.id || name),
+          org_id: String(person.id || ""),
           name,
           role: String(person.title || "Breakdown Staff"),
           phone: String(person.phone || linkedUser?.phone || ""),
           availability: String(linkedUser?.active === false ? "Inactive" : (activeTask ? "Scheduled" : (savedAvailability || "Available"))),
-          current_job: savedTask,
-          active_breakdown: activeBreakdownByEngineer.get(name.trim().toLowerCase()) || "",
+          current_job: activeTask,
+          active_breakdown: Boolean(activeBreakdownByEngineer.get(name.trim().toLowerCase())),
           next_available_at: activeTask ? (savedNextAvailable || "after current task") : savedNextAvailable,
           shift: String(person.shift || "24/7 emergency rotation"),
           notes: String(person.notes || "Breakdown dispatch pool"),
@@ -789,7 +929,8 @@ export default function App() {
   function staffAvailabilityInfo(member: Record<string, unknown>) {
     const availability = String(member.availability || "Available").trim();
     const shift = String(member.shift || "").trim();
-    const currentJob = String(member.current_job || member.active_breakdown || "").trim();
+    // current_job contains the displayable task id/details; active_breakdown stays boolean.
+    const currentJob = String(member.current_job || "").trim();
     const nextAvailable = String(member.next_available_at || "").trim();
     const notes = String(member.notes || "").trim();
     const availableNow = ["available", "standby", "ready"].includes(availability.toLowerCase()) && !currentJob;
@@ -814,6 +955,64 @@ export default function App() {
 
   function recordIdentity(record: Record<string, unknown>) {
     return String(record.id || record.job_id || record.payment_id || record.drawing_no || record.job_number || "");
+  }
+
+  function openingScheduleSummaryFromRows(rows: unknown) {
+    if (!Array.isArray(rows)) return "";
+    return rows
+      .map((item, index) => {
+        const row = item as Record<string, unknown>;
+        const floor = String(row.floor || (index === 0 ? "Ground" : index)).trim();
+        const ff = String(row.ff_height_mm || "").trim();
+        const lintel = String(row.lintel_height_mm || "").trim();
+        return `${floor}: FF ${ff || "-"} mm, lintel ${lintel || "-"} mm`;
+      })
+      .filter(Boolean)
+      .join("; ");
+  }
+
+  function siteVisitsForCustomerId(customerId: unknown) {
+    const id = String(customerId || "").trim();
+    if (!id) return [];
+    return asRecords(data?.site_visits)
+      .filter((visit) => String(visit.customer_id || "").trim() === id)
+      .sort((a, b) => String(b.updated_at || b.site_visit_date || b.created_at || "").localeCompare(String(a.updated_at || a.site_visit_date || a.created_at || "")));
+  }
+
+  function offerMeasurementPayloadFromSiteVisit(visit?: Record<string, unknown>): Record<string, any> {
+    if (!visit) return { site_measurements_source: "No site visit linked yet" };
+    const capacityKg = String(visit.site_capacity_kg || "").trim();
+    const capacityPersons = String(visit.site_capacity_persons || "").trim();
+    const capacity = capacityKg ? `${capacityKg} kg` : capacityPersons ? `${capacityPersons} persons` : "";
+    const openingSummary = openingScheduleSummaryFromRows(visit.opening_schedule);
+    return {
+      site_visit_id: recordIdentity(visit),
+      site_measurements_source: `Site visit ${recordIdentity(visit) || ""}${visit.site_visit_date ? ` on ${visit.site_visit_date}` : ""}`.trim(),
+      site_address: String(visit.address || "").trim(),
+      pit_size_mm: String(visit.pit_size_mm || "").trim(),
+      machine_room_available: String(visit.machine_room_available || "").trim(),
+      floor_height_profile: String(visit.floor_height_profile || "").trim(),
+      site_stops: String(visit.site_stops || "").trim(),
+      site_number_of_openings: String(visit.site_number_of_openings || "").trim(),
+      site_opening_type: String(visit.site_opening_type || "").trim(),
+      door_size_width_mm: String(visit.door_size_width_mm || "").trim(),
+      door_size_height_mm: String(visit.door_size_height_mm || "").trim(),
+      car_size_width_mm: String(visit.car_size_width_mm || "").trim(),
+      car_size_depth_mm: String(visit.car_size_depth_mm || "").trim(),
+      site_capacity_persons: String(visit.site_capacity_persons || "").trim(),
+      site_capacity_kg: capacityKg,
+      shaft_width_mm: String(visit.shaft_width_mm || "").trim(),
+      shaft_depth_mm: String(visit.shaft_depth_mm || "").trim(),
+      brick_wall_available: String(visit.brick_wall_available || "").trim(),
+      civil_door_height_mm: String(visit.civil_door_height_mm || "").trim(),
+      opening_schedule_summary: openingSummary,
+      opening_schedule: Array.isArray(visit.opening_schedule) ? visit.opening_schedule : [],
+      stops: String(visit.site_stops || "").trim(),
+      capacity,
+      door_type: String(visit.site_door_required || visit.site_opening_type || "").trim(),
+      finish: String(visit.site_finish_required || "").trim(),
+      offer_type: String(visit.site_offer_type || "").trim(),
+    };
   }
 
   function inventoryQuantity(record: Record<string, unknown>, key: string, fallback = 0) {
@@ -884,11 +1083,14 @@ export default function App() {
       matchesId(item.customer_id) || matchesName(item.customer_name || item.offer_name || item.customer) || inquiryIds.has(String(item.source_inquiry_id || "").trim())
     );
     const estimateIds = new Set(estimates.map((item) => recordIdentity(item)).filter(Boolean));
+    const customerPayments = asRecords(data?.payments).filter((item) =>
+      estimateIds.has(String(item.estimate_id || "").trim()) || matchesId(item.customer_id) || matchesName(item.customer_name || item.customer)
+    );
+    const latestChequePayment = customerPayments.find((item) => String(item.cheque_number || item.check_number || "").trim());
     const related = {
       estimates: estimates.length,
-      payments: asRecords(data?.payments).filter((item) =>
-        estimateIds.has(String(item.estimate_id || "").trim()) || matchesId(item.customer_id) || matchesName(item.customer_name || item.customer)
-      ).length,
+      payments: customerPayments.length,
+      latestChequeNumber: String(latestChequePayment?.cheque_number || latestChequePayment?.check_number || "").trim(),
       siteVisits: asRecords(data?.site_visits).filter((item) => matchesId(item.customer_id) || matchesName(item.customer_name)).length,
       breakdowns: asRecords(data?.breakdowns).filter((item) => matchesId(item.customer_id) || matchesName(item.customer) || matchesName(item.location || item.site)).length,
       service: asRecords(data?.service_records).filter((item) => matchesId(item.customer_id) || matchesName(item.customer) || matchesName(item.building)).length,
@@ -905,6 +1107,7 @@ export default function App() {
         <Text style={styles.cardLabel}>Linked systems</Text>
         <Text style={styles.muted}>
           CRM {customerContext.id || customerContext.name} - Estimates {customerContext.related.estimates} - Payments {customerContext.related.payments} - Site visits {customerContext.related.siteVisits} - Service {customerContext.related.service} - Breakdowns {customerContext.related.breakdowns} - Install jobs {customerContext.related.installJobs}
+          {customerContext.related.latestChequeNumber ? ` - Latest cheque ${customerContext.related.latestChequeNumber}` : ""}
         </Text>
         <View style={styles.inlineActions}>
           <Pressable style={styles.smallButton} onPress={() => openCrmForCustomerNumber(customerContext.id || customerContext.name)} disabled={loading}>
@@ -992,8 +1195,28 @@ export default function App() {
       inventory: asRecords(data?.inventory),
     };
     const today = new Date().toISOString().slice(0, 10);
+    const startDate = overviewStartDate || currentFiscalYearRange().start;
+    const endDate = overviewEndDate || currentFiscalYearRange().end;
     const isClosed = (status: unknown) => ["closed", "resolved", "done", "completed", "cancelled"].includes(String(status || "").trim().toLowerCase());
     const isLost = (status: unknown) => String(status || "").toLowerCase().includes("lost");
+    const recordDate = (record: Record<string, unknown>, keys: string[]) => {
+      for (const key of keys) {
+        const value = String(record[key] || "").slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+      }
+      return "";
+    };
+    const inDateRange = (record: Record<string, unknown>, keys: string[]) => {
+      const value = recordDate(record, keys);
+      return Boolean(value && value >= startDate && value <= endDate);
+    };
+    const overlapsRange = (from: unknown, to: unknown) => {
+      const start = String(from || "").slice(0, 10);
+      const finish = String(to || "").slice(0, 10);
+      return Boolean((!finish || finish >= startDate) && (!start || start <= endDate));
+    };
+    const statusText = (record: Record<string, unknown>) => String(record.status || record.lead_status || record.stage || record.state || "").trim();
+    const unitCount = (record: Record<string, unknown>) => Math.max(1, offerNumber(record.elevator_units || record.units || record.unit_count || record.qty, 1));
     const moneyValue = (record: Record<string, unknown>, keys: string[]) => keys.reduce((value, key) => {
       if (value) return value;
       const parsed = Number(String(record[key] || "0").replace(/[^0-9.-]/g, ""));
@@ -1017,6 +1240,86 @@ export default function App() {
       const status = String(item.followup_status || item.status || item.lead_status || "").toLowerCase();
       return date && date <= today && !status.includes("closed") && !status.includes("lost");
     });
+    const fiscal = {
+      inquiries: records.inquiries.filter((item) => inDateRange(item, ["received_date", "created_at", "createddate", "date"])),
+      siteVisits: records.siteVisits.filter((item) => inDateRange(item, ["visit_date", "created_at", "date"])),
+      estimates: records.estimates.filter((item) => inDateRange(item, ["offer_date", "created_at", "date"])),
+      payments: records.payments.filter((item) => inDateRange(item, ["received_date", "paid_date", "due_date", "created_at"])),
+      service: records.service.filter((item) => inDateRange(item, ["service_date", "created_at", "date"])),
+      renewals: records.renewals.filter((item) => overlapsRange(item.from_date || item.amc_from_date || item.start_date, item.to_date || item.amc_to_date || item.end_date || item.renewal_date)),
+      tickets: records.tickets.filter((item) => inDateRange(item, ["created_at", "date", "updated_at"])),
+      installJobs: records.workOrders.filter((item) => inDateRange(item, ["created_at", "date", "target_handover", "handover_date"])),
+    };
+    const offerSubmitted = fiscal.estimates.filter((item) => !isLost(statusText(item)));
+    const orderWorkStatuses = ["order received", "work in progress", "hand over", "handover", "warranty running", "amc running", "one time service"];
+    const orderUnits = [
+      ...fiscal.inquiries.filter((item) => orderWorkStatuses.some((status) => statusText(item).toLowerCase().includes(status))),
+      ...fiscal.estimates.filter((item) => ["approved", "order received", "work in progress"].some((status) => statusText(item).toLowerCase().includes(status))),
+    ].reduce((sum, item) => sum + unitCount(item), 0);
+    const warrantyRecords = [
+      ...records.inquiries.filter((item) => statusText(item).toLowerCase().includes("warranty running")),
+      ...records.service.filter((item) => statusText(item).toLowerCase().includes("warranty")),
+    ];
+    const amcRecords = [
+      ...records.inquiries.filter((item) => statusText(item).toLowerCase().includes("amc running")),
+      ...records.renewals.filter((item) => !isLost(statusText(item)) && overlapsRange(item.from_date || item.amc_from_date || item.start_date, item.to_date || item.amc_to_date || item.end_date || item.renewal_date)),
+      ...records.payments.filter((item) => String(item.payment_type || "").toLowerCase() === "amc" && overlapsRange(item.amc_from_date, item.amc_to_date)),
+    ];
+    const inquiryLost = fiscal.inquiries.filter((item) => {
+      const status = statusText(item).toLowerCase();
+      return status.includes("inquiry lost") || (status.includes("lost") && !status.includes("offer") && !status.includes("order") && !status.includes("site"));
+    });
+    const orderLost = fiscal.inquiries.filter((item) => {
+      const status = statusText(item).toLowerCase();
+      return status.includes("order lost") || status.includes("offer lost") || status.includes("site visit lost") || status.includes("warranty lost") || status.includes("amc lost");
+    });
+    const competitorCounts = orderLost.reduce((map, item) => {
+      const competitor = String(item.lost_to_competitor || item.competitor || item.major_competitor || item.lost_to || "").trim();
+      if (competitor) map.set(competitor, (map.get(competitor) || 0) + unitCount(item));
+      return map;
+    }, new Map<string, number>());
+    const majorCompetitor = [...competitorCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+    const amcPayments = records.payments.filter((item) => String(item.payment_type || "").toLowerCase() === "amc");
+    const newElevatorPayments = records.payments.filter((item) => String(item.payment_type || "Contract").toLowerCase() !== "amc");
+    const paymentReceived = (item: Record<string, unknown>) => paymentAccountSummary(item).receivedTotal || (["paid", "received", "collected", "complete", "completed"].includes(String(item.status || "").toLowerCase()) ? paymentAccountSummary(item).finalContract : 0);
+    const amcPaymentReceived = amcPayments.filter((item) => inDateRange(item, ["received_date", "paid_date", "due_date", "created_at"])).reduce((sum, item) => sum + paymentReceived(item), 0);
+    const amcPaymentToReceive = amcPayments.filter((item) => overlapsRange(item.amc_from_date || item.due_date, item.amc_to_date || endDate)).reduce((sum, item) => sum + paymentAccountSummary(item).outstandingTotal, 0);
+    const newElevatorPaymentReceived = newElevatorPayments.filter((item) => inDateRange(item, ["received_date", "paid_date", "due_date", "created_at"])).reduce((sum, item) => sum + paymentReceived(item), 0);
+    const newElevatorPaymentPending = newElevatorPayments.filter((item) => inDateRange(item, ["due_date", "created_at"])).reduce((sum, item) => sum + paymentAccountSummary(item).outstandingTotal, 0);
+    const amcAnnualValue = amcPayments.reduce((sum, item) => sum + paymentAccountSummary(item).finalContract, 0) || records.renewals.reduce((sum, item) => sum + moneyValue(item, ["amount", "amc_amount", "contract_value", "value"]), 0);
+    const newOrderLosses = records.estimates.filter((item) => {
+      const cost = offerCostSummary(item);
+      const actual = moneyValue(item, ["actual_parts_cost", "actual_material_cost", "actual_cost", "supplied_parts_cost"]);
+      const considered = moneyValue(item, ["considered_parts_cost", "inventory_material_total", "material_cost"]) || cost.materialCost;
+      return actual > 0 && considered > 0 && actual > considered;
+    });
+    const maintenanceLosses = [...records.service, ...records.renewals].filter((item) => {
+      const revenue = moneyValue(item, ["amc_amount", "contract_value", "amount", "value", "final_contract_value"]);
+      const manHoursCost = moneyValue(item, ["man_hours_cost", "labour_cost"]) || offerNumber(item.man_hours || item.hours) * moneyValue(item, ["hourly_rate", "engineer_rate"]);
+      const spareCost = moneyValue(item, ["spare_parts_cost", "parts_cost", "material_cost"]);
+      return revenue > 0 && manHoursCost + spareCost > revenue;
+    });
+    const fiscalMetrics = [
+      { label: "Inquiry received", value: fiscal.inquiries.length, detail: "Sales enquiries received in selected period." },
+      { label: "Site visited", value: fiscal.siteVisits.length, detail: "Customer-linked site visit records." },
+      { label: "Offer submitted", value: offerSubmitted.length, detail: "Offer/estimate records not marked lost." },
+      { label: "Elevator units received", value: orderUnits, detail: "Orders and work in progress units." },
+      { label: "Elevators in warranty", value: warrantyRecords.reduce((sum, item) => sum + unitCount(item), 0), detail: "Warranty Running records." },
+      { label: "Elevators in AMC", value: amcRecords.reduce((sum, item) => sum + unitCount(item), 0), detail: "AMC Running, renewals, and AMC payment records." },
+      { label: "Elevators in service", value: warrantyRecords.reduce((sum, item) => sum + unitCount(item), 0) + amcRecords.reduce((sum, item) => sum + unitCount(item), 0), detail: "Warranty plus AMC units." },
+      { label: "Inquiry lost", value: inquiryLost.length, detail: "Lost before offer submitted or site visit." },
+      { label: "Order lost", value: orderLost.length, detail: "Lost after site visit, offer, warranty, or AMC stage." },
+      { label: "Major competitor", value: majorCompetitor ? majorCompetitor[0] : "-", detail: majorCompetitor ? `${majorCompetitor[1]} unit(s) lost to this competitor.` : "No competitor loss captured." },
+      { label: "Units lost from warranty", value: fiscal.inquiries.filter((item) => statusText(item).toLowerCase().includes("warranty lost")).reduce((sum, item) => sum + unitCount(item), 0), detail: "Warranty Lost status units." },
+      { label: "Units lost from AMC", value: fiscal.inquiries.filter((item) => statusText(item).toLowerCase().includes("amc lost")).reduce((sum, item) => sum + unitCount(item), 0), detail: "AMC Lost status units." },
+      { label: "AMC received", value: formatMoneyExact(amcPaymentReceived), detail: "AMC payment received in selected period." },
+      { label: "AMC due this year", value: formatMoneyExact(amcPaymentToReceive), detail: "AMC outstanding for this fiscal year." },
+      { label: "New elevator received", value: formatMoneyExact(newElevatorPaymentReceived), detail: "Non-AMC payment received." },
+      { label: "New elevator pending", value: formatMoneyExact(newElevatorPaymentPending), detail: "Non-AMC payment yet to be received." },
+      { label: "AMC next 10 years", value: formatMoneyExact(amcAnnualValue * 10), detail: "Projection based on current AMC annual value." },
+      { label: "New orders in loss", value: newOrderLosses.length, detail: "Actual supplied parts cost exceeded considered cost." },
+      { label: "Maintenance in loss", value: maintenanceLosses.length, detail: "AMC value below man-hours plus spare parts cost." },
+    ];
     const availableEngineers = assignableStaff.filter((member) => staffAvailabilityInfo(member).availableNow).length;
     const activeStatuses = inquiryLifecycleStatuses.filter((status) => !status.toLowerCase().includes("lost"));
     const pipelineRows = activeStatuses.map((status) => ({
@@ -1039,6 +1342,40 @@ export default function App() {
             <Text style={styles.commandTitle}>Live FUZI performance across CRM, service, projects, stock, and accounts.</Text>
             <Text style={styles.commandText}>Analytics are calculated from the records already loaded in this portal, so the overview reflects your current operating system data.</Text>
           </View>
+        </View>
+
+        <Text style={styles.sectionTitle}>Fiscal Year Analytics</Text>
+        <View style={styles.formCard}>
+          <Text style={styles.cardLabel}>Date option</Text>
+          <Text style={styles.muted}>Default fiscal year is April 1 to March 31. Change the dates below to see the dashboard for a custom period.</Text>
+          <View style={styles.formGrid}>
+            <View style={styles.field}>
+              <Text style={styles.label}>Start date YYYY-MM-DD</Text>
+              <TextInput style={styles.input} value={overviewStartDate} onChangeText={setOverviewStartDate} />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>End date YYYY-MM-DD</Text>
+              <TextInput style={styles.input} value={overviewEndDate} onChangeText={setOverviewEndDate} />
+            </View>
+          </View>
+          <View style={styles.inlineActions}>
+            <Pressable style={styles.smallButton} onPress={() => {
+              const fiscalRange = currentFiscalYearRange();
+              setOverviewStartDate(fiscalRange.start);
+              setOverviewEndDate(fiscalRange.end);
+            }}>
+              <Text style={styles.smallButtonText}>Current fiscal year</Text>
+            </Pressable>
+          </View>
+        </View>
+        <View style={styles.metricGrid}>
+          {fiscalMetrics.map((metric) => (
+            <View key={`fiscal-${metric.label}`} style={styles.card}>
+              <Text style={styles.cardLabel}>{metric.label}</Text>
+              <Text style={styles.metricValue}>{metric.value}</Text>
+              <Text style={styles.muted}>{metric.detail}</Text>
+            </View>
+          ))}
         </View>
 
         <Text style={styles.sectionTitle}>Executive Snapshot</Text>
@@ -1752,6 +2089,217 @@ export default function App() {
     );
   }
 
+  function renderPaymentAccountsPage() {
+    const payments = asRecords(data?.payments);
+    const estimates = asRecords(data?.estimates);
+    const customers = [
+      ...asRecords(data?.customers).map((item) => ({
+        id: String(item.id || item.customer_id || ""),
+        name: String(item.name || item.customer || item.lead_name || ""),
+        phone: String(item.phone || item.whatsapp_no || ""),
+        sourceInquiryId: String(item.enquiry_no || item.source_inquiry_no || ""),
+      })),
+      ...asRecords((data as Record<string, unknown> | null)?.sales_inquiries).map((item) => ({
+        id: String(item.customer_id || item.id || item.enquiry_no || ""),
+        name: String(item.customer || item.lead_name || item.name || ""),
+        phone: String(item.phone || item.whatsapp_no || ""),
+        sourceInquiryId: String(item.enquiry_no || item.source_inquiry_no || item.id || ""),
+      })),
+    ].filter((item, index, list) => item.id && item.name && list.findIndex((candidate) => candidate.id === item.id) === index);
+    const selectedEstimate = estimates.find((estimate) => String(estimate.id) === String(paymentDraft.estimate_id));
+    const selectedCustomer = customers.find((customer) => customer.id === paymentDraft.customer_id);
+    const estimatesForAccountsCustomer = (customer?: { id: string; name: string; sourceInquiryId?: string }) => {
+      if (!customer) return [];
+      const customerId = String(customer.id || "").trim();
+      const sourceInquiryId = String(customer.sourceInquiryId || "").trim();
+      const nameKey = crmNameKey(customer.name);
+      return estimates.filter((estimate) => {
+        const estimateCustomerId = String(estimate.customer_id || "").trim();
+        const estimateInquiryId = String(estimate.source_inquiry_id || estimate.enquiry_no || estimate.source_enquiry_no || "").trim();
+        const estimateNameKey = crmNameKey(estimate.customer_name || estimate.offer_name || estimate.customer);
+        return Boolean(
+          (customerId && estimateCustomerId && customerId === estimateCustomerId) ||
+          (sourceInquiryId && estimateInquiryId && sourceInquiryId === estimateInquiryId) ||
+          (nameKey && estimateNameKey && nameKey === estimateNameKey)
+        );
+      }).sort((a, b) => String(b.offer_date || b.created_at || "").localeCompare(String(a.offer_date || a.created_at || "")));
+    };
+    const linkedEstimateOptions = estimatesForAccountsCustomer(selectedCustomer).slice(0, 12);
+    const paymentSummary = paymentAccountSummary(paymentDraft as Record<string, unknown>);
+    const totalContractFinal = payments.reduce((sum, item) => sum + paymentAccountSummary(item).finalContract, 0);
+    const totalOutstanding = payments.reduce((sum, item) => sum + paymentAccountSummary(item).outstandingTotal, 0);
+    const today = new Date().toISOString().slice(0, 10);
+    const amcRecords = payments.filter((item) => String(item.payment_type || "").toLowerCase() === "amc");
+    const activeAmcRecords = amcRecords.filter((item) => String(item.amc_from_date || "") <= today && (!item.amc_to_date || String(item.amc_to_date) >= today));
+    const dueReminders = payments.filter((item) => {
+      const summary = paymentAccountSummary(item);
+      return summary.outstandingTotal > 0 && summary.nextReminder && summary.nextReminder <= today;
+    });
+
+    const setDraftFromEstimate = (estimate: Record<string, unknown>) => {
+      const value = String(estimate.total_cost || estimate.amount || "");
+      setPaymentDraft((draft) => {
+        const customerId = String(estimate.customer_id || draft.customer_id || "");
+        const customerName = String(estimate.customer_name || draft.customer_name || "");
+        return {
+          ...draft,
+          estimate_id: String(estimate.id || ""),
+          customer_id: customerId,
+          customer_name: customerName,
+          contract_basic_value: draft.contract_basic_value || value,
+          amount: draft.amount || value,
+        };
+      });
+    };
+
+    const setDraftFromCustomer = (customer: { id: string; name: string; sourceInquiryId?: string }) => {
+      const linkedEstimateIds = new Set(estimatesForAccountsCustomer(customer).map((estimate) => String(estimate.id || "")));
+      setPaymentDraft((draft) => ({
+        ...draft,
+        customer_id: customer.id,
+        customer_name: customer.name,
+        estimate_id: linkedEstimateIds.has(String(draft.estimate_id || "")) ? draft.estimate_id : "",
+      }));
+    };
+
+    return (
+      <View>
+        <View style={styles.moduleHero}>
+          <Text style={styles.eyebrow}>Accounts System</Text>
+          <Text style={styles.moduleHeroTitle}>Client payments, GST split, outstanding reminders, and AMC collections.</Text>
+          <Text style={styles.moduleHeroText}>Track the basic contract value, check amount with GST, cash amount, received payments, dated outstanding follow-ups, and maintenance periods from one Accounts tab.</Text>
+        </View>
+
+        <View style={styles.metricGrid}>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Final contract value</Text>
+            <Text style={styles.metricValue}>{formatMoneyExact(totalContractFinal)}</Text>
+            <Text style={styles.muted}>Check basic + GST + cash across saved records.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Outstanding</Text>
+            <Text style={styles.metricValue}>{formatMoneyExact(totalOutstanding)}</Text>
+            <Text style={styles.muted}>{dueReminders.length} reminders due today or earlier.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>AMC dashboard</Text>
+            <Text style={styles.metricValue}>{activeAmcRecords.length}</Text>
+            <Text style={styles.muted}>{amcRecords.length} maintenance payment records saved.</Text>
+          </View>
+        </View>
+
+        <View style={styles.formCard}>
+          <Text style={styles.cardLabel}>New account / payment entry</Text>
+          <View style={styles.inlineActions}>
+            {["Contract", "AMC"].map((type) => (
+              <Pressable
+                key={type}
+                style={[styles.selectorPill, paymentDraft.payment_type === type && styles.selectorPillActive]}
+                onPress={() => setPaymentDraft((draft) => ({ ...draft, payment_type: type }))}
+              >
+                <Text style={[styles.selectorText, paymentDraft.payment_type === type && styles.selectorTextActive]}>{type}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={styles.label}>Link customer</Text>
+          <View style={styles.selectorList}>
+            {customers.slice(0, 12).map((customer) => (
+              <Pressable
+                key={customer.id}
+                style={[styles.selectorPill, paymentDraft.customer_id === customer.id && styles.selectorPillActive]}
+                onPress={() => setDraftFromCustomer(customer)}
+              >
+                <Text style={[styles.selectorText, paymentDraft.customer_id === customer.id && styles.selectorTextActive]}>
+                  {customer.name}{customer.phone ? ` - ${customer.phone}` : ""}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={styles.label}>Link offer / estimate</Text>
+          <View style={styles.selectorList}>
+            {!selectedCustomer && <Text style={styles.muted}>Select a customer first to show only that customer's linked offers and estimates.</Text>}
+            {selectedCustomer && linkedEstimateOptions.length === 0 && <Text style={styles.muted}>No offers or estimates are linked to {selectedCustomer.name}. Create or link an offer in Offer Manager first.</Text>}
+            {linkedEstimateOptions.map((estimate) => (
+              <Pressable
+                key={String(estimate.id)}
+                style={[styles.selectorPill, paymentDraft.estimate_id === String(estimate.id) && styles.selectorPillActive]}
+                onPress={() => setDraftFromEstimate(estimate)}
+              >
+                <Text style={[styles.selectorText, paymentDraft.estimate_id === String(estimate.id) && styles.selectorTextActive]}>
+                  {String(estimate.id)} - {String(estimate.customer_name || "-")} - {formatMoney(Number(estimate.total_cost || 0))}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          {[["milestone", "Milestone / payment purpose"], ["method", "Payment method"], ["contract_basic_value", "Basic contract value"], ["basic_check_value", "Basic cheque value"], ["basic_cash_value", "Basic cash value"], ["basic_card_value", "Basic credit card value"], ["credit_card_charge_percent", "Credit card charge percent paid by client"], ["amount_received_check", "Received by cheque"], ["amount_received_cash", "Received by cash"], ["amount_received_card", "Received by credit card"], ["due_date", "Payment due date YYYY-MM-DD"], ["outstanding_date", "Outstanding date YYYY-MM-DD"], ["reminder_interval_days", "Reminder increment days"], ["cheque_number", "Cheque number"], ["reference", "Bank / payment reference"], ["notes", "Notes"]].map(([key, label]) => (
+            <View key={key} style={styles.field}>
+              <Text style={styles.label}>{label}</Text>
+              <TextInput
+                style={styles.input}
+                value={String(paymentDraft[key as keyof typeof paymentDraft] || "")}
+                onChangeText={(value) => setPaymentDraft((draft) => ({ ...draft, [key]: value }))}
+              />
+            </View>
+          ))}
+          {paymentDraft.payment_type === "AMC" && (
+            <View>
+              {[["amc_from_date", "AMC from date YYYY-MM-DD"], ["amc_to_date", "AMC to date YYYY-MM-DD"]].map(([key, label]) => (
+                <View key={key} style={styles.field}>
+                  <Text style={styles.label}>{label}</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={String(paymentDraft[key as keyof typeof paymentDraft] || "")}
+                    onChangeText={(value) => setPaymentDraft((draft) => ({ ...draft, [key]: value }))}
+                  />
+                </View>
+              ))}
+            </View>
+          )}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Calculated collection split</Text>
+            <Text style={styles.bodyText}>Basic cheque {formatMoneyExact(paymentSummary.basicCheck)} + GST {paymentSummary.gstPercent}% {formatMoneyExact(paymentSummary.checkGst)} + cash {formatMoneyExact(paymentSummary.basicCash)} + card {formatMoneyExact(paymentSummary.basicCard)} + client card charge {paymentSummary.cardChargePercent}% {formatMoneyExact(paymentSummary.cardCharge)} = final {formatMoneyExact(paymentSummary.finalContract)}.</Text>
+            <Text style={styles.bodyText}>Basic contract match: {paymentSummary.splitMatches ? "Yes" : "No"} ({formatMoneyExact(paymentSummary.contractBasic)} should equal cheque {formatMoneyExact(paymentSummary.basicCheck)} + cash {formatMoneyExact(paymentSummary.basicCash)} + card {formatMoneyExact(paymentSummary.basicCard)}).</Text>
+            <Text style={styles.bodyText}>Outstanding: cheque/GST {formatMoneyExact(paymentSummary.outstandingCheck)}, cash {formatMoneyExact(paymentSummary.outstandingCash)}, card/charges {formatMoneyExact(paymentSummary.outstandingCard)}, total {formatMoneyExact(paymentSummary.outstandingTotal)}. Next reminder {paymentSummary.nextReminder || "-"}.</Text>
+          </View>
+          <View style={styles.inlineActions}>
+            <Pressable style={styles.primaryButton} onPress={savePayment} disabled={loading || !paymentDraft.customer_id}>
+              <Text style={styles.primaryButtonText}>Save account payment</Text>
+            </Pressable>
+            <Pressable style={styles.smallButton} onPress={autoSchedulePayments} disabled={loading || !selectedEstimate}>
+              <Text style={styles.smallButtonText}>Auto-schedule offer</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <Text style={styles.sectionTitle}>Saved account payments</Text>
+        {payments.map((payment) => {
+          const summary = paymentAccountSummary(payment);
+          const id = String(payment.id || "");
+          return (
+            <View key={id} style={styles.card}>
+              <Text style={styles.cardTitle}>{String(payment.customer_name || payment.customer || "-")} - {String(payment.milestone || payment.payment_type || id)}</Text>
+              <Text style={styles.muted}>{String(payment.payment_type || "Contract")} - {String(payment.estimate_id || "No offer")} - Due {String(payment.due_date || "-")} - Status {String(payment.status || "-")}</Text>
+              {String(payment.payment_type || "").toLowerCase() === "amc" && <Text style={styles.bodyText}>AMC period: {String(payment.amc_from_date || "-")} to {String(payment.amc_to_date || "-")}</Text>}
+              <Text style={styles.bodyText}>Basic contract {formatMoneyExact(summary.contractBasic)}. Cheque {formatMoneyExact(summary.basicCheck)} + GST {formatMoneyExact(summary.checkGst)}. Cash {formatMoneyExact(summary.basicCash)}. Card {formatMoneyExact(summary.basicCard)} + client charge {formatMoneyExact(summary.cardCharge)}. Final {formatMoneyExact(summary.finalContract)}.</Text>
+              <Text style={styles.bodyText}>Cheque number: {String(payment.cheque_number || payment.check_number || "-")}.</Text>
+              <Text style={styles.bodyText}>Received cheque {formatMoneyExact(summary.receivedCheck)}, cash {formatMoneyExact(summary.receivedCash)}, and card {formatMoneyExact(summary.receivedCard)}. Outstanding total {formatMoneyExact(summary.outstandingTotal)}. Next reminder {summary.nextReminder || "-"}.</Text>
+              <View style={styles.inlineActions}>
+                <Pressable style={styles.smallButton} onPress={() => updatePayment(id, "Paid")} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Paid</Text>
+                </Pressable>
+                {[7, 15, 30].map((days) => (
+                  <Pressable key={days} style={styles.smallButton} onPress={() => updatePaymentRecord(id, { status: "Outstanding", outstanding_date: today, reminder_interval_days: days, next_reminder_date: addDays(today, days) })} disabled={loading}>
+                    <Text style={styles.smallButtonText}>Remind +{days}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    );
+  }
+
   function renderBreakdownPage() {
     const breakdowns = asRecords((data as Record<string, unknown> | null)?.breakdowns);
     const crmInquiryCustomers = asRecords((data as Record<string, unknown> | null)?.sales_inquiries).map((item) => ({
@@ -2172,6 +2720,15 @@ export default function App() {
     const commissionings = asRecords((data as Record<string, unknown> | null)?.commissionings);
     const messages = asRecords((data as Record<string, unknown> | null)?.dept_comms)
       .filter((item) => String(item.department || "").toLowerCase() === "commissioning" || String(item.commissioning_id || "").trim());
+    const commissioningEngineers = asRecords(data?.org_chart)
+      .filter((person) => {
+        const haystack = `${person.department || ""} ${person.title || ""} ${person.role || ""}`.toLowerCase();
+        return haystack.includes("commissioning") || haystack.includes("installation") || haystack.includes("engineer");
+      })
+      .filter((person, index, list) => {
+        const name = fieldText(person, ["name"]);
+        return name !== "-" && list.findIndex((item) => fieldText(item, ["name"]).toLowerCase() === name.toLowerCase()) === index;
+      });
     const pending = commissionings.filter((item) => ["pending", "open"].includes(String(item.status || "").toLowerCase()));
     const inProgress = commissionings.filter((item) => String(item.status || "").toLowerCase().includes("progress"));
     return (
@@ -2197,11 +2754,38 @@ export default function App() {
 
         <View style={styles.formCard}>
           <Text style={styles.cardLabel}>Manual commissioning record</Text>
+          <Text style={styles.label}>Assign engineer</Text>
+          <View style={styles.selectorList}>
+            {commissioningEngineers.slice(0, 16).map((engineer) => {
+              const name = fieldText(engineer, ["name"]);
+              return (
+                <Pressable
+                  key={`commissioning-engineer-${name}`}
+                  style={[styles.selectorPill, commissioningDraft.assigned_engineer === name && styles.selectorPillActive]}
+                  onPress={() => setCommissioningDraft((draft) => ({ ...draft, assigned_engineer: name }))}
+                  disabled={loading}
+                >
+                  <Text style={[styles.selectorText, commissioningDraft.assigned_engineer === name && styles.selectorTextActive]}>
+                    {name} - {fieldText(engineer, ["title", "role", "department"])}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
           {[
             ["installation_ref", "Installation ref"],
             ["unit", "Unit / lift"],
+            ["customer_id", "CRM customer ID"],
             ["customer", "Customer"],
             ["site", "Site"],
+            ["assigned_engineer", "Assigned engineer"],
+            ["controller_type", "Controller type (Closed loop / Open loop)"],
+            ["drive_model_number", "Drive model number"],
+            ["motor_serial_number", "Motor serial number"],
+            ["communication_link", "Communication link (Serial link / Normal)"],
+            ["protocol_required", "Protocol required Y/N"],
+            ["protocol_type", "Protocol type / protocol details"],
+            ["commissioning_details", "Specific commissioning details"],
             ["install_complete_date", "Install complete date"],
             ["payment_cleared", "Payment cleared Y/N"],
             ["start_date", "Start date"],
@@ -2248,9 +2832,56 @@ export default function App() {
                 <Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text>
               </View>
               <Text style={styles.muted}>{fieldText(item, ["customer"])} - {fieldText(item, ["site"])} - Install complete {fieldText(item, ["install_complete_date"])}</Text>
+              <Text style={styles.bodyText}>Engineer: {fieldText(item, ["assigned_engineer", "engineer", "technician"])} - Controller: {fieldText(item, ["controller_type"])} - Drive model: {fieldText(item, ["drive_model_number", "drive_model"])}</Text>
+              <Text style={styles.bodyText}>Motor serial: {fieldText(item, ["motor_serial_number", "motor_serial"])} - Nameplate: {fieldText(item, ["motor_nameplate_file", "motor_nameplate_url"])}</Text>
+              <Text style={styles.bodyText}>Communication: {fieldText(item, ["communication_link"])} - Protocol required: {fieldText(item, ["protocol_required"])} - Protocol: {fieldText(item, ["protocol_type", "protocol"])}</Text>
               <Text style={styles.bodyText}>Payment cleared: {String(item.payment_cleared || false)} - Handover: {fieldText(item, ["handover_date"])}</Text>
+              {!!fieldText(item, ["commissioning_details", "technical_details"]) && fieldText(item, ["commissioning_details", "technical_details"]) !== "-" && <Text style={styles.bodyText}>Details: {fieldText(item, ["commissioning_details", "technical_details"])}</Text>}
               <Text style={styles.bodyText}>{fieldText(item, ["message_from_install_team", "notes"])}</Text>
+              {!!commissioningEngineers.length && (
+                <>
+                  <Text style={styles.label}>Assign engineer</Text>
+                  <View style={styles.inlineActions}>
+                    {commissioningEngineers.slice(0, 8).map((engineer) => {
+                      const name = fieldText(engineer, ["name"]);
+                      return (
+                        <Pressable key={`${id}-engineer-${name}`} style={styles.smallButton} onPress={() => updateCommissioning(id, { assigned_engineer: name })} disabled={loading}>
+                          <Text style={styles.smallButtonText}>{name}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </>
+              )}
               <View style={styles.inlineActions}>
+                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { controller_type: "Closed loop" })} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Closed loop</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { controller_type: "Open loop" })} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Open loop</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { communication_link: "Serial link" })} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Serial link</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { communication_link: "Normal" })} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Normal</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { protocol_required: "Y" })} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Protocol yes</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { protocol_required: "N", protocol_type: "" })} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Protocol no</Text>
+                </Pressable>
+              </View>
+              <View style={styles.inlineActions}>
+                <Pressable style={styles.smallButton} onPress={() => uploadMotorNameplate(id)} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Upload motor nameplate</Text>
+                </Pressable>
+                {!!item.motor_nameplate_url && (
+                  <Pressable style={styles.smallButton} onPress={() => Linking.openURL(`${apiBaseUrl}${String(item.motor_nameplate_url)}`)} disabled={loading}>
+                    <Text style={styles.smallButtonText}>View nameplate</Text>
+                  </Pressable>
+                )}
                 <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { status: "In Progress", start_date: new Date().toISOString().slice(0, 10) })} disabled={loading}>
                   <Text style={styles.smallButtonText}>Start checks</Text>
                 </Pressable>
@@ -2670,23 +3301,30 @@ export default function App() {
   }
 
   function openSiteVisitForCustomer(customer: Customer) {
-    const existing = (data?.site_visits || []).find((visit) => String(visit.customer_id || "") === String(customer.id || ""));
-    setSiteVisitDraft({ ...emptySiteVisit, ...existing, customer_id: customer.id });
+    setSiteVisitDraft({
+      ...emptySiteVisit,
+      customer_id: customer.id,
+      customer_name: customer.name,
+      address: customer.address || "",
+      site_person_name: customer.contact_person || customer.name,
+      site_person_mobile: customer.phone || "",
+      site_visit_date: new Date().toISOString().slice(0, 10),
+      visited_by: data?.viewer?.display_name || username,
+    });
     setSiteVisitEditorOpen(true);
   }
 
   function openSiteVisitForCrmOption(customer: { id: string; name: string; phone?: string; address?: string; source_inquiry_id?: string }) {
-    const existing = (data?.site_visits || []).find((visit) => String(visit.customer_id || "") === String(customer.id || ""));
     setSiteVisitDraft({
       ...emptySiteVisit,
-      ...existing,
       customer_id: customer.id,
       customer_name: customer.name,
-      site_person_name: existing?.site_person_name || customer.name,
-      site_person_mobile: existing?.site_person_mobile || customer.phone || "",
-      site_enquiry_no: existing?.site_enquiry_no || customer.source_inquiry_id || "",
-      site_visit_date: existing?.site_visit_date || new Date().toISOString().slice(0, 10),
-      visited_by: existing?.visited_by || data?.viewer?.display_name || username,
+      address: customer.address || "",
+      site_person_name: customer.name,
+      site_person_mobile: customer.phone || "",
+      site_enquiry_no: customer.source_inquiry_id || "",
+      site_visit_date: new Date().toISOString().slice(0, 10),
+      visited_by: data?.viewer?.display_name || username,
     });
     setSiteVisitEditorOpen(true);
   }
@@ -2694,17 +3332,22 @@ export default function App() {
   function openSiteVisitForInquiry(record: Record<string, unknown>) {
     const customerId = String(record.customer_id || record.id || record.enquiry_no || "");
     const enquiryNo = String(record.enquiry_no || record.source_enquiry_no || "");
-    const existing = (data?.site_visits || []).find((visit) => {
-      const sameCustomer = String(visit.customer_id || "") === customerId;
-      const sameEnquiry = enquiryNo && String(visit.site_enquiry_no || "") === enquiryNo;
-      return sameCustomer && (!String(visit.site_enquiry_no || "") || sameEnquiry);
-    }) || (data?.site_visits || []).find((visit) => String(visit.customer_id || "") === customerId);
     setSiteVisitDraft({
       ...emptySiteVisit,
-      ...existing,
       customer_id: customerId,
-      site_enquiry_no: String(existing?.site_enquiry_no || enquiryNo),
+      customer_name: String(record.customer || record.lead_name || record.name || ""),
+      address: String(record.address || record.site_address || record.site || ""),
+      site_person_name: String(record.customer || record.lead_name || record.name || ""),
+      site_person_mobile: String(record.phone || record.whatsapp_no || ""),
+      site_enquiry_no: enquiryNo,
+      site_visit_date: new Date().toISOString().slice(0, 10),
+      visited_by: data?.viewer?.display_name || username,
     });
+    setSiteVisitEditorOpen(true);
+  }
+
+  function openExistingSiteVisit(visit: SiteVisit) {
+    setSiteVisitDraft({ ...emptySiteVisit, ...visit });
     setSiteVisitEditorOpen(true);
   }
 
@@ -2797,12 +3440,14 @@ export default function App() {
   }
 
   function openCostingForCustomer(customer: Customer) {
+    const siteMeasurements = offerMeasurementPayloadFromSiteVisit(siteVisitsForCustomerId(customer.id)[0]);
     setOfferDraft({
       ...emptyOfferDraft,
+      ...siteMeasurements,
       customer_id: customer.id,
       customer_name: customer.name,
       offer_name: customer.name,
-      offer_type: customer.segment || "Passenger",
+      offer_type: siteMeasurements.offer_type || customer.segment || "Passenger",
       lead_status: "Offer Pending",
       elevator_type: customer.segment || "Passenger Elevator",
       createdbyname: data?.viewer?.display_name || username,
@@ -2812,19 +3457,224 @@ export default function App() {
 
   function openCostingForInquiry(record: Record<string, unknown>) {
     const customerName = String(record.customer || record.lead_name || "");
+    const customerId = String(record.customer_id || "");
+    const siteMeasurements = offerMeasurementPayloadFromSiteVisit(siteVisitsForCustomerId(customerId)[0]);
     setOfferDraft({
       ...emptyOfferDraft,
+      ...siteMeasurements,
       customer_name: customerName,
       offer_name: customerName,
       offer_type: String(record.lead_type || record.leadtype || "Individual"),
       lead_status: "Offer Pending",
       elevator_type: String(record.lead_type || record.leadtype || "Passenger Elevator"),
       createdbyname: data?.viewer?.display_name || username,
-      customer_id: String(record.customer_id || ""),
+      customer_id: customerId,
       source_inquiry_id: recordIdentity(record) || String(record.enquiry_no || ""),
       notes: String(record.enquiry_remark || record.requirement || ""),
     });
     setCostingEditorOpen(true);
+  }
+
+  function applySiteVisitToOffer(visit: Record<string, unknown>) {
+    const payload = offerMeasurementPayloadFromSiteVisit(visit);
+    setOfferDraft((draft) => ({
+      ...draft,
+      ...payload,
+      offer_type: payload.offer_type || draft.offer_type,
+      stops: payload.stops || draft.stops,
+      capacity: payload.capacity || draft.capacity,
+      door_type: payload.door_type || draft.door_type,
+      finish: payload.finish || draft.finish,
+    }));
+  }
+
+  function renderOfferMeasurementSection() {
+    const linkedSiteVisits = siteVisitsForCustomerId(offerDraft.customer_id);
+    const measurementFields = [
+      ["site_visit_id", "Linked site visit ID"],
+      ["site_measurements_source", "Measurement source"],
+      ["site_address", "Site address"],
+      ["pit_size_mm", "Pit available mm"],
+      ["machine_room_available", "Machine room Y/N"],
+      ["site_stops", "Site stops"],
+      ["site_number_of_openings", "Number of openings"],
+      ["site_opening_type", "Opening type"],
+      ["door_size_width_mm", "Door width mm"],
+      ["door_size_height_mm", "Door height mm"],
+      ["car_size_width_mm", "Car width mm"],
+      ["car_size_depth_mm", "Car depth mm"],
+      ["site_capacity_persons", "Capacity persons"],
+      ["site_capacity_kg", "Capacity kg"],
+      ["shaft_width_mm", "Shaft width mm"],
+      ["shaft_depth_mm", "Shaft depth mm"],
+      ["brick_wall_available", "Brick wall Y/N"],
+      ["civil_door_height_mm", "Civil door height mm"],
+    ];
+    return (
+      <View style={styles.openingSchedulePanel}>
+        <View style={styles.sectionHeaderRow}>
+          <View>
+            <Text style={styles.sectionTitle}>Site visit measurements used for offer</Text>
+            <Text style={styles.muted}>Offer Manager pulls these dimensions from the CRM customer's saved site visit report. They can be reviewed or corrected before saving the client offer.</Text>
+          </View>
+          <Text style={styles.statusPill}>{linkedSiteVisits.length ? `${linkedSiteVisits.length} site visits` : "No site visit"}</Text>
+        </View>
+        {linkedSiteVisits.length ? (
+          <View style={styles.inlineActions}>
+            {linkedSiteVisits.slice(0, 4).map((visit) => {
+              const visitId = recordIdentity(visit);
+              const label = `${visitId || "Site visit"}${visit.site_visit_date ? ` - ${visit.site_visit_date}` : ""}`;
+              return (
+                <Pressable key={`offer-site-source-${visitId || label}`} style={styles.smallButton} onPress={() => applySiteVisitToOffer(visit)} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Use {label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : (
+          <View style={styles.emptyState}>
+            <Text style={styles.muted}>No saved site visit is linked to this CRM customer yet. Add the site visit first when measurements are needed for the offer.</Text>
+          </View>
+        )}
+        <View style={styles.formGrid}>
+          {measurementFields.map(([key, label]) => (
+            <View key={`offer-measurement-${key}`} style={styles.field}>
+              <Text style={styles.label}>{label}</Text>
+              <TextInput
+                style={styles.input}
+                value={String(offerDraft[key] || "")}
+                editable={key !== "site_visit_id"}
+                onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, [key]: value }))}
+                keyboardType={["pit_size_mm", "site_stops", "site_number_of_openings", "door_size_width_mm", "door_size_height_mm", "car_size_width_mm", "car_size_depth_mm", "site_capacity_persons", "site_capacity_kg", "shaft_width_mm", "shaft_depth_mm", "civil_door_height_mm"].includes(key) ? "numeric" : "default"}
+              />
+            </View>
+          ))}
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>Floor height profile</Text>
+          <TextInput style={[styles.input, styles.textarea]} value={String(offerDraft.floor_height_profile || "")} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, floor_height_profile: value }))} multiline />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>Opening schedule summary</Text>
+          <TextInput style={[styles.input, styles.textarea]} value={String(offerDraft.opening_schedule_summary || "")} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, opening_schedule_summary: value }))} multiline />
+        </View>
+      </View>
+    );
+  }
+
+  function addInventoryItemToOffer(item: Record<string, unknown>) {
+    const id = recordIdentity(item) || String(item.id || item.name || item.item || "");
+    const price = inventoryPrice(item);
+    setOfferDraft((draft) => {
+      const currentLines = offerInventoryLines(draft);
+      const existingIndex = currentLines.findIndex((line) => String(line.item_id || "") === id);
+      const nextLines = existingIndex >= 0
+        ? currentLines.map((line, index) => index === existingIndex ? { ...line, qty: String((offerNumber(line.qty, 1) || 1) + 1) } : line)
+        : [
+            ...currentLines,
+            {
+              item_id: id,
+              name: String(item.name || item.item || id),
+              category: String(item.category || ""),
+              unit: String(item.unit || "pcs"),
+              qty: "1",
+              current_price: String(price || ""),
+              purchase_price: String(item.purchase_price || item.unit_cost || ""),
+              price_date: String(item.price_date || item.last_updated || item.updated_at || ""),
+              vendor: String(item.vendor || ""),
+            },
+          ];
+      const materialTotal = offerInventoryTotal({ inventory_items: nextLines });
+      return {
+        ...draft,
+        inventory_items: nextLines,
+        inventory_material_total: String(materialTotal),
+        inventory_pricing_source: `Inventory prices from ${new Date().toISOString().slice(0, 10)}`,
+        material_cost: String(materialTotal),
+      };
+    });
+  }
+
+  function updateOfferInventoryLine(index: number, patch: Record<string, string>) {
+    setOfferDraft((draft) => {
+      const nextLines = offerInventoryLines(draft).map((line, lineIndex) => lineIndex === index ? { ...line, ...patch } : line);
+      const materialTotal = offerInventoryTotal({ inventory_items: nextLines });
+      return { ...draft, inventory_items: nextLines, inventory_material_total: String(materialTotal), material_cost: String(materialTotal) };
+    });
+  }
+
+  function removeOfferInventoryLine(index: number) {
+    setOfferDraft((draft) => {
+      const nextLines = offerInventoryLines(draft).filter((_, lineIndex) => lineIndex !== index);
+      const materialTotal = offerInventoryTotal({ inventory_items: nextLines });
+      return { ...draft, inventory_items: nextLines, inventory_material_total: String(materialTotal), material_cost: materialTotal ? String(materialTotal) : "" };
+    });
+  }
+
+  function renderOfferInventorySection() {
+    const inventory = asRecords(data?.inventory);
+    const selectedLines = offerInventoryLines(offerDraft);
+    const materialTotal = offerInventoryTotal(offerDraft);
+    const pricedInventory = inventory
+      .filter((item) => String(item.name || item.item || "").trim())
+      .sort((a, b) => String(a.category || "").localeCompare(String(b.category || "")) || String(a.name || a.item || "").localeCompare(String(b.name || b.item || "")));
+    return (
+      <View style={styles.openingSchedulePanel}>
+        <View style={styles.sectionHeaderRow}>
+          <View>
+            <Text style={styles.sectionTitle}>Inventory items used in offer</Text>
+            <Text style={styles.muted}>Add priced warehouse items to this offer. The current item prices become the offer's internal material cost.</Text>
+          </View>
+          <Text style={styles.statusPill}>{formatMoney(materialTotal)}</Text>
+        </View>
+        {!!pricedInventory.length && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
+            {pricedInventory.slice(0, 24).map((item, index) => {
+              const id = recordIdentity(item) || String(item.id || item.name || index);
+              const price = inventoryPrice(item);
+              return (
+                <Pressable key={`offer-inventory-${id}`} style={styles.smallButton} onPress={() => addInventoryItemToOffer(item)} disabled={loading}>
+                  <Text style={styles.smallButtonText}>{String(item.name || item.item || id)} - {formatMoney(price)}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        )}
+        {!pricedInventory.length && (
+          <View style={styles.emptyState}>
+            <Text style={styles.muted}>Add inventory items with current prices first, then they can be used in Offer Manager costing.</Text>
+          </View>
+        )}
+        {selectedLines.map((line, index) => {
+          const qty = offerNumber(line.qty, 1) || 1;
+          const price = offerNumber(line.current_price || line.unit_price || line.sale_price || line.unit_cost);
+          return (
+            <View key={`offer-inventory-line-${String(line.item_id || index)}`} style={styles.openingScheduleRow}>
+              <View style={styles.openingScheduleField}>
+                <Text style={styles.label}>Item</Text>
+                <TextInput style={styles.input} value={String(line.name || "")} onChangeText={(value) => updateOfferInventoryLine(index, { name: value })} />
+              </View>
+              <View style={styles.openingScheduleField}>
+                <Text style={styles.label}>Qty</Text>
+                <TextInput style={styles.input} value={String(line.qty || "1")} onChangeText={(value) => updateOfferInventoryLine(index, { qty: value })} keyboardType="numeric" />
+              </View>
+              <View style={styles.openingScheduleField}>
+                <Text style={styles.label}>Current price</Text>
+                <TextInput style={styles.input} value={String(line.current_price || "")} onChangeText={(value) => updateOfferInventoryLine(index, { current_price: value })} keyboardType="numeric" />
+              </View>
+              <View style={styles.openingScheduleField}>
+                <Text style={styles.label}>Line total</Text>
+                <Text style={styles.bodyText}>{formatMoney(qty * price)}</Text>
+              </View>
+              <Pressable style={styles.smallButton} onPress={() => removeOfferInventoryLine(index)} disabled={loading}>
+                <Text style={styles.smallButtonText}>Remove</Text>
+              </Pressable>
+            </View>
+          );
+        })}
+        <Text style={styles.muted}>Material cost from inventory: {formatMoney(materialTotal)}. You can still override the material cost field if needed.</Text>
+      </View>
+    );
   }
 
   function renderOfferEditorModal() {
@@ -2878,6 +3728,8 @@ export default function App() {
                   </View>
                 ))}
               </View>
+              {renderOfferMeasurementSection()}
+              {renderOfferInventorySection()}
               <View style={styles.linkedSystemsPanel}>
                 <Text style={styles.cardLabel}>Client offer preview</Text>
                 <Text style={styles.metricValue}>{formatMoney(offerCostSummary(offerDraft).totalCost)}</Text>
@@ -2955,6 +3807,7 @@ export default function App() {
     const offers = [...asRecords(data?.estimates)].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
     const customers = [...(data?.customers || [])].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
     const activeOffers = offers.filter((offer) => !String(offer.status || offer.lead_status || "").toLowerCase().includes("lost"));
+    const customersWithMeasurements = customers.filter((customer) => siteVisitsForCustomerId(customer.id).length);
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -2979,22 +3832,44 @@ export default function App() {
             <Text style={styles.muted}>Client offer letters sent.</Text>
           </View>
           <View style={styles.card}>
-            <Text style={styles.cardLabel}>Approved</Text>
-            <Text style={styles.metricValue}>{offers.filter((offer) => ["approved", "accepted"].includes(String(offer.status || "").toLowerCase())).length}</Text>
-            <Text style={styles.muted}>Approved customer offers.</Text>
+            <Text style={styles.cardLabel}>Measurement ready</Text>
+            <Text style={styles.metricValue}>{customersWithMeasurements.length}</Text>
+            <Text style={styles.muted}>CRM customers with saved site visit dimensions.</Text>
           </View>
         </View>
 
         <View style={styles.formCard}>
           <Text style={styles.cardLabel}>Create offer from CRM customer</Text>
-          <Text style={styles.muted}>Select a saved CRM customer first. Offer Manager will use that customer ID for the costing record and offer letter.</Text>
+          <Text style={styles.muted}>Select a saved CRM customer first. Offer Manager will use that customer ID and pull the latest linked site visit measurements into the costing record and offer letter.</Text>
           {!customers.length && <Text style={styles.muted}>No saved customer accounts are available yet.</Text>}
-          <View style={styles.inlineActions}>
-            {customers.slice(0, 16).map((customer) => (
-              <Pressable key={`offer-customer-${customer.id}`} style={styles.smallButton} onPress={() => openCostingForCustomer(customer)} disabled={loading}>
-                <Text style={styles.smallButtonText}>{customer.name || customer.id}</Text>
-              </Pressable>
-            ))}
+          <View style={styles.formGrid}>
+            {customers.slice(0, 16).map((customer) => {
+              const visits = siteVisitsForCustomerId(customer.id);
+              const latestVisit = visits[0];
+              const measurementText = latestVisit
+                ? `Site visit ${recordIdentity(latestVisit) || ""} - ${String(latestVisit.site_visit_date || "No date")} - Stops ${String(latestVisit.site_stops || "-")} - Pit ${String(latestVisit.pit_size_mm || "-")} mm - Shaft ${String(latestVisit.shaft_width_mm || "-")} x ${String(latestVisit.shaft_depth_mm || "-")} mm`
+                : "No linked site visit measurements yet";
+              return (
+                <View key={`offer-customer-card-${customer.id}`} style={styles.card}>
+                  <View style={styles.cardHeaderRow}>
+                    <View style={styles.cardTitleBlock}>
+                      <Text style={styles.cardTitle}>{customer.name || customer.id}</Text>
+                      <Text style={styles.muted}>CRM {customer.id} - {customer.address || "No address"}</Text>
+                    </View>
+                    <Text style={styles.statusPill}>{visits.length ? "Measurements ready" : "Needs site visit"}</Text>
+                  </View>
+                  <Text style={styles.bodyText}>{measurementText}</Text>
+                  <View style={styles.inlineActions}>
+                    <Pressable style={styles.smallButton} onPress={() => openCostingForCustomer(customer)} disabled={loading}>
+                      <Text style={styles.smallButtonText}>Create offer</Text>
+                    </Pressable>
+                    <Pressable style={styles.smallButton} onPress={() => openSiteVisitForCustomer(customer)} disabled={loading}>
+                      <Text style={styles.smallButtonText}>New site visit</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              );
+            })}
           </View>
         </View>
 
@@ -3018,6 +3893,7 @@ export default function App() {
                 <Text style={styles.statusPill}>{String(offer.status || offer.lead_status || "Offer Pending")}</Text>
               </View>
               <Text style={styles.bodyText}>{String(offer.elevator_type || offer.offer_type || "Elevator")} - Stops {String(offer.stops || "-")} - Capacity {String(offer.capacity || "-")} - {formatMoney(cost.totalCost)}</Text>
+              <Text style={styles.bodyText}>Measurements: {String(offer.site_measurements_source || offer.site_visit_id || "No site visit linked")} - Pit {String(offer.pit_size_mm || "-")} mm - Shaft {String(offer.shaft_width_mm || "-")} x {String(offer.shaft_depth_mm || "-")} mm</Text>
               <Text style={styles.muted}>Internal base {formatMoney(cost.baseCost)} + margin {cost.marginPercent}% + GST {cost.gstPercent}%.</Text>
               <View style={styles.inlineActions}>
                 <Pressable style={styles.smallButton} onPress={() => openEstimateArtifact(id, "report")} disabled={loading}>
@@ -3074,6 +3950,18 @@ export default function App() {
     });
     const dueFollowUps = dueInquiryFollowUps;
     const consentMissing = customers.filter((customer) => String(customer.dpdp_consent || "N").toUpperCase() !== "Y");
+    const latestMotorForCustomer = (customer: Customer) => {
+      const customerId = String(customer.id || "");
+      const nameKey = crmNameKey(customer.name);
+      return asRecords((data as Record<string, unknown> | null)?.commissionings)
+        .filter((item) => {
+          const itemCustomerId = String(item.customer_id || "").trim();
+          const itemNameKey = crmNameKey(item.customer);
+          return Boolean((customerId && itemCustomerId && customerId === itemCustomerId) || (nameKey && itemNameKey && nameKey === itemNameKey));
+        })
+        .filter((item) => String(item.motor_serial_number || item.motor_nameplate_url || item.motor_nameplate_file || "").trim())
+        .sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")))[0];
+    };
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -3358,8 +4246,9 @@ export default function App() {
             const customer = row.customer;
             const customerEstimates = estimatesForCustomer(customer, offers);
             const latestEstimate = customerEstimates[0];
+            const latestMotor = latestMotorForCustomer(customer);
             const costingStatus = latestEstimate ? String(latestEstimate.status || latestEstimate.lead_status || "Costing") : "No costing";
-            const existingSiteVisit = (data?.site_visits || []).find((visit) => String(visit.customer_id || "") === String(customer.id || ""));
+            const customerSiteVisits = (data?.site_visits || []).filter((visit) => String(visit.customer_id || "") === String(customer.id || ""));
             return (
               <View key={`customer-${customer.id}`} style={styles.card}>
                 <View style={styles.cardHeaderRow}>
@@ -3368,6 +4257,10 @@ export default function App() {
                 </View>
                 <Text style={styles.muted}>{customer.id} - {customer.address || "No address"} - Pipeline: {customer.pipeline_stage || "Lead"}</Text>
                 <Text style={styles.bodyText}>Offers: {customerEstimates.length}{latestEstimate ? ` - Latest ${String(latestEstimate.job_no || latestEstimate.id || "-")} - ${String(latestEstimate.offer_date || latestEstimate.created_at || "-")} - ${formatMoney(offerCostSummary(latestEstimate).totalCost)}` : ""}</Text>
+                <Text style={styles.bodyText}>Site visits: {customerSiteVisits.length}{customerSiteVisits[0] ? ` - Latest ${String(customerSiteVisits[0].id || "-")} ${String(customerSiteVisits[0].site_visit_date || "")}` : ""}</Text>
+                {!!latestMotor && (
+                  <Text style={styles.bodyText}>Motor: {fieldText(latestMotor, ["motor_serial_number", "motor_serial"])} - Nameplate: {fieldText(latestMotor, ["motor_nameplate_file", "motor_nameplate_url"])} - Commissioning {fieldText(latestMotor, ["id"])}</Text>
+                )}
                 <Text style={styles.bodyText}>{customer.contact_person || "No contact"} - {customer.phone || "No mobile"} - {customer.email || "No email"}</Text>
                 <Text style={styles.bodyText}>Owner: {customer.account_owner || "-"} - Source: {customer.lead_source || "-"} - Channel: {customer.preferred_channel || "-"}</Text>
                 <View style={styles.inlineActions}>
@@ -3389,7 +4282,7 @@ export default function App() {
                     onPress={() => openSiteVisitForCustomer(customer)}
                     disabled={loading}
                   >
-                    <Text style={styles.smallButtonText}>{existingSiteVisit ? "Edit site visit" : "Start site visit"}</Text>
+                    <Text style={styles.smallButtonText}>New site visit</Text>
                   </Pressable>
                   {isAdmin && (
                     <Pressable style={styles.dangerButton} onPress={() => deleteCustomer(customer)} disabled={loading}>
@@ -3409,11 +4302,11 @@ export default function App() {
           const costingStatus = latestEstimate ? String(latestEstimate.status || latestEstimate.lead_status || "Costing") : "No costing";
           const inquiryCustomerId = String(item.customer_id || item.id || item.enquiry_no || "");
           const inquiryEnquiryNo = String(item.enquiry_no || item.source_enquiry_no || "");
-          const existingSiteVisit = (data?.site_visits || []).find((visit) => {
+          const inquirySiteVisits = (data?.site_visits || []).filter((visit) => {
             const sameCustomer = String(visit.customer_id || "") === inquiryCustomerId;
             const sameEnquiry = inquiryEnquiryNo && String(visit.site_enquiry_no || "") === inquiryEnquiryNo;
             return sameCustomer && (!String(visit.site_enquiry_no || "") || sameEnquiry);
-          }) || (data?.site_visits || []).find((visit) => String(visit.customer_id || "") === inquiryCustomerId);
+          });
           return (
             <View key={`${id}-${index}`} style={styles.card}>
               <View style={styles.cardHeaderRow}>
@@ -3548,7 +4441,8 @@ export default function App() {
                   <Text style={styles.bodyText}>Address: {String(item.address || item.site_address || item.site || "-")}</Text>
                   <Text style={styles.bodyText}>Referral: {String(item.referral_by || "-")} - Created by: {String(item.createdbyname || "-")} - Last modified by: {String(item.lastmodifiedbyname || "-")}</Text>
                   <Text style={styles.bodyText}>Follow-up: {followupDate(item) || "-"} - {String(item.followup_channel || "WhatsApp")} - Every {followupFrequency(item)}d - {String(item.followup_status || "Open")}</Text>
-              <Text style={styles.bodyText}>Offer: {latestEstimate ? `${String(latestEstimate.job_no || latestEstimate.id || "-")} - ${String(latestEstimate.offer_type || latestEstimate.elevator_type || "-")} - ${String(latestEstimate.offer_date || latestEstimate.created_at || "-")} - ${formatMoney(offerCostSummary(latestEstimate).totalCost)}` : "No offer yet"}</Text>
+                  <Text style={styles.bodyText}>Offer: {latestEstimate ? `${String(latestEstimate.job_no || latestEstimate.id || "-")} - ${String(latestEstimate.offer_type || latestEstimate.elevator_type || "-")} - ${String(latestEstimate.offer_date || latestEstimate.created_at || "-")} - ${formatMoney(offerCostSummary(latestEstimate).totalCost)}` : "No offer yet"}</Text>
+                  <Text style={styles.bodyText}>Site visits: {inquirySiteVisits.length}{inquirySiteVisits[0] ? ` - Latest ${String(inquirySiteVisits[0].id || "-")} ${String(inquirySiteVisits[0].site_visit_date || "")}` : ""}</Text>
                   {isLostInquiryStatus(status) && !!(item.lost_reason || item.status_lost_reason) ? <Text style={styles.muted}>Lost reason: {String(item.lost_reason || item.status_lost_reason)}</Text> : null}
                   {!!(item.requirement || item.enquiry_remark || item.notes) && <Text style={styles.muted}>{String(item.requirement || item.enquiry_remark || item.notes)}</Text>}
                   <View style={styles.inlineActions}>
@@ -3559,7 +4453,7 @@ export default function App() {
                       <Text style={styles.smallButtonText}>Followed up</Text>
                     </Pressable>
                     <Pressable style={styles.smallButton} onPress={() => openSiteVisitForInquiry(item)} disabled={loading}>
-                      <Text style={styles.smallButtonText}>{existingSiteVisit ? "Edit site visit" : "Site Visit"}</Text>
+                      <Text style={styles.smallButtonText}>New site visit</Text>
                     </Pressable>
                     <Pressable style={styles.smallButton} onPress={() => openCostingForInquiry(item)} disabled={loading}>
                     <Text style={styles.smallButtonText}>Create offer</Text>
@@ -3569,7 +4463,7 @@ export default function App() {
                       onPress={() => openSiteVisitForInquiry(item)}
                       disabled={loading}
                     >
-                      <Text style={styles.smallButtonText}>{existingSiteVisit ? "Edit site visit" : "Start site visit"}</Text>
+                      <Text style={styles.smallButtonText}>New site visit</Text>
                     </Pressable>
                     {isAdmin && (
                       <Pressable style={styles.dangerButton} onPress={() => deleteSalesInquiry(item)} disabled={loading}>
@@ -3651,6 +4545,8 @@ export default function App() {
                     </View>
                   ))}
                 </View>
+                {renderOfferMeasurementSection()}
+                {renderOfferInventorySection()}
                 <View style={styles.linkedSystemsPanel}>
                   <Text style={styles.cardLabel}>Client offer preview</Text>
                   <Text style={styles.metricValue}>{formatMoney(offerCostSummary(offerDraft).totalCost)}</Text>
@@ -3881,7 +4777,7 @@ export default function App() {
         <View style={styles.moduleHero}>
           <Text style={styles.eyebrow}>Field Site Visit</Text>
           <Text style={styles.moduleHeroTitle}>Site Visit Notes</Text>
-          <Text style={styles.moduleHeroText}>Staff can record site visit details against a CRM customer. Admin sees these same saved reports in the portal.</Text>
+          <Text style={styles.moduleHeroText}>Staff can record every site visit against a CRM customer, keeping each measurement set as its own saved report for future offers.</Text>
         </View>
 
         <View style={styles.metricGrid}>
@@ -3905,7 +4801,7 @@ export default function App() {
         <View style={styles.formCard}>
           <View style={styles.cardHeaderRow}>
             <View>
-              <Text style={styles.cardLabel}>Add / update site visit notes</Text>
+              <Text style={styles.cardLabel}>Add a new site visit record</Text>
               <Text style={styles.cardTitle}>Select CRM customer</Text>
             </View>
             <Text style={styles.statusPill}>{matchingCustomers.length} matches</Text>
@@ -3921,7 +4817,7 @@ export default function App() {
           </View>
           <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
             {matchingCustomers.slice(0, 60).map((customer) => {
-              const existing = siteVisits.find((visit) => String(visit.customer_id || "") === customer.id);
+              const savedVisitCount = siteVisits.filter((visit) => String(visit.customer_id || "") === customer.id).length;
               return (
                 <Pressable key={`site-visit-customer-${customer.id}`} style={styles.dropdownOption} onPress={() => openSiteVisitForCrmOption(customer)} disabled={loading}>
                   <View style={styles.cardHeaderRow}>
@@ -3929,7 +4825,7 @@ export default function App() {
                       <Text style={styles.selectorText}>{customer.id} - {customer.name}</Text>
                       <Text style={styles.muted}>Phone: {customer.phone || "-"}{customer.source_inquiry_id ? ` - Enquiry: ${customer.source_inquiry_id}` : ""}</Text>
                     </View>
-                    <Text style={styles.statusPill}>{existing ? "Edit notes" : "Start visit"}</Text>
+                    <Text style={styles.statusPill}>{savedVisitCount ? `${savedVisitCount} saved visits` : "Start new visit"}</Text>
                   </View>
                 </Pressable>
               );
@@ -3954,10 +4850,10 @@ export default function App() {
                 <Text style={styles.cardTitle}>{visit.id} - {linkedCustomer?.name || visit.customer_name || visit.customer_id}</Text>
                 <Text style={styles.muted}>{visit.customer_id} - {linkedCustomer?.address || visit.address || "CRM customer address not set"}</Text>
               </View>
-              <Text style={styles.statusPill}>{visit.site_visit_date || "No date"}</Text>
+              <Text style={styles.statusPill}>{visit.visit_number ? `Visit ${visit.visit_number}` : visit.site_visit_date || "No date"}</Text>
             </View>
             {!linkedCustomer && <Text style={styles.statusPill}>Needs CRM customer link</Text>}
-            <Text style={styles.bodyText}>Staff: {visit.visited_by || visit.submitted_by || "Not set"}{visit.submitted_by_department ? ` - ${visit.submitted_by_department}` : ""}</Text>
+            <Text style={styles.bodyText}>Date: {visit.site_visit_date || "-"} - Staff: {visit.visited_by || visit.submitted_by || "Not set"}{visit.submitted_by_department ? ` - ${visit.submitted_by_department}` : ""}</Text>
             <Text style={styles.bodyText}>Site contact: {visit.site_person_name || linkedCustomer?.name || "Not set"} - {visit.site_person_mobile || linkedCustomer?.phone || "No mobile"}</Text>
             <Text style={styles.bodyText}>Pit {visit.pit_size_mm || "-"} mm - Machine room {visit.machine_room_available || "N"} - Stops {visit.site_stops || "-"}</Text>
             {Array.isArray(visit.opening_schedule) && visit.opening_schedule.length ? (
@@ -3967,8 +4863,11 @@ export default function App() {
             ) : null}
             {!!visit.notes && <Text style={styles.bodyText}>{visit.notes}</Text>}
             <View style={styles.inlineActions}>
+              <Pressable style={styles.smallButton} onPress={() => openExistingSiteVisit(visit)} disabled={loading}>
+                <Text style={styles.smallButtonText}>Edit this visit</Text>
+              </Pressable>
               <Pressable style={styles.smallButton} onPress={() => openSiteVisitForCrmOption({ id: String(visit.customer_id || ""), name: String(linkedCustomer?.name || visit.customer_name || visit.customer_id || ""), phone: String(linkedCustomer?.phone || visit.site_person_mobile || ""), address: String(linkedCustomer?.address || visit.address || ""), source_inquiry_id: String(visit.site_enquiry_no || linkedCustomer?.source_inquiry_id || "") })} disabled={loading || !linkedCustomer}>
-                <Text style={styles.smallButtonText}>Edit notes</Text>
+                <Text style={styles.smallButtonText}>New follow-up visit</Text>
               </Pressable>
             </View>
           </View>
@@ -4007,7 +4906,7 @@ export default function App() {
         {isAdmin && (
           <View style={styles.formCard}>
             <Text style={styles.cardLabel}>{accountDraft.id ? "Edit account" : "Create account"}</Text>
-            <Text style={styles.muted}>All staff portal accounts use the shared portal password. Usernames remain unique and clickable for account editing.</Text>
+            <Text style={styles.muted}>Staff portal passwords are managed by the server secret file. Leave the password field blank to use the configured staff password.</Text>
             {[
               ["username", "Username"],
               ["display_name", "Display name"],
@@ -4055,7 +4954,7 @@ export default function App() {
                     display_name: String(person.name || ""),
                     department: String(person.department || ""),
                     role: String(person.department || "").toLowerCase() === "executive office" ? "admin" : "manager",
-                    password: sharedPortalPassword,
+                    password: "",
                     active: "Y",
                   })}
                 >
@@ -4086,8 +4985,8 @@ export default function App() {
                 <Pressable style={styles.smallButton} onPress={() => editAccount(user)} disabled={loading}>
                   <Text style={styles.smallButtonText}>Edit</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateAccount(String(user.id), { password: sharedPortalPassword })} disabled={loading}>
-                  <Text style={styles.smallButtonText}>Reset shared password</Text>
+                <Pressable style={styles.smallButton} onPress={() => updateAccount(String(user.id), { reset_shared_password: true })} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Reset staff password</Text>
                 </Pressable>
                 <Pressable style={styles.smallButton} onPress={() => updateAccount(String(user.id), { active: String(user.active) === "false" ? true : false })} disabled={loading}>
                   <Text style={styles.smallButtonText}>{String(user.active) === "false" ? "Activate" : "Deactivate"}</Text>
@@ -4248,7 +5147,8 @@ export default function App() {
   }
 
   function internationalVendorEmailText(record: Record<string, unknown>) {
-    const company = String(record.company || "there").trim();
+    const company = String(record.company || "").trim();
+    const greeting = company ? `Hello ${company}` : "Hello";
     const stage = String(record.followup_stage || record.pipeline_stage || "1. Catalog intro").toLowerCase();
     const tenderTitle = String(record.tender_title || record.closest_tender_title || "").trim();
     const tenderArea = String(record.tender_area || record.closest_tender_region || record.region || "your area").trim();
@@ -4259,25 +5159,39 @@ export default function App() {
       const tenderLine = tenderTitle
         ? `We noticed ${tenderTitle} in ${tenderArea}${tenderDeadline ? ` with a deadline of ${tenderDeadline}` : ""}${tenderRef ? `, ref ${tenderRef}` : ""}.`
         : `We noticed an elevator tender/opportunity near ${tenderArea}.`;
-      return `Hello ${company}, a friend mentioned they had used your service, so we wanted to set a short meeting. ${tenderLine} Your company could bid locally while FUZI supplies manufactured elevator parts and kits at a competitive landed cost; our current estimate is ${formatMoney(cost.vendorCost)} before final freight/customs confirmation. Would you be open to a call to discuss partnering on this contract?`;
+      return `${greeting}, a friend mentioned they had used your service, so we wanted to set a short meeting. ${tenderLine} Your company could bid locally while FUZI supplies manufactured elevator parts and kits at a competitive landed cost; our current estimate is ${formatMoney(cost.vendorCost)} before final freight/customs confirmation. Would you be open to a call to discuss partnering on this contract?`;
     }
     if (stage.includes("sample") || stage.includes("smart")) {
-      return `Hello ${company}, FUZI can also supply smaller smart elevator parts, controller accessories, and sample kits internationally. We can quote courier/air freight by chargeable kg and share a small-parts catalog for quick evaluation.`;
+      return `${greeting}, FUZI can also supply smaller smart elevator parts, controller accessories, and sample kits internationally. We can quote courier/air freight by chargeable kg and share a small-parts catalog for quick evaluation.`;
     }
     if (stage.includes("cost")) {
-      return `Hello ${company}, we prepared a landed-cost estimate for FUZI manufactured elevator parts/kits. The current calculated vendor cost is ${formatMoney(cost.vendorCost)}, including freight/import assumptions and the local partner fee. Please confirm destination, dimensions, and preferred Incoterm so we can firm up the quote.`;
+      return `${greeting}, we prepared a landed-cost estimate for FUZI manufactured elevator parts/kits. The current calculated vendor cost is ${formatMoney(cost.vendorCost)}, including freight/import assumptions and the local partner fee. Please confirm destination, dimensions, and preferred Incoterm so we can firm up the quote.`;
     }
-    return `Hello ${company}, FUZI manufactures elevator parts and lift kits internationally. We are looking for USA and Canada elevator companies that can install locally while FUZI supplies manufactured parts and kits. Please reply if you would like our catalog, landed-cost sheet, and partnership terms.`;
+    return `${greeting}, FUZI manufactures elevator parts and lift kits internationally. We are looking for USA and Canada elevator companies that can install locally while FUZI supplies manufactured parts and kits. Please reply if you would like our catalog, landed-cost sheet, and partnership terms.`;
   }
 
   function renderInternationalVendorPage() {
     const vendors = asRecords(data?.international_vendors);
     const query = internationalVendorSearch.trim().toLowerCase();
-    const visibleVendors = vendors.filter((item) => !query || JSON.stringify(item).toLowerCase().includes(query));
+    const filteredByStatus = vendors.filter((item) => {
+      if (internationalVendorFilter === "Has email") return Boolean(String(item.email || "").trim());
+      if (internationalVendorFilter === "Needs email") return !String(item.email || "").trim();
+      if (internationalVendorFilter === "Tender matched") return Boolean(String(item.tender_title || item.closest_tender_title || "").trim());
+      if (internationalVendorFilter === "Needs deadline") return !String(item.tender_deadline || item.closest_tender_deadline || "").trim() || ["tbd", "unknown"].includes(String(item.tender_deadline || item.closest_tender_deadline || "").trim().toLowerCase());
+      if (internationalVendorFilter === "OpenClaw sent") return Boolean(String(item.last_outreach_at || item.delivery_status || "").trim());
+      return true;
+    });
+    const visibleVendors = filteredByStatus.filter((item) => !query || JSON.stringify(item).toLowerCase().includes(query));
+    const vendorPageSize = 25;
+    const vendorPageCount = Math.max(1, Math.ceil(visibleVendors.length / vendorPageSize));
+    const safeVendorPage = Math.min(internationalVendorPage, vendorPageCount);
+    const pagedVendors = visibleVendors.slice((safeVendorPage - 1) * vendorPageSize, safeVendorPage * vendorPageSize);
     const activeVendors = vendors.filter((item) => !String(item.status || "").toLowerCase().includes("lost"));
     const tenderPartners = vendors.filter((item) => String(item.followup_stage || "").toLowerCase().includes("tender") || String(item.tender_source || "").trim());
     const sentVendors = vendors.filter((item) => String(item.last_outreach_at || item.delivery_status || "").trim());
     const shippedVendors = vendors.filter((item) => ["shipped", "delivered", "partner active"].includes(String(item.pipeline_stage || item.shipment_status || "").toLowerCase()));
+    const missingEmail = vendors.filter((item) => !String(item.email || "").trim());
+    const needsTenderVerification = vendors.filter((item) => ["tbd", "unknown"].includes(String(item.tender_deadline || item.closest_tender_deadline || "").trim().toLowerCase()));
     const draftCost = internationalVendorCost(internationalVendorDraft);
     if (!isAdmin) {
       return (
@@ -4321,6 +5235,16 @@ export default function App() {
             <Text style={styles.metricValue}>{shippedVendors.length}</Text>
             <Text style={styles.muted}>Shipped, delivered, or active partner accounts.</Text>
           </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Needs contact</Text>
+            <Text style={styles.metricValue}>{missingEmail.length}</Text>
+            <Text style={styles.muted}>No email saved; use phone/profile research before sending.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Tender review</Text>
+            <Text style={styles.metricValue}>{needsTenderVerification.length}</Text>
+            <Text style={styles.muted}>Tender deadlines marked TBD or needing confirmation.</Text>
+          </View>
         </View>
 
         <View style={styles.formCard}>
@@ -4329,6 +5253,7 @@ export default function App() {
           <Text style={styles.bodyText}>2. Ask OpenClaw to draft the first email with the friend-referral opener, nearest tender, meeting request, and FUZI manufactured-parts partnership offer.</Text>
           <Text style={styles.bodyText}>3. Follow up with catalog, landed-cost sheet, bid support pricing, sample/smart-parts quote, then meeting reminder.</Text>
           <Text style={styles.bodyText}>4. Move interested companies to bid partnership, PO request, production, freight, shipped, delivered, and partner active.</Text>
+          <Text style={styles.muted}>OpenClaw draft actions can prepare copy without an email address. Send outreach only after the company has a verified email or OpenClaw target.</Text>
         </View>
 
         <View style={styles.formCard}>
@@ -4514,9 +5439,26 @@ export default function App() {
           <TextInput
             style={styles.input}
             value={internationalVendorSearch}
-            onChangeText={setInternationalVendorSearch}
+            onChangeText={(value) => {
+              setInternationalVendorSearch(value);
+              setInternationalVendorPage(1);
+            }}
             placeholder="Search company, country, region, tender, email, status"
           />
+          <View style={styles.inlineActions}>
+            {["All", "Has email", "Needs email", "Tender matched", "Needs deadline", "OpenClaw sent"].map((filter) => (
+              <Pressable
+                key={`ivendor-filter-${filter}`}
+                style={[styles.smallButton, internationalVendorFilter === filter && styles.selectorPillActive]}
+                onPress={() => {
+                  setInternationalVendorFilter(filter);
+                  setInternationalVendorPage(1);
+                }}
+              >
+                <Text style={styles.smallButtonText}>{filter}</Text>
+              </Pressable>
+            ))}
+          </View>
         </View>
 
         <Text style={styles.sectionTitle}>International Vendor Pipeline</Text>
@@ -4562,9 +5504,26 @@ export default function App() {
             <Text style={styles.muted}>Add Canadian and USA elevator companies, then use OpenClaw/email to run the catalog and tender-partner follow-up sequence.</Text>
           </View>
         )}
-        {visibleVendors.map((vendor, index) => {
+        {!!visibleVendors.length && (
+          <View style={styles.paginationBar}>
+            <Text style={styles.muted}>Showing {(safeVendorPage - 1) * vendorPageSize + 1}-{Math.min(safeVendorPage * vendorPageSize, visibleVendors.length)} of {visibleVendors.length}</Text>
+            <View style={styles.inlineActions}>
+              <Pressable style={styles.smallButton} onPress={() => setInternationalVendorPage((page) => Math.max(1, page - 1))} disabled={safeVendorPage <= 1}>
+                <Text style={styles.smallButtonText}>Previous</Text>
+              </Pressable>
+              <Text style={styles.muted}>Page {safeVendorPage} / {vendorPageCount}</Text>
+              <Pressable style={styles.smallButton} onPress={() => setInternationalVendorPage((page) => Math.min(vendorPageCount, page + 1))} disabled={safeVendorPage >= vendorPageCount}>
+                <Text style={styles.smallButtonText}>Next</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+        {pagedVendors.map((vendor, index) => {
           const id = recordIdentity(vendor) || String(vendor.id || index);
           const cost = internationalVendorCost(vendor);
+          const hasEmail = Boolean(String(vendor.email || "").trim());
+          const tenderDeadline = String(vendor.tender_deadline || vendor.closest_tender_deadline || "").trim();
+          const needsDeadlineCheck = !tenderDeadline || ["tbd", "unknown"].includes(tenderDeadline.toLowerCase());
           return (
             <View key={`ivendor-card-${id}`} style={styles.card}>
               <View style={styles.cardHeaderRow}>
@@ -4574,6 +5533,12 @@ export default function App() {
                 </View>
                 <Text style={styles.statusPill}>{fieldText(vendor, ["status", "followup_stage"])}</Text>
               </View>
+              {(!hasEmail || needsDeadlineCheck) && (
+                <View style={styles.alertCard}>
+                  {!hasEmail && <Text style={styles.bodyText}>Contact needed: no email is saved for this company. Use phone/profile research before sending outreach.</Text>}
+                  {needsDeadlineCheck && <Text style={styles.bodyText}>Tender check needed: confirm the deadline/source before bid outreach.</Text>}
+                </View>
+              )}
               <View style={styles.inventoryStats}>
                 <View style={styles.inventoryStat}>
                   <Text style={styles.cardLabel}>Vendor cost</Text>
@@ -4606,16 +5571,16 @@ export default function App() {
               {!!vendor.delivery_status && <Text style={styles.bodyText}>Delivery: {String(vendor.delivery_status)} - {String(vendor.last_outreach_at || "-")}</Text>}
               <View style={styles.inlineActions}>
                 <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "1. Catalog intro")} disabled={loading || !recordIdentity(vendor)}>
-                  <Text style={styles.smallButtonText}>Send catalog intro</Text>
+                  <Text style={styles.smallButtonText}>Draft catalog intro</Text>
                 </Pressable>
                 <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "2. Tender partner pitch")} disabled={loading || !recordIdentity(vendor)}>
-                  <Text style={styles.smallButtonText}>Tender pitch</Text>
+                  <Text style={styles.smallButtonText}>Draft tender pitch</Text>
                 </Pressable>
                 <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "OpenClaw email drafted")} disabled={loading || !recordIdentity(vendor)}>
                   <Text style={styles.smallButtonText}>OpenClaw draft</Text>
                 </Pressable>
                 <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "4. Meeting requested")} disabled={loading || !recordIdentity(vendor)}>
-                  <Text style={styles.smallButtonText}>Meeting email</Text>
+                  <Text style={styles.smallButtonText}>Draft meeting email</Text>
                 </Pressable>
                 <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "5. Bid support follow-up")} disabled={loading || !recordIdentity(vendor)}>
                   <Text style={styles.smallButtonText}>Bid follow-up</Text>
@@ -4649,6 +5614,183 @@ export default function App() {
                 </Pressable>
                 <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Partner active", status: "Partner active" })} disabled={loading || !recordIdentity(vendor)}>
                   <Text style={styles.smallButtonText}>Partner active</Text>
+                </Pressable>
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    );
+  }
+
+  function marketingPromptFor(record: Record<string, unknown>, action = "generate-image") {
+    const product = String(record.product_line || "FUZI elevators and manufactured lift parts").trim();
+    const audience = String(record.audience || "builders, architects, hotels, hospitals, housing societies, and elevator partners").trim();
+    const channel = String(record.channel || "social media and catalog").trim();
+    const tone = String(record.tone || "premium, safe, reliable, engineered in India").trim();
+    if (action === "draft-catalog") {
+      return `Create a polished FUZI company catalog section for ${product}. Audience: ${audience}. Include product benefits, safety/quality claims, use cases, installation/service support, and a concise call to action. Tone: ${tone}.`;
+    }
+    if (action === "draft-ad-copy") {
+      return `Write high-converting ad copy for ${channel} promoting ${product}. Audience: ${audience}. Tone: ${tone}. Include headline, short body, CTA, and 3 variant hooks.`;
+    }
+    return String(record.ai_prompt || `Create a premium advertising image for FUZI Classic Elevators. Product: ${product}. Audience: ${audience}. Channel: ${channel}. Visual style: clean modern elevator showroom or real installation setting, red/white/black FUZI branding, safety and engineering confidence, no clutter, space for headline text. Tone: ${tone}.`);
+  }
+
+  function renderMarketingPlatformPage() {
+    const assets = asRecords(data?.marketing_assets);
+    const query = marketingSearch.trim().toLowerCase();
+    const visibleAssets = assets.filter((asset) => !query || JSON.stringify(asset).toLowerCase().includes(query));
+    const imageAssets = assets.filter((asset) => String(asset.asset_type || "").toLowerCase().includes("image"));
+    const catalogAssets = assets.filter((asset) => String(asset.asset_type || asset.catalog_title || "").toLowerCase().includes("catalog"));
+    const openclawTouched = assets.filter((asset) => String(asset.last_openclaw_at || asset.delivery_status || "").trim());
+    return (
+      <View>
+        <View style={styles.moduleHero}>
+          <Text style={styles.eyebrow}>Marketing Platform</Text>
+          <Text style={styles.moduleHeroTitle}>AI Ads And FUZI Catalog Studio</Text>
+          <Text style={styles.moduleHeroText}>Use AI/OpenClaw to generate ad image prompts, campaign copy, and editable company catalog sections for FUZI elevators, service, manufactured parts, and international partner sales.</Text>
+        </View>
+
+        <View style={styles.metricGrid}>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Marketing assets</Text>
+            <Text style={styles.metricValue}>{assets.length}</Text>
+            <Text style={styles.muted}>Saved campaign and catalog records.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>AI image briefs</Text>
+            <Text style={styles.metricValue}>{imageAssets.length}</Text>
+            <Text style={styles.muted}>Prompts ready for OpenClaw/image generation.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Catalog drafts</Text>
+            <Text style={styles.metricValue}>{catalogAssets.length}</Text>
+            <Text style={styles.muted}>Company catalog sections and layouts.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>OpenClaw requests</Text>
+            <Text style={styles.metricValue}>{openclawTouched.length}</Text>
+            <Text style={styles.muted}>AI/OpenClaw creative handoffs.</Text>
+          </View>
+        </View>
+
+        <View style={styles.formCard}>
+          <Text style={styles.cardLabel}>Create marketing asset</Text>
+          <View style={styles.formGrid}>
+            {[
+              ["campaign_name", "Campaign name"],
+              ["asset_type", "Asset type"],
+              ["product_line", "Product / service"],
+              ["audience", "Target audience"],
+              ["channel", "Marketing channel"],
+              ["tone", "Tone / brand style"],
+              ["headline", "Headline"],
+              ["status", "Status"],
+              ["openclaw_target", "OpenClaw target"],
+            ].map(([key, label]) => (
+              <View key={`marketing-${key}`} style={styles.field}>
+                <Text style={styles.label}>{label}</Text>
+                <TextInput
+                  style={styles.input}
+                  value={String(marketingDraft[key as keyof typeof marketingDraft] || "")}
+                  onChangeText={(value) => setMarketingDraft((draft) => ({ ...draft, [key]: value }))}
+                />
+              </View>
+            ))}
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Ad copy</Text>
+            <TextInput style={[styles.input, styles.textarea]} value={marketingDraft.ad_copy} onChangeText={(value) => setMarketingDraft((draft) => ({ ...draft, ad_copy: value }))} multiline />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>AI image prompt</Text>
+            <TextInput style={[styles.input, styles.textarea]} value={marketingDraft.ai_prompt} onChangeText={(value) => setMarketingDraft((draft) => ({ ...draft, ai_prompt: value }))} multiline />
+          </View>
+          <View style={styles.formGrid}>
+            <View style={styles.field}>
+              <Text style={styles.label}>Catalog title</Text>
+              <TextInput style={styles.input} value={marketingDraft.catalog_title} onChangeText={(value) => setMarketingDraft((draft) => ({ ...draft, catalog_title: value }))} />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Catalog sections</Text>
+              <TextInput style={[styles.input, styles.textarea]} value={marketingDraft.catalog_sections} onChangeText={(value) => setMarketingDraft((draft) => ({ ...draft, catalog_sections: value }))} multiline />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Design notes</Text>
+              <TextInput style={[styles.input, styles.textarea]} value={marketingDraft.design_notes} onChangeText={(value) => setMarketingDraft((draft) => ({ ...draft, design_notes: value }))} multiline />
+            </View>
+          </View>
+          <View style={styles.linkedSystemsPanel}>
+            <Text style={styles.cardLabel}>OpenClaw image generation brief</Text>
+            <Text style={styles.muted}>{marketingPromptFor(marketingDraft, "generate-image")}</Text>
+          </View>
+          <View style={styles.inlineActions}>
+            <Pressable style={styles.smallButton} onPress={() => setMarketingDraft((draft) => ({ ...draft, asset_type: "AI ad image", ai_prompt: marketingPromptFor(draft, "generate-image") }))}>
+              <Text style={styles.smallButtonText}>Build image prompt</Text>
+            </Pressable>
+            <Pressable style={styles.smallButton} onPress={() => setMarketingDraft((draft) => ({ ...draft, asset_type: "Ad copy", ai_prompt: marketingPromptFor(draft, "draft-ad-copy") }))}>
+              <Text style={styles.smallButtonText}>Build ad copy brief</Text>
+            </Pressable>
+            <Pressable style={styles.smallButton} onPress={() => setMarketingDraft((draft) => ({ ...draft, asset_type: "Company catalog", ai_prompt: marketingPromptFor(draft, "draft-catalog") }))}>
+              <Text style={styles.smallButtonText}>Build catalog brief</Text>
+            </Pressable>
+          </View>
+          <Pressable style={styles.primaryButton} onPress={() => saveMarketingAsset()} disabled={loading || !marketingDraft.campaign_name.trim()}>
+            <Text style={styles.primaryButtonText}>Save marketing asset</Text>
+          </Pressable>
+          <View style={styles.inlineActions}>
+            <Pressable style={styles.smallButton} onPress={() => saveMarketingAsset("generate-image")} disabled={loading || !marketingDraft.campaign_name.trim()}>
+              <Text style={styles.smallButtonText}>Save & generate image</Text>
+            </Pressable>
+            <Pressable style={styles.smallButton} onPress={() => saveMarketingAsset("draft-ad-copy")} disabled={loading || !marketingDraft.campaign_name.trim()}>
+              <Text style={styles.smallButtonText}>Save & draft ad copy</Text>
+            </Pressable>
+            <Pressable style={styles.smallButton} onPress={() => saveMarketingAsset("draft-catalog")} disabled={loading || !marketingDraft.campaign_name.trim()}>
+              <Text style={styles.smallButtonText}>Save & draft catalog</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.formCard}>
+          <Text style={styles.cardLabel}>Find marketing work</Text>
+          <TextInput style={styles.input} value={marketingSearch} onChangeText={setMarketingSearch} placeholder="Search campaign, catalog, audience, channel, OpenClaw status" />
+        </View>
+
+        <Text style={styles.sectionTitle}>Marketing Studio</Text>
+        {!visibleAssets.length && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>No marketing assets yet</Text>
+            <Text style={styles.muted}>Create an ad image prompt or company catalog draft, then send it to OpenClaw for AI creative generation.</Text>
+          </View>
+        )}
+        {visibleAssets.map((asset, index) => {
+          const id = recordIdentity(asset) || String(asset.id || index);
+          return (
+            <View key={`marketing-${id}`} style={styles.card}>
+              <View style={styles.cardHeaderRow}>
+                <View style={styles.cardTitleBlock}>
+                  <Text style={styles.cardTitle}>{fieldText(asset, ["campaign_name", "title", "id"])}</Text>
+                  <Text style={styles.muted}>{fieldText(asset, ["asset_type"])} - {fieldText(asset, ["channel"])} - {fieldText(asset, ["audience"])}</Text>
+                </View>
+                <Text style={styles.statusPill}>{fieldText(asset, ["status", "delivery_status"])}</Text>
+              </View>
+              <Text style={styles.bodyText}>Headline: {fieldText(asset, ["headline"])}</Text>
+              <Text style={styles.bodyText}>Catalog: {fieldText(asset, ["catalog_title"])} - {fieldText(asset, ["catalog_sections"])}</Text>
+              <Text style={styles.muted}>{String(asset.ai_prompt || marketingPromptFor(asset, "generate-image"))}</Text>
+              {!!asset.last_openclaw_at && <Text style={styles.bodyText}>OpenClaw: {String(asset.last_openclaw_action || "-")} - {String(asset.last_openclaw_at || "-")}</Text>}
+              <View style={styles.inlineActions}>
+                <Pressable style={styles.smallButton} onPress={() => requestMarketingOpenClaw(asset, "generate-image")} disabled={loading || !recordIdentity(asset)}>
+                  <Text style={styles.smallButtonText}>Generate ad image</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => requestMarketingOpenClaw(asset, "draft-ad-copy")} disabled={loading || !recordIdentity(asset)}>
+                  <Text style={styles.smallButtonText}>Draft ad copy</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => requestMarketingOpenClaw(asset, "draft-catalog")} disabled={loading || !recordIdentity(asset)}>
+                  <Text style={styles.smallButtonText}>Draft catalog</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateMarketingAsset(asset, { status: "Approved", approved_at: new Date().toISOString() })} disabled={loading || !recordIdentity(asset)}>
+                  <Text style={styles.smallButtonText}>Approve</Text>
                 </Pressable>
               </View>
             </View>
@@ -4782,6 +5924,18 @@ export default function App() {
               <TextInput style={styles.input} value={inventoryDraft.vendor} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, vendor: value }))} />
             </View>
             <View style={styles.field}>
+              <Text style={styles.label}>Purchase price</Text>
+              <TextInput style={styles.input} value={inventoryDraft.purchase_price} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, purchase_price: value, unit_cost: value }))} keyboardType="numeric" />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Current selling price</Text>
+              <TextInput style={styles.input} value={inventoryDraft.current_price} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, current_price: value, sale_price: value }))} keyboardType="numeric" />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Price date</Text>
+              <TextInput style={styles.input} value={inventoryDraft.price_date} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, price_date: value }))} placeholder="YYYY-MM-DD" />
+            </View>
+            <View style={styles.field}>
               <Text style={styles.label}>Lead time days</Text>
               <TextInput style={styles.input} value={inventoryDraft.lead_time_days} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, lead_time_days: value }))} keyboardType="numeric" />
             </View>
@@ -4847,7 +6001,15 @@ export default function App() {
     const target = inventoryQuantity(item, "target_stock", Math.max(reorderPoint * 2, available));
     const reorderQty = inventoryReorderQty(item);
     const needsOrder = available <= reorderPoint;
-    const edit = inventoryEdits[id] || { reorder_point: String(reorderPoint), target_stock: String(target) };
+    const purchasePrice = offerNumber(item.purchase_price || item.unit_cost);
+    const currentPrice = inventoryPrice(item);
+    const edit = inventoryEdits[id] || {
+      reorder_point: String(reorderPoint),
+      target_stock: String(target),
+      current_price: String(currentPrice || ""),
+      purchase_price: String(purchasePrice || ""),
+      price_date: String(item.price_date || item.last_updated || new Date().toISOString().slice(0, 10)),
+    };
     const displayStatus = inventoryDisplayStatus(item);
     const linkedCustomer = String(item.customer_name || item.customer || item.reserved_for || "").trim();
     const linkedCustomerId = String(item.customer_id || "").trim();
@@ -4888,6 +6050,7 @@ export default function App() {
           </View>
         </View>
         <Text style={styles.bodyText}>Vendor: {String(item.vendor || "-")} · Lead time: {String(item.lead_time_days || 0)} days · Unit: {String(item.unit || "pcs")}</Text>
+        <Text style={styles.bodyText}>Current price: {formatMoney(currentPrice)} · Purchase price: {formatMoney(purchasePrice)} · Price date: {String(item.price_date || item.last_updated || "-")}</Text>
         {!!(linkedCustomer || linkedOffer) && (
           <View style={styles.linkedSystemsPanel}>
             <Text style={styles.cardLabel}>Reserved for offer</Text>
@@ -4902,7 +6065,7 @@ export default function App() {
               >
                 <Text style={styles.smallButtonText}>Open CRM</Text>
               </Pressable>
-              <Pressable style={styles.smallButton} onPress={() => setActiveTab("estimator")} disabled={loading}>
+              <Pressable style={styles.smallButton} onPress={() => setActiveTab("offerManager")} disabled={loading}>
                 <Text style={styles.smallButtonText}>Open offers</Text>
               </Pressable>
             </View>
@@ -4929,12 +6092,48 @@ export default function App() {
               keyboardType="numeric"
             />
           </View>
+          <View style={styles.inlineEditField}>
+            <Text style={styles.label}>Current price</Text>
+            <TextInput
+              style={styles.compactInput}
+              value={edit.current_price}
+              onChangeText={(value) => setInventoryEdits((draft) => ({ ...draft, [id]: { ...edit, current_price: value } }))}
+              keyboardType="numeric"
+            />
+          </View>
+          <View style={styles.inlineEditField}>
+            <Text style={styles.label}>Purchase price</Text>
+            <TextInput
+              style={styles.compactInput}
+              value={edit.purchase_price}
+              onChangeText={(value) => setInventoryEdits((draft) => ({ ...draft, [id]: { ...edit, purchase_price: value } }))}
+              keyboardType="numeric"
+            />
+          </View>
+          <View style={styles.inlineEditField}>
+            <Text style={styles.label}>Price date</Text>
+            <TextInput
+              style={styles.compactInput}
+              value={edit.price_date}
+              onChangeText={(value) => setInventoryEdits((draft) => ({ ...draft, [id]: { ...edit, price_date: value } }))}
+              placeholder="YYYY-MM-DD"
+            />
+          </View>
           <Pressable
             style={styles.smallButton}
-            onPress={() => updateInventoryItem(item, { reorder_point: edit.reorder_point, target_stock: edit.target_stock })}
+            onPress={() => updateInventoryItem(item, {
+              reorder_point: edit.reorder_point,
+              target_stock: edit.target_stock,
+              current_price: edit.current_price,
+              sale_price: edit.current_price,
+              unit_price: edit.current_price,
+              purchase_price: edit.purchase_price,
+              unit_cost: edit.purchase_price,
+              price_date: edit.price_date,
+            })}
             disabled={loading}
           >
-            <Text style={styles.smallButtonText}>Save trigger</Text>
+            <Text style={styles.smallButtonText}>Save stock/pricing</Text>
           </Pressable>
         </View>
         <View style={styles.inlineActions}>
@@ -5127,6 +6326,8 @@ export default function App() {
         return renderSiteVisitReportsPage();
       case "offerManager":
         return renderOfferManagerPage();
+      case "marketing":
+        return renderMarketingPlatformPage();
       case "sales":
         return renderCustomerCrmPage();
       case "installation_dept":
@@ -5138,7 +6339,7 @@ export default function App() {
       case "gad":
         return renderFeaturePage("GAD Drawings", "Drawing submissions, revisions, and approval workflow.", asRecords((data as Record<string, unknown> | null)?.gad_records), ["drawing_no", "id"], [["customer"], ["status"], ["unit"]]);
       case "finance":
-        return renderFeaturePage("Accounts", "Payments, milestones, and collection tracking.", asRecords(data?.payments), ["id", "payment_id"], [["customer_name", "customer"], ["amount"], ["status"]]);
+        return renderPaymentAccountsPage();
       case "commissioning":
         return renderCommissioningPage();
       case "backoffice":
@@ -5538,6 +6739,86 @@ export default function App() {
     }
   }
 
+  async function saveMarketingAsset(openClawAction?: "generate-image" | "draft-ad-copy" | "draft-catalog") {
+    if (!marketingDraft.campaign_name.trim()) {
+      const text = "Campaign name is required.";
+      Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await apiFetch<{ record?: Record<string, unknown> }>("/api/portal/marketing-assets", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          ...marketingDraft,
+          ai_prompt: marketingDraft.ai_prompt || marketingPromptFor(marketingDraft, openClawAction || "generate-image"),
+        }),
+      });
+      const savedId = recordIdentity(response.record || {});
+      if (openClawAction && savedId) {
+        await apiFetch(`/api/portal/marketing-assets/${encodeURIComponent(savedId)}/openclaw`, {
+          method: "POST",
+          token,
+          body: JSON.stringify({
+            action: openClawAction,
+            prompt: marketingPromptFor({ ...marketingDraft, ...(response.record || {}) }, openClawAction),
+            target: marketingDraft.openclaw_target || "",
+          }),
+        });
+      }
+      setMarketingDraft(emptyMarketingDraft);
+      await loadPortal();
+      setMessage(openClawAction ? "Marketing asset saved and sent to OpenClaw." : "Marketing asset saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Marketing asset could not be saved.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function updateMarketingAsset(record: Record<string, unknown>, patch: Record<string, unknown>) {
+    const id = recordIdentity(record);
+    if (!id) return;
+    setLoading(true);
+    try {
+      await apiFetch(`/api/portal/marketing-assets/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify(patch),
+      });
+      await loadPortal();
+      setMessage("Marketing asset updated.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Marketing asset could not be updated.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function requestMarketingOpenClaw(record: Record<string, unknown>, action: "generate-image" | "draft-ad-copy" | "draft-catalog") {
+    const id = recordIdentity(record);
+    if (!id) return;
+    setLoading(true);
+    try {
+      await apiFetch(`/api/portal/marketing-assets/${encodeURIComponent(id)}/openclaw`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          action,
+          prompt: marketingPromptFor(record, action),
+          target: record.openclaw_target || "",
+        }),
+      });
+      await loadPortal();
+      setMessage(action === "generate-image" ? "OpenClaw image generation request sent." : "OpenClaw marketing draft request sent.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "OpenClaw marketing request failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function saveSalesInquiry() {
     if (!salesInquiryDraft.customer.trim()) {
       const text = "Lead/customer name is required.";
@@ -5651,14 +6932,17 @@ export default function App() {
 
   function makeOfferFromInquiry(record: Record<string, unknown>) {
     const customerName = String(record.customer || record.lead_name || "");
+    const customerId = String(record.customer_id || "");
+    const siteMeasurements = offerMeasurementPayloadFromSiteVisit(siteVisitsForCustomerId(customerId)[0]);
     setOfferDraft({
       ...emptyOfferDraft,
+      ...siteMeasurements,
       customer_name: customerName,
       offer_name: customerName,
       offer_type: String(record.lead_type || record.leadtype || "Individual"),
       lead_status: "Costing Pending",
       createdbyname: data?.viewer?.display_name || username,
-      customer_id: String(record.customer_id || ""),
+      customer_id: customerId,
       source_inquiry_id: recordIdentity(record) || String(record.enquiry_no || ""),
       notes: String(record.enquiry_remark || record.requirement || ""),
     });
@@ -5896,7 +7180,7 @@ export default function App() {
         await apiFetch("/api/portal/users", {
           method: "POST",
           token,
-          body: JSON.stringify({ ...payload, password: accountDraft.password || sharedPortalPassword }),
+          body: JSON.stringify(payload),
         });
       }
       setAccountDraft(emptyAccountDraft);
@@ -6005,8 +7289,14 @@ export default function App() {
   }
 
   async function savePayment() {
-    if (!paymentDraft.estimate_id || !paymentDraft.amount) {
-      const text = "Select an estimate and enter an amount.";
+    if (!paymentDraft.customer_id) {
+      const text = "Select a customer before saving an accounts payment.";
+      Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
+      return;
+    }
+    const summary = paymentAccountSummary(paymentDraft as Record<string, unknown>);
+    if (!summary.splitMatches) {
+      const text = "Basic contract value must equal basic cheque value plus basic cash value plus basic credit card value.";
       Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
       return;
     }
@@ -6018,14 +7308,25 @@ export default function App() {
         token,
         body: JSON.stringify({
           ...paymentDraft,
-          customer_name: estimate?.customer_name || "",
-          amount: Number(paymentDraft.amount),
-          status: "Due",
+          customer_id: paymentDraft.customer_id || estimate?.customer_id || "",
+          customer_name: paymentDraft.customer_name || estimate?.customer_name || "",
+          amount: summary.finalContract,
+          check_gst_value: summary.checkGst,
+          credit_card_charge_value: summary.cardCharge,
+          card_charge_paid_by: "Client",
+          final_contract_value: summary.finalContract,
+          outstanding_check: summary.outstandingCheck,
+          outstanding_cash: summary.outstandingCash,
+          outstanding_card: summary.outstandingCard,
+          outstanding_total: summary.outstandingTotal,
+          split_matches_contract: summary.splitMatches,
+          next_reminder_date: summary.nextReminder,
+          status: summary.outstandingTotal > 0 ? "Outstanding" : "Paid",
         }),
       });
-      setPaymentDraft((draft) => ({ ...emptyPaymentDraft, estimate_id: draft.estimate_id }));
+      setPaymentDraft((draft) => ({ ...emptyPaymentDraft, payment_type: draft.payment_type, estimate_id: draft.estimate_id, customer_id: draft.customer_id, customer_name: draft.customer_name }));
       await loadPortal();
-      setMessage("Payment milestone added.");
+      setMessage("Accounts payment saved.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Payment could not be saved.");
     } finally {
@@ -6053,15 +7354,19 @@ export default function App() {
   }
 
   async function updatePayment(id: string, status: string) {
+    await updatePaymentRecord(id, { status, paid_date: status === "Paid" ? new Date().toISOString().slice(0, 10) : "" }, `Payment marked ${status}.`);
+  }
+
+  async function updatePaymentRecord(id: string, payload: Record<string, unknown>, successMessage = "Payment updated.") {
     setLoading(true);
     try {
       await apiFetch(`/api/portal/payments/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
-        body: JSON.stringify({ status, paid_date: status === "Paid" ? new Date().toISOString().slice(0, 10) : "" }),
+        body: JSON.stringify(payload),
       });
       await loadPortal();
-      setMessage(`Payment marked ${status}.`);
+      setMessage(successMessage);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Payment could not be updated.");
     } finally {
@@ -6170,21 +7475,23 @@ export default function App() {
     const engineerName = String(member.name || "").trim();
     if (!engineerName) return;
     const nextTask = task.trim();
+    const engineerId = String(member.org_id || member.id || "").trim();
+    setBreakdownEngineerTaskDrafts((draft) => {
+      const next = { ...draft };
+      next[engineerName] = nextTask;
+      if (draftKey) next[draftKey] = nextTask;
+      return next;
+    });
     setLoading(true);
     try {
       await apiFetch("/api/portal/breakdown-engineer-task", {
         method: "PATCH",
         token,
         body: JSON.stringify({
+          engineer_id: engineerId,
           engineer: engineerName,
           current_job: nextTask,
         }),
-      });
-      setBreakdownEngineerTaskDrafts((draft) => {
-        const next = { ...draft };
-        next[engineerName] = nextTask;
-        if (draftKey) next[draftKey] = nextTask;
-        return next;
       });
       await loadPortal();
       setBreakdownEngineerTaskDrafts((draft) => {
@@ -6258,7 +7565,9 @@ export default function App() {
         body: JSON.stringify({
           site: fieldText(job, ["site"]),
           customer: fieldText(job, ["customer", "site"]),
+          customer_id: fieldText(job, ["customer_id"]),
           unit: fieldText(job, ["unit", "site", "id"]),
+          motor_serial_number: fieldText(job, ["motor_serial_number", "motor_serial"]),
           message: `Install team completed ${fieldText(job, ["site", "id"])}. Product is installed and ready for commissioning checks.`,
         }),
       });
@@ -6312,6 +7621,43 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function uploadMotorNameplate(id: string) {
+    if (Platform.OS !== "web" || typeof document === "undefined") {
+      setMessage("Motor nameplate upload is available in the web portal.");
+      return;
+    }
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async () => {
+        setLoading(true);
+        try {
+          await apiFetch(`/api/portal/commissioning/${encodeURIComponent(id)}/motor-nameplate`, {
+            method: "POST",
+            token,
+            body: JSON.stringify({
+              filename: file.name,
+              content_type: file.type || "application/octet-stream",
+              data_url: String(reader.result || ""),
+            }),
+          });
+          await loadPortal();
+          setMessage("Motor nameplate uploaded and tied to the CRM customer commissioning record.");
+        } catch (error) {
+          setMessage(error instanceof Error ? error.message : "Motor nameplate could not be uploaded.");
+        } finally {
+          setLoading(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
   }
 
   async function saveAttendance() {
@@ -6509,6 +7855,10 @@ export default function App() {
     setOfferPage(1);
   }, [crmSearch, crmStageFilter, data?.customers?.length]);
 
+  useEffect(() => {
+    setInternationalVendorPage(1);
+  }, [internationalVendorSearch, internationalVendorFilter, data?.international_vendors?.length]);
+
   function renderWebsiteHome() {
     return <PublicWebsite onOpenPortal={() => setShowPortalLogin(true)} />;
   }
@@ -6561,8 +7911,8 @@ export default function App() {
           <Pressable style={styles.primaryButton} onPress={() => signIn()} disabled={loading}>
             <Text style={styles.primaryButtonText}>{loading ? "Signing in..." : "Sign in"}</Text>
           </Pressable>
-          <Text style={styles.cardLabel}>Quick role login</Text>
-          <Text style={styles.muted}>Click a username to sign in with the shared staff portal password.</Text>
+          <Text style={styles.cardLabel}>Quick username select</Text>
+          <Text style={styles.muted}>Click a username, then enter the staff portal password from the private secrets folder.</Text>
           <View style={styles.quickLoginGrid}>
             {quickLoginAccounts.map((account) => (
               <Pressable
@@ -6570,8 +7920,7 @@ export default function App() {
                 style={styles.quickLoginButton}
                 onPress={() => {
                   setUsername(account.username);
-                  setPassword(account.password);
-                  signIn(account.username, account.password);
+                  setPassword("");
                 }}
                 disabled={loading}
               >

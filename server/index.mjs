@@ -1,22 +1,43 @@
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import express from "express";
 import cors from "cors";
 import Database from "better-sqlite3";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
+const defaultSecretsFile = path.resolve(rootDir, "..", "mystuffinfo", "fuzi", "fuzi.env");
+
+function loadEnvFile(filePath) {
+  if (!filePath || !fsSync.existsSync(filePath)) return;
+  const content = fsSync.readFileSync(filePath, "utf8");
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const separator = trimmed.indexOf("=");
+    if (separator < 1) continue;
+    const key = trimmed.slice(0, separator).trim();
+    const rawValue = trimmed.slice(separator + 1).trim();
+    if (process.env[key] !== undefined) continue;
+    process.env[key] = rawValue.replace(/^['"]|['"]$/g, "");
+  }
+}
+
+loadEnvFile(process.env.FUZI_SECRETS_FILE || defaultSecretsFile);
+
 const port = Number(process.env.FUZI_API_PORT || 5000);
 const tokens = new Map();
 const loginAttempts = new Map();
-const sharedPortalPassword = String(process.env.FUZI_SHARED_PORTAL_PASSWORD || "Fuzi@2026!Portal");
 const tokenTtlMs = Number(process.env.FUZI_PORTAL_TOKEN_TTL_MINUTES || 480) * 60 * 1000;
 const loginWindowMs = Number(process.env.FUZI_LOGIN_WINDOW_MINUTES || 10) * 60 * 1000;
 const loginMaxAttempts = Number(process.env.FUZI_LOGIN_MAX_ATTEMPTS || 8);
-const dbPath = path.join(rootDir, "fuzi.sqlite3");
+const dbPath = process.env.FUZI_DB_PATH || path.join(rootDir, "fuzi.sqlite3");
+fsSync.mkdirSync(path.dirname(dbPath), { recursive: true });
 const db = new Database(dbPath);
 db.pragma("journal_mode = WAL");
 db.exec(`
@@ -26,11 +47,24 @@ db.exec(`
     updated_at TEXT NOT NULL
   )
 `);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS app_secrets (
+    name TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )
+`);
 const readCollectionStmt = db.prepare("SELECT payload FROM json_collections WHERE name = ?");
 const writeCollectionStmt = db.prepare(`
   INSERT INTO json_collections (name, payload, updated_at)
   VALUES (?, ?, ?)
   ON CONFLICT(name) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+`);
+const readAppSecretStmt = db.prepare("SELECT value FROM app_secrets WHERE name = ?");
+const writeAppSecretStmt = db.prepare(`
+  INSERT INTO app_secrets (name, value, updated_at)
+  VALUES (?, ?, ?)
+  ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
 `);
 
 const listFiles = {
@@ -54,6 +88,7 @@ const listFiles = {
   tenders: "tenders.json",
   dept_comms: "dept_comms.json",
   international_vendors: "international_vendors.json",
+  marketing_assets: "marketing_assets.json",
   attendance: "attendance.json",
   leave_requests: "leave_requests.json",
   org_chart: "org_chart.json"
@@ -79,6 +114,7 @@ const routeCollections = {
   factory: { key: "factory_jobs", prefix: "FAC" },
   tender: { key: "tenders", prefix: "TDR" },
   comms: { key: "dept_comms", prefix: "MSG" },
+  "marketing-assets": { key: "marketing_assets", prefix: "MKT" },
   "sales/inquiries": { key: "sales_inquiries", prefix: "SIQ" },
   "sales/admin-panel": { key: "sales_admin_panel", prefix: "SAP", singleton: true }
 };
@@ -91,6 +127,7 @@ const platformModules = [
   ["Inventory & Stores", "Stores", "Active", "Watch stock levels, reorder thresholds, and purchase requests."],
   ["Customer CRM", "Customer Success", "Active", "Maintain customer, site, contact, and follow-up records."],
   ["Offer Manager", "Sales Desk", "Active", "Create customer-linked elevator offers from internal costing and prepare client offer letters."],
+  ["Marketing Platform", "Marketing", "Active", "Use AI/OpenClaw to generate ad image prompts, campaign copy, and company catalog drafts."],
   ["Site Visit Reports", "Sales Desk", "Active", "Capture site measurements tied to saved customer IDs."],
   ["GAD Drawings", "GAD", "Active", "Track drawing submissions, revisions, and approvals."],
   ["Accounts", "Accounts", "Active", "Follow payment milestones and outstanding balances."],
@@ -157,6 +194,20 @@ function makeWerkzeugScryptHash(password) {
   return `scrypt:${N}:${r}:${p}$${salt}$${derived.toString("hex")}`;
 }
 
+function readAppSecret(name) {
+  return String(readAppSecretStmt.get(name)?.value || "");
+}
+
+function writeAppSecret(name, value) {
+  writeAppSecretStmt.run(name, value, new Date().toISOString());
+}
+
+function sharedStaffPortalPasswordHash() {
+  const storedHash = readAppSecret("shared_staff_portal_password_hash");
+  if (storedHash) return storedHash;
+  throw new Error("shared_staff_portal_password_hash is missing from fuzi.sqlite3. Add it to the app_secrets table before starting FUZI.");
+}
+
 function slugName(name) {
   return String(name || "")
     .toLowerCase()
@@ -170,7 +221,7 @@ function isDepartmentHead(person) {
 
 function accessForUser(user = {}) {
   const allViews = [
-    "overview", "modules", "customers", "offerManager", "tickets", "projects", "installations", "team", "accounts",
+    "overview", "modules", "customers", "offerManager", "marketing", "tickets", "projects", "installations", "team", "accounts",
     "renewals", "workorders", "inventory", "estimator", "orgchart", "sales", "installation_dept", "breakdown", "service",
     "gad", "finance", "commissioning", "backoffice", "tender", "factory", "internationalVendor", "comms", "siteVisits"
   ];
@@ -178,13 +229,13 @@ function accessForUser(user = {}) {
     return { allowed_views: allViews, selected_view: "overview", default_view: "overview", is_restricted: false };
   }
   const byDepartment = {
-    sales: ["overview", "customers", "offerManager", "sales", "renewals", "estimator", "siteVisits", "comms"],
+    sales: ["overview", "customers", "offerManager", "marketing", "sales", "renewals", "estimator", "siteVisits", "comms"],
     installation: ["overview", "customers", "installations", "team", "installation_dept", "commissioning", "siteVisits", "orgchart", "comms"],
     "install operations": ["overview", "customers", "installations", "team", "installation_dept", "commissioning", "siteVisits", "orgchart", "comms"],
     breakdown: ["overview", "customers", "breakdown", "workorders", "orgchart", "comms"],
     service: ["overview", "customers", "workorders", "service", "orgchart", "comms"],
     gad: ["overview", "customers", "gad", "projects", "comms"],
-    accounts: ["overview", "customers", "offerManager", "finance", "estimator", "comms"],
+    accounts: ["overview", "customers", "offerManager", "marketing", "finance", "estimator", "comms"],
     commissioning: ["overview", "customers", "commissioning", "installations", "orgchart", "comms"],
     tender: ["overview", "customers", "offerManager", "tender", "estimator", "comms"],
     factory: ["overview", "factory", "inventory", "installations", "comms"],
@@ -203,6 +254,7 @@ const viewDataKeys = {
   modules: ["platform_modules"],
   customers: ["customers", "customer_users", "sales_inquiries", "estimates", "payments", "site_visits"],
   offerManager: ["customers", "sales_inquiries", "estimates"],
+  marketing: ["marketing_assets", "customers", "estimates", "international_vendors"],
   tickets: ["project_tickets"],
   projects: ["projects", "install_jobs"],
   installations: ["installations", "install_jobs"],
@@ -232,7 +284,7 @@ const restrictedPayloadKeys = [
   "projects", "installations", "renewals", "work_orders", "project_tickets", "install_jobs", "install_team",
   "users", "customers", "site_visits", "platform_modules", "inventory", "inventory_insights", "org_chart", "attendance_today",
   "leave_requests", "estimates", "payments", "customer_users", "sales_inquiries", "sales_admin_panel", "breakdowns", "service_records",
-  "gad_records", "commissionings", "factory_jobs", "tenders", "international_vendors", "dept_comms"
+  "gad_records", "commissionings", "factory_jobs", "tenders", "international_vendors", "marketing_assets", "dept_comms"
 ];
 
 function parseCostingWorkbooks() {
@@ -377,7 +429,7 @@ async function ensureDepartmentHeadUsers() {
       linked_org_node: person.id || "",
       active: true,
       must_change_password: false,
-      password_hash: makeWerkzeugScryptHash(sharedPortalPassword),
+      password_hash: sharedStaffPortalPasswordHash(),
       created_at: new Date().toISOString()
     });
     changed = true;
@@ -403,10 +455,11 @@ function verifyWerkzeugPassword(storedHash = "", password = "") {
 
 async function ensureSharedStaffPortalPassword() {
   const users = await ensureDepartmentHeadUsers();
+  const sharedPasswordHash = sharedStaffPortalPasswordHash();
   let changed = false;
   for (const user of users) {
-    if (!verifyWerkzeugPassword(user.password_hash, sharedPortalPassword) || user.must_change_password) {
-      user.password_hash = makeWerkzeugScryptHash(sharedPortalPassword);
+    if (String(user.password_hash || "") !== sharedPasswordHash || user.must_change_password) {
+      user.password_hash = sharedPasswordHash;
       user.must_change_password = false;
       user.password_policy = "shared-staff-portal";
       user.password_synced_at = new Date().toISOString();
@@ -677,6 +730,139 @@ function moneyInr(value) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Number(value || 0));
 }
 
+function paymentNumber(value, fallback = 0) {
+  if (value === undefined || value === null || String(value).trim() === "") return fallback;
+  const parsed = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function paymentAddDays(dateValue, daysValue) {
+  const base = new Date(String(dateValue || new Date().toISOString().slice(0, 10)));
+  if (Number.isNaN(base.getTime())) return "";
+  base.setDate(base.getDate() + Math.max(0, paymentNumber(daysValue)));
+  return base.toISOString().slice(0, 10);
+}
+
+function normalizePaymentPayload(body = {}) {
+  const cleaned = cleanPayload(body);
+  const contractBasic = paymentNumber(cleaned.contract_basic_value ?? cleaned.basic_contract_value ?? cleaned.contract_value ?? cleaned.amount);
+  const basicCheck = paymentNumber(cleaned.basic_check_value ?? cleaned.check_basic_value ?? cleaned.check_value);
+  const basicCash = paymentNumber(cleaned.basic_cash_value ?? cleaned.cash_basic_value ?? cleaned.cash_value);
+  const basicCard = paymentNumber(cleaned.basic_card_value ?? cleaned.card_basic_value ?? cleaned.credit_card_value);
+  const gstPercent = paymentNumber(cleaned.gst_percent, 18);
+  const cardChargePercent = paymentNumber(cleaned.credit_card_charge_percent ?? cleaned.card_charge_percent, 2);
+  const checkGst = Number(((basicCheck * gstPercent) / 100).toFixed(2));
+  const cardCharge = Number(((basicCard * cardChargePercent) / 100).toFixed(2));
+  const finalContract = Number((basicCheck + checkGst + basicCash + basicCard + cardCharge).toFixed(2));
+  const receivedCheck = paymentNumber(cleaned.amount_received_check ?? cleaned.received_check ?? 0);
+  const receivedCash = paymentNumber(cleaned.amount_received_cash ?? cleaned.received_cash ?? 0);
+  const receivedCard = paymentNumber(cleaned.amount_received_card ?? cleaned.received_card ?? 0);
+  const receivedTotal = Number((receivedCheck + receivedCash + receivedCard).toFixed(2));
+  const outstandingCheck = Number(Math.max(0, basicCheck + checkGst - receivedCheck).toFixed(2));
+  const outstandingCash = Number(Math.max(0, basicCash - receivedCash).toFixed(2));
+  const outstandingCard = Number(Math.max(0, basicCard + cardCharge - receivedCard).toFixed(2));
+  const outstandingTotal = Number(Math.max(0, finalContract - receivedTotal).toFixed(2));
+  const splitMatches = Math.abs(contractBasic - (basicCheck + basicCash + basicCard)) < 0.01;
+  const reminderIntervalDays = paymentNumber(cleaned.reminder_interval_days, 7);
+  const outstandingDate = String(cleaned.outstanding_date || cleaned.due_date || "").slice(0, 10);
+  const nextReminderDate = String(cleaned.next_reminder_date || paymentAddDays(outstandingDate, reminderIntervalDays)).slice(0, 10);
+  const chequeNumber = String(cleaned.cheque_number || cleaned.check_number || "").trim();
+  return {
+    ...cleaned,
+    payment_type: String(cleaned.payment_type || "Contract").trim(),
+    cheque_number: chequeNumber,
+    check_number: chequeNumber,
+    contract_basic_value: contractBasic,
+    basic_check_value: basicCheck,
+    basic_cash_value: basicCash,
+    basic_card_value: basicCard,
+    gst_percent: gstPercent,
+    credit_card_charge_percent: cardChargePercent,
+    check_gst_value: checkGst,
+    credit_card_charge_value: cardCharge,
+    card_charge_paid_by: "Client",
+    final_contract_value: finalContract,
+    amount: finalContract,
+    amount_received_check: receivedCheck,
+    amount_received_cash: receivedCash,
+    amount_received_card: receivedCard,
+    amount_received_total: receivedTotal,
+    outstanding_check: outstandingCheck,
+    outstanding_cash: outstandingCash,
+    outstanding_card: outstandingCard,
+    outstanding_total: outstandingTotal,
+    split_matches_contract: splitMatches,
+    reminder_interval_days: reminderIntervalDays,
+    next_reminder_date: nextReminderDate,
+    status: cleaned.status || (outstandingTotal > 0 ? "Outstanding" : "Paid")
+  };
+}
+
+function execFileAsync(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, options, (error, stdout, stderr) => {
+      if (error) {
+        error.stdout = stdout;
+        error.stderr = stderr;
+        reject(error);
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
+async function pathExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function chromeExecutablePath() {
+  const candidates = [
+    process.env.CHROME_PATH,
+    process.env.FUZI_CHROME_PATH,
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    "google-chrome",
+    "chromium",
+    "chromium-browser"
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    if (candidate.includes(path.sep) || candidate.includes("\\")) {
+      if (await pathExists(candidate)) return candidate;
+      continue;
+    }
+    return candidate;
+  }
+  return "";
+}
+
+async function offerAssetDataUrl(fileName, mimeType) {
+  const bytes = await fs.readFile(path.join(rootDir, "docs", "offer", "assets", fileName));
+  return `data:${mimeType};base64,${bytes.toString("base64")}`;
+}
+
+function safeAssetName(value, fallback = "asset") {
+  const cleaned = String(value || fallback).replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "");
+  return cleaned || fallback;
+}
+
+function decodeDataUrl(value = "") {
+  const text = String(value || "");
+  const match = text.match(/^data:([^;,]+)?(;base64)?,(.*)$/);
+  if (!match) return { contentType: "", bytes: Buffer.from(text, "base64") };
+  return {
+    contentType: match[1] || "",
+    bytes: match[2] ? Buffer.from(match[3], "base64") : Buffer.from(decodeURIComponent(match[3]), "utf8")
+  };
+}
+
 function numberFromInput(value, fallback = 0) {
   const parsed = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -732,6 +918,11 @@ function normalizeInventoryItem(item) {
     vendor: String(item.vendor || "").trim(),
     lead_time_days: inventoryNumber(item.lead_time_days),
     unit_cost: inventoryNumber(item.unit_cost),
+    purchase_price: inventoryNumber(item.purchase_price ?? item.unit_cost),
+    current_price: inventoryNumber(item.current_price ?? item.sale_price ?? item.unit_price ?? item.unit_cost ?? item.purchase_price),
+    sale_price: inventoryNumber(item.sale_price ?? item.current_price ?? item.unit_price),
+    unit_price: inventoryNumber(item.unit_price ?? item.current_price ?? item.sale_price ?? item.unit_cost),
+    price_date: String(item.price_date || item.last_price_date || item.updated_at || item.last_updated || new Date().toISOString().slice(0, 10)).trim(),
     bin_location: String(item.bin_location || item.location || "").trim(),
     last_updated: item.last_updated || item.updated_at || new Date().toISOString()
   };
@@ -750,7 +941,13 @@ function normalizeInventoryPayload(body = {}) {
     qty_on_hand: payload.qty_on_hand ?? payload.stock ?? 0,
     qty_reserved: payload.qty_reserved ?? 0,
     reorder_point: payload.reorder_point ?? payload.min_stock ?? 0,
-    target_stock: payload.target_stock ?? payload.max_stock ?? 0
+    target_stock: payload.target_stock ?? payload.max_stock ?? 0,
+    unit_cost: payload.unit_cost ?? payload.purchase_price ?? 0,
+    purchase_price: payload.purchase_price ?? payload.unit_cost ?? 0,
+    current_price: payload.current_price ?? payload.sale_price ?? payload.unit_price ?? payload.unit_cost ?? payload.purchase_price ?? 0,
+    sale_price: payload.sale_price ?? payload.current_price ?? payload.unit_price ?? 0,
+    unit_price: payload.unit_price ?? payload.current_price ?? payload.sale_price ?? 0,
+    price_date: payload.price_date || new Date().toISOString().slice(0, 10)
   });
 }
 
@@ -869,7 +1066,9 @@ function defaultOpenClawCommunicationData(env, baseDir) {
       "Contract Renewal CRM Agent": "FUZI_OPENCLAW_TARGET_RENEWALS",
       "CRM Query Agent": "FUZI_OPENCLAW_TARGET_CRM_QUERY",
       "Site Walkthrough to Work Order": "FUZI_OPENCLAW_TARGET_WORK_ORDERS",
-      "Field Installation Manager": "FUZI_OPENCLAW_TARGET_INSTALLATIONS"
+      "Field Installation Manager": "FUZI_OPENCLAW_TARGET_INSTALLATIONS",
+      "FUZI Service": "FUZI_OPENCLAW_TARGET_SERVICE",
+      "FUZI Service Report": "FUZI_OPENCLAW_TARGET_SERVICE_REPORT"
     }
   };
 }
@@ -905,6 +1104,398 @@ function defaultInboundPlatformMessageData(body, config, nowStamp) {
     created_at: nowStamp,
     updated_at: nowStamp
   };
+}
+
+function normalizePhoneDigits(value = "") {
+  const digits = String(value || "").replace(/\D/g, "");
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+function phoneLikeValue(value = "") {
+  const text = String(value || "").trim();
+  return /(?:\+?\d[\d\s-]{8,}\d)/.test(text) ? text : "";
+}
+
+function parseChatDateTime(dateText = "", timeText = "") {
+  const dateParts = String(dateText || "").match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!dateParts) return { date: new Date().toISOString().slice(0, 10), time: "" };
+  const month = dateParts[1].padStart(2, "0");
+  const day = dateParts[2].padStart(2, "0");
+  const year = dateParts[3];
+  const timeParts = String(timeText || "").trim().match(/^(\d{1,2}):(\d{2})\s*([AP]M)$/i);
+  if (!timeParts) return { date: `${year}-${month}-${day}`, time: "" };
+  let hour = Number(timeParts[1]);
+  const minute = timeParts[2];
+  const meridian = timeParts[3].toUpperCase();
+  if (meridian === "AM" && hour === 12) hour = 0;
+  if (meridian === "PM" && hour !== 12) hour += 12;
+  return { date: `${year}-${month}-${day}`, time: `${String(hour).padStart(2, "0")}:${minute}` };
+}
+
+function parseEngineerAttendanceMessages(body = {}) {
+  const text = String(body.text || body.message || body.body || body.content || "").trim();
+  if (!text) return [];
+  const entryPattern = /\[(\d{1,2}:\d{2}\s*[AP]M),\s*(\d{1,2}\/\d{1,2}\/\d{4})\]\s*(\+?\d[\d\s-]{8,}\d):\s*/gi;
+  const matches = [...text.matchAll(entryPattern)];
+  if (!matches.length) {
+    const phone = phoneLikeValue(body.phone || body.target_phone || body.from || body.sender || "");
+    const parsed = parseChatDateTime(String(body.date || ""), String(body.time || ""));
+    return [{
+      phone,
+      date: String(body.date || parsed.date).includes("/") ? parsed.date : String(body.date || parsed.date).slice(0, 10),
+      time: String(body.time || parsed.time).trim(),
+      text,
+      external_id: String(body.id || body.message_id || "").trim()
+    }];
+  }
+  return matches.map((match, index) => {
+    const nextMatch = matches[index + 1];
+    const start = match.index + match[0].length;
+    const end = nextMatch ? nextMatch.index : text.length;
+    const parsed = parseChatDateTime(match[2], match[1]);
+    return {
+      phone: match[3].trim(),
+      date: parsed.date,
+      time: parsed.time,
+      text: text.slice(start, end).trim(),
+      external_id: `${match[2]} ${match[1]} ${match[3].trim()}`
+    };
+  }).filter((entry) => entry.text);
+}
+
+function explicitAttendanceTime(text = "") {
+  const match = String(text || "").match(/\b(?:at\s+office\s+)?(\d{1,2}):(\d{2})\b/i);
+  if (!match) return "";
+  return `${match[1].padStart(2, "0")}:${match[2]}`;
+}
+
+function attendanceStatusForText(text = "") {
+  const lower = String(text || "").toLowerCase();
+  if (/\bleave\s+cancel\b|\bcancel\s+leave\b/.test(lower)) return "present";
+  if (/\b(on\s+)?leave\b|\bleave\s+permission\b|\bleave\s+parmission\b/.test(lower)) return "leave";
+  if (/\bhalf[-\s]?day\b/.test(lower)) return "half-day";
+  if (/\babsent\b/.test(lower)) return "absent";
+  if (/\blate\b/.test(lower)) return "late";
+  return "present";
+}
+
+function attendanceMovementForText(text = "") {
+  const lower = String(text || "").toLowerCase();
+  if (/\bout\s*(from)?\b|\bout\s+office\b/.test(lower)) return "out";
+  if (/\bgoing\s+to\b|\bon\s+duty\b|\bat\s+office\b/.test(lower)) return "in";
+  return "update";
+}
+
+function attendanceDestinationForText(text = "") {
+  const normalized = String(text || "").replace(/\s+/g, " ").trim();
+  const out = normalized.match(/\bout(?:\s+from)?\s+(.+)$/i);
+  if (out) return out[1].trim();
+  const going = normalized.match(/\bgoing\s+to\s+(.+)$/i);
+  if (going) return going[1].trim();
+  if (/^at\s+office\b/i.test(normalized)) return "Office";
+  const onDuty = normalized.match(/\bon\s+duty\b\s*(.+)$/i);
+  if (onDuty) return onDuty[1].trim();
+  return "";
+}
+
+function appendAttendanceNote(existingNotes = "", nextNote = "") {
+  const note = String(nextNote || "").trim();
+  if (!note) return String(existingNotes || "").trim();
+  const current = String(existingNotes || "").trim();
+  if (!current) return note;
+  if (current.includes(note)) return current;
+  return `${current}\n${note}`;
+}
+
+function normalizeMatchText(value = "") {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function breakdownSiteText(record = {}) {
+  return normalizeMatchText([
+    record.id,
+    record.task_id,
+    record.current_task,
+    record.current_job,
+    record.site,
+    record.location,
+    record.customer,
+    record.building,
+    record.address
+  ].filter(Boolean).join(" "));
+}
+
+function engineerNameFromAttendancePerson(person = {}) {
+  return String(person?.name || "").trim().toLowerCase();
+}
+
+async function reconcileEngineerAttendanceBreakdown(entry = {}, person = null, sourceChannel = "engineer-attendance", sourceActor = "") {
+  const movement = attendanceMovementForText(entry.text);
+  if (!["in", "out"].includes(movement)) return null;
+  const destination = attendanceDestinationForText(entry.text);
+  if (!destination || /office/i.test(destination)) return null;
+
+  const destinationText = normalizeMatchText(destination);
+  if (!destinationText) return null;
+  const destinationTaskId = (String(destination).match(/\bBRK-\d+\b/i)?.[0] || "").toUpperCase();
+
+  const breakdowns = await readJson(listFiles.breakdowns, []);
+  const sourceId = String(entry.external_id || "").trim();
+  const alreadyApplied = breakdowns.find((record) => Array.isArray(record.engineer_attendance_updates) &&
+    record.engineer_attendance_updates.some((update) => String(update.source_message_id || "") === sourceId && sourceId));
+  if (alreadyApplied) return { matched: true, changed: false, record: alreadyApplied, reason: "already-applied" };
+
+  const closedStatuses = new Set(["closed", "resolved", "done", "cancelled"]);
+  const personKey = engineerNameFromAttendancePerson(person);
+  const candidates = breakdowns
+    .map((record, index) => ({ record, index, siteText: breakdownSiteText(record) }))
+    .filter(({ record, siteText }) => {
+      const status = String(record.status || "").trim().toLowerCase();
+      if (closedStatuses.has(status)) return false;
+      const recordTaskId = String(record.id || record.task_id || "").trim().toUpperCase();
+      const taskIdMatches = destinationTaskId && recordTaskId === destinationTaskId;
+      if (!taskIdMatches && (!siteText || (!siteText.includes(destinationText) && !destinationText.includes(siteText)))) return false;
+      if (!personKey) return true;
+      const assigned = String(record.engineer || record.assigned_to || record.scheduled_engineer || record.technician || "").trim().toLowerCase();
+      return !assigned || assigned === personKey;
+    })
+    .sort((left, right) => {
+      const rank = ({ record }) => {
+        const status = String(record.status || "").trim().toLowerCase();
+        const assigned = String(record.engineer || record.assigned_to || record.scheduled_engineer || record.technician || "").trim();
+        if (movement === "out") {
+          if (assigned && ["dispatched", "reached site"].includes(status)) return 0;
+          if (["dispatched", "reached site"].includes(status)) return 1;
+          if (assigned && status === "scheduled") return 2;
+          if (assigned) return 3;
+          return 8;
+        }
+        if (assigned && status === "scheduled") return 0;
+        if (assigned && ["open", "waiting for engineer"].includes(status)) return 1;
+        if (assigned) return 2;
+        if (["open", "waiting for engineer"].includes(status)) return 7;
+        return 9;
+      };
+      const rankDelta = rank(left) - rank(right);
+      if (rankDelta) return rankDelta;
+      const leftTime = Date.parse(left.record.updated_at || left.record.created_at || "") || 0;
+      const rightTime = Date.parse(right.record.updated_at || right.record.created_at || "") || 0;
+      return rightTime - leftTime || right.index - left.index;
+    });
+
+  if (!candidates.length) {
+    if (!destinationTaskId) return { matched: false, changed: false, destination };
+    const now = new Date().toISOString();
+    const update = {
+      source_channel: sourceChannel,
+      source_actor: sourceActor,
+      source_phone: entry.phone || "",
+      source_message_id: sourceId,
+      text: entry.text,
+      movement,
+      destination,
+      at: now
+    };
+    const fallbackRecord = {
+      id: destinationTaskId,
+      site: destinationTaskId,
+      location: destinationTaskId,
+      customer: destinationTaskId,
+      fault: `Engineer attendance update received for ${destinationTaskId}.`,
+      issue: `Engineer attendance update received for ${destinationTaskId}.`,
+      priority: "Normal",
+      status: movement === "out" ? "Closed" : "Dispatched",
+      scheduled_engineer: person?.name || "",
+      engineer: person?.name || "",
+      assigned_to: person?.name || "",
+      technician: person?.name || "",
+      assignment_source: "engineer-attendance-task-id",
+      source: "Engineer Attendance",
+      source_channel: sourceChannel,
+      created_at: now,
+      updated_at: now,
+      engineer_attendance_updates: [update],
+      last_engineer_attendance_source: sourceChannel,
+      last_engineer_attendance_message_id: sourceId,
+      last_engineer_attendance_text: entry.text,
+      last_engineer_movement: movement,
+      last_reported_location: destination,
+      last_reported_at: now,
+      ...(movement === "in" ? { dispatched_at: now } : {}),
+      ...(movement === "out" ? { closed_at: now, completed_at: now } : {})
+    };
+    breakdowns.unshift(fallbackRecord);
+    await writeJson(listFiles.breakdowns, breakdowns);
+    return { matched: true, changed: true, record: fallbackRecord, movement, destination, reason: "created-from-task-id" };
+  }
+
+  const preferred = movement === "out"
+    ? candidates.find(({ record }) => ["dispatched", "reached site", "scheduled"].includes(String(record.status || "").trim().toLowerCase())) || candidates[0]
+    : candidates.find(({ record }) => !["dispatched", "reached site"].includes(String(record.status || "").trim().toLowerCase())) || candidates[0];
+  const index = preferred.index;
+  const existing = breakdowns[index];
+  const now = new Date().toISOString();
+  const update = {
+    source_channel: sourceChannel,
+    source_actor: sourceActor,
+    source_phone: entry.phone || "",
+    source_message_id: sourceId,
+    text: entry.text,
+    movement,
+    destination,
+    at: now
+  };
+  const nextUpdates = [...(Array.isArray(existing.engineer_attendance_updates) ? existing.engineer_attendance_updates : []), update];
+  const nextStatus = movement === "out" ? "Closed" : "Dispatched";
+  const nextRecord = {
+    ...existing,
+    status: nextStatus,
+    engineer_attendance_updates: nextUpdates,
+    last_engineer_attendance_source: sourceChannel,
+    last_engineer_attendance_message_id: sourceId,
+    last_engineer_attendance_text: entry.text,
+    last_engineer_movement: movement,
+    last_reported_location: destination,
+    last_reported_at: now,
+    ...(movement === "in" ? { dispatched_at: existing.dispatched_at || now } : {}),
+    ...(movement === "out" ? { closed_at: existing.closed_at || now, completed_at: existing.completed_at || now } : {}),
+    updated_at: now
+  };
+  breakdowns[index] = nextRecord;
+  await writeJson(listFiles.breakdowns, breakdowns);
+
+  const engineerName = String(nextRecord.engineer || nextRecord.assigned_to || nextRecord.scheduled_engineer || nextRecord.technician || person?.name || "").trim();
+  if (engineerName) {
+    const orgChart = await readJson(listFiles.org_chart, []);
+    const engineerIndex = orgChart.findIndex((member) =>
+      String(member.name || "").trim().toLowerCase() === engineerName.toLowerCase() &&
+      String(member.department || "").trim().toLowerCase() === "breakdown"
+    );
+    if (engineerIndex >= 0) {
+      const currentJob = String(orgChart[engineerIndex].current_job || orgChart[engineerIndex].current_task || "").trim();
+      orgChart[engineerIndex] = {
+        ...orgChart[engineerIndex],
+        current_job: movement === "out" && (!currentJob || currentJob === nextRecord.id) ? "" : nextRecord.id,
+        current_task: movement === "out" && (!currentJob || currentJob === nextRecord.id) ? "" : nextRecord.id,
+        availability: movement === "out" ? "Available" : "On Site",
+        next_available_at: movement === "out" ? "" : "after current task",
+        last_engineer_attendance_message_id: sourceId,
+        last_reported_location: destination,
+        updated_at: now
+      };
+      await writeJson(listFiles.org_chart, orgChart);
+    }
+  }
+
+  return { matched: true, changed: true, record: nextRecord, movement, destination };
+}
+
+async function importEngineerAttendanceMessages(body = {}) {
+  const entries = parseEngineerAttendanceMessages(body);
+  if (!entries.length) return { ok: false, status: 400, error: "Engineer attendance message text is required." };
+
+  const now = new Date().toISOString();
+  const staff = await readJson(listFiles.org_chart, []);
+  const attendance = await readJson(listFiles.attendance, []);
+  const deptComms = await readJson(listFiles.dept_comms, []);
+  const staffByPhone = new Map(staff.map((person) => [normalizePhoneDigits(person.phone || person.mobile), person]).filter(([phone]) => phone));
+  const sourceChannel = String(body.channel || body.platform || "engineer-attendance").trim();
+  const sourceActor = String(body.sender || body.from || body.author || "").trim();
+  const imported = [];
+  const unmatched = [];
+  const breakdown_updates = [];
+
+  for (const entry of entries) {
+    const phoneDigits = normalizePhoneDigits(entry.phone);
+    const person = staffByPhone.get(phoneDigits);
+    const status = attendanceStatusForText(entry.text);
+    const movement = attendanceMovementForText(entry.text);
+    const checkIn = explicitAttendanceTime(entry.text) || entry.time || "";
+    const destination = attendanceDestinationForText(entry.text);
+    const noteParts = [
+      destination ? `Update: ${destination}` : "",
+      `Channel ${sourceChannel}: ${entry.text}`
+    ].filter(Boolean);
+
+    if (!person) {
+      unmatched.push({ ...entry, normalized_phone: phoneDigits });
+    } else {
+      const existingIndex = attendance.findIndex((item) => (
+        String(item.person_id || item.staff_id || "") === String(person.id || "") &&
+        String(item.date || "") === entry.date
+      ));
+      const previous = existingIndex >= 0 ? attendance[existingIndex] : {};
+      const record = {
+        ...previous,
+        id: previous.id || nextId(attendance, "ATT"),
+        date: entry.date,
+        person_id: person.id,
+        person_name: person.name,
+        department: person.department || "",
+        status,
+        check_in: previous.check_in || (movement !== "out" && (status === "present" || status === "late") ? checkIn : ""),
+        check_out: previous.check_out || (movement === "out" ? checkIn : ""),
+        last_movement: movement,
+        last_location_update: destination,
+        notes: appendAttendanceNote(previous.notes, noteParts.join(" - ")),
+        source_channel: sourceChannel,
+        source_phone: entry.phone,
+        source_message_id: entry.external_id || "",
+        marked_by: "engineer-attendance-import",
+        marked_at: previous.marked_at || now,
+        updated_at: now
+      };
+      if (existingIndex >= 0) {
+        attendance[existingIndex] = record;
+      } else {
+        attendance.unshift({ ...record, created_at: now });
+      }
+      imported.push(record);
+    }
+
+    const breakdownUpdate = await reconcileEngineerAttendanceBreakdown(entry, person, sourceChannel, sourceActor);
+    if (breakdownUpdate?.matched) breakdown_updates.push(breakdownUpdate);
+
+    const existingComm = deptComms.some((item) => (
+      String(item.source_channel || "") === sourceChannel &&
+      String(item.source_message_id || "") === String(entry.external_id || "") &&
+      String(item.source_phone || "") === String(entry.phone || "") &&
+      String(item.body || item.message || "").trim() === String(entry.text || "").trim()
+    ));
+    if (!existingComm) {
+      const comm = {
+        id: nextId(deptComms, "MSG"),
+        department: person?.department || "Operations",
+      from_dept: person?.department || "Engineer Attendance",
+      from_user: entry.phone || sourceActor || "OpenClaw",
+      from_name: person?.name || entry.phone || sourceActor || "OpenClaw",
+        to_depts: ["HR", person?.department || "Operations"],
+        subject: `Engineer attendance: ${person?.name || entry.phone}`,
+        body: entry.text,
+        message: entry.text,
+        status: "Unread",
+        priority: status === "leave" ? "High" : "Normal",
+      source_channel: sourceChannel,
+      source_phone: entry.phone,
+      source_actor: sourceActor,
+      source_message_id: entry.external_id || "",
+        attendance_date: entry.date,
+        timestamp: now,
+        created_at: now,
+        read_by: []
+      };
+      deptComms.unshift(comm);
+    }
+  }
+
+  await writeJson(listFiles.attendance, attendance);
+  await writeJson(listFiles.dept_comms, deptComms);
+  return { ok: true, imported, unmatched, breakdown_updates, count: imported.length, unmatched_count: unmatched.length, breakdown_update_count: breakdown_updates.filter((item) => item.changed).length };
 }
 
 function defaultAgentForCommunicationAction(action, target) {
@@ -1057,6 +1648,10 @@ function createOpenClawCommunicationService({
     const envValues = await loadEnvValues();
     const dashboardToken = extractOpenClawTokenFromDashboardUrl(await discoverDashboardUrl());
     for (const candidate of [
+      readAppSecret("fuzi_openclaw_token"),
+      readAppSecret("openclaw_gateway_token"),
+      readAppSecret("fuzi_openclaw_password"),
+      readAppSecret("openclaw_gateway_password"),
       env.FUZI_OPENCLAW_TOKEN,
       env.OPENCLAW_GATEWAY_TOKEN,
       envValues.FUZI_OPENCLAW_TOKEN,
@@ -1257,6 +1852,7 @@ function createDiscordBreakdownSyncService({
   writeState,
   readCollection,
   writeCollection,
+  notifyAutoAssignedBreakdown,
   nextRecordId,
   now
 }) {
@@ -1437,6 +2033,14 @@ function createDiscordBreakdownSyncService({
     return raw;
   };
 
+  const formatAutoAssignedReply = (record) => {
+    const engineer = String(record.engineer || record.assigned_to || record.scheduled_engineer || "").trim();
+    const site = String(record.site || record.location || record.customer || "the breakdown site").trim();
+    const phone = formatPhoneForReply(record.phone || record.caller_mobile);
+    const phoneText = phone ? `; phone is ${phone}` : "";
+    return `${engineer} is now assigned to ${site}${phoneText}, and the current task is ${record.id}.`;
+  };
+
   const formatBreakdownChannelReply = (record) => {
     const status = String(record.status || "").trim().toLowerCase();
     const engineer = String(record.engineer || record.assigned_to || record.technician || "").trim();
@@ -1615,6 +2219,45 @@ function createDiscordBreakdownSyncService({
     return null;
   };
 
+  const availableBreakdownEngineers = async (breakdowns = null, state = null) => {
+    const team = await readAssignableStaff();
+    const activeBreakdowns = breakdowns || await readCollection("breakdowns");
+    const assignmentState = state || await readState();
+    const loads = activeBreakdownLoad(activeBreakdowns);
+    return team
+      .map((member, index) => ({ member, index, details: staffAvailabilityDetails(member, loads, assignmentState), rank: availabilityRank(member) }))
+      .filter((candidate) => candidate.rank !== null && candidate.details.available_now && !candidate.member.current_job)
+      .sort((left, right) => left.details.assignment_score - right.details.assignment_score || left.index - right.index);
+  };
+
+  const saveWaitingBreakdown = async (record, reason = "All Breakdown engineers are busy; waiting for the next available engineer.") => {
+    const breakdowns = await readCollection("breakdowns");
+    const existingIndex = breakdowns.findIndex((item) =>
+      String(item.id || "") === String(record.id || "") ||
+      String(item.source_discord_message_id || "") === String(record.source_discord_message_id || "")
+    );
+    const existing = existingIndex >= 0 ? breakdowns[existingIndex] : {};
+    const saved = {
+      ...existing,
+      ...record,
+      scheduled_engineer: "",
+      engineer: "",
+      assigned_to: "",
+      technician: "",
+      engineer_availability: "Waiting for available engineer",
+      assignment_source: "waiting-for-available-engineer",
+      waiting_for_engineer: true,
+      waiting_reason: reason,
+      status: "Waiting for Engineer",
+      created_at: existing.created_at || record.created_at || now(),
+      updated_at: now()
+    };
+    if (existingIndex >= 0) breakdowns[existingIndex] = saved;
+    else breakdowns.unshift(saved);
+    await writeCollection("breakdowns", breakdowns);
+    return saved;
+  };
+
   const selectEngineerForBreakdown = async (record, breakdowns, existing = {}) => {
     if (existing.assignment_source === "manual" && String(existing.engineer || existing.assigned_to || "").trim()) {
       const engineer = String(existing.engineer || existing.assigned_to).trim();
@@ -1695,6 +2338,8 @@ function createDiscordBreakdownSyncService({
       ...record,
       original_openclaw_engineer: existing.original_openclaw_engineer || parsedEngineer,
       assignment_source: assignment.source,
+      waiting_for_engineer: false,
+      waiting_reason: "",
       scheduled_engineer: selectedEngineer,
       engineer: selectedEngineer,
       assigned_to: selectedEngineer,
@@ -1733,6 +2378,38 @@ function createDiscordBreakdownSyncService({
       }
     }
     return { changed: true, record: saved };
+  };
+
+  const assignWaitingBreakdowns = async () => {
+    const breakdowns = await readCollection("breakdowns");
+    const waiting = breakdowns
+      .filter((item) => item.waiting_for_engineer || String(item.status || "").toLowerCase() === "waiting for engineer")
+      .filter((item) => !String(item.engineer || item.assigned_to || item.scheduled_engineer || item.technician || "").trim());
+    const assigned = [];
+    for (const item of waiting) {
+      const latestBreakdowns = await readCollection("breakdowns");
+      const available = await availableBreakdownEngineers(latestBreakdowns);
+      if (!available.length) break;
+      const engineer = String(available[0].member.name || "").trim();
+      const result = await upsertBreakdown({
+        ...item,
+        scheduled_engineer: engineer,
+        engineer,
+        assigned_to: engineer,
+        technician: engineer,
+        engineer_availability: available[0].details.availability_summary || "Available now",
+        assignment_source: "auto-assigned-after-wait",
+        status: "Scheduled"
+      });
+      if (result.record) {
+        const reply = formatAutoAssignedReply(result.record);
+        const notification = typeof notifyAutoAssignedBreakdown === "function"
+          ? await notifyAutoAssignedBreakdown(result.record, reply)
+          : { ok: false, error: "No auto-assignment notification handler configured." };
+        assigned.push({ ...result.record, auto_assignment_reply: reply, auto_assignment_notification: notification });
+      }
+    }
+    return assigned;
   };
 
   const sync = async ({ force = false, limit = config.limit } = {}) => {
@@ -1776,6 +2453,21 @@ function createDiscordBreakdownSyncService({
     const breakdowns = await readCollection("breakdowns");
     const existing = breakdowns.find((item) => String(item.source_discord_message_id || "") === incoming.source_discord_message_id);
     if (!openClawEngineer && !existing) {
+      const available = await availableBreakdownEngineers(breakdowns);
+      if (!available.length) {
+        const waitingRecord = await saveWaitingBreakdown({
+          ...incoming,
+          id: nextRecordId(breakdowns, "BRK")
+        });
+        const reply = `${waitingRecord.site || waitingRecord.location || waitingRecord.customer || "The breakdown"} is logged and waiting because all Breakdown engineers are busy; it will be assigned automatically when an engineer becomes available.`;
+        return {
+          ok: true,
+          waiting_for_engineer: true,
+          record: waitingRecord,
+          reply,
+          summary: reply
+        };
+      }
       const reason = "Choose an available scheduled_engineer from /api/openclaw/breakdown/available-context and try again.";
       return {
         ok: false,
@@ -1812,6 +2504,24 @@ function createDiscordBreakdownSyncService({
         : breakdowns;
       const busyDetails = teamMember ? staffAvailabilityDetails(teamMember, activeBreakdownLoad(otherBreakdowns)) : null;
       if (teamMember && ((!busyJobIsSameRecord && busyJob) || busyDetails?.busy || !busyDetails?.available_now)) {
+        const available = await availableBreakdownEngineers(otherBreakdowns);
+        if (!available.length && !existing) {
+          const waitingRecord = await saveWaitingBreakdown({
+            ...incoming,
+            id: nextRecordId(breakdowns, "BRK"),
+            original_openclaw_engineer: openClawEngineer
+          });
+          const reply = `Ok, ${waitingRecord.site || waitingRecord.location || waitingRecord.customer || "the breakdown"} is logged and waiting because all Breakdown engineers are busy; it will be assigned automatically when an engineer becomes available.`;
+          return {
+            ok: true,
+            waiting_for_engineer: true,
+            engineer_busy: true,
+            scheduled_engineer: openClawEngineer,
+            record: waitingRecord,
+            reply,
+            summary: reply
+          };
+        }
         const reason = busyJob
           ? `${openClawEngineer} is busy on ${busyJob}; choose a different available engineer and try again.`
           : `${openClawEngineer} is not available now; choose a different available engineer and try again.`;
@@ -1961,6 +2671,7 @@ function createDiscordBreakdownSyncService({
       engineers,
       guidance: [
         "Only choose scheduled_engineer from this Breakdown dispatch engineers list.",
+        "If available_engineer_count is 0 or engineers is empty, this is still an actionable breakdown: call /api/openclaw/breakdown/from-discord without scheduled_engineer so FUZI saves it as Waiting for Engineer.",
         "This endpoint excludes supervisors, non-Breakdown staff, engineers with current_job, and busy/unavailable status.",
         "Use assignment_score, active_breakdown_load, and shift details such as 'Available now - Shift 10:00 AM - 7:00 PM' when deciding.",
         "If /from-discord says the selected engineer is busy, call this endpoint again and choose a different available engineer."
@@ -1968,7 +2679,7 @@ function createDiscordBreakdownSyncService({
     };
   };
 
-  return { createFromDiscordMessage, getAssignmentContext, getAvailableAssignmentContext, sync };
+  return { assignWaitingBreakdowns, createFromDiscordMessage, getAssignmentContext, getAvailableAssignmentContext, sync };
 }
 
 function normalizedOpsRecord(record, prefix, index) {
@@ -2154,10 +2865,47 @@ async function normalizeOfferPayload(body, res) {
   const customerLink = await offerCrmCustomerPayload(body, res);
   if (!customerLink) return null;
   const payload = cleanPayload(body);
-  const cost = offerCostSummary(payload);
+  const inventoryItems = Array.isArray(payload.inventory_items) ? payload.inventory_items.map((item) => ({
+    item_id: String(item?.item_id || item?.id || "").trim(),
+    name: String(item?.name || item?.item || "").trim(),
+    category: String(item?.category || "").trim(),
+    unit: String(item?.unit || "pcs").trim(),
+    qty: inventoryNumber(item?.qty ?? item?.quantity, 1),
+    current_price: inventoryNumber(item?.current_price ?? item?.unit_price ?? item?.sale_price ?? item?.unit_cost),
+    purchase_price: inventoryNumber(item?.purchase_price ?? item?.unit_cost),
+    price_date: String(item?.price_date || "").trim(),
+    vendor: String(item?.vendor || "").trim()
+  })) : [];
+  const inventoryMaterialTotal = inventoryItems.reduce((sum, item) => sum + item.qty * item.current_price, 0);
+  const costPayload = inventoryMaterialTotal && !payload.material_cost ? { ...payload, material_cost: inventoryMaterialTotal } : payload;
+  const cost = offerCostSummary(costPayload);
+  const measurementKeys = [
+    "site_visit_id",
+    "site_measurements_source",
+    "site_address",
+    "pit_size_mm",
+    "machine_room_available",
+    "floor_height_profile",
+    "site_stops",
+    "site_number_of_openings",
+    "site_opening_type",
+    "door_size_width_mm",
+    "door_size_height_mm",
+    "car_size_width_mm",
+    "car_size_depth_mm",
+    "site_capacity_persons",
+    "site_capacity_kg",
+    "shaft_width_mm",
+    "shaft_depth_mm",
+    "brick_wall_available",
+    "civil_door_height_mm",
+    "opening_schedule_summary"
+  ];
+  const measurementPayload = Object.fromEntries(measurementKeys.map((key) => [key, String(payload[key] || "").trim()]));
   return {
     ...payload,
     ...customerLink,
+    ...measurementPayload,
     job_no: String(payload.job_no || "").trim(),
     offer_date: String(payload.offer_date || new Date().toISOString().slice(0, 10)).trim(),
     offer_type: String(payload.offer_type || payload.elevator_type || "Individual").trim(),
@@ -2180,69 +2928,258 @@ async function normalizeOfferPayload(body, res) {
     delivery_timeline: String(payload.delivery_timeline || "As per final technical approval and material readiness").trim(),
     warranty_terms: String(payload.warranty_terms || "12 months from handover against manufacturing defects").trim(),
     offer_letter_status: String(payload.offer_letter_status || "Prepared").trim(),
-    source: String(payload.source || "CRM Offer Manager").trim()
+    source: String(payload.source || "CRM Offer Manager").trim(),
+    inventory_items: inventoryItems,
+    inventory_material_total: inventoryMaterialTotal,
+    inventory_pricing_source: String(payload.inventory_pricing_source || (inventoryItems.length ? "Inventory current prices" : "")).trim(),
+    opening_schedule: Array.isArray(payload.opening_schedule) ? payload.opening_schedule : []
   };
 }
 
-function buildOfferLetterHtml(estimate = {}) {
+function buildOfferLetterHtml(estimate = {}, options = {}) {
   const cost = offerCostSummary(estimate);
-  const rows = [
-    ["Offer no.", estimate.job_no || estimate.id || "-"],
-    ["Offer date", estimate.offer_date || estimate.created_at || "-"],
-    ["Customer", estimate.customer_name || estimate.offer_name || "-"],
-    ["Site", estimate.site || "-"],
-    ["Elevator type", estimate.elevator_type || estimate.offer_type || "-"],
-    ["Stops / floors", estimate.stops || "-"],
-    ["Capacity", estimate.capacity || "-"],
-    ["Speed", estimate.speed || "-"],
-    ["Drive type", estimate.drive_type || "-"],
-    ["Door type", estimate.door_type || "-"],
-    ["Cabin / finish", estimate.finish || "-"],
-    ["Offer valid until", estimate.offer_valid_until || "-"]
+  const offerNo = estimate.job_no || estimate.id || "-";
+  const offerDate = estimate.offer_date || estimate.created_at || new Date().toISOString().slice(0, 10);
+  const customerName = estimate.customer_name || estimate.offer_name || "Customer";
+  const customerSite = estimate.site_address || estimate.site || "-";
+  const customerPhone = estimate.customer_phone || estimate.phone || "";
+  const stops = estimate.site_stops || estimate.stops || "-";
+  const openings = estimate.site_number_of_openings || estimate.openings || stops || "-";
+  const capacity = estimate.capacity || (estimate.site_capacity_kg ? `${estimate.site_capacity_kg} Kgs.` : "") || (estimate.site_capacity_persons ? `${estimate.site_capacity_persons} passengers` : "-");
+  const doorType = estimate.door_type || estimate.site_opening_type || "Center Opening Automatic Door";
+  const finish = estimate.finish || "Stainless Steel Hairline Finish";
+  const driveType = estimate.drive_type || "VVVF Variable Voltage Variable Frequency";
+  const speed = estimate.speed || "1.0 Meter Per Second";
+  const motor = estimate.motor || "Traction (Gearless)";
+  const floorOpening = `${stops} stops, ${openings} openings${estimate.opening_schedule_summary ? ` (${estimate.opening_schedule_summary})` : ""}`;
+  const doorSize = estimate.door_size_width_mm || estimate.door_size_height_mm ? `${estimate.door_size_width_mm || "-"}mm (width) x ${estimate.door_size_height_mm || "-"}mm (height)` : "As per GAD";
+  const shaftSize = estimate.shaft_width_mm || estimate.shaft_depth_mm ? `${estimate.shaft_width_mm || "-"}mm (width) x ${estimate.shaft_depth_mm || "-"}mm (depth)` : "As per GAD";
+  const carSize = estimate.car_size_width_mm || estimate.car_size_depth_mm ? `${estimate.car_size_width_mm || "-"}mm (w) x ${estimate.car_size_depth_mm || "-"}mm (d) / as per GAD` : "As per GAD";
+  const pitDepth = estimate.pit_size_mm ? `${estimate.pit_size_mm} mm` : "As per GAD";
+  const machineRoom = String(estimate.machine_room_available || "").toUpperCase() === "Y" ? "Machine room available as per site" : "Top-Machine Room Less";
+  const serviceType = estimate.elevator_type || estimate.offer_type || "Passenger";
+  const priceText = moneyInr(cost.totalCost);
+  const tableRows = (rows) => rows.map(([label, value]) => `<tr><th>${htmlEscape(label)}</th><td>${htmlEscape(value || "-")}</td></tr>`).join("");
+  const bulletList = (items) => `<ul>${items.map((item) => `<li>${htmlEscape(item)}</li>`).join("")}</ul>`;
+  const specificationRows = [
+    ["Service", serviceType],
+    ["No. of Elevators", "One (01) no."],
+    ["Capacity", capacity],
+    ["Speed", speed],
+    ["Control", driveType],
+    ["Operation", estimate.operation || "Simplex Full Collective"],
+    ["Motor", motor],
+    ["Floors & Opening", floorOpening],
+    ["Door Opening Type", doorType],
+    ["Door Opening Size", doorSize],
+    ["Hoist-way Size Available", shaftSize],
+    ["Car Internal Size", carSize],
+    ["Power Supply", "440V AC 50 Hz"],
+    ["Lighting Supply", "220 V AC 50 Hz"],
+    ["Travel", estimate.floor_height_profile || "As per site and GAD"],
+    ["Overhead Required", estimate.overhead_required || "As per GAD"],
+    ["Pit Depth Required", pitDepth],
+    ["Machine Room Location", machineRoom]
   ];
+  const carRows = [
+    ["Ceiling / Lighting", estimate.ceiling_lighting || "Stainless Steel Mirror finish with decorative lumasite"],
+    ["Car Construction", `${finish} with sheet thickness as per approved specification`],
+    ["Car Door", `${finish} small / big vision glass door as selected`],
+    ["Flooring", estimate.flooring || "PVC / granite recess as per final scope"]
+  ];
+  const signalRows = [
+    ["Car Operating Panel", "Micro push button in stainless steel hairline Braille panel"],
+    ["Hall Button", "Micro push button in stainless steel hairline Braille panel"]
+  ];
+  const inventoryRows = Array.isArray(estimate.inventory_items) ? estimate.inventory_items.map((item) => [
+    item.name || item.item_id || "-",
+    `${item.qty || 1} ${item.unit || "pcs"}`,
+    moneyInr(item.current_price || item.unit_price || 0),
+    moneyInr((Number(item.qty || 1) || 1) * (Number(item.current_price || item.unit_price || 0) || 0)),
+    item.price_date || "-"
+  ]) : [];
+  const standardMakesImage = options.standardMakesImage || "/assets/offer/standard-makes.jpg";
   return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
   <title>FUZI Offer ${htmlEscape(estimate.id || "")}</title>
   <style>
-    body { font-family: Arial, sans-serif; color: #14151a; margin: 32px; line-height: 1.45; }
-    header { border-bottom: 3px solid #e11b22; padding-bottom: 16px; margin-bottom: 24px; }
-    h1 { margin: 0; font-size: 30px; }
-    h2 { color: #b91414; margin-top: 28px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-    td, th { border: 1px solid #d9dde7; padding: 10px; text-align: left; }
-    th { background: #f5f7fb; }
-    .total { font-size: 24px; font-weight: 800; color: #b91414; }
-    .muted { color: #646b7a; }
+    @page { size: A4; margin: 12mm 17mm 18mm; }
+    body { font-family: "Times New Roman", Times, serif; color: #111; margin: 0; line-height: 1.32; font-size: 11pt; }
+    header { border-bottom: 2px solid #111; padding-bottom: 8px; margin-bottom: 14px; }
+    .letterhead { display: grid; grid-template-columns: 72px 1fr; align-items: center; gap: 12px; }
+    .brand-mark { width: 64px; height: 64px; border: 3px solid #111; display: grid; place-items: center; font-family: Arial, sans-serif; font-size: 23pt; font-weight: 900; color: #e11b22; letter-spacing: -2px; }
+    .brand-name { margin: 0; font-family: Arial, sans-serif; font-size: 21pt; font-weight: 900; letter-spacing: .2px; }
+    .brand-rule { height: 4px; background: #e11b22; margin: 4px 0 5px; }
+    .brand-meta { margin: 0; font-size: 9.5pt; text-align: left; }
+    h1 { margin: 0; font-size: 20pt; letter-spacing: .3px; }
+    h2 { margin: 18px 0 8px; font-size: 14pt; text-align: center; text-decoration: underline; }
+    h3 { margin: 14px 0 6px; font-size: 12pt; }
+    p { margin: 0 0 8px; text-align: justify; }
+    table { width: 100%; border-collapse: collapse; margin: 8px 0 12px; }
+    td, th { border: 1px solid #333; padding: 5px 7px; text-align: left; vertical-align: top; }
+    th { width: 34%; font-weight: 700; background: #f3f3f3; }
+    ul, ol { margin-top: 4px; margin-bottom: 10px; padding-left: 24px; }
+    li { margin-bottom: 3px; }
+    .topline { display: flex; justify-content: space-between; gap: 24px; }
+    .company { font-weight: 700; }
+    .address-block { margin: 12px 0; font-weight: 700; }
+    .subject { margin-top: 10px; }
+    .annexure { page-break-before: always; }
+    .price { font-weight: 700; }
+    .signature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 36px; margin-top: 32px; }
+    .footer { border-top: 1px solid #333; margin-top: 20px; padding-top: 6px; text-align: center; font-size: 9.5pt; }
+    .standard-makes { width: 100%; max-width: 520px; display: block; margin: 8px auto 12px; border: 1px solid #ddd; }
+    .muted { color: #444; }
   </style>
 </head>
 <body>
   <header>
-    <h1>FUZI Classic Elevators Pvt. Ltd.</h1>
-    <p class="muted">Client Offer Letter</p>
+    <div class="letterhead">
+      <div class="brand-mark">FE</div>
+      <div>
+        <div class="brand-name">FUZI Classic Elevators Pvt. Ltd.</div>
+        <div class="brand-rule"></div>
+        <p class="brand-meta">360, Guru Nanak Pura, Raja Park, Jaipur, Rajasthan, India-302004</p>
+        <p class="brand-meta">Tele No. 91-141-2620168 | Toll Free 18001028421 | Mobile 09928019671 | Email: atulsinghal@fuzielevators.com</p>
+      </div>
+    </div>
   </header>
-  <p>Dear ${htmlEscape(estimate.customer_name || "Customer")},</p>
-  <p>We are pleased to submit this offer for the elevator scope below. The offer value is prepared from FUZI internal costing and is subject to final technical approval, site conditions, and statutory/tax requirements.</p>
-  <h2>Offer Summary</h2>
-  <table>${rows.map(([label, value]) => `<tr><th>${htmlEscape(label)}</th><td>${htmlEscape(value)}</td></tr>`).join("")}</table>
-  <h2>Commercial Value</h2>
-  <table>
-    <tr><th>Base internal cost</th><td>${moneyInr(cost.baseCost)}</td></tr>
-    <tr><th>Margin</th><td>${htmlEscape(cost.marginPercent)}% (${moneyInr(cost.marginAmount)})</td></tr>
-    <tr><th>Discount</th><td>${moneyInr(cost.discount)}</td></tr>
-    <tr><th>GST</th><td>${htmlEscape(cost.gstPercent)}% (${moneyInr(cost.gstAmount)})</td></tr>
-    <tr><th>Total client offer value</th><td class="total">${moneyInr(cost.totalCost)}</td></tr>
-  </table>
-  <h2>Terms</h2>
-  <p><strong>Payment:</strong> ${htmlEscape(estimate.payment_terms || "-")}</p>
-  <p><strong>Delivery:</strong> ${htmlEscape(estimate.delivery_timeline || "-")}</p>
-  <p><strong>Warranty:</strong> ${htmlEscape(estimate.warranty_terms || "-")}</p>
-  <h2>Notes</h2>
-  <p>${htmlEscape(estimate.notes || "Technical details, civil readiness, and final measurements will be confirmed before production.")}</p>
-  <p>Regards,<br>FUZI Classic Elevators Pvt. Ltd.</p>
+  <div class="topline">
+    <div>Ref. No. FUZI/Classic/${htmlEscape(new Date().getFullYear())}-${htmlEscape(String(new Date().getFullYear() + 1).slice(-2))}/${htmlEscape(offerNo)}</div>
+    <div>Dated: ${htmlEscape(offerDate)}</div>
+  </div>
+  <div class="address-block">
+    <div>${htmlEscape(customerName)}</div>
+    <div>${htmlEscape(customerSite)}</div>
+    ${customerPhone ? `<div># ${htmlEscape(customerPhone)}</div>` : ""}
+  </div>
+  <p class="subject"><strong>Subject:</strong> Supply, Installation, Testing, Commissioning and complete handing over of 01 nos. ${htmlEscape(serviceType)} Elevator for your site.</p>
+  <p><strong>Reference:</strong> Personal discussions and site visit reference.</p>
+  <p>Dear Sir,</p>
+  <p>This refers to the aforementioned subject in line with SITC of one no. elevator. Further, we thank you for extending your valued enquiry to us. We have pleasure to submit our offer for supply, installation, testing, commissioning and complete handing over of FUZI brand elevator in the building at the above address.</p>
+  <p>We are FUZI brand business partners and install and maintain FUZI brand elevators in Rajasthan.</p>
+  <p>FUZI brand elevators are a perfect blend of performance, function, design technology and safety standards, offering a smooth and comfortable ride through world-class people moving systems.</p>
+  <p>Quality, safety and time-bound project delivery are key words of our company. Our motto is to provide safe, reliable and trouble-free elevators and escalators. Customer satisfaction is the slogan of our company and it is our pleasure to serve our valued customers.</p>
+  <p>We have enclosed our detailed offer including specifications, features, taxes, duties, price, terms and conditions. Please call us for any clarification or verification if needed.</p>
+  <p>We are sure this will receive your favorable consideration and look forward to receiving your valuable order at the earliest.</p>
+  <p>We assure you of our best attention and services at all times.</p>
+  <p>Thanking you with warm regards,</p>
+  <p>Yours Truly,<br>For FUZI Classic Elevators Pvt. Ltd.</p>
+  <p style="margin-top:28px;">(Authorized Signatory)</p>
+  <p>Encl: As Annexure</p>
+
+  <section class="annexure">
+    <h2>ANNEXURE - I</h2>
+    <h2>TECHNICAL SPECIFICATIONS SHEET</h2>
+    <h3>1. Standard Specifications</h3>
+    <table>${tableRows(specificationRows)}</table>
+    <h3>2. Elevator Car</h3>
+    <table>${tableRows(carRows)}</table>
+    <h3>3. Hoist-way Entrance</h3>
+    <table>${tableRows([["Landing Doors", `${finish} small / big vision glass doors as selected`]])}</table>
+    <h3>4. Signals</h3>
+    <table>${tableRows(signalRows)}</table>
+    <h3>5. Other Features</h3>
+    ${bulletList([
+      "Ventilation fan / blower",
+      "Emergency light and fan / blower in car",
+      "Attendant key function",
+      "Luminous car operating panel with digital position and direction indicator",
+      "Combined luminous hall position indicator with direction indicators at all floors",
+      "Automatic Rescue Device",
+      "Overload and over speed governor",
+      "Phase reversal and fireman switch",
+      "Auto light and fan off",
+      "Stainless steel handrail",
+      "Music, voice announcement and alarm in car",
+      "Multi beam full length infra-red door sensor in case of auto door",
+      "Door open and close button in case of auto door",
+      "Arrival gong, lift lock function, main / service floor selection and forced door close function"
+    ])}
+    <h3>Our Standard Makes</h3>
+    <img class="standard-makes" src="${standardMakesImage}" alt="FUZI standard makes logos">
+    <table>${tableRows([
+      ["Drive", "Monarch Make"],
+      ["Rope", "Usha Martin Make"],
+      ["Motor", "Sharp / Bharat Bijali"],
+      ["Guide Rail", "Marazzi Make"],
+      ["Auto Door", "Complete cartoon pack original Fermator make, 8 lakh cycle per year tested door"]
+    ])}</table>
+
+    <h2>Price</h2>
+    <p class="price">Our price for one number ${htmlEscape(capacity)} ${htmlEscape(motor)} elevator for ${htmlEscape(stops)} stops as per Annexure-I with ${htmlEscape(finish)} car and ${htmlEscape(doorType)} serving the above site will be @ ${htmlEscape(priceText)}.</p>
+    ${inventoryRows.length ? `<h3>Inventory Pricing Used For Internal Costing</h3><table><tr><th>Item</th><th>Qty</th><th>Current price</th><th>Line total</th><th>Price date</th></tr>${inventoryRows.map((row) => `<tr>${row.map((cell) => `<td>${htmlEscape(cell)}</td>`).join("")}</tr>`).join("")}</table>` : ""}
+    <h3>The above offer is Inclusive of:</h3>
+    ${bulletList(["Installation charges along with 12 months warranty from the date of handing over", "Freight up to the site"])}
+    <h3>The above offer is Exclusive of:</h3>
+    ${bulletList(["Architrave work at all floors", "Separating channel work if applicable", "GST @18%"])}
+    <h3>Taxes and Duties</h3>
+    <p>The prices quoted above are exclusive of GST. Any variation in the same or addition of new taxes and duties if levied in future shall be in customer scope from the date it is made effective.</p>
+    <h3>Payment Terms</h3>
+    <p>${htmlEscape(estimate.payment_terms || "1) 40% of the contract value advance along with the order. 2) 50% of the contract value on intimation of material readiness at factory. 3) 10% of the contract value along with all taxes at the time of handing over of lift.")}</p>
+    <h3>Delivery & Installation Schedule</h3>
+    <p>${htmlEscape(estimate.delivery_timeline || "GAD will be submitted within ten days from receipt of confirmed written order with advance payment. Material shall be delivered after 50 days from submission of GAD and material payment clearance. Installation work shall be completed within 40 days excluding customer scope of work.")}</p>
+    <h3>Maintenance</h3>
+    <p>${htmlEscape(estimate.warranty_terms || "Our offer includes 12 months free maintenance at site including all parts exclusive consumable parts such as fan, blower, bulb, tube light, battery and PVC flooring.")}</p>
+    <h3>CAMC</h3>
+    <p>We undertake CAMC including spare parts, excluding consumable parts such as fan, blower, bulb, tube light, battery and PVC flooring, @ 5% of the total contract value excluding taxes.</p>
+    <h3>Customer Scope of Work</h3>
+    ${bulletList([
+      "Lift pit should be as per GAD with waterproof arrangements",
+      "Shaft lighting as per GAD should be provided by the customer",
+      "Shaft should be whitewashed by the customer",
+      "Load hook and trap door as per GAD should be provided by the customer",
+      "Proper stairs should be provided to enter the machine room where applicable",
+      "3 phase and separate single phase power supply along with MCB and cable",
+      "Double earthing in the machine room",
+      "Lockable store should be provided to keep lift material near the shaft at ground floor, approximately 40 sq ft",
+      "All kinds of civil work"
+    ])}
+    ${estimate.notes ? `<h3>Offer Notes</h3><p>${htmlEscape(estimate.notes)}</p>` : ""}
+    <div class="signature-grid">
+      <div>Signature of the Customer</div>
+      <div>For FUZI Classic Elevators Pvt. Ltd.<br><br>Atul Singhal<br>Mobile: 09928019671</div>
+    </div>
+    <h3>Bank Details</h3>
+    <table>${tableRows([
+      ["Account Name", "FUZI Classic Elevators Private Limited"],
+      ["HDFC Bank", "Account No. 59251870000001, Branch Adarsh Nagar Jaipur, IFSC HDFC0005187"],
+      ["State Bank of India", "Account No. 61091952889, Branch Adarsh Nagar Jaipur, IFSC SBIN0031022"],
+      ["CIN", "U29150RJ2009PTC029448"]
+    ])}</table>
+  </section>
+  <div class="footer">360, Guru Nanak Pura, Raja Park, Jaipur, Rajasthan, India-302004 | Tele No. 91-141-2620168 | Toll Free 18001028421 | Mobile 09928019671 | Email: atulsinghal@fuzielevators.com</div>
 </body>
 </html>`;
+}
+
+async function buildOfferLetterPdf(estimate = {}) {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "fuzi-offer-"));
+  const htmlPath = path.join(tempDir, "offer.html");
+  const pdfPath = path.join(tempDir, "offer.pdf");
+  try {
+    const standardMakesDataUrl = await offerAssetDataUrl("standard-makes.jpg", "image/jpeg").catch(() => "/assets/offer/standard-makes.jpg");
+    const html = buildOfferLetterHtml(estimate, { standardMakesImage: standardMakesDataUrl });
+    await fs.writeFile(htmlPath, html, "utf8");
+    const chrome = await chromeExecutablePath();
+    if (!chrome) throw new Error("Chrome or Edge is required to generate offer PDFs.");
+    await execFileAsync(chrome, [
+      "--headless=new",
+      "--disable-gpu",
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
+      "--print-to-pdf-no-header",
+      `--print-to-pdf=${pdfPath}`,
+      pathToFileURL(htmlPath).href
+    ], { timeout: 30000, windowsHide: true });
+    const pdf = await fs.readFile(pdfPath);
+    if (!pdf.length) throw new Error("Generated offer PDF is empty.");
+    return pdf;
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 async function createCollectionRecord(routeName, body, res) {
@@ -2260,7 +3197,8 @@ async function createCollectionRecord(routeName, body, res) {
   if (routeName === "service" && !serviceLink) return;
   const offerPayload = routeName === "estimates" ? await normalizeOfferPayload(body, res) : null;
   if (routeName === "estimates" && !offerPayload) return;
-  const record = { id: nextId(records, config.prefix), ...(offerPayload || cleanPayload(body)), ...serviceLink, created_at: now, updated_at: now };
+  const paymentPayload = routeName === "payments" ? normalizePaymentPayload(body) : null;
+  const record = { id: nextId(records, config.prefix), ...(offerPayload || paymentPayload || cleanPayload(body)), ...serviceLink, created_at: now, updated_at: now };
   records.unshift(record);
   await writeJson(config.file, records);
   return res.json({ ok: true, record, [config.key.slice(0, -1) || "record"]: record });
@@ -2277,9 +3215,10 @@ async function updateCollectionRecord(routeName, id, body, res) {
   if (routeName === "service" && body?.customer_id && !serviceLink) return;
   const offerPayload = routeName === "estimates" ? await normalizeOfferPayload({ ...records[index], ...body }, res) : null;
   if (routeName === "estimates" && !offerPayload) return;
+  const paymentPayload = routeName === "payments" ? normalizePaymentPayload({ ...records[index], ...body }) : null;
   const nextRecord = {
     ...records[index],
-    ...(offerPayload || cleanPayload(body)),
+    ...(offerPayload || paymentPayload || cleanPayload(body)),
     ...serviceLink,
     ...(actionStatus ? { status: actionStatus } : {}),
     updated_at: new Date().toISOString()
@@ -2364,6 +3303,7 @@ function portalData(collections, user) {
     factory_jobs: collections.factory_jobs,
     tenders: collections.tenders,
     international_vendors: collections.international_vendors,
+    marketing_assets: collections.marketing_assets,
     dept_comms: collections.dept_comms,
     synced_at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
   };
@@ -2373,6 +3313,8 @@ function portalData(collections, user) {
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: "5mb" }));
+app.use("/assets/offer", express.static(path.join(rootDir, "docs", "offer", "assets")));
+app.use("/assets/customer", express.static(path.join(rootDir, "docs", "customer-assets")));
 
 const communicationService = createOpenClawCommunicationService({
   config: defaultOpenClawCommunicationData(process.env, rootDir),
@@ -2396,8 +3338,25 @@ const communicationService = createOpenClawCommunicationService({
   now: () => new Date().toISOString()
 });
 
+const discordBreakdownConfig = defaultDiscordBreakdownSyncData(process.env, rootDir);
+const resolveDiscordBreakdownTarget = async () => {
+  if (String(discordBreakdownConfig.channelTarget || "").trim()) return String(discordBreakdownConfig.channelTarget).trim();
+  try {
+    const text = await fs.readFile(discordBreakdownConfig.envFile, "utf8");
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#") || !line.includes("=")) continue;
+      const [key, ...rest] = line.split("=");
+      if (key.trim() !== "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL") continue;
+      return rest.join("=").trim().replace(/^['"]|['"]$/g, "");
+    }
+  } catch {
+    // Auto-assignment replies should use the same OpenClaw env-file target as incoming breakdown sync.
+  }
+  return "";
+};
 const discordBreakdownSyncService = createDiscordBreakdownSyncService({
-  config: defaultDiscordBreakdownSyncData(process.env, rootDir),
+  config: discordBreakdownConfig,
   env: process.env,
   readText: async (filePath) => {
     try {
@@ -2411,6 +3370,17 @@ const discordBreakdownSyncService = createDiscordBreakdownSyncService({
   writeState: writeOperationsState,
   readCollection: async (key) => await readJson(listFiles[key], []),
   writeCollection: async (key, records) => await writeJson(listFiles[key], records),
+  notifyAutoAssignedBreakdown: async (record, reply) => await communicationService.sendBusinessChannelUpdate("breakdown-auto-assigned", {
+    channel: "discord",
+    target: await resolveDiscordBreakdownTarget(),
+    message: reply,
+    summary: reply,
+    breakdown_id: record.id,
+    source_discord_message_id: record.source_discord_message_id || "",
+    scheduled_engineer: record.engineer || record.assigned_to || record.scheduled_engineer || "",
+    phone: record.phone || record.caller_mobile || "",
+    current_task: record.id
+  }),
   nextRecordId: nextId,
   now: () => new Date().toISOString()
 });
@@ -2513,8 +3483,20 @@ app.post("/api/portal/crm-query", authRequired, async (req, res) => {
 });
 
 app.post("/api/openclaw/webhook", async (req, res) => {
+  const inboundChannel = String(req.body?.channel || req.body?.platform || "").trim().toLowerCase();
+  if (inboundChannel === "engineer-attendance" || inboundChannel === "#engineer-attendance") {
+    const result = await importEngineerAttendanceMessages(req.body || {});
+    if (!result.ok) return res.status(result.status || 400).json({ ok: false, message: result.error || "Engineer attendance message could not be imported." });
+    return res.json(result);
+  }
   const result = await communicationService.saveInboundPlatformMessage(req.body || {});
   if (!result.ok) return res.status(result.status || 400).json({ ok: false, message: result.error || "Inbound platform message could not be saved." });
+  res.json(result);
+});
+
+app.post("/api/openclaw/engineer-attendance/import", async (req, res) => {
+  const result = await importEngineerAttendanceMessages({ channel: "engineer-attendance", ...(req.body || {}) });
+  if (!result.ok) return res.status(result.status || 400).json({ ok: false, message: result.error || "Engineer attendance message could not be imported." });
   res.json(result);
 });
 
@@ -2522,6 +3504,53 @@ app.post("/api/openclaw/send", authRequired, async (req, res) => {
   const eventType = String(req.body?.event_type || "manual-message").trim();
   const delivery = await communicationService.sendBusinessChannelUpdate(eventType, req.body || {});
   res.status(delivery.ok ? 200 : 502).json({ ok: delivery.ok, delivery });
+});
+
+function marketingAssetPrompt(record = {}, action = "generate-image") {
+  const product = String(record.product_line || "FUZI elevators and manufactured lift parts").trim();
+  const audience = String(record.audience || "builders, architects, hotels, hospitals, housing societies, and elevator partners").trim();
+  const channel = String(record.channel || "social media and catalog").trim();
+  const tone = String(record.tone || "premium, trustworthy, safety-focused, modern Indian elevator brand").trim();
+  if (action === "draft-catalog") {
+    return `Create a polished FUZI company catalog section for ${product}. Audience: ${audience}. Include product benefits, safety/quality claims, use cases, installation/service support, and a concise call to action. Tone: ${tone}.`;
+  }
+  if (action === "draft-ad-copy") {
+    return `Write high-converting ad copy for ${channel} promoting ${product}. Audience: ${audience}. Tone: ${tone}. Include headline, short body, CTA, and 3 variant hooks.`;
+  }
+  return `Generate an advertising image concept for FUZI Classic Elevators. Product: ${product}. Audience: ${audience}. Channel: ${channel}. Visual style: clean premium elevator showroom or real installation setting, red/white/black FUZI branding, safety and engineering confidence, no clutter, space for headline text. Tone: ${tone}.`;
+}
+
+app.post("/api/portal/marketing-assets/:id/openclaw", authRequired, async (req, res) => {
+  const records = await readJson(listFiles.marketing_assets, []);
+  const index = findRecordIndex(records, req.params.id);
+  if (index < 0) return res.status(404).json({ ok: false, message: "Marketing asset not found." });
+  const action = String(req.body?.action || "generate-image").trim();
+  const prompt = String(req.body?.prompt || records[index].ai_prompt || marketingAssetPrompt(records[index], action)).trim();
+  const delivery = await communicationService.sendBusinessChannelUpdate("marketing-platform", {
+    agent: "Marketing Platform AI",
+    channel: req.body?.channel || "openclaw",
+    action,
+    asset_id: records[index].id || req.params.id,
+    campaign: records[index].campaign_name || records[index].title || "",
+    product_line: records[index].product_line || "",
+    target_audience: records[index].audience || "",
+    prompt,
+    instruction: "Use AI/OpenClaw to draft ad creative, image generation prompts, campaign copy, and company catalog content for FUZI. Return concise usable content that the portal can paste into the asset record.",
+    summary: `Marketing Platform ${action} requested for ${records[index].campaign_name || records[index].title || req.params.id}.`
+  });
+  const now = new Date().toISOString();
+  records[index] = {
+    ...records[index],
+    ai_prompt: prompt,
+    last_openclaw_action: action,
+    last_openclaw_prompt: prompt,
+    last_openclaw_at: now,
+    delivery_status: delivery.ok ? "Sent to OpenClaw" : "OpenClaw delivery failed",
+    status: action === "generate-image" ? "Image requested" : (action === "draft-catalog" ? "Catalog draft requested" : "AI draft requested"),
+    updated_at: now
+  };
+  await writeJson(listFiles.marketing_assets, records);
+  res.status(delivery.ok ? 200 : 502).json({ ok: delivery.ok, record: records[index], delivery, prompt });
 });
 
 function adminRequired(req, res) {
@@ -2533,6 +3562,12 @@ function adminRequired(req, res) {
 function numberFromPayload(value, fallback = 0) {
   const parsed = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function realTenderLink(value) {
+  const text = String(value || "").trim();
+  if (!text || text.toLowerCase() === "view tender") return "";
+  return text;
 }
 
 function internationalVendorCost(body = {}) {
@@ -2567,7 +3602,8 @@ function internationalVendorCost(body = {}) {
 }
 
 function internationalVendorEmailTemplate(record = {}, stage = "") {
-  const company = String(record.company || "there").trim();
+  const company = String(record.company || "").trim();
+  const greeting = company ? `Hello ${company}` : "Hello";
   const tenderTitle = String(record.tender_title || record.closest_tender_title || "").trim();
   const tenderArea = String(record.tender_area || record.closest_tender_region || record.region || "your area").trim();
   const tenderDeadline = String(record.tender_deadline || record.closest_tender_deadline || "").trim();
@@ -2578,15 +3614,15 @@ function internationalVendorEmailTemplate(record = {}, stage = "") {
     const tenderLine = tenderTitle
       ? `We noticed ${tenderTitle} in ${tenderArea}${tenderDeadline ? ` with a deadline of ${tenderDeadline}` : ""}${tenderRef ? `, ref ${tenderRef}` : ""}.`
       : `We noticed an elevator tender/opportunity near ${tenderArea}.`;
-    return `Hello ${company}, a friend mentioned they had used your service, so we wanted to set a short meeting. ${tenderLine} Your company could bid locally while FUZI supplies manufactured elevator parts and kits at a competitive landed cost; our current vendor-cost estimate is ${vendorCost}. Would you be open to a call to discuss partnering on this contract?`;
+    return `${greeting}, a friend mentioned they had used your service, so we wanted to set a short meeting. ${tenderLine} Your company could bid locally while FUZI supplies manufactured elevator parts and kits at a competitive landed cost; our current vendor-cost estimate is ${vendorCost}. Would you be open to a call to discuss partnering on this contract?`;
   }
   if (normalizedStage.includes("cost")) {
-    return `Hello ${company}, FUZI has prepared a landed-cost sheet for ${String(record.destination_country || record.country || "your market").trim()} with freight, duty/tax placeholders, broker fees, insurance, and the 2% local partner margin. The current vendor-cost estimate is ${vendorCost}.`;
+    return `${greeting}, FUZI has prepared a landed-cost sheet for ${String(record.destination_country || record.country || "your market").trim()} with freight, duty/tax placeholders, broker fees, insurance, and the 2% local partner margin. The current vendor-cost estimate is ${vendorCost}.`;
   }
   if (normalizedStage.includes("sample") || normalizedStage.includes("smart")) {
-    return `Hello ${company}, FUZI can start with smaller smart elevator parts or sample kits before a heavy shipment. We can quote parts, packing weight, courier/ocean freight, and import assumptions for your local review.`;
+    return `${greeting}, FUZI can start with smaller smart elevator parts or sample kits before a heavy shipment. We can quote parts, packing weight, courier/ocean freight, and import assumptions for your local review.`;
   }
-  return `Hello ${company}, FUZI manufactures elevator parts and lift kits internationally. We are looking for USA and Canada elevator companies that can install locally while FUZI supplies manufactured parts and kits. Please reply if you would like our catalog, landed-cost sheet, and partnership terms.`;
+  return `${greeting}, FUZI manufactures elevator parts and lift kits internationally. We are looking for USA and Canada elevator companies that can install locally while FUZI supplies manufactured parts and kits. Please reply if you would like our catalog, landed-cost sheet, and partnership terms.`;
 }
 
 function normalizeInternationalVendor(body = {}) {
@@ -2611,12 +3647,12 @@ function normalizeInternationalVendor(body = {}) {
     tender_title: String(body.tender_title || body.closest_tender_title || "").trim(),
     tender_deadline: String(body.tender_deadline || body.closest_tender_deadline || "").trim(),
     tender_ref: String(body.tender_ref || body.closest_tender_ref || "").trim(),
-    tender_link: String(body.tender_link || body.closest_tender_link || "").trim(),
+    tender_link: realTenderLink(body.tender_link || body.closest_tender_link),
     closest_tender_title: String(body.closest_tender_title || body.tender_title || "").trim(),
     closest_tender_region: String(body.closest_tender_region || body.tender_area || "").trim(),
     closest_tender_deadline: String(body.closest_tender_deadline || body.tender_deadline || "").trim(),
     closest_tender_ref: String(body.closest_tender_ref || body.tender_ref || "").trim(),
-    closest_tender_link: String(body.closest_tender_link || body.tender_link || "").trim(),
+    closest_tender_link: realTenderLink(body.closest_tender_link || body.tender_link),
     friend_referral_note: String(body.friend_referral_note || "A friend mentioned they used your service.").trim(),
     openclaw_email_plan: String(body.openclaw_email_plan || "Draft intro email, request a meeting, follow up with catalog and landed-cost sheet, then support tender bid pricing with FUZI manufactured parts.").trim(),
     outreach_sequence: String(body.outreach_sequence || "1. Tender meeting intro; 2. Catalog and cost sheet; 3. Bid support follow-up; 4. Meeting reminder; 5. Close/lost decision.").trim(),
@@ -2795,7 +3831,6 @@ app.post("/api/portal/users", authRequired, async (req, res) => {
   if (req.user.role !== "admin") return res.status(403).json({ ok: false, message: "Admin access required." });
   const users = await readJson(listFiles.users, []);
   const username = String(req.body?.username || "").trim().toLowerCase();
-  const password = String(req.body?.password || sharedPortalPassword);
   if (!username) return res.status(400).json({ ok: false, message: "Username is required." });
   if (users.some((user) => String(user.username || "").toLowerCase() === username)) {
     return res.status(409).json({ ok: false, message: "Username already exists." });
@@ -2810,7 +3845,7 @@ app.post("/api/portal/users", authRequired, async (req, res) => {
     active: req.body?.active !== false,
     must_change_password: false,
     password_policy: "shared-staff-portal",
-    password_hash: makeWerkzeugScryptHash(password),
+    password_hash: req.body?.password ? makeWerkzeugScryptHash(String(req.body.password)) : sharedStaffPortalPasswordHash(),
     created_at: new Date().toISOString()
   };
   users.unshift(user);
@@ -2834,8 +3869,10 @@ app.patch("/api/portal/users/:id", authRequired, async (req, res) => {
     ...users[index],
     ...patch,
     username: nextUsername,
-    ...(req.body?.password || req.body?.temporary_password ? {
-      password_hash: makeWerkzeugScryptHash(String(req.body.password || req.body.temporary_password)),
+    ...(req.body?.password || req.body?.temporary_password || req.body?.reset_shared_password ? {
+      password_hash: req.body?.reset_shared_password
+        ? sharedStaffPortalPasswordHash()
+        : makeWerkzeugScryptHash(String(req.body.password || req.body.temporary_password)),
       must_change_password: false,
       password_policy: "shared-staff-portal",
       password_synced_at: new Date().toISOString()
@@ -2900,10 +3937,14 @@ app.post("/api/portal/breakdown/sync-discord", authRequired, async (req, res) =>
 
 app.patch("/api/portal/breakdown-engineer-task", authRequired, async (req, res) => {
   const engineerName = String(req.body?.engineer || req.body?.name || "").trim();
-  if (!engineerName) return res.status(400).json({ ok: false, message: "Engineer name is required." });
+  const engineerId = String(req.body?.engineer_id || req.body?.org_id || req.body?.id || "").trim();
+  if (!engineerName && !engineerId) return res.status(400).json({ ok: false, message: "Engineer name or id is required." });
   const orgChart = await readJson(listFiles.org_chart, []);
   const index = orgChart.findIndex((person) =>
-    String(person.name || "").trim().toLowerCase() === engineerName.toLowerCase() &&
+    Boolean(
+      (engineerId && String(person.id || "").trim() === engineerId) ||
+      (engineerName && String(person.name || "").trim().toLowerCase() === engineerName.toLowerCase())
+    ) &&
     String(person.department || "").trim().toLowerCase() === "breakdown" &&
     !String(person.title || "").toLowerCase().includes("supervisor")
   );
@@ -2922,7 +3963,41 @@ app.patch("/api/portal/breakdown-engineer-task", authRequired, async (req, res) 
   };
   orgChart[index] = record;
   await writeJson(listFiles.org_chart, orgChart);
-  res.json({ ok: true, record, message: task ? `${engineerName}'s current task updated.` : `${engineerName} marked available with no current task.` });
+  let clearedBreakdowns = [];
+  if (!task) {
+    const engineerKey = String(record.name || engineerName || "").trim().toLowerCase();
+    const breakdowns = await readJson(listFiles.breakdowns, []);
+    let changedBreakdowns = false;
+    clearedBreakdowns = breakdowns.filter((item) => {
+      const status = String(item.status || "").trim().toLowerCase();
+      if (["closed", "resolved", "done", "cancelled"].includes(status)) return false;
+      const assigned = String(item.engineer || item.assigned_to || item.scheduled_engineer || item.technician || "").trim().toLowerCase();
+      return engineerKey && assigned === engineerKey;
+    }).map((item) => String(item.id || "").trim()).filter(Boolean);
+    if (clearedBreakdowns.length) {
+      const clearedSet = new Set(clearedBreakdowns);
+      const nextBreakdowns = breakdowns.map((item) => {
+        if (!clearedSet.has(String(item.id || "").trim())) return item;
+        changedBreakdowns = true;
+        const status = String(item.status || "").trim();
+        return {
+          ...item,
+          scheduled_engineer: "",
+          engineer: "",
+          assigned_to: "",
+          technician: "",
+          engineer_availability: "Unassigned after task clear",
+          assignment_source: "task-cleared",
+          status: ["scheduled", "dispatched"].includes(status.toLowerCase()) ? "Open" : status,
+          updated_at: new Date().toISOString()
+        };
+      });
+      if (changedBreakdowns) await writeJson(listFiles.breakdowns, nextBreakdowns);
+    }
+  }
+  const displayName = String(record.name || engineerName || engineerId);
+  const assigned_waiting_breakdowns = task ? [] : await discordBreakdownSyncService.assignWaitingBreakdowns();
+  res.json({ ok: true, record, cleared_breakdowns: clearedBreakdowns, assigned_waiting_breakdowns, message: task ? `${displayName}'s current task updated.` : `${displayName} marked available with no current task.` });
 });
 
 app.post("/api/portal/site-visits", authRequired, async (req, res) => {
@@ -2930,9 +4005,11 @@ app.post("/api/portal/site-visits", authRequired, async (req, res) => {
   if (!customerLink) return;
   const siteVisits = await readJson(listFiles.site_visits, []);
   const now = new Date().toISOString();
+  const visitNumber = siteVisits.filter((visit) => String(visit.customer_id || "") === String(customerLink.customer_id || "")).length + 1;
   const siteVisit = {
     ...req.body,
     id: nextId(siteVisits, "SV"),
+    visit_number: visitNumber,
     ...customerLink,
     submitted_by: req.user?.display_name || req.user?.username || "",
     submitted_by_username: req.user?.username || "",
@@ -3169,6 +4246,19 @@ app.get("/api/portal/estimates/:id/offer.:format", authRequired, async (req, res
   const estimates = await readJson(listFiles.estimates, []);
   const estimate = estimates.find((item) => String(item.id) === String(req.params.id));
   if (!estimate) return res.status(404).send("Estimate not found.");
+  const format = String(req.params.format || "pdf").toLowerCase();
+  if (format === "pdf") {
+    try {
+      const pdf = await buildOfferLetterPdf(estimate);
+      const fileName = `${String(estimate.job_no || estimate.id || req.params.id).replace(/[^a-z0-9._-]+/gi, "-")}-offer-letter.pdf`;
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="${fileName}"`);
+      res.setHeader("Content-Length", String(pdf.length));
+      return res.send(pdf);
+    } catch (error) {
+      return res.status(500).json({ ok: false, message: error instanceof Error ? error.message : "Offer PDF could not be generated." });
+    }
+  }
   res.type("html").send(buildOfferLetterHtml(estimate));
 });
 
@@ -3278,8 +4368,19 @@ app.post("/api/portal/install-jobs/:jobId/send-commissioning", authRequired, asy
     installation_ref: job.id || job.job_id,
     job_ref: job.id || job.job_id,
     unit: req.body?.unit || job.unit || job.site || job.id,
+    customer_id: req.body?.customer_id || job.customer_id || "",
     customer: req.body?.customer || job.customer || job.site || "",
     site: req.body?.site || job.site || "",
+    assigned_engineer: req.body?.assigned_engineer || job.commissioning_engineer || job.engineer || "",
+    controller_type: req.body?.controller_type || job.controller_type || "",
+    drive_model_number: req.body?.drive_model_number || job.drive_model_number || job.drive_model || "",
+    motor_serial_number: req.body?.motor_serial_number || job.motor_serial_number || job.motor_serial || "",
+    motor_nameplate_url: req.body?.motor_nameplate_url || job.motor_nameplate_url || "",
+    motor_nameplate_file: req.body?.motor_nameplate_file || job.motor_nameplate_file || "",
+    communication_link: req.body?.communication_link || job.communication_link || "",
+    protocol_required: req.body?.protocol_required || job.protocol_required || "",
+    protocol_type: req.body?.protocol_type || job.protocol_type || job.protocol || "",
+    commissioning_details: req.body?.commissioning_details || job.commissioning_details || "",
     install_complete_date: req.body?.install_complete_date || now.slice(0, 10),
     payment_cleared: Boolean(req.body?.payment_cleared || job.payment_cleared),
     status: existing?.status || "Pending",
@@ -3322,6 +4423,38 @@ app.post("/api/portal/install-jobs/:jobId/send-commissioning", authRequired, asy
     summary: `Install handoff sent for ${job.site || job.id}.`
   });
   res.json({ ok: true, commissioning, message, job: jobs[jobIndex], delivery });
+});
+
+app.post("/api/portal/commissioning/:id/motor-nameplate", authRequired, async (req, res) => {
+  const commissionings = await readJson(listFiles.commissionings, []);
+  const index = findRecordIndex(commissionings, req.params.id);
+  if (index < 0) return res.status(404).json({ ok: false, message: "Commissioning record not found." });
+  const record = commissionings[index];
+  const { contentType, bytes } = decodeDataUrl(req.body?.data_url || "");
+  if (!bytes.length) return res.status(400).json({ ok: false, message: "Upload a motor nameplate image." });
+  const allowed = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+  const type = String(req.body?.content_type || contentType || "").toLowerCase();
+  if (type && !allowed.has(type)) return res.status(400).json({ ok: false, message: "Motor nameplate must be an image file." });
+  const extension = type.includes("png") ? ".png" : type.includes("webp") ? ".webp" : type.includes("gif") ? ".gif" : ".jpg";
+  const customerKey = safeAssetName(record.customer_id || record.customer || "customer");
+  const uploadDir = path.join(rootDir, "docs", "customer-assets", "nameplates", customerKey);
+  await fs.mkdir(uploadDir, { recursive: true });
+  const baseName = safeAssetName(`${record.id || req.params.id}-${req.body?.filename || "motor-nameplate"}`).replace(/\.[a-z0-9]+$/i, "");
+  const fileName = `${baseName}-${Date.now()}${extension}`;
+  const filePath = path.join(uploadDir, fileName);
+  await fs.writeFile(filePath, bytes);
+  const publicUrl = `/assets/customer/nameplates/${encodeURIComponent(customerKey)}/${encodeURIComponent(fileName)}`;
+  const nextRecord = {
+    ...record,
+    motor_nameplate_url: publicUrl,
+    motor_nameplate_file: String(req.body?.filename || fileName).trim(),
+    motor_nameplate_uploaded_at: new Date().toISOString(),
+    motor_nameplate_uploaded_by: req.user?.display_name || req.user?.username || "",
+    updated_at: new Date().toISOString()
+  };
+  commissionings[index] = nextRecord;
+  await writeJson(listFiles.commissionings, commissionings);
+  res.json({ ok: true, record: nextRecord, url: publicUrl });
 });
 
 app.post("/api/portal/attendance", authRequired, async (req, res) => {
@@ -3393,13 +4526,15 @@ app.get("/", (_req, res) => {
   res.json({
     ok: true,
     service: "FUZI API",
-    ui: "http://127.0.0.1:8081/",
+    ui: "http://127.0.0.1:8082/",
   });
 });
 
 let discordBreakdownSyncWarned = false;
 async function runDiscordBreakdownSync() {
   const result = await discordBreakdownSyncService.sync();
+  const assignedWaiting = await discordBreakdownSyncService.assignWaitingBreakdowns();
+  if (assignedWaiting.length) result.assigned_waiting_breakdowns = assignedWaiting.length;
   if (!result.ok && !discordBreakdownSyncWarned) {
     discordBreakdownSyncWarned = true;
     console.warn(`Discord breakdown sync unavailable: ${result.message || result.status || "unknown error"}`);

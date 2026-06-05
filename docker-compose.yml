@@ -1,0 +1,48 @@
+services:
+  api:
+    build: .
+    image: fuzi-ops-api:local
+    command: npm run api
+    env_file:
+      - ../mystuffinfo/fuzi/fuzi.env
+    environment:
+      FUZI_API_PORT: "5000"
+      FUZI_DB_PATH: /data/fuzi.sqlite3
+      FUZI_PORTAL_TOKEN_TTL_MINUTES: ${FUZI_PORTAL_TOKEN_TTL_MINUTES:-480}
+      FUZI_LOGIN_WINDOW_MINUTES: ${FUZI_LOGIN_WINDOW_MINUTES:-10}
+      FUZI_LOGIN_MAX_ATTEMPTS: ${FUZI_LOGIN_MAX_ATTEMPTS:-8}
+      FUZI_OPENCLAW_URL: ${FUZI_OPENCLAW_URL:-http://host.docker.internal:18789/}
+    ports:
+      - "${FUZI_API_PUBLISHED_PORT:-5000}:5000"
+    volumes:
+      - fuzi-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  web:
+    build: .
+    image: fuzi-ops-web:local
+    command: npm --prefix expo-app run web -- --host lan --port 8082
+    environment:
+      EXPO_PUBLIC_FUZI_API_URL: ${EXPO_PUBLIC_FUZI_API_URL:-http://127.0.0.1:5000}
+      EXPO_NO_TELEMETRY: "1"
+      CI: "1"
+    ports:
+      - "${FUZI_WEB_PUBLISHED_PORT:-8082}:8082"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8082/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  fuzi-data:
+    name: fuzi-sqlite-data

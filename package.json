@@ -6,10 +6,13 @@
   "scripts": {
     "start": "node server/index.mjs",
     "api": "node server/index.mjs",
-    "web": "npm --prefix expo-app run web",
+    "web": "npm --prefix expo-app run web -- --port 8082",
     "android": "npm --prefix expo-app run android",
     "typecheck": "npm --prefix expo-app run typecheck",
-    "check": "npm --prefix expo-app run typecheck && npm --prefix expo-app exec expo install --check"
+    "check": "npm --prefix expo-app run typecheck && npm --prefix expo-app exec expo install --check",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down"
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0",

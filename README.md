@@ -37,16 +37,78 @@ npm run android
 | URL | Description |
 |---|---|
 | `http://127.0.0.1:5000` | Node API and static-file fallback |
-| `http://127.0.0.1:8081` | Expo website home and staff/mobile portal |
+| `http://127.0.0.1:8082` | Expo website home and staff/mobile portal |
 | `http://127.0.0.1:5000/api/portal/data` | Authenticated portal data API |
 
 **Default admin credentials:**
 ```
 Username: admin
-Password: Fuzi@2026!Portal
+Password: stored as a hash in `fuzi.sqlite3`
 ```
 
-Seeded staff accounts are stored in `fuzi.sqlite3`. Staff portal accounts use the shared portal password by default. Override it for both API and Expo quick-login builds with `FUZI_SHARED_PORTAL_PASSWORD` and `EXPO_PUBLIC_FUZI_PORTAL_PASSWORD`.
+Seeded staff accounts are stored in `fuzi.sqlite3`. Staff portal accounts use the shared portal password hash stored in the SQLite `app_secrets` table.
+
+---
+
+## Docker
+
+FUZI runs as two Node services:
+
+| Service | Runtime | Install | Start | Port |
+|---|---|---|---|---|
+| API | Node 22 | `npm ci` | `npm run api` | `5000` |
+| Web | Node 22 / Expo | `npm --prefix expo-app ci` | `npm --prefix expo-app run web -- --host lan --port 8082` | `8082` |
+
+The API uses SQLite. In Docker, `FUZI_DB_PATH=/data/fuzi.sqlite3` stores `fuzi.sqlite3`, the `app_secrets` password-hash table, and WAL/SHM sidecar files inside the `/data` volume. The app creates the volume directory on startup, and Compose maps it to the named volume `fuzi-sqlite-data` so operational data persists outside the image.
+
+Common environment variables:
+
+| Variable | Default | Used By |
+|---|---|---|
+| `FUZI_API_PORT` | `5000` | API |
+| `FUZI_API_PUBLISHED_PORT` | `5000` | Docker host port for API |
+| `FUZI_WEB_PUBLISHED_PORT` | `8082` | Docker host port for Web |
+| `FUZI_DB_PATH` | `/data/fuzi.sqlite3` in Compose | API |
+| `EXPO_PUBLIC_FUZI_API_URL` | `http://127.0.0.1:5000` | Web |
+| `FUZI_OPENCLAW_URL` | `http://host.docker.internal:18789/` in Compose | API integrations |
+
+Build and run both services:
+
+```bash
+docker compose up --build
+```
+
+Equivalent npm scripts are available:
+
+```bash
+npm run docker:build
+npm run docker:up
+npm run docker:down
+```
+
+Staff portal and OpenClaw password values are not stored in the app or Compose defaults. Keep them in the SQLite `app_secrets` table inside `fuzi.sqlite3`; the Docker volume stores that database at `/data/fuzi.sqlite3`.
+
+Stop the services:
+
+```bash
+docker compose down
+```
+
+Windows helpers are also available:
+
+```bat
+runondocker.bat
+stopondocker.bat
+```
+
+After startup, verify:
+
+- API: `http://127.0.0.1:5000`
+- Web portal: `http://127.0.0.1:8082`
+- Data volume: `fuzi-sqlite-data`, mounted at `/data`
+- Health checks: `docker compose ps`
+
+Secrets and local database files are excluded by `.dockerignore`; provide production secrets through environment variables or a local `.env` file used by Docker Compose.
 
 ---
 
@@ -68,7 +130,7 @@ The website home and portal are now React/Expo first on the same web port. It us
 
 Development URLs:
 - Node API and static-file fallback: `http://127.0.0.1:5000`
-- Expo website home and portal: `http://127.0.0.1:8081`
+- Expo website home and portal: `http://127.0.0.1:8082`
 
 API base URL:
 - Web and local development default to `http://127.0.0.1:5000`.
@@ -607,7 +669,7 @@ A separate self-service portal for customers at `/customer/login`.
 
 ## Department-Based Login Accounts
 
-Auto-seeded manager accounts use the shared staff portal password:
+Auto-seeded manager accounts use the shared staff portal password hash from `fuzi.sqlite3`:
 
 - `service.control.manager`
 - `project.office.manager`
@@ -632,8 +694,7 @@ Site visit records keep structured opening data under `opening_schedule`. Sales 
 
 | Variable | Default | Description |
 |---|---|---|
-| `FUZI_SHARED_PORTAL_PASSWORD` | `Fuzi@2026!Portal` | Shared staff portal password applied to all staff accounts |
-| `EXPO_PUBLIC_FUZI_PORTAL_PASSWORD` | `Fuzi@2026!Portal` | Expo quick-login password; set to the same value as `FUZI_SHARED_PORTAL_PASSWORD` |
+| `FUZI_SECRETS_FILE` | `../mystuffinfo/fuzi/fuzi.env` | Optional private local env file for non-password settings |
 | `FUZI_PORTAL_TOKEN_TTL_MINUTES` | `480` | Sliding staff portal token lifetime in minutes |
 | `FUZI_LOGIN_WINDOW_MINUTES` | `10` | Login throttling window |
 | `FUZI_LOGIN_MAX_ATTEMPTS` | `8` | Failed attempts allowed per username/IP window |
@@ -761,7 +822,7 @@ node -e "const db=require('better-sqlite3')('fuzi.sqlite3'); console.log(db.prep
 
 **After starting the Node API and Expo app, verify:**
 
-- Staff login works in the Expo app at `http://127.0.0.1:8081`.
+- Staff login works in the Expo app at `http://127.0.0.1:8082`.
 - `GET /api/portal/data` returns `401` without a bearer token.
 - Customer CRM and Site Visit Reports work in the Expo app.
 - Site Visit Reports create opening rows from stops/openings and save floor, FF height, and lintel height.

@@ -35,6 +35,7 @@ export type Customer = {
 export type SiteVisit = {
   id: string;
   customer_id: string;
+  visit_number?: number;
   customer_name?: string;
   address?: string;
   site_person_name?: string;
@@ -110,6 +111,44 @@ export type Estimate = {
   delivery_timeline?: string;
   warranty_terms?: string;
   offer_letter_status?: string;
+  inventory_material_total?: number;
+  inventory_pricing_source?: string;
+  inventory_items?: Array<{
+    item_id?: string;
+    name?: string;
+    category?: string;
+    unit?: string;
+    qty?: string | number;
+    current_price?: string | number;
+    purchase_price?: string | number;
+    price_date?: string;
+    vendor?: string;
+  }>;
+  site_visit_id?: string;
+  site_measurements_source?: string;
+  site_address?: string;
+  pit_size_mm?: string;
+  machine_room_available?: string;
+  floor_height_profile?: string;
+  site_stops?: string;
+  site_number_of_openings?: string;
+  site_opening_type?: string;
+  door_size_width_mm?: string;
+  door_size_height_mm?: string;
+  car_size_width_mm?: string;
+  car_size_depth_mm?: string;
+  site_capacity_persons?: string;
+  site_capacity_kg?: string;
+  shaft_width_mm?: string;
+  shaft_depth_mm?: string;
+  brick_wall_available?: string;
+  civil_door_height_mm?: string;
+  opening_schedule_summary?: string;
+  opening_schedule?: Array<{
+    floor: string;
+    ff_height_mm: string;
+    lintel_height_mm: string;
+  }>;
   status?: string;
   total_cost?: number;
   created_at?: string;
@@ -131,6 +170,7 @@ export type PortalData = {
   renewals?: Array<Record<string, unknown>>;
   work_orders?: Array<Record<string, unknown>>;
   international_vendors?: Array<Record<string, unknown>>;
+  marketing_assets?: Array<Record<string, unknown>>;
   attendance_today?: Array<Record<string, unknown>>;
   org_chart?: Array<Record<string, unknown>>;
   leave_requests?: Array<Record<string, unknown>>;

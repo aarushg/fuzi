@@ -61,6 +61,13 @@ cover/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+*.sqlite3-journal
+*.db
+*.db-shm
+*.db-wal
 
 # Flask stuff:
 instance/
@@ -150,6 +157,8 @@ activemq-data/
 
 # Environments
 .env
+.env.*
+!.env.example
 .envrc
 .venv
 env/
@@ -217,3 +226,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local FUZI private data and generated artifacts
+fuzi-password*.env
+app_run*.log
+fuzi-api*.log
+docs/.~lock.*#
