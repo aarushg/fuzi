@@ -73,7 +73,11 @@ Common environment variables:
 | `EXPO_PUBLIC_FUZI_API_PROTOCOL` | `http` | Web |
 | `EXPO_PUBLIC_FUZI_API_HOST` | `127.0.0.1` | Web |
 | `EXPO_PUBLIC_FUZI_API_PORT` | `FUZI_API_PUBLISHED_PORT` in Compose, otherwise `5000` | Web |
-| `FUZI_OPENCLAW_URL` | `http://host.docker.internal:18789/` in Compose | API integrations |
+| `FUZI_OPENCLAW_URL` | *(off)* | Full OpenClaw relay URL override |
+| `FUZI_OPENCLAW_ADDRESS` | *(off)* | OpenClaw relay `host:port` override |
+| `FUZI_OPENCLAW_HOST` | `host.docker.internal` in Compose | OpenClaw relay host |
+| `FUZI_OPENCLAW_PORT` | `18789` | OpenClaw relay port |
+| `FUZI_DOCKER_INSTANCE` | auto-detected | Force Docker-aware OpenClaw defaults with `true` / `false` |
 
 Build and run both services:
 
@@ -709,7 +713,11 @@ Site visit records keep structured opening data under `opening_schedule`. Sales 
 | `FUZI_SMTP_USER` | *(off)* | SMTP username |
 | `FUZI_SMTP_PASS` | *(off)* | SMTP password |
 | `FUZI_SMTP_FROM` | *(SMTP_USER)* | From address for outbound emails |
-| `FUZI_OPENCLAW_URL` | `http://127.0.0.1:18789/` | OpenClaw relay URL |
+| `FUZI_OPENCLAW_URL` | *(off)* | Full OpenClaw relay URL override |
+| `FUZI_OPENCLAW_ADDRESS` | *(off)* | OpenClaw relay `host:port` override, for example `127.0.0.1:18789` |
+| `FUZI_OPENCLAW_HOST` | `127.0.0.1`, or `host.docker.internal` inside Docker | OpenClaw relay host |
+| `FUZI_OPENCLAW_PORT` | `18789` | OpenClaw relay port |
+| `FUZI_DOCKER_INSTANCE` | auto-detected | Force Docker-aware OpenClaw defaults with `true` / `false` |
 | `FUZI_OPENCLAW_TIMEOUT` | `4` | Relay request timeout (seconds) |
 | `FUZI_OPENCLAW_CHANNEL` | `whatsapp` | Default outbound channel |
 | `FUZI_OPENCLAW_OPS_TARGET` | *(off)* | Ops alert recipient |
@@ -806,7 +814,7 @@ Reset the specific `#fuzi-breakdown` session after changing OpenClaw instruction
 
 Recommended related settings:
 
-- `FUZI_OPENCLAW_URL` for the local gateway base URL.
+- `FUZI_OPENCLAW_URL` for the full local gateway base URL, or `FUZI_OPENCLAW_ADDRESS` / `FUZI_OPENCLAW_HOST` / `FUZI_OPENCLAW_PORT` for just the `host:port` part.
 - `FUZI_OPENCLAW_TIMEOUT` for request timeout control.
 - `FUZI_OPENCLAW_CHANNEL` for the default outbound delivery channel.
 - `FUZI_OPENCLAW_PUSH_INGEST_ENABLED` to keep the inbound push route enabled.

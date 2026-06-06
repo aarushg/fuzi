@@ -38,6 +38,44 @@ const loginWindowMs = Number(process.env.FUZI_LOGIN_WINDOW_MINUTES || 10) * 60 *
 const loginMaxAttempts = Number(process.env.FUZI_LOGIN_MAX_ATTEMPTS || 8);
 const dbPath = process.env.FUZI_DB_PATH || path.join(rootDir, "fuzi.sqlite3");
 fsSync.mkdirSync(path.dirname(dbPath), { recursive: true });
+
+const defaultOpenClawPort = "18789";
+const localOpenClawHost = "127.0.0.1";
+const dockerOpenClawHost = "host.docker.internal";
+
+function envFlag(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["1", "true", "yes", "y", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "n", "off"].includes(normalized)) return false;
+  return null;
+}
+
+function isDockerInstance(env = process.env) {
+  const explicit = envFlag(env.FUZI_DOCKER_INSTANCE || env.FUZI_IS_DOCKER);
+  if (explicit !== null) return explicit;
+  if (fsSync.existsSync("/.dockerenv")) return true;
+  try {
+    return /docker|kubepods|containerd/i.test(fsSync.readFileSync("/proc/1/cgroup", "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+function openClawUrlFromAddress(address) {
+  const value = String(address || "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  return `http://${value}/`;
+}
+
+function defaultOpenClawUrl(env = process.env) {
+  if (env.FUZI_OPENCLAW_URL) return env.FUZI_OPENCLAW_URL;
+  if (env.FUZI_OPENCLAW_ADDRESS) return openClawUrlFromAddress(env.FUZI_OPENCLAW_ADDRESS);
+  const host = env.FUZI_OPENCLAW_HOST || (isDockerInstance(env) ? dockerOpenClawHost : localOpenClawHost);
+  const port = env.FUZI_OPENCLAW_PORT || defaultOpenClawPort;
+  return openClawUrlFromAddress(`${host}:${port}`);
+}
+
 const db = new Database(dbPath);
 db.pragma("journal_mode = WAL");
 db.exec(`
@@ -859,6 +897,108 @@ function normalizePaymentPayload(body = {}) {
   };
 }
 
+function numberValue(value, fallback = 0) {
+  if (value === undefined || value === null || String(value).trim() === "") return fallback;
+  const parsed = Number(String(value).replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function addDaysIso(dateValue, days) {
+  const date = new Date(String(dateValue || ""));
+  if (Number.isNaN(date.getTime())) return "";
+  date.setDate(date.getDate() + Math.max(0, Number(days || 0)));
+  return date.toISOString().slice(0, 10);
+}
+
+function tenderDateDiffDays(dateValue, now = new Date()) {
+  const date = new Date(String(dateValue || ""));
+  if (Number.isNaN(date.getTime())) return 0;
+  return Math.max(0, Math.floor((now.getTime() - date.getTime()) / 86400000));
+}
+
+function normalizeTenderArray(value) {
+  return Array.isArray(value) ? value.filter((item) => item && typeof item === "object") : [];
+}
+
+function normalizeTenderPayload(body = {}, existing = {}, records = []) {
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const cleaned = cleanPayload(body);
+  const items = normalizeTenderArray(cleaned.items || existing.items);
+  const participants = normalizeTenderArray(cleaned.participants || existing.participants);
+  const bills = normalizeTenderArray(cleaned.bills || existing.bills).map((bill, index) => {
+    const amount = numberValue(bill.amount);
+    const received = String(bill.payment_received || bill.received || "").toLowerCase() === "yes" || bill.payment_received === true;
+    const billDate = String(bill.bill_date || "").slice(0, 10);
+    return {
+      id: String(bill.id || `BILL-${index + 1}`),
+      our_bill_number: String(bill.our_bill_number || bill.bill_number || "").trim(),
+      bill_date: billDate,
+      amount,
+      billing_period: String(bill.billing_period || "").trim(),
+      payment_received: received ? "Yes" : "No",
+      payment_received_date: received ? String(bill.payment_received_date || "").slice(0, 10) : "",
+      due_days: received ? 0 : tenderDateDiffDays(billDate, now)
+    };
+  });
+  const emdRecords = normalizeTenderArray(cleaned.emd_records || existing.emd_records);
+  const sdRecords = normalizeTenderArray(cleaned.sd_records || existing.sd_records).map((sd, index) => ({
+    id: String(sd.id || `SD-${index + 1}`),
+    sd_amount: numberValue(sd.sd_amount || sd.amount),
+    deposited_by: String(sd.deposited_by || "").trim(),
+    deposit_date: String(sd.deposit_date || "").slice(0, 10),
+    amount: numberValue(sd.amount || sd.sd_amount),
+    refund_due_date: String(sd.refund_due_date || "").slice(0, 10) || addDaysIso(cleaned.completion_date || existing.completion_date, numberValue(cleaned.dlp_period || existing.dlp_period)),
+    status: String(sd.status || "").trim() || "SD Pending"
+  }));
+  const totalBillAmount = bills.reduce((sum, bill) => sum + numberValue(bill.amount), 0);
+  const totalPaymentReceived = bills.filter((bill) => bill.payment_received === "Yes").reduce((sum, bill) => sum + numberValue(bill.amount), 0);
+  const totalPaymentDue = Math.max(0, totalBillAmount - totalPaymentReceived);
+  const dueDays = bills.filter((bill) => bill.payment_received !== "Yes").reduce((max, bill) => Math.max(max, numberValue(bill.due_days)), 0);
+  const dlpPeriod = numberValue(cleaned.dlp_period || existing.dlp_period);
+  const completionDate = String(cleaned.completion_date || existing.completion_date || "").slice(0, 10);
+  const orderValue = numberValue(cleaned.order_value || existing.order_value);
+  const hasSubmission = Boolean(cleaned.submission_date || existing.submission_date || cleaned.submitted_at || existing.submitted_at);
+  const hasOpening = participants.length > 0 || Boolean(cleaned.opening_date || existing.opening_date || cleaned.lowest_party_name || existing.lowest_party_name);
+  const statusInput = String(cleaned.status || existing.status || "").trim();
+  let status = statusInput || "Tender Pending";
+  const lowerStatus = status.toLowerCase();
+  const defaultPendingStatus = !statusInput || lowerStatus === "tender pending";
+  if (defaultPendingStatus && hasSubmission) status = "Tender Submitted";
+  if (defaultPendingStatus && hasOpening) status = "Tender Opened";
+  if ((defaultPendingStatus || status.toLowerCase() === "tender opened") && (cleaned.order_number || existing.order_number || orderValue > 0)) status = "Order Pending";
+  if (lowerStatus.includes("lost")) status = emdRecords.some((record) => String(record.return_status || record.status || "").toLowerCase().includes("return")) ? "EMD Returned" : "EMD Pending";
+  if (lowerStatus.includes("won") || lowerStatus.includes("order pending")) status = "Order Pending";
+  const start = new Date(String(cleaned.stipulated_work_start_date || existing.stipulated_work_start_date || ""));
+  const finish = new Date(String(completionDate || ""));
+  if (!Number.isNaN(start.getTime()) && !Number.isNaN(finish.getTime()) && now >= start && now <= finish) status = "Work In Progress";
+  if (completionDate && now > finish && !Number.isNaN(finish.getTime())) status = "Completed";
+  const nextJobNumber = `TDR-${String(records.length + 1).padStart(4, "0")}`;
+  return {
+    ...existing,
+    ...cleaned,
+    title: String(cleaned.title || cleaned.party_name || cleaned.tender_invited_by || existing.title || "").trim(),
+    job_number: String(cleaned.job_number || existing.job_number || nextJobNumber).trim(),
+    file_number: String(cleaned.file_number || existing.file_number || "").trim(),
+    party_name: String(cleaned.party_name || cleaned.tender_invited_by || existing.party_name || "").trim(),
+    tender_invited_by: String(cleaned.tender_invited_by || cleaned.party_name || existing.tender_invited_by || "").trim(),
+    product_type: String(cleaned.product_type || existing.product_type || "Lift").trim(),
+    status,
+    dlp_period: dlpPeriod,
+    items,
+    participants,
+    bills,
+    emd_records: emdRecords,
+    sd_records: sdRecords,
+    total_bill_amount: totalBillAmount,
+    total_payment_received: totalPaymentReceived,
+    total_payment_due: totalPaymentDue,
+    payment_due_days: dueDays,
+    sd_refund_due_date: completionDate ? addDaysIso(completionDate, dlpPeriod) : "",
+    updated_at: nowIso
+  };
+}
+
 function execFileAsync(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     execFile(command, args, options, (error, stdout, stderr) => {
@@ -1109,7 +1249,7 @@ function isPhoneDeliveryTarget(target) {
 function defaultOpenClawCommunicationData(env, baseDir) {
   const homeDir = env.USERPROFILE || env.HOME || baseDir;
   return {
-    url: env.FUZI_OPENCLAW_URL || "http://127.0.0.1:18789/",
+    url: defaultOpenClawUrl(env),
     timeoutSeconds: Number(env.FUZI_OPENCLAW_TIMEOUT || 15),
     defaultChannel: env.FUZI_OPENCLAW_CHANNEL || "whatsapp",
     opsTarget: env.FUZI_OPENCLAW_OPS_TARGET || "",
@@ -1576,17 +1716,26 @@ function defaultAgentForCommunicationAction(action, target) {
   return actionMap[action] || moduleMap[target] || "Live Operations Dashboard";
 }
 
-function extractOpenClawDashboardUrlFromOutput(output) {
+function extractOpenClawDashboardUrlFromOutput(output, expectedPort = defaultOpenClawPort) {
+  const expectedPortText = String(expectedPort || "").trim();
   for (const rawUrl of String(output || "").match(/https?:\/\/\S+/g) || []) {
     const cleanedUrl = rawUrl.replace(/[)\].,;']+$/g, "");
     try {
       const parsed = new URL(cleanedUrl);
-      if (parsed.pathname.startsWith("/chat") || parsed.host.endsWith(":18789")) return cleanedUrl;
+      if (parsed.pathname.startsWith("/chat") || (expectedPortText && parsed.port === expectedPortText)) return cleanedUrl;
     } catch {
       // Ignore non-URL matches from command output.
     }
   }
   return "";
+}
+
+function configuredOpenClawPort(url) {
+  try {
+    return new URL(url).port || defaultOpenClawPort;
+  } catch {
+    return defaultOpenClawPort;
+  }
 }
 
 function extractOpenClawTokenFromDashboardUrl(dashboardUrl) {
@@ -1628,7 +1777,7 @@ function createOpenClawCommunicationService({
     if (!runCommand || !Array.isArray(config.allowedDashboardCommand) || !config.allowedDashboardCommand.length) return "";
     const [command, ...args] = config.allowedDashboardCommand;
     const output = await runCommand(command, args, Math.max(config.timeoutSeconds, 5) * 1000);
-    discoveredDashboardUrl = extractOpenClawDashboardUrlFromOutput(output);
+    discoveredDashboardUrl = extractOpenClawDashboardUrlFromOutput(output, configuredOpenClawPort(config.url));
     return discoveredDashboardUrl;
   };
 
@@ -3259,7 +3408,8 @@ async function createCollectionRecord(routeName, body, res) {
   const offerPayload = routeName === "estimates" ? await normalizeOfferPayload(body, res) : null;
   if (routeName === "estimates" && !offerPayload) return;
   const paymentPayload = routeName === "payments" ? normalizePaymentPayload(body) : null;
-  const record = { id: nextId(records, config.prefix), ...(offerPayload || paymentPayload || cleanPayload(body)), ...serviceLink, created_at: now, updated_at: now };
+  const tenderPayload = routeName === "tender" ? normalizeTenderPayload(body, {}, records) : null;
+  const record = { id: nextId(records, config.prefix), ...(offerPayload || paymentPayload || tenderPayload || cleanPayload(body)), ...serviceLink, created_at: now, updated_at: now };
   records.unshift(record);
   await writeJson(config.file, records);
   return res.json({ ok: true, record, [config.key.slice(0, -1) || "record"]: record });
@@ -3277,9 +3427,10 @@ async function updateCollectionRecord(routeName, id, body, res) {
   const offerPayload = routeName === "estimates" ? await normalizeOfferPayload({ ...records[index], ...body }, res) : null;
   if (routeName === "estimates" && !offerPayload) return;
   const paymentPayload = routeName === "payments" ? normalizePaymentPayload({ ...records[index], ...body }) : null;
+  const tenderPayload = routeName === "tender" ? normalizeTenderPayload(body, records[index], records) : null;
   const nextRecord = {
     ...records[index],
-    ...(offerPayload || paymentPayload || cleanPayload(body)),
+    ...(offerPayload || paymentPayload || tenderPayload || cleanPayload(body)),
     ...serviceLink,
     ...(actionStatus ? { status: actionStatus } : {}),
     updated_at: new Date().toISOString()

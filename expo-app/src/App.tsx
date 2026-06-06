@@ -338,6 +338,62 @@ const emptyLeaveDraft = {
   end_date: new Date().toISOString().slice(0, 10),
   reason: "",
 };
+const emptyTenderDraft = {
+  id: "",
+  job_number: "",
+  file_number: "",
+  tender_invited_by: "",
+  party_name: "",
+  tender_due_at: new Date().toISOString().slice(0, 16),
+  status: "Tender Pending",
+  product_type: "Lift",
+  price_in_nit: "",
+  warranty_period: "",
+  dlp_period: "",
+  emd_amount: "",
+  emd_deposited_by: "DD",
+  emd_deposit_date: new Date().toISOString().slice(0, 10),
+  emd_deposit_amount: "",
+  passenger_capacity: "",
+  number_of_stops: "",
+  speed: "",
+  door_finish: "Hairline",
+  cabin_finish: "Hairline",
+  door_size: "",
+  door_width_mm: "",
+  door_height_mm: "",
+  lift_quantity: "1",
+  location_type: "Indoor",
+  escalator_degree: "30",
+  step_width_mm: "",
+  quoted_price: "",
+  escalator_quantity: "1",
+  opening_date: "",
+  total_parties_participated: "",
+  party_name_entry: "",
+  quoted_rates_entry: "",
+  lowest_party_name: "",
+  lowest_rates: "",
+  order_number: "",
+  order_date: "",
+  order_value: "",
+  agreement_number: "",
+  basic_value: "",
+  gst_amount: "",
+  gross_order_amount: "",
+  stipulated_work_start_date: "",
+  completion_date: "",
+  order_file_number: "",
+  bill_number: "",
+  bill_date: "",
+  bill_amount: "",
+  billing_period: "",
+  payment_received: "No",
+  payment_received_date: "",
+  sd_amount: "",
+  sd_deposited_by: "DD",
+  sd_deposit_date: "",
+};
 const emptyAccountDraft = {
   id: "",
   username: "",
@@ -694,6 +750,9 @@ export default function App() {
   const [commissioningDraft, setCommissioningDraft] = useState(emptyCommissioningDraft);
   const [attendanceDraft, setAttendanceDraft] = useState(emptyAttendanceDraft);
   const [leaveDraft, setLeaveDraft] = useState(emptyLeaveDraft);
+  const [tenderDraft, setTenderDraft] = useState<Record<string, string>>(emptyTenderDraft);
+  const [tenderSearch, setTenderSearch] = useState("");
+  const [tenderStatusFilter, setTenderStatusFilter] = useState("All");
   const [hrSearch, setHrSearch] = useState("");
   const [hrDepartmentFilter, setHrDepartmentFilter] = useState("All");
   const [crmSearch, setCrmSearch] = useState("");
@@ -6930,6 +6989,335 @@ export default function App() {
     );
   }
 
+  function tenderMoney(value: unknown) {
+    return Number(String(value || "0").replace(/[^0-9.-]/g, "")) || 0;
+  }
+
+  function tenderTimeLeft(dueAt: unknown) {
+    const due = new Date(String(dueAt || ""));
+    if (Number.isNaN(due.getTime())) return "-";
+    const diff = due.getTime() - Date.now();
+    const abs = Math.abs(diff);
+    const days = Math.floor(abs / 86400000);
+    const hours = Math.floor((abs % 86400000) / 3600000);
+    return diff < 0 ? `Overdue ${days}d ${hours}h` : `${days}d ${hours}h left`;
+  }
+
+  function tenderDueDays(dateValue: unknown) {
+    const date = new Date(String(dateValue || ""));
+    if (Number.isNaN(date.getTime())) return 0;
+    return Math.max(0, Math.floor((Date.now() - date.getTime()) / 86400000));
+  }
+
+  function tenderStatus(record: Record<string, unknown>) {
+    const status = String(record.status || "Tender Pending");
+    const start = new Date(String(record.stipulated_work_start_date || ""));
+    const finish = new Date(String(record.completion_date || ""));
+    const now = new Date();
+    if (!Number.isNaN(start.getTime()) && !Number.isNaN(finish.getTime()) && now >= start && now <= finish) return "Work In Progress";
+    return status;
+  }
+
+  function tenderItemsFromDraft() {
+    if (tenderDraft.product_type === "Escalator") {
+      const quantity = Math.max(1, Number(tenderDraft.escalator_quantity || 1));
+      return Array.from({ length: quantity }, (_, index) => ({ item_no: index + 1, type: "Escalator", location_type: tenderDraft.location_type, degree: tenderDraft.escalator_degree, step_width_mm: tenderDraft.step_width_mm, quoted_price: tenderMoney(tenderDraft.quoted_price), quantity: 1 }));
+    }
+    const quantity = Math.max(1, Number(tenderDraft.lift_quantity || 1));
+    return Array.from({ length: quantity }, (_, index) => ({ item_no: index + 1, type: "Lift", passenger_capacity: tenderDraft.passenger_capacity, number_of_stops: tenderDraft.number_of_stops, speed: tenderDraft.speed, door_finish: tenderDraft.door_finish || "Hairline", cabin_finish: tenderDraft.cabin_finish || "Hairline", door_size: tenderDraft.door_size, door_width_mm: tenderDraft.door_width_mm, door_height_mm: tenderDraft.door_height_mm, quantity: 1, quoted_price: tenderMoney(tenderDraft.quoted_price) }));
+  }
+
+  function tenderPayloadFromDraft() {
+    return {
+      ...tenderDraft,
+      title: tenderDraft.party_name || tenderDraft.tender_invited_by || tenderDraft.file_number,
+      price_in_nit: tenderMoney(tenderDraft.price_in_nit),
+      emd_amount: tenderMoney(tenderDraft.emd_amount),
+      emd_deposit_amount: tenderMoney(tenderDraft.emd_deposit_amount),
+      total_parties_participated: Number(tenderDraft.total_parties_participated || 0),
+      lowest_rates: tenderMoney(tenderDraft.lowest_rates),
+      order_value: tenderMoney(tenderDraft.order_value),
+      basic_value: tenderMoney(tenderDraft.basic_value),
+      gst_amount: tenderMoney(tenderDraft.gst_amount),
+      gross_order_amount: tenderMoney(tenderDraft.gross_order_amount),
+      items: tenderItemsFromDraft(),
+      participants: tenderDraft.party_name_entry.trim() || tenderDraft.quoted_rates_entry.trim() ? [{ party_name: tenderDraft.party_name_entry, quoted_rates: tenderMoney(tenderDraft.quoted_rates_entry) }] : [],
+      bills: tenderDraft.bill_number.trim() || tenderDraft.bill_amount.trim() ? [{ our_bill_number: tenderDraft.bill_number, bill_date: tenderDraft.bill_date, amount: tenderMoney(tenderDraft.bill_amount), billing_period: tenderDraft.billing_period, payment_received: tenderDraft.payment_received, payment_received_date: tenderDraft.payment_received_date }] : [],
+      emd_records: tenderDraft.emd_amount.trim() || tenderDraft.emd_deposit_amount.trim() ? [{ emd_amount: tenderMoney(tenderDraft.emd_amount), deposited_by: tenderDraft.emd_deposited_by, deposit_date: tenderDraft.emd_deposit_date, deposit_amount: tenderMoney(tenderDraft.emd_deposit_amount), return_status: tenderDraft.status === "EMD Returned" ? "Returned" : "Pending" }] : [],
+      sd_records: tenderDraft.sd_amount.trim() ? [{ sd_amount: tenderMoney(tenderDraft.sd_amount), deposited_by: tenderDraft.sd_deposited_by, deposit_date: tenderDraft.sd_deposit_date, amount: tenderMoney(tenderDraft.sd_amount) }] : [],
+    };
+  }
+
+  async function saveTender() {
+    if (!tenderDraft.tender_invited_by.trim() && !tenderDraft.party_name.trim()) {
+      const text = "Tender invited by / party name is required.";
+      Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
+      return;
+    }
+    setLoading(true);
+    try {
+      const id = tenderDraft.id;
+      await apiFetch(id ? `/api/portal/tender/${encodeURIComponent(id)}` : "/api/portal/tender", {
+        method: id ? "PATCH" : "POST",
+        token,
+        body: JSON.stringify(tenderPayloadFromDraft()),
+      });
+      setTenderDraft(emptyTenderDraft);
+      await loadPortal();
+      setMessage(id ? "Tender updated." : "Tender saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Tender could not be saved.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function editTender(record: Record<string, unknown>) {
+    const item = asRecords(record.items)[0] || {};
+    const participant = asRecords(record.participants)[0] || {};
+    const bill = asRecords(record.bills)[0] || {};
+    const sd = asRecords(record.sd_records)[0] || {};
+    setTenderDraft({
+      ...emptyTenderDraft,
+      ...Object.fromEntries(Object.entries(record).map(([key, value]) => [key, String(value ?? "")])),
+      id: String(recordIdentity(record) || ""),
+      product_type: String(record.product_type || item.type || "Lift"),
+      passenger_capacity: String(item.passenger_capacity || ""),
+      number_of_stops: String(item.number_of_stops || ""),
+      speed: String(item.speed || ""),
+      door_finish: String(item.door_finish || "Hairline"),
+      cabin_finish: String(item.cabin_finish || "Hairline"),
+      lift_quantity: String(item.quantity || "1"),
+      location_type: String(item.location_type || "Indoor"),
+      escalator_degree: String(item.degree || "30"),
+      step_width_mm: String(item.step_width_mm || ""),
+      escalator_quantity: String(item.quantity || "1"),
+      quoted_price: String(item.quoted_price || record.quoted_price || ""),
+      party_name_entry: String(participant.party_name || ""),
+      quoted_rates_entry: String(participant.quoted_rates || ""),
+      bill_number: String(bill.our_bill_number || ""),
+      bill_date: String(bill.bill_date || ""),
+      bill_amount: String(bill.amount || ""),
+      billing_period: String(bill.billing_period || ""),
+      payment_received: String(bill.payment_received || "No"),
+      payment_received_date: String(bill.payment_received_date || ""),
+      sd_amount: String(sd.sd_amount || sd.amount || ""),
+      sd_deposited_by: String(sd.deposited_by || "DD"),
+      sd_deposit_date: String(sd.deposit_date || ""),
+    });
+  }
+
+  async function updateTenderStatus(record: Record<string, unknown>, status: string) {
+    const id = recordIdentity(record);
+    if (!id) return;
+    setLoading(true);
+    try {
+      await apiFetch(`/api/portal/tender/${encodeURIComponent(id)}`, { method: "PATCH", token, body: JSON.stringify({ status }) });
+      await loadPortal();
+      setMessage(`Tender marked ${status}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Tender status could not be updated.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function renderTenderField(label: string, key: keyof typeof emptyTenderDraft, placeholder = "") {
+    return (
+      <View style={styles.field}>
+        <Text style={styles.label}>{label}</Text>
+        <TextInput style={styles.input} value={String(tenderDraft[key] || "")} onChangeText={(value) => setTenderDraft((draft) => ({ ...draft, [key]: value }))} placeholder={placeholder} />
+      </View>
+    );
+  }
+
+  function renderTenderPortal() {
+    const tenders = asRecords(data?.tenders);
+    const query = tenderSearch.trim().toLowerCase();
+    const filtered = tenders.filter((record) => tenderStatusFilter === "All" || tenderStatus(record) === tenderStatusFilter).filter((record) => !query || JSON.stringify(record).toLowerCase().includes(query)).sort((a, b) => String(a.tender_due_at || "").localeCompare(String(b.tender_due_at || "")));
+    const statuses = ["All", "Tender Pending", "Tender Submitted", "Tender Opened", "Tender Lost", "Order Pending", "Work In Progress", "Completed", "EMD Pending", "EMD Returned", "SD Pending", "SD Due", "SD Refunded"];
+    const pending = tenders.filter((record) => tenderStatus(record) === "Tender Pending");
+    const submitted = tenders.filter((record) => ["Tender Submitted", "Tender Opened", "Order Pending", "Work In Progress", "Completed"].includes(tenderStatus(record)));
+    const opened = tenders.filter((record) => ["Tender Opened", "Tender Lost", "Order Pending", "Work In Progress", "Completed"].includes(tenderStatus(record)));
+    const lost = tenders.filter((record) => tenderStatus(record).includes("Lost") || tenderStatus(record).includes("EMD"));
+    const ordersPending = tenders.filter((record) => tenderStatus(record) === "Order Pending");
+    const workInProgress = tenders.filter((record) => tenderStatus(record) === "Work In Progress");
+    const emdPending = tenders.filter((record) => tenderStatus(record) === "EMD Pending");
+    const sdPending = tenders.filter((record) => asRecords(record.sd_records).some((sd) => !String(sd.status || "").toLowerCase().includes("refund")));
+    const sdDue = tenders.filter((record) => asRecords(record.sd_records).some((sd) => String(sd.refund_due_date || "") && String(sd.refund_due_date || "") <= new Date().toISOString().slice(0, 10)));
+    const competitorRows = new Map<string, { name: string; tenders: number; won: number; lowest: number; fuzi: number }>();
+    tenders.forEach((record) => asRecords(record.participants).forEach((party) => {
+      const name = String(party.party_name || "").trim();
+      if (!name) return;
+      const row = competitorRows.get(name) || { name, tenders: 0, won: 0, lowest: 0, fuzi: 0 };
+      const rate = tenderMoney(party.quoted_rates);
+      row.tenders += 1;
+      row.lowest = row.lowest ? Math.min(row.lowest, rate) : rate;
+      if (name === String(record.lowest_party_name || "")) row.won += tenderMoney(record.order_value || record.gross_order_amount);
+      row.fuzi += tenderMoney(record.quoted_price || record.price_in_nit);
+      competitorRows.set(name, row);
+    }));
+    return (
+      <View>
+        <View style={styles.moduleHero}>
+          <Text style={styles.eyebrow}>Tender Portal</Text>
+          <Text style={styles.moduleHeroTitle}>Tender Management Dashboard</Text>
+          <Text style={styles.moduleHeroText}>Manage tender pending, submission, opening, order, billing, EMD, SD, rates, and competitor history from one CRM module.</Text>
+        </View>
+        <View style={styles.metricGrid}>
+          {[
+            ["Tender pending", pending.length, "Due-date wise tender queue."],
+            ["Tender submitted", submitted.length, formatMoney(submitted.reduce((sum, item) => sum + tenderMoney(item.price_in_nit || item.quoted_price), 0))],
+            ["Opened", opened.length, `${lost.length} lost`],
+            ["Orders pending", ordersPending.length, "Won but order details pending."],
+            ["WIP gross value", formatMoney(workInProgress.reduce((sum, item) => sum + tenderMoney(item.gross_order_amount || item.order_value), 0)), "Work in progress order value."],
+            ["Payment due", formatMoney(tenders.reduce((sum, item) => sum + tenderMoney(item.total_payment_due), 0)), "Unpaid bill amount."],
+            ["EMD pending", formatMoney(emdPending.reduce((sum, item) => sum + tenderMoney(item.emd_amount), 0)), `${emdPending.length} records`],
+            ["SD pending/due", formatMoney(sdPending.reduce((sum, item) => sum + asRecords(item.sd_records).reduce((acc, sd) => acc + tenderMoney(sd.amount || sd.sd_amount), 0), 0)), `${sdDue.length} due`],
+          ].map(([label, value, detail]) => (
+            <View key={String(label)} style={styles.card}>
+              <Text style={styles.cardLabel}>{label}</Text>
+              <Text style={styles.metricValue}>{value}</Text>
+              <Text style={styles.muted}>{detail}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={styles.formCard}>
+          <Text style={styles.cardLabel}>{tenderDraft.id ? "Edit tender" : "New tender entry"}</Text>
+          <View style={styles.formGrid}>
+            {renderTenderField("Job Number", "job_number", "Auto if blank")}
+            {renderTenderField("File Number", "file_number")}
+            {renderTenderField("Tender invited by / Party name", "tender_invited_by")}
+            {renderTenderField("Party name", "party_name")}
+            {renderTenderField("Tender due date and time", "tender_due_at", "YYYY-MM-DDTHH:mm")}
+            {renderTenderField("Status", "status")}
+            <View style={styles.field}>
+              <Text style={styles.label}>Product type</Text>
+              <View style={styles.inlineActions}>
+                {["Lift", "Escalator"].map((type) => (
+                  <Pressable key={type} style={[styles.smallButton, tenderDraft.product_type === type && styles.selectorPillActive]} onPress={() => setTenderDraft((draft) => ({ ...draft, product_type: type }))}>
+                    <Text style={styles.smallButtonText}>{type}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+            {renderTenderField("Price in NIT", "price_in_nit")}
+            {renderTenderField("Warranty period", "warranty_period")}
+            {renderTenderField("DLP period days", "dlp_period")}
+            {renderTenderField("EMD amount as per tender", "emd_amount")}
+            {renderTenderField("EMD deposited by", "emd_deposited_by", "DD / FDR / BG / eGrass / Online / Other")}
+            {renderTenderField("EMD deposit date", "emd_deposit_date")}
+            {renderTenderField("EMD deposit amount", "emd_deposit_amount")}
+          </View>
+          <Text style={styles.sectionTitle}>{tenderDraft.product_type === "Escalator" ? "Escalator Details" : "Lift Details"}</Text>
+          <View style={styles.formGrid}>
+            {tenderDraft.product_type === "Escalator" ? (
+              <>
+                {renderTenderField("Location type", "location_type", "Indoor / Semi Outdoor / Fully Outdoor")}
+                {renderTenderField("Degree", "escalator_degree", "30 or 35")}
+                {renderTenderField("Step width mm", "step_width_mm")}
+                {renderTenderField("Quoted price", "quoted_price")}
+                {renderTenderField("Quantity", "escalator_quantity")}
+              </>
+            ) : (
+              <>
+                {renderTenderField("Passenger capacity", "passenger_capacity")}
+                {renderTenderField("Number of stops", "number_of_stops")}
+                {renderTenderField("Speed", "speed")}
+                {renderTenderField("Door finish", "door_finish", "Hairline / Honeycomb / Moonrock")}
+                {renderTenderField("Cabin finish", "cabin_finish", "Hairline / Honeycomb / Moonrock")}
+                {renderTenderField("Door size", "door_size")}
+                {renderTenderField("Door width mm", "door_width_mm")}
+                {renderTenderField("Door height mm", "door_height_mm")}
+                {renderTenderField("Quantity", "lift_quantity")}
+                {renderTenderField("Quoted price", "quoted_price")}
+              </>
+            )}
+          </View>
+          <Text style={styles.sectionTitle}>Opening, Order, Billing, SD</Text>
+          <View style={styles.formGrid}>
+            {renderTenderField("Opening date", "opening_date")}
+            {renderTenderField("Total parties participated", "total_parties_participated")}
+            {renderTenderField("Participant party name", "party_name_entry")}
+            {renderTenderField("Participant quoted rates", "quoted_rates_entry")}
+            {renderTenderField("Lowest party name", "lowest_party_name")}
+            {renderTenderField("Lowest rates", "lowest_rates")}
+            {renderTenderField("Order number", "order_number")}
+            {renderTenderField("Order date", "order_date")}
+            {renderTenderField("Order value", "order_value")}
+            {renderTenderField("Agreement number", "agreement_number")}
+            {renderTenderField("Basic value", "basic_value")}
+            {renderTenderField("GST amount", "gst_amount")}
+            {renderTenderField("Gross order amount", "gross_order_amount")}
+            {renderTenderField("Work start date", "stipulated_work_start_date")}
+            {renderTenderField("Completion date as per order", "completion_date")}
+            {renderTenderField("Our bill number", "bill_number")}
+            {renderTenderField("Bill date", "bill_date")}
+            {renderTenderField("Bill amount", "bill_amount")}
+            {renderTenderField("Billing period", "billing_period")}
+            {renderTenderField("Payment received Yes/No", "payment_received")}
+            {renderTenderField("Payment received date", "payment_received_date")}
+            {renderTenderField("SD amount", "sd_amount")}
+            {renderTenderField("SD deposited by", "sd_deposited_by")}
+            {renderTenderField("SD deposit date", "sd_deposit_date")}
+          </View>
+          <View style={styles.inlineActions}>
+            <Pressable style={styles.primaryButtonInline} onPress={saveTender} disabled={loading}>
+              <Text style={styles.primaryButtonText}>{tenderDraft.id ? "Update tender" : "Save tender"}</Text>
+            </Pressable>
+            {!!tenderDraft.id && <Pressable style={styles.secondaryButton} onPress={() => setTenderDraft(emptyTenderDraft)} disabled={loading}><Text style={styles.secondaryButtonText}>Cancel edit</Text></Pressable>}
+          </View>
+        </View>
+        <Text style={styles.sectionTitle}>Tender Pending List</Text>
+        <View style={styles.formCard}>
+          <TextInput style={styles.input} value={tenderSearch} onChangeText={setTenderSearch} placeholder="Search job, file, party, product, competitor" />
+          <View style={styles.inlineActions}>
+            {statuses.map((status) => <Pressable key={status} style={[styles.smallButton, tenderStatusFilter === status && styles.selectorPillActive]} onPress={() => setTenderStatusFilter(status)}><Text style={styles.smallButtonText}>{status}</Text></Pressable>)}
+          </View>
+        </View>
+        {filtered.map((record, index) => {
+          const status = tenderStatus(record);
+          const bills = asRecords(record.bills);
+          const sdDueText = asRecords(record.sd_records).map((sd) => String(sd.refund_due_date || "")).filter(Boolean).sort()[0] || "";
+          return (
+            <View key={`tender-${recordIdentity(record) || index}`} style={styles.card}>
+              <View style={styles.cardHeaderRow}>
+                <View style={styles.cardTitleBlock}>
+                  <Text style={styles.cardTitle}>{String(record.job_number || record.id || "-")} - {String(record.party_name || record.tender_invited_by || "-")}</Text>
+                  <Text style={styles.muted}>File {String(record.file_number || "-")} - {String(record.product_type || "-")} - Due {String(record.tender_due_at || "-")}</Text>
+                </View>
+                <Text style={styles.statusPill}>{status}</Text>
+              </View>
+              <Text style={styles.bodyText}>Time left: {tenderTimeLeft(record.tender_due_at)} - Quoted/NIT: {formatMoney(tenderMoney(record.quoted_price || record.price_in_nit))} - Order: {formatMoney(tenderMoney(record.order_value || record.gross_order_amount))}</Text>
+              <Text style={styles.bodyText}>Payment due: {formatMoney(tenderMoney(record.total_payment_due))} - Due days: {String(record.payment_due_days || bills.reduce((max, bill) => Math.max(max, tenderDueDays(bill.bill_date)), 0))}</Text>
+              <Text style={styles.bodyText}>EMD: {formatMoney(tenderMoney(record.emd_amount))} - SD due: {sdDueText || "-"}</Text>
+              <Text style={styles.muted}>Items: {asRecords(record.items).map((item) => `${String(item.type || record.product_type)} x ${String(item.quantity || 1)}`).join(", ") || "-"}</Text>
+              <View style={styles.historyPanel}>
+                <Text style={styles.cardLabel}>Participants</Text>
+                {asRecords(record.participants).map((party, partyIndex) => <Text key={`party-${partyIndex}`} style={styles.muted}>{String(party.party_name || "-")} - {formatMoney(tenderMoney(party.quoted_rates))}</Text>)}
+                {!asRecords(record.participants).length && <Text style={styles.muted}>No competitor/participant rates recorded.</Text>}
+              </View>
+              <View style={styles.inlineActions}>
+                <Pressable style={styles.smallButton} onPress={() => editTender(record)} disabled={loading}><Text style={styles.smallButtonText}>Edit</Text></Pressable>
+                {["Tender Submitted", "Tender Opened", "Tender Lost", "Order Pending", "Work In Progress", "Completed", "EMD Returned", "SD Refunded"].map((nextStatus) => <Pressable key={`${recordIdentity(record)}-${nextStatus}`} style={styles.smallButton} onPress={() => updateTenderStatus(record, nextStatus)} disabled={loading}><Text style={styles.smallButtonText}>{nextStatus}</Text></Pressable>)}
+              </View>
+            </View>
+          );
+        })}
+        {!filtered.length && <View style={styles.card}><Text style={styles.cardTitle}>No tenders found</Text><Text style={styles.muted}>Create the first tender above or change filters.</Text></View>}
+        <Text style={styles.sectionTitle}>Rate Analysis</Text>
+        <View style={styles.analyticsPanel}>
+          {filtered.slice(0, 12).map((record, index) => <View key={`rate-${recordIdentity(record) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{String(record.product_type || "-")} - {String(record.party_name || record.tender_invited_by || "-")}</Text><Text style={styles.statusPill}>{formatMoney(tenderMoney(record.quoted_price || record.price_in_nit))}</Text></View><Text style={styles.muted}>{asRecords(record.items).map((item) => `${String(item.passenger_capacity || item.step_width_mm || "-")} / ${String(item.number_of_stops || item.degree || "-")} / ${String(item.speed || item.door_finish || "-")}`).join(" - ")}</Text></View>)}
+        </View>
+        <Text style={styles.sectionTitle}>Competitor Analysis</Text>
+        <View style={styles.metricGrid}>
+          {[...competitorRows.values()].slice(0, 12).map((row) => <View key={`competitor-${row.name}`} style={styles.card}><Text style={styles.cardLabel}>{row.name}</Text><Text style={styles.metricValue}>{row.tenders}</Text><Text style={styles.muted}>Won value {formatMoney(row.won)} - Lowest {formatMoney(row.lowest)} - Fuzi comparison {formatMoney(row.fuzi)}</Text></View>)}
+          {!competitorRows.size && <View style={styles.card}><Text style={styles.cardTitle}>No competitor rates yet</Text><Text style={styles.muted}>Add tender opening participants to build competitor analytics.</Text></View>}
+        </View>
+      </View>
+    );
+  }
+
   function renderActiveFeaturePage() {
     switch (activeTab) {
       case "modules":
@@ -6975,7 +7363,7 @@ export default function App() {
       case "backoffice":
         return renderFeaturePage("Back Office", "Customer, site, product, and document back-office records.", asRecords(data?.customers), ["name"], [["id"], ["address"], ["status"]]);
       case "tender":
-        return renderFeaturePage("Tender", "Tender records and result tracking.", asRecords((data as Record<string, unknown> | null)?.tenders), ["title", "id"], [["customer"], ["status"], ["result"]]);
+        return renderTenderPortal();
       case "factory":
         return renderFeaturePage("Factory", "Factory jobs, dispatch status, and material readiness.", asRecords((data as Record<string, unknown> | null)?.factory_jobs), ["order_ref", "id"], [["customer"], ["stage"], ["materials"]]);
       case "internationalVendor":
