@@ -847,6 +847,12 @@ export default function App() {
   const [crmStaffFilter, setCrmStaffFilter] = useState("");
   const [crmDepartmentFilter, setCrmDepartmentFilter] = useState("All");
   const [crmTeamFilter, setCrmTeamFilter] = useState("All");
+  const [globalSearch, setGlobalSearch] = useState("");
+  const [globalSearchResults, setGlobalSearchResults] = useState<Array<Record<string, unknown>>>([]);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
+  const [navSearch, setNavSearch] = useState("");
+  const [compactLists, setCompactLists] = useState(true);
   const [customerPage, setCustomerPage] = useState(1);
   const [enquiryPage, setEnquiryPage] = useState(1);
   const [offerPage, setOfferPage] = useState(1);
@@ -886,6 +892,23 @@ export default function App() {
     const allowedSet = new Set(allowed);
     return roleFiltered.filter((item) => allowedSet.has(item.key));
   }, [data?.access, isAdmin]);
+  const navGroups = useMemo(() => {
+    const groupFor = (key: TabKey) => {
+      if (["overview", "modules", "comms"].includes(key)) return "Command";
+      if (["customers", "sales", "offerManager", "marketing", "siteVisits"].includes(key)) return "CRM & Sales";
+      if (["tickets", "projects", "installations", "installation_dept", "team", "commissioning", "factory"].includes(key)) return "Projects & Installation";
+      if (["breakdown", "service", "workorders", "renewals", "inventory"].includes(key)) return "Service Ops";
+      return "Admin & Finance";
+    };
+    const query = navSearch.trim().toLowerCase();
+    return ["Command", "CRM & Sales", "Projects & Installation", "Service Ops", "Admin & Finance"]
+      .map((group) => ({
+        group,
+        items: visibleNavItems.filter((item) => groupFor(item.key) === group && (!query || `${item.label} ${item.key}`.toLowerCase().includes(query)))
+      }))
+      .filter((section) => section.items.length);
+  }, [navSearch, visibleNavItems]);
+  const unreadNotifications = asRecords(data?.dept_comms).filter((item) => item.read !== true && String(item.status || "").toLowerCase() !== "read");
   const lowStock = useMemo(
     () => (data?.inventory || []).filter((item) => {
       const onHand = Number(item.qty_on_hand ?? item.stock ?? 0);
@@ -3513,7 +3536,7 @@ export default function App() {
           const passedTests = checklist.filter((test) => String(test.result || "").toLowerCase() === "pass").length;
           const totalDays = job.start_date && job.completion_date ? projectBusinessDays(job.start_date, job.completion_date) : 0;
           return (
-            <View key={`installation-${id}`} style={styles.card}>
+            <View key={`installation-${id}`} style={[styles.card, compactLists && styles.compactCard]}>
               <View style={styles.cardHeaderRow}>
                 <View style={styles.cardTitleBlock}>
                   <Text style={styles.cardTitle}>{String(job.job_id || id)} - {String(job.customer || "-")}</Text>
@@ -5350,7 +5373,7 @@ export default function App() {
             const assignedStaffKeys = new Set(assignedTeam.map(assignmentStaffKey));
             const canEditAssignments = canManageCustomerAssignments();
             return (
-              <View key={`customer-${customer.id}`} style={styles.card}>
+              <View key={`customer-${customer.id}`} style={[styles.card, compactLists && styles.compactCard]}>
                 <View style={styles.cardHeaderRow}>
                   <Text style={styles.cardTitle}>{customer.name}</Text>
                   <Text style={styles.statusPill}>{costingStatus}</Text>
@@ -5477,7 +5500,7 @@ export default function App() {
             return sameCustomer && (!String(visit.site_enquiry_no || "") || sameEnquiry);
           });
           return (
-            <View key={`${id}-${index}`} style={styles.card}>
+            <View key={`${id}-${index}`} style={[styles.card, compactLists && styles.compactCard]}>
               <View style={styles.cardHeaderRow}>
                 <View style={styles.cardTitleBlock}>
                   <Text style={styles.cardTitle}>{String(item.customer || item.lead_name || item.name || "-")}</Text>
@@ -5627,6 +5650,11 @@ export default function App() {
                     <Pressable style={styles.smallButton} onPress={() => openCostingForInquiry(item)} disabled={loading}>
                     <Text style={styles.smallButtonText}>Create offer</Text>
                     </Pressable>
+                    {!item.converted_to_customer && (
+                      <Pressable style={styles.primaryButtonInline} onPress={() => convertSalesInquiryToCustomer(item)} disabled={loading}>
+                        <Text style={styles.primaryButtonText}>Create CRM customer</Text>
+                      </Pressable>
+                    )}
                     <Pressable
                       style={styles.smallButton}
                       onPress={() => openSiteVisitForInquiry(item)}
@@ -7436,7 +7464,7 @@ export default function App() {
           const id = recordIdentity(item) || String(item.enquiry_no || index);
           const status = String(item.status || item.lead_status || "New");
           return (
-            <View key={`${id}-${index}`} style={styles.card}>
+            <View key={`${id}-${index}`} style={[styles.card, compactLists && styles.compactCard]}>
               <View style={styles.cardHeaderRow}>
                 <View style={styles.cardTitleBlock}>
                   <Text style={styles.cardTitle}>{String(item.customer || item.lead_name || item.name || "-")}</Text>
@@ -7461,6 +7489,11 @@ export default function App() {
                 <Pressable style={styles.smallButton} onPress={() => updateSalesInquiry(item, { lead_status: "Lost", status: "Lost" })} disabled={loading}>
                   <Text style={styles.smallButtonText}>Lost</Text>
                 </Pressable>
+                {!item.converted_to_customer && (
+                  <Pressable style={styles.primaryButtonInline} onPress={() => convertSalesInquiryToCustomer(item)} disabled={loading}>
+                    <Text style={styles.primaryButtonText}>Create CRM customer</Text>
+                  </Pressable>
+                )}
               </View>
             </View>
           );
@@ -8405,6 +8438,29 @@ export default function App() {
     }
   }
 
+  async function convertSalesInquiryToCustomer(record: Record<string, unknown>) {
+    const id = recordIdentity(record) || String(record.enquiry_no || "");
+    if (!id) return;
+    setLoading(true);
+    try {
+      const result = await apiFetch<{ customer?: Customer; created?: boolean }>(`/api/portal/sales/inquiries/${encodeURIComponent(id)}/convert-customer`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({}),
+      });
+      await loadPortal();
+      setMessage(`${result.created ? "Created" : "Updated"} CRM customer ${result.customer?.id || ""} from enquiry.`);
+      if (result.customer?.id) {
+        setCrmSearch(String(result.customer.id));
+        setActiveTab("customers");
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Enquiry could not be converted to CRM customer.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function deleteSalesInquiry(record: Record<string, unknown>) {
     if (!isAdmin) {
       setMessage("Only admin can remove CRM enquiry records.");
@@ -8664,6 +8720,47 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function markAllNotificationsRead() {
+    setLoading(true);
+    try {
+      await apiFetch("/api/portal/notifications/read-all", {
+        method: "POST",
+        token,
+        body: JSON.stringify({}),
+      });
+      await loadPortal();
+      setNotificationPanelOpen(false);
+      setMessage("Notifications marked read.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Notifications could not be marked read.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function openGlobalSearchResult(result: Record<string, unknown>) {
+    const collection = String(result.collection || "");
+    const id = String(result.id || result.customer_id || "");
+    const target: Partial<Record<string, TabKey>> = {
+      customers: "customers",
+      sales_inquiries: "customers",
+      install_jobs: "installations",
+      breakdowns: "breakdown",
+      service_records: "service",
+      payments: "finance",
+      tenders: "tender",
+      dept_comms: "comms",
+    };
+    const nextTab = target[collection] || "overview";
+    setActiveTab(nextTab);
+    setGlobalSearchOpen(false);
+    if (collection === "customers") setCrmSearch(id || String(result.title || ""));
+    if (collection === "sales_inquiries") setCrmSearch(id || String(result.title || ""));
+    if (collection === "install_jobs") setInstallationSearch(id || String(result.title || ""));
+    if (collection === "breakdowns") setBreakdownCustomerSearch(String(result.title || id));
+    setMessage(`Opened ${String(result.title || id || collection)}.`);
   }
 
   function editAccount(user: Record<string, unknown>) {
@@ -9354,6 +9451,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!token || globalSearch.trim().length < 2) {
+      setGlobalSearchResults([]);
+      return;
+    }
+    const handle = setTimeout(() => {
+      apiFetch<{ results?: Array<Record<string, unknown>> }>(`/api/portal/global-search?q=${encodeURIComponent(globalSearch.trim())}`, { token })
+        .then((result) => setGlobalSearchResults(result.results || []))
+        .catch(() => setGlobalSearchResults([]));
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [globalSearch, token]);
+
+  useEffect(() => {
     const allowed = data?.access?.allowed_views;
     if (allowed?.length && !allowed.includes(activeTab)) {
       setActiveTab((data?.access?.default_view as TabKey) || (allowed[0] as TabKey) || "overview");
@@ -9390,20 +9500,26 @@ export default function App() {
 
   const nav = isWide ? (
     <ScrollView style={styles.sideNav} contentContainerStyle={styles.sideNavContent} showsVerticalScrollIndicator={false}>
-      {visibleNavItems.map((item) => (
-        <Pressable
-          key={item.key}
-          style={[styles.sideLink, activeTab === item.key && styles.sideLinkActive]}
-          onPress={() => setActiveTab(item.key)}
-        >
-          <Text style={[styles.navIcon, activeTab === item.key && styles.navIconActive]}>{item.icon}</Text>
-          <Text style={[styles.sideLinkText, activeTab === item.key && styles.sideLinkTextActive]}>{item.label}</Text>
-        </Pressable>
+      <TextInput style={styles.navSearchInput} value={navSearch} onChangeText={setNavSearch} placeholder="Find module" placeholderTextColor="#7f8798" />
+      {navGroups.map((section) => (
+        <View key={section.group} style={styles.navGroup}>
+          <Text style={styles.navGroupLabel}>{section.group}</Text>
+          {section.items.map((item) => (
+            <Pressable
+              key={item.key}
+              style={[styles.sideLink, activeTab === item.key && styles.sideLinkActive]}
+              onPress={() => setActiveTab(item.key)}
+            >
+              <Text style={[styles.navIcon, activeTab === item.key && styles.navIconActive]}>{item.icon}</Text>
+              <Text style={[styles.sideLinkText, activeTab === item.key && styles.sideLinkTextActive]}>{item.label}</Text>
+            </Pressable>
+          ))}
+        </View>
       ))}
     </ScrollView>
   ) : (
     <ScrollView showsVerticalScrollIndicator={false} style={styles.tabs} contentContainerStyle={styles.mobileNavRail}>
-      {visibleNavItems.map((item) => (
+      {navGroups.flatMap((section) => section.items).map((item) => (
         <Pressable
           key={item.key}
           style={[styles.tab, activeTab === item.key && styles.activeTab]}
@@ -9488,6 +9604,24 @@ export default function App() {
               <Text style={styles.topTitle}>Live Operations Dashboard</Text>
             </View>
             <View style={[styles.topActions, !isWide && styles.topActionsMobile]}>
+              <View style={styles.globalSearchBox}>
+                <TextInput
+                  style={styles.globalSearchInput}
+                  value={globalSearch}
+                  onChangeText={(value) => {
+                    setGlobalSearch(value);
+                    setGlobalSearchOpen(value.trim().length >= 2);
+                  }}
+                  onFocus={() => setGlobalSearchOpen(globalSearch.trim().length >= 2)}
+                  placeholder="Search CRM, service, jobs"
+                />
+              </View>
+              <Pressable style={styles.ghostButton} onPress={() => setCompactLists((value) => !value)}>
+                <Text style={styles.ghostButtonText}>{compactLists ? "Comfort view" : "Compact view"}</Text>
+              </Pressable>
+              <Pressable style={styles.ghostButton} onPress={() => setNotificationPanelOpen((open) => !open)}>
+                <Text style={styles.ghostButtonText}>Inbox {unreadNotifications.length ? `(${unreadNotifications.length})` : ""}</Text>
+              </Pressable>
               <View style={styles.syncPill}>
                 <Text style={styles.syncPillText}>Synced {data?.synced_at || "now"}</Text>
               </View>
@@ -9502,6 +9636,46 @@ export default function App() {
               </Pressable>
             </View>
           </View>
+
+          {globalSearchOpen && (
+            <View style={styles.quickPanel}>
+              <View style={styles.cardHeaderRow}>
+                <Text style={styles.cardLabel}>Global search</Text>
+                <Pressable style={styles.smallButton} onPress={() => setGlobalSearchOpen(false)}>
+                  <Text style={styles.smallButtonText}>Close</Text>
+                </Pressable>
+              </View>
+              {globalSearchResults.length ? globalSearchResults.slice(0, 12).map((result, index) => (
+                <Pressable key={`global-result-${String(result.collection)}-${String(result.id)}-${index}`} style={styles.quickPanelRow} onPress={() => openGlobalSearchResult(result)}>
+                  <Text style={styles.cardTitle}>{String(result.title || "-")}</Text>
+                  <Text style={styles.muted}>{String(result.collection || "-")} - {String(result.subtitle || result.status || "")}</Text>
+                </Pressable>
+              )) : <Text style={styles.muted}>{globalSearch.trim().length < 2 ? "Type at least 2 characters." : "No matching records found."}</Text>}
+            </View>
+          )}
+
+          {notificationPanelOpen && (
+            <View style={styles.quickPanel}>
+              <View style={styles.cardHeaderRow}>
+                <Text style={styles.cardLabel}>Notification center</Text>
+                <View style={styles.inlineActions}>
+                  <Pressable style={styles.smallButton} onPress={() => setActiveTab("comms")}>
+                    <Text style={styles.smallButtonText}>Open Dept Comms</Text>
+                  </Pressable>
+                  <Pressable style={styles.smallButton} onPress={markAllNotificationsRead} disabled={loading || !unreadNotifications.length}>
+                    <Text style={styles.smallButtonText}>Mark all read</Text>
+                  </Pressable>
+                </View>
+              </View>
+              {unreadNotifications.slice(0, 8).map((item, index) => (
+                <View key={`notif-${String(item.id || index)}`} style={styles.quickPanelRow}>
+                  <Text style={styles.cardTitle}>{String(item.subject || item.title || item.notification_type || "-")}</Text>
+                  <Text style={styles.muted}>{String(item.department || "-")} - {String(item.message || "").slice(0, 140)}</Text>
+                </View>
+              ))}
+              {!unreadNotifications.length && <Text style={styles.muted}>No unread notifications.</Text>}
+            </View>
+          )}
 
           {!isWide && (
             <View style={styles.mobileBrandRow}>
@@ -9584,6 +9758,9 @@ const styles = StyleSheet.create({
   brandRed: { color: "#e02020" },
   sideNav: { flex: 1 },
   sideNavContent: { gap: 8, paddingBottom: 8 },
+  navSearchInput: { minHeight: 40, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", borderRadius: 8, backgroundColor: "rgba(255,255,255,0.08)", color: "#fff", paddingHorizontal: 10, fontWeight: "800", marginBottom: 8 },
+  navGroup: { gap: 6, marginBottom: 10 },
+  navGroupLabel: { color: "rgba(255,255,255,0.44)", fontSize: 10, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8, paddingHorizontal: 4 },
   sideLink: { minHeight: 44, borderRadius: 10, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "transparent" },
   sideLinkActive: { backgroundColor: "rgba(224,32,32,0.16)", borderWidth: 1, borderColor: "rgba(224,32,32,0.32)" },
   navIcon: { width: 24, color: "#9aa1b3", fontWeight: "900", textAlign: "center", fontSize: 16, lineHeight: 18 },
@@ -9601,6 +9778,10 @@ const styles = StyleSheet.create({
   topTitle: { color: "#11131b", fontSize: 26, fontWeight: "900" },
   topActions: { flexDirection: "row", gap: 10, alignItems: "center", flexWrap: "wrap" },
   topActionsMobile: { width: "100%", justifyContent: "flex-start" },
+  globalSearchBox: { minWidth: 220, flex: 1, maxWidth: 360 },
+  globalSearchInput: { minHeight: 40, borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 10, backgroundColor: "#f3f5f8", paddingHorizontal: 12, color: "#11131b", fontWeight: "800" },
+  quickPanel: { marginHorizontal: 24, marginTop: 10, borderWidth: 1, borderColor: "#d5dae4", borderRadius: 8, backgroundColor: "#fff", padding: 12, gap: 8, shadowColor: "#11131b", shadowOpacity: 0.08, shadowRadius: 16, shadowOffset: { width: 0, height: 10 } },
+  quickPanelRow: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 10, gap: 3 },
   syncPill: { borderWidth: 1, borderColor: "#e4e7ee", backgroundColor: "#f3f5f8", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 9 },
   syncPillText: { color: "#2d3240", fontWeight: "800", fontSize: 12 },
   userPill: { borderWidth: 1, borderColor: "#e4e7ee", backgroundColor: "#fff", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 9 },
@@ -9625,6 +9806,7 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 19, fontWeight: "900", color: "#11131b", marginTop: 10, marginBottom: 8 },
   metricGrid: { gap: 12 },
   card: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", padding: 16, marginBottom: 10, shadowColor: "#11131b", shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } },
+  compactCard: { padding: 11, marginBottom: 6, shadowOpacity: 0.03, shadowRadius: 8 },
   kanbanBoard: { gap: 12, paddingVertical: 4, paddingRight: 12 },
   kanbanColumn: { width: 292, minHeight: 360, borderRadius: 8, borderWidth: 1, borderColor: "#dfe4ed", backgroundColor: "#f8fafc", padding: 10, gap: 10 },
   kanbanColumnHeader: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, borderBottomWidth: 1, borderBottomColor: "#e4e7ee", paddingBottom: 8 },

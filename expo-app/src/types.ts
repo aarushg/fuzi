@@ -178,6 +178,7 @@ export type PortalData = {
   international_vendors?: Array<Record<string, unknown>>;
   marketing_assets?: Array<Record<string, unknown>>;
   tenders?: Array<Record<string, unknown>>;
+  dept_comms?: Array<Record<string, unknown>>;
   customer_assignments?: Array<Record<string, unknown>>;
   department_assignments?: Array<Record<string, unknown>>;
   time_tracking?: Array<Record<string, unknown>>;

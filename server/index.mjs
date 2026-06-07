@@ -1261,6 +1261,47 @@ function rowsToCsv(rows = []) {
   return [headers.join(","), ...rows.map((row) => headers.map((header) => csvEscape(row[header])).join(","))].join("\r\n");
 }
 
+function phoneDigits(value = "") {
+  return String(value || "").replace(/\D/g, "").slice(-10);
+}
+
+function salesInquiryCustomerPayload(inquiry = {}, actor = {}) {
+  return {
+    id: String(inquiry.customer_id || "").trim(),
+    name: String(inquiry.customer || inquiry.lead_name || "").trim(),
+    contact_person: String(inquiry.contact_person || inquiry.customer || "").trim(),
+    phone: String(inquiry.phone || inquiry.whatsapp_no || "").trim(),
+    email: String(inquiry.email || "").trim(),
+    address: String(inquiry.address || inquiry.site_address || inquiry.site || "").trim(),
+    segment: String(inquiry.lead_type || inquiry.segment || "Lead").trim(),
+    status: "Active",
+    pipeline_stage: String(inquiry.lead_status || inquiry.status || "Lead").trim(),
+    lead_source: String(inquiry.referral_by || inquiry.lead_source || "").trim(),
+    account_owner: String(inquiry.assigned_to || inquiry.createdbyname || actor.display_name || actor.username || "").trim(),
+    next_follow_up: String(inquiry.next_followup || "").slice(0, 10),
+    preferred_channel: String(inquiry.followup_channel || "WhatsApp").trim(),
+    notes: String(inquiry.enquiry_remark || inquiry.notes || "").trim(),
+    source_inquiry_id: String(inquiry.id || inquiry.enquiry_no || "").trim(),
+    source_enquiry_no: String(inquiry.enquiry_no || inquiry.source_enquiry_no || "").trim()
+  };
+}
+
+function globalSearchItems(collectionName, records = [], fields = [], query = "", limit = 8) {
+  const normalizedQuery = query.toLowerCase();
+  return records
+    .filter((record) => JSON.stringify(record).toLowerCase().includes(normalizedQuery))
+    .slice(0, limit)
+    .map((record) => ({
+      collection: collectionName,
+      id: String(record.id || record.customer_id || record.job_id || record.enquiry_no || ""),
+      title: String(fields.map((field) => record[field]).find(Boolean) || record.name || record.customer || record.subject || record.id || "-"),
+      subtitle: String(record.phone || record.mobile || record.status || record.lead_status || record.department || record.site || record.address || ""),
+      status: String(record.status || record.lead_status || record.pipeline_stage || ""),
+      customer_id: String(record.customer_id || record.id || ""),
+      raw: record
+    }));
+}
+
 function execFileAsync(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     execFile(command, args, options, (error, stdout, stderr) => {
@@ -3907,6 +3948,23 @@ app.get("/api/portal/data", authRequired, async (req, res) => {
   res.json(portalData(await loadPortalCollections(), req.user));
 });
 
+app.get("/api/portal/global-search", authRequired, async (req, res) => {
+  const query = String(req.query.q || "").trim();
+  if (query.length < 2) return res.json({ ok: true, query, results: [] });
+  const collections = await loadPortalCollections();
+  const results = [
+    ...globalSearchItems("customers", collections.customers, ["name", "contact_person"], query),
+    ...globalSearchItems("sales_inquiries", collections.sales_inquiries, ["customer", "enquiry_no"], query),
+    ...globalSearchItems("install_jobs", collections.install_jobs, ["job_id", "customer", "project_name"], query),
+    ...globalSearchItems("breakdowns", collections.breakdowns, ["id", "customer", "unit"], query),
+    ...globalSearchItems("service_records", collections.service_records, ["job_number", "customer"], query),
+    ...globalSearchItems("payments", collections.payments, ["customer_name", "milestone"], query),
+    ...globalSearchItems("tenders", collections.tenders, ["tender_no", "tender_invited_by", "party_name"], query),
+    ...globalSearchItems("dept_comms", collections.dept_comms, ["subject", "message"], query)
+  ];
+  res.json({ ok: true, query, results: results.slice(0, 40) });
+});
+
 app.get("/api/portal/crm/export", authRequired, async (req, res) => {
   if (!isAdminUser(req.user)) return res.status(403).json({ ok: false, message: "Only admin can download CRM data." });
   const [customers, salesInquiries, estimates, payments, siteVisits, customerUsers] = await Promise.all([
@@ -4876,6 +4934,77 @@ app.patch("/api/portal/sales/inquiries/:id", authRequired, async (req, res) => {
   res.json({ ok: true, inquiry: records[index], record: records[index] });
 });
 
+app.post("/api/portal/sales/inquiries/:id/convert-customer", authRequired, async (req, res) => {
+  const [records, customers, deptComms] = await Promise.all([
+    readJson(listFiles.sales_inquiries, []),
+    readJson(listFiles.customers, []),
+    readJson(listFiles.dept_comms, [])
+  ]);
+  const index = findRecordIndex(records, req.params.id);
+  if (index < 0) return res.status(404).json({ ok: false, message: "Sales inquiry not found." });
+  const inquiry = records[index];
+  const incoming = salesInquiryCustomerPayload(inquiry, req.user);
+  if (!incoming.name) return res.status(400).json({ ok: false, message: "Inquiry needs a customer name before conversion." });
+  const phone = phoneDigits(incoming.phone);
+  const existingIndex = customers.findIndex((customer) => {
+    const sameId = incoming.id && String(customer.id || "") === incoming.id;
+    const samePhone = phone && phoneDigits(customer.phone || customer.mobile || "") === phone;
+    const sameSource = String(customer.source_inquiry_id || "") === String(inquiry.id || inquiry.enquiry_no || "");
+    return sameId || samePhone || sameSource;
+  });
+  const now = new Date().toISOString();
+  let customer;
+  if (existingIndex >= 0) {
+    customer = {
+      ...customers[existingIndex],
+      ...Object.fromEntries(Object.entries(incoming).filter(([, value]) => String(value || "").trim())),
+      updated_at: now,
+      last_converted_from_inquiry_at: now
+    };
+    customers[existingIndex] = customer;
+  } else {
+    const nextIdValue = incoming.id || randomFourDigitCustomerId([...customers, ...records]);
+    customer = {
+      ...incoming,
+      id: nextIdValue,
+      created_at: now,
+      updated_at: now,
+      converted_from_inquiry_at: now,
+      converted_by: req.user?.display_name || req.user?.username || ""
+    };
+    customers.unshift(customer);
+  }
+  records[index] = {
+    ...inquiry,
+    customer_id: customer.id,
+    crm_customer_id: customer.id,
+    converted_to_customer: true,
+    converted_to_customer_at: now,
+    status: String(inquiry.status || inquiry.lead_status || "Converted").includes("Converted") ? inquiry.status : "Converted to CRM",
+    lead_status: String(inquiry.lead_status || "Converted").includes("Converted") ? inquiry.lead_status : "Converted to CRM",
+    updated_at: now
+  };
+  deptComms.unshift({
+    id: nextId(deptComms, "MSG"),
+    department: "CRM",
+    notification_type: "sales-inquiry-converted",
+    subject: `Inquiry converted: ${customer.name}`,
+    message: `Sales inquiry ${inquiry.enquiry_no || inquiry.id || req.params.id} was converted to CRM customer ${customer.id}.`,
+    status: "Unread",
+    read: false,
+    customer_id: customer.id,
+    inquiry_id: inquiry.id || inquiry.enquiry_no || "",
+    created_by: req.user?.display_name || req.user?.username || "",
+    created_at: now
+  });
+  await Promise.all([
+    writeJson(listFiles.customers, customers),
+    writeJson(listFiles.sales_inquiries, records),
+    writeJson(listFiles.dept_comms, deptComms)
+  ]);
+  res.json({ ok: true, customer, inquiry: records[index], created: existingIndex < 0 });
+});
+
 app.delete("/api/portal/sales/inquiries/:id", authRequired, async (req, res) => {
   if (!isAdminUser(req.user)) return res.status(403).json({ ok: false, message: "Only admin can remove CRM enquiry records." });
   const records = await readJson(listFiles.sales_inquiries, []);
@@ -5136,6 +5265,29 @@ app.post("/api/portal/payments/auto-schedule", authRequired, async (req, res) =>
 
 app.post("/api/portal/comms/:id/read", authRequired, async (req, res) => {
   await updateCollectionRecord("comms", req.params.id, { ...req.body, read: true, status: "Read" }, res);
+});
+
+app.get("/api/portal/notifications", authRequired, async (_req, res) => {
+  const records = await readJson(listFiles.dept_comms, []);
+  const notifications = records
+    .filter((record) => String(record.status || "").toLowerCase() !== "read" && record.read !== true)
+    .slice(0, 20);
+  res.json({ ok: true, notifications, unread_count: notifications.length });
+});
+
+app.post("/api/portal/notifications/read-all", authRequired, async (req, res) => {
+  const records = await readJson(listFiles.dept_comms, []);
+  const now = new Date().toISOString();
+  const next = records.map((record) => ({
+    ...record,
+    read: true,
+    status: "Read",
+    read_by: req.user?.display_name || req.user?.username || "",
+    read_at: record.read_at || now,
+    updated_at: now
+  }));
+  await writeJson(listFiles.dept_comms, next);
+  res.json({ ok: true, updated: records.length });
 });
 
 app.get("/api/portal/install-jobs/report", authRequired, async (req, res) => {
