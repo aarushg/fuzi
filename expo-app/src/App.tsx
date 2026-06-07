@@ -827,6 +827,7 @@ export default function App() {
   const [paymentDraft, setPaymentDraft] = useState(emptyPaymentDraft);
   const [breakdownDraft, setBreakdownDraft] = useState(emptyBreakdownDraft);
   const [installationDraft, setInstallationDraft] = useState<Record<string, string>>(emptyInstallationDraft);
+  const [installationEditorOpen, setInstallationEditorOpen] = useState(false);
   const [installationCustomerSearch, setInstallationCustomerSearch] = useState("");
   const [installationSearch, setInstallationSearch] = useState("");
   const [installationStatusFilter, setInstallationStatusFilter] = useState("All");
@@ -3239,6 +3240,7 @@ export default function App() {
         body: JSON.stringify(installationPayloadFromDraft()),
       });
       setInstallationDraft(emptyInstallationDraft);
+      setInstallationEditorOpen(false);
       await loadPortal();
       setMessage(id ? "Installation updated." : "Installation created from CRM customer.");
     } catch (error) {
@@ -3337,6 +3339,7 @@ export default function App() {
       contractor_payment_method: String(payment.method || ""),
       contractor_payment_remarks: String(payment.remarks || ""),
     });
+    setInstallationEditorOpen(true);
   }
 
   function renderInstallationField(label: string, key: keyof typeof emptyInstallationDraft, placeholder = "") {
@@ -3400,63 +3403,85 @@ export default function App() {
         </View>
 
         <View style={styles.formCard}>
-          <Text style={styles.cardLabel}>{installationDraft.id ? "Edit installation" : "New installation from CRM"}</Text>
-          <View style={styles.field}>
-            <Text style={styles.label}>Select CRM customer</Text>
-            <TextInput style={styles.input} value={installationCustomerSearch} onChangeText={setInstallationCustomerSearch} placeholder="Search CRM customers by ID, name, phone, site" />
-            <View style={styles.selectorList}>
-              {visibleCustomers.map((customer) => (
-                <Pressable
-                  key={`install-customer-${customer.id}`}
-                  style={[styles.selectorPill, installationDraft.customer_id === customer.id && styles.selectorPillActive]}
-                  onPress={() => setInstallationDraft((draft) => ({ ...draft, customer_id: customer.id }))}
-                >
-                  <Text style={[styles.selectorText, installationDraft.customer_id === customer.id && styles.selectorTextActive]}>{customer.id} - {customer.name}</Text>
-                  <Text style={styles.muted}>{customer.phone || "No phone"} - {customer.address || "No site address"}</Text>
+          <Pressable
+            style={[styles.dropdownButton, (installationEditorOpen || !!installationDraft.id) && styles.selectorPillActive]}
+            onPress={() => setInstallationEditorOpen((open) => !open)}
+            disabled={loading || !!installationDraft.id}
+          >
+            <Text style={styles.selectorText}>{installationDraft.id ? "Edit installation" : "New installation from CRM"}</Text>
+            <Text style={styles.dropdownChevron}>{installationEditorOpen || installationDraft.id ? "▲" : "▼"}</Text>
+          </Pressable>
+          {(installationEditorOpen || !!installationDraft.id) && (
+            <>
+              <View style={styles.field}>
+                <Text style={styles.label}>Select CRM customer</Text>
+                <TextInput style={styles.input} value={installationCustomerSearch} onChangeText={setInstallationCustomerSearch} placeholder="Search CRM customers by ID, name, phone, site" />
+                <View style={styles.selectorList}>
+                  {visibleCustomers.map((customer) => (
+                    <Pressable
+                      key={`install-customer-${customer.id}`}
+                      style={[styles.selectorPill, installationDraft.customer_id === customer.id && styles.selectorPillActive]}
+                      onPress={() => setInstallationDraft((draft) => ({ ...draft, customer_id: customer.id }))}
+                    >
+                      <Text style={[styles.selectorText, installationDraft.customer_id === customer.id && styles.selectorTextActive]}>{customer.id} - {customer.name}</Text>
+                      <Text style={styles.muted}>{customer.phone || "No phone"} - {customer.address || "No site address"}</Text>
+                    </Pressable>
+                  ))}
+                  {!visibleCustomers.length && <Text style={styles.muted}>No CRM customers match. Add or edit customers in Customer CRM first.</Text>}
+                </View>
+              </View>
+              {selectedCustomer && (
+                <View style={styles.linkedSystemsPanel}>
+                  <Text style={styles.cardLabel}>Read-only CRM customer information</Text>
+                  <Text style={styles.bodyText}>{selectedCustomer.name} - {selectedCustomer.contact || "No contact"} - {selectedCustomer.phone || "No mobile"} - {selectedCustomer.email || "No email"}</Text>
+                  <Text style={styles.muted}>Site: {selectedCustomer.siteAddress || "-"} - Billing: {selectedCustomer.billingAddress || "-"} - Sales: {selectedCustomer.owner || "-"}</Text>
+                  <Text style={styles.muted}>CRM notes: {selectedCustomer.notes || "-"}</Text>
+                </View>
+              )}
+              <View style={styles.formGrid}>
+                {renderInstallationField("Project", "project_name")}
+                {renderInstallationField("Lift", "lift_reference")}
+                {renderInstallationField("Installation status", "status")}
+                {renderInstallationField("Assigned team", "assigned_team")}
+                {renderInstallationField("Contractor", "contractor")}
+                {renderInstallationField("Engineer", "engineer")}
+                {renderInstallationField("Start date", "start_date")}
+                {renderInstallationField("Completion date", "completion_date")}
+                {renderInstallationField("Approved by", "approved_by", "Ashwani Ji")}
+                {renderInstallationField("Approval date", "approval_date")}
+                {renderInstallationField("Approval remarks", "approval_remarks")}
+              </View>
+              <Text style={styles.sectionTitle}>Technical Details</Text>
+              <View style={styles.formGrid}>
+                {["motor_make", "motor_model_number", "motor_sticker_photo", "door_make", "controller_make", "controller_type", "controller_communication", "protocol", "controller_username", "controller_password", "drive_model_number", "ard_or_ups", "ard_make", "battery_size", "battery_make", "battery_quantity", "battery_warranty_expiry", "door_sensor_make", "lop_make", "cop_make", "button_type"].map((key) => renderInstallationField(key.replace(/_/g, " "), key as keyof typeof emptyInstallationDraft))}
+              </View>
+              <Text style={styles.sectionTitle}>Uploads, Readiness, Handover</Text>
+              <View style={styles.formGrid}>
+                {["building_photo", "site_photo_url", "lift_video_url", "lift_well_construction", "expected_completion_date", "site_readiness_notes", "panni_removed", "panni_removal_date", "granite_required", "granite_status", "granite_completion_date", "granite_remarks", "installed_by", "commissioned_by", "handed_over_by", "handed_over_date", "warranty_start_date", "warranty_end_date", "final_remarks"].map((key) => renderInstallationField(key.replace(/_/g, " "), key as keyof typeof emptyInstallationDraft))}
+              </View>
+              <Text style={styles.sectionTitle}>Contractor & Financials</Text>
+              <View style={styles.formGrid}>
+                {["contractor_name", "contractor_mobile", "contractor_email", "contractor_gst", "contractor_address", "contractor_bank_details", "contract_value", "payment_terms", "contractor_payment_amount", "contractor_payment_date", "contractor_payment_method", "contractor_payment_remarks"].map((key) => renderInstallationField(key.replace(/_/g, " "), key as keyof typeof emptyInstallationDraft))}
+              </View>
+              <View style={styles.inlineActions}>
+                <Pressable style={styles.primaryButtonInline} onPress={saveInstallation} disabled={loading || !installationDraft.customer_id}>
+                  <Text style={styles.primaryButtonText}>{installationDraft.id ? "Update installation" : "Create installation"}</Text>
                 </Pressable>
-              ))}
-              {!visibleCustomers.length && <Text style={styles.muted}>No CRM customers match. Add or edit customers in Customer CRM first.</Text>}
-            </View>
-          </View>
-          {selectedCustomer && (
-            <View style={styles.linkedSystemsPanel}>
-              <Text style={styles.cardLabel}>Read-only CRM customer information</Text>
-              <Text style={styles.bodyText}>{selectedCustomer.name} - {selectedCustomer.contact || "No contact"} - {selectedCustomer.phone || "No mobile"} - {selectedCustomer.email || "No email"}</Text>
-              <Text style={styles.muted}>Site: {selectedCustomer.siteAddress || "-"} - Billing: {selectedCustomer.billingAddress || "-"} - Sales: {selectedCustomer.owner || "-"}</Text>
-              <Text style={styles.muted}>CRM notes: {selectedCustomer.notes || "-"}</Text>
-            </View>
+                {!!installationDraft.id && (
+                  <Pressable
+                    style={styles.secondaryButton}
+                    onPress={() => {
+                      setInstallationDraft(emptyInstallationDraft);
+                      setInstallationEditorOpen(false);
+                    }}
+                    disabled={loading}
+                  >
+                    <Text style={styles.secondaryButtonText}>Cancel edit</Text>
+                  </Pressable>
+                )}
+              </View>
+            </>
           )}
-          <View style={styles.formGrid}>
-            {renderInstallationField("Project", "project_name")}
-            {renderInstallationField("Lift", "lift_reference")}
-            {renderInstallationField("Installation status", "status")}
-            {renderInstallationField("Assigned team", "assigned_team")}
-            {renderInstallationField("Contractor", "contractor")}
-            {renderInstallationField("Engineer", "engineer")}
-            {renderInstallationField("Start date", "start_date")}
-            {renderInstallationField("Completion date", "completion_date")}
-            {renderInstallationField("Approved by", "approved_by", "Ashwani Ji")}
-            {renderInstallationField("Approval date", "approval_date")}
-            {renderInstallationField("Approval remarks", "approval_remarks")}
-          </View>
-          <Text style={styles.sectionTitle}>Technical Details</Text>
-          <View style={styles.formGrid}>
-            {["motor_make", "motor_model_number", "motor_sticker_photo", "door_make", "controller_make", "controller_type", "controller_communication", "protocol", "controller_username", "controller_password", "drive_model_number", "ard_or_ups", "ard_make", "battery_size", "battery_make", "battery_quantity", "battery_warranty_expiry", "door_sensor_make", "lop_make", "cop_make", "button_type"].map((key) => renderInstallationField(key.replace(/_/g, " "), key as keyof typeof emptyInstallationDraft))}
-          </View>
-          <Text style={styles.sectionTitle}>Uploads, Readiness, Handover</Text>
-          <View style={styles.formGrid}>
-            {["building_photo", "site_photo_url", "lift_video_url", "lift_well_construction", "expected_completion_date", "site_readiness_notes", "panni_removed", "panni_removal_date", "granite_required", "granite_status", "granite_completion_date", "granite_remarks", "installed_by", "commissioned_by", "handed_over_by", "handed_over_date", "warranty_start_date", "warranty_end_date", "final_remarks"].map((key) => renderInstallationField(key.replace(/_/g, " "), key as keyof typeof emptyInstallationDraft))}
-          </View>
-          <Text style={styles.sectionTitle}>Contractor & Financials</Text>
-          <View style={styles.formGrid}>
-            {["contractor_name", "contractor_mobile", "contractor_email", "contractor_gst", "contractor_address", "contractor_bank_details", "contract_value", "payment_terms", "contractor_payment_amount", "contractor_payment_date", "contractor_payment_method", "contractor_payment_remarks"].map((key) => renderInstallationField(key.replace(/_/g, " "), key as keyof typeof emptyInstallationDraft))}
-          </View>
-          <View style={styles.inlineActions}>
-            <Pressable style={styles.primaryButtonInline} onPress={saveInstallation} disabled={loading || !installationDraft.customer_id}>
-              <Text style={styles.primaryButtonText}>{installationDraft.id ? "Update installation" : "Create installation"}</Text>
-            </Pressable>
-            {!!installationDraft.id && <Pressable style={styles.secondaryButton} onPress={() => setInstallationDraft(emptyInstallationDraft)} disabled={loading}><Text style={styles.secondaryButtonText}>Cancel edit</Text></Pressable>}
-          </View>
         </View>
 
         <Text style={styles.sectionTitle}>Installation Records</Text>
