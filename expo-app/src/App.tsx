@@ -286,6 +286,73 @@ const emptyBreakdownDraft = {
   trapped_passenger: "N",
   scheduled_at: "",
 };
+const emptyInstallationDraft = {
+  id: "",
+  customer_id: "",
+  project_name: "",
+  lift_reference: "",
+  status: "Site Visit Pending",
+  assigned_team: "",
+  contractor: "",
+  engineer: "",
+  start_date: "",
+  completion_date: "",
+  approved_by: "",
+  approval_date: "",
+  approval_remarks: "",
+  motor_make: "",
+  motor_model_number: "",
+  motor_sticker_photo: "",
+  door_make: "",
+  controller_make: "",
+  controller_type: "Closed Loop",
+  controller_communication: "Full Serial",
+  protocol: "Protocol",
+  controller_username: "",
+  controller_password: "",
+  drive_model_number: "",
+  ard_or_ups: "",
+  ard_make: "",
+  battery_size: "",
+  battery_make: "",
+  battery_quantity: "",
+  battery_warranty_expiry: "",
+  door_sensor_make: "",
+  lop_make: "",
+  cop_make: "",
+  button_type: "Push Button",
+  building_photo: "",
+  site_photo_url: "",
+  lift_video_url: "",
+  lift_well_construction: "Complete",
+  expected_completion_date: "",
+  site_readiness_notes: "",
+  panni_removed: "No",
+  panni_removal_date: "",
+  granite_required: "No",
+  granite_status: "Pending",
+  granite_completion_date: "",
+  granite_remarks: "",
+  installed_by: "",
+  commissioned_by: "",
+  handed_over_by: "",
+  handed_over_date: "",
+  warranty_start_date: "",
+  warranty_end_date: "",
+  final_remarks: "",
+  contractor_name: "",
+  contractor_mobile: "",
+  contractor_email: "",
+  contractor_gst: "",
+  contractor_address: "",
+  contractor_bank_details: "",
+  contract_value: "",
+  payment_terms: "",
+  contractor_payment_amount: "",
+  contractor_payment_date: "",
+  contractor_payment_method: "",
+  contractor_payment_remarks: "",
+};
 const emptyInstallTeamDraft = {
   name: "",
   role: "Technician",
@@ -506,6 +573,8 @@ const emptyCustomer: Partial<Customer> = {
   account_owner: "",
   next_follow_up: "",
   preferred_channel: "Phone",
+  date_of_birth: "",
+  anniversary_date: "",
   gstin: "",
   pan: "",
   state: "",
@@ -564,6 +633,8 @@ const customerFields: Array<{ key: keyof Customer; label: string; keyboard?: "de
   { key: "account_owner", label: "Account owner" },
   { key: "next_follow_up", label: "Next follow-up YYYY-MM-DD" },
   { key: "preferred_channel", label: "Preferred channel" },
+  { key: "date_of_birth", label: "Date of birth YYYY-MM-DD" },
+  { key: "anniversary_date", label: "Anniversary date YYYY-MM-DD" },
   { key: "gstin", label: "GSTIN" },
   { key: "pan", label: "PAN" },
   { key: "state", label: "State" },
@@ -637,6 +708,15 @@ const projectDepartments = [
   "Support",
   "QA",
   "Compliance",
+];
+
+const mandatoryInstallationTests = [
+  "Floor to Floor Level",
+  "Overload Test",
+  "ARD Test",
+  "Locking System Test",
+  "Overspeed Test",
+  "Door Sensor Test",
 ];
 
 function formatMoney(value?: number) {
@@ -746,6 +826,12 @@ export default function App() {
   const [serviceRecordSearch, setServiceRecordSearch] = useState("");
   const [paymentDraft, setPaymentDraft] = useState(emptyPaymentDraft);
   const [breakdownDraft, setBreakdownDraft] = useState(emptyBreakdownDraft);
+  const [installationDraft, setInstallationDraft] = useState<Record<string, string>>(emptyInstallationDraft);
+  const [installationCustomerSearch, setInstallationCustomerSearch] = useState("");
+  const [installationSearch, setInstallationSearch] = useState("");
+  const [installationStatusFilter, setInstallationStatusFilter] = useState("All");
+  const [installationReportStart, setInstallationReportStart] = useState("");
+  const [installationReportEnd, setInstallationReportEnd] = useState("");
   const [installTeamDraft, setInstallTeamDraft] = useState(emptyInstallTeamDraft);
   const [commissioningDraft, setCommissioningDraft] = useState(emptyCommissioningDraft);
   const [attendanceDraft, setAttendanceDraft] = useState(emptyAttendanceDraft);
@@ -3091,6 +3177,361 @@ export default function App() {
     );
   }
 
+  function installationCustomerDetails(customerId: string) {
+    const customer = (data?.customers || []).find((item) => String(item.id || "") === String(customerId || ""));
+    if (customer) {
+      return {
+        id: customer.id,
+        name: customer.name,
+        company: customer.segment || customer.name,
+        contact: customer.contact_person || "",
+        phone: customer.phone || "",
+        whatsapp: customer.phone || "",
+        email: customer.email || "",
+        siteAddress: customer.address || "",
+        billingAddress: customer.address || "",
+        owner: customer.account_owner || "",
+        notes: customer.notes || "",
+      };
+    }
+    const option = crmCustomerOptions().find((item) => item.id === customerId);
+    return option ? { id: option.id, name: option.name, company: option.name, contact: "", phone: option.phone, whatsapp: option.phone, email: "", siteAddress: option.address, billingAddress: option.address, owner: "", notes: "" } : null;
+  }
+
+  function installationPayloadFromDraft() {
+    const customer = installationCustomerDetails(installationDraft.customer_id);
+    const contractorPayments = installationDraft.contractor_payment_amount.trim()
+      ? [{ date: installationDraft.contractor_payment_date, amount: Number(installationDraft.contractor_payment_amount || 0), method: installationDraft.contractor_payment_method, remarks: installationDraft.contractor_payment_remarks }]
+      : [];
+    return {
+      ...installationDraft,
+      customer_id: installationDraft.customer_id,
+      customer: customer?.name || "",
+      company_name: customer?.company || "",
+      contact_person: customer?.contact || "",
+      mobile: customer?.phone || "",
+      whatsapp: customer?.whatsapp || "",
+      email: customer?.email || "",
+      site_address: customer?.siteAddress || "",
+      billing_address: customer?.billingAddress || "",
+      site: customer?.siteAddress || "",
+      assigned_salesperson: customer?.owner || "",
+      crm_notes: customer?.notes || "",
+      checklist: mandatoryInstallationTests.concat(Array.from({ length: 10 }, (_, index) => `Test ${index + 1}`)).map((name) => ({ name, result: "Pending", date: "", tested_by: "", remarks: "" })),
+      site_photos: installationDraft.site_photo_url.trim() ? [{ url: installationDraft.site_photo_url }] : [],
+      lift_videos: installationDraft.lift_video_url.trim() ? [{ url: installationDraft.lift_video_url }] : [],
+      contractor_payments: contractorPayments,
+    };
+  }
+
+  async function saveInstallation() {
+    if (!installationDraft.customer_id.trim()) {
+      const text = "Select an existing CRM customer before creating an installation.";
+      Platform.OS === "web" ? setMessage(text) : Alert.alert("Customer required", text);
+      return;
+    }
+    setLoading(true);
+    try {
+      const id = installationDraft.id;
+      await apiFetch(id ? `/api/portal/install-jobs/${encodeURIComponent(id)}` : "/api/portal/install-jobs", {
+        method: id ? "PATCH" : "POST",
+        token,
+        body: JSON.stringify(installationPayloadFromDraft()),
+      });
+      setInstallationDraft(emptyInstallationDraft);
+      await loadPortal();
+      setMessage(id ? "Installation updated." : "Installation created from CRM customer.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Installation could not be saved.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function updateInstallationRecord(record: Record<string, unknown>, payload: Record<string, unknown>, successMessage = "Installation updated.") {
+    const id = recordIdentity(record);
+    if (!id) return;
+    setLoading(true);
+    try {
+      await apiFetch(`/api/portal/install-jobs/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify(payload),
+      });
+      await loadPortal();
+      setMessage(successMessage);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Installation could not be updated.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function downloadInstallationReport() {
+    if (Platform.OS !== "web") {
+      setMessage("Installation report export is available from the web portal.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        format: "csv",
+        status: installationStatusFilter,
+        q: installationSearch,
+        start_date: installationReportStart,
+        end_date: installationReportEnd,
+      });
+      const response = await fetch(`${apiBaseUrl}/api/portal/install-jobs/report?${params.toString()}`, {
+        method: "GET",
+        credentials: "include",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `Installation report failed with ${response.status}.`);
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || `fuzi-installation-report-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setMessage("Installation report download started.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Installation report could not be downloaded.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function editInstallation(record: Record<string, unknown>) {
+    const technical = (record.technical_details || {}) as Record<string, unknown>;
+    const readiness = (record.site_readiness || {}) as Record<string, unknown>;
+    const uploads = (record.uploads || {}) as Record<string, unknown>;
+    const payment = asRecords(record.contractor_payments)[0] || {};
+    setInstallationDraft({
+      ...emptyInstallationDraft,
+      ...Object.fromEntries(Object.entries(record).map(([key, value]) => [key, String(value ?? "")])),
+      id: String(recordIdentity(record) || ""),
+      motor_make: String(technical.motor_make || ""),
+      motor_model_number: String(technical.motor_model_number || ""),
+      motor_sticker_photo: String(technical.motor_sticker_photo || uploads.motor_sticker_photo || ""),
+      door_make: String(technical.door_make || ""),
+      controller_make: String(technical.controller_make || ""),
+      controller_type: String(technical.controller_type || "Closed Loop"),
+      controller_communication: String(technical.controller_communication || "Full Serial"),
+      protocol: String(technical.protocol || "Protocol"),
+      drive_model_number: String(technical.drive_model_number || ""),
+      lift_well_construction: String(readiness.lift_well_construction || "Complete"),
+      expected_completion_date: String(readiness.expected_completion_date || ""),
+      site_readiness_notes: String(readiness.notes || ""),
+      site_photo_url: String(asRecords(uploads.site_photos)[0]?.url || ""),
+      lift_video_url: String(asRecords(uploads.lift_videos)[0]?.url || ""),
+      contractor_payment_amount: String(payment.amount || ""),
+      contractor_payment_date: String(payment.date || ""),
+      contractor_payment_method: String(payment.method || ""),
+      contractor_payment_remarks: String(payment.remarks || ""),
+    });
+  }
+
+  function renderInstallationField(label: string, key: keyof typeof emptyInstallationDraft, placeholder = "") {
+    return (
+      <View key={`installation-field-${String(key)}`} style={styles.field}>
+        <Text style={styles.label}>{label}</Text>
+        <TextInput
+          style={styles.input}
+          value={String(installationDraft[key] || "")}
+          onChangeText={(value) => setInstallationDraft((draft) => ({ ...draft, [key]: value }))}
+          placeholder={placeholder}
+        />
+      </View>
+    );
+  }
+
+  function renderInstallationPage() {
+    const jobs = asRecords(data?.install_jobs);
+    const teams = asRecords(data?.install_team);
+    const contractors = asRecords(data?.installation_contractors);
+    const customers = crmCustomerOptions();
+    const selectedCustomer = installationCustomerDetails(installationDraft.customer_id);
+    const visibleCustomers = customers.filter((customer) => {
+      const query = installationCustomerSearch.trim().toLowerCase();
+      return !query || `${customer.id} ${customer.name} ${customer.phone} ${customer.address}`.toLowerCase().includes(query);
+    }).slice(0, 30);
+    const filteredJobs = jobs.filter((job) => installationStatusFilter === "All" || String(job.status || "") === installationStatusFilter)
+      .filter((job) => !installationSearch.trim() || JSON.stringify(job).toLowerCase().includes(installationSearch.trim().toLowerCase()));
+    const today = new Date().toISOString().slice(0, 10);
+    const statusOptions = ["All", "Site Visit Pending", "Site Ready", "Material Ready", "Installation Assigned", "Under Installation", "Commissioning", "Handover Pending", "Completed", "Closed"];
+    const warrantyExpiring = jobs.filter((job) => String(job.warranty_end_date || "") >= today && String(job.warranty_end_date || "") <= datePlusDays(90));
+    const panniPending = jobs.filter((job) => String(job.panni_removed || "No").toLowerCase() !== "yes");
+    const sitePending = jobs.filter((job) => String((job.site_readiness as Record<string, unknown> | undefined)?.lift_well_construction || "").toLowerCase().includes("progress"));
+    const contractorDue = jobs.reduce((sum, job) => sum + Number(job.outstanding_balance || job.total_due || 0), 0);
+    const totalContract = jobs.reduce((sum, job) => sum + Number(job.contract_value || 0), 0);
+    const totalPaid = jobs.reduce((sum, job) => sum + Number(job.total_paid || 0), 0);
+    return (
+      <View>
+        <View style={styles.moduleHero}>
+          <Text style={styles.eyebrow}>Installation Management</Text>
+          <Text style={styles.moduleHeroTitle}>CRM-Linked Installation Lifecycle</Text>
+          <Text style={styles.moduleHeroText}>Create installations only from CRM customers, assign teams and contractors, capture approval, technical details, site readiness, tests, handover, warranty, and contractor payments.</Text>
+        </View>
+        <View style={styles.metricGrid}>
+          {[
+            ["Total installations", jobs.length, "CRM-linked install records."],
+            ["Pending", jobs.filter((job) => !["Completed", "Closed"].includes(String(job.status || ""))).length, "Open installation workload."],
+            ["Site not ready", sitePending.length, "Construction work still pending."],
+            ["Under installation", jobs.filter((job) => String(job.status || "") === "Under Installation").length, "Approved active work."],
+            ["Commissioning pending", jobs.filter((job) => String(job.status || "") === "Commissioning").length, "Waiting commissioning completion."],
+            ["Panni pending", panniPending.length, "Reminder every 15 days."],
+            ["Warranty expiring", warrantyExpiring.length, "Within 90 days."],
+            ["Contractor due", formatMoney(contractorDue), `Paid ${formatMoney(totalPaid)} / ${formatMoney(totalContract)}`],
+          ].map(([label, value, detail]) => (
+            <View key={String(label)} style={styles.card}>
+              <Text style={styles.cardLabel}>{label}</Text>
+              <Text style={styles.metricValue}>{value}</Text>
+              <Text style={styles.muted}>{detail}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.formCard}>
+          <Text style={styles.cardLabel}>{installationDraft.id ? "Edit installation" : "New installation from CRM"}</Text>
+          <View style={styles.field}>
+            <Text style={styles.label}>Select CRM customer</Text>
+            <TextInput style={styles.input} value={installationCustomerSearch} onChangeText={setInstallationCustomerSearch} placeholder="Search CRM customers by ID, name, phone, site" />
+            <View style={styles.selectorList}>
+              {visibleCustomers.map((customer) => (
+                <Pressable
+                  key={`install-customer-${customer.id}`}
+                  style={[styles.selectorPill, installationDraft.customer_id === customer.id && styles.selectorPillActive]}
+                  onPress={() => setInstallationDraft((draft) => ({ ...draft, customer_id: customer.id }))}
+                >
+                  <Text style={[styles.selectorText, installationDraft.customer_id === customer.id && styles.selectorTextActive]}>{customer.id} - {customer.name}</Text>
+                  <Text style={styles.muted}>{customer.phone || "No phone"} - {customer.address || "No site address"}</Text>
+                </Pressable>
+              ))}
+              {!visibleCustomers.length && <Text style={styles.muted}>No CRM customers match. Add or edit customers in Customer CRM first.</Text>}
+            </View>
+          </View>
+          {selectedCustomer && (
+            <View style={styles.linkedSystemsPanel}>
+              <Text style={styles.cardLabel}>Read-only CRM customer information</Text>
+              <Text style={styles.bodyText}>{selectedCustomer.name} - {selectedCustomer.contact || "No contact"} - {selectedCustomer.phone || "No mobile"} - {selectedCustomer.email || "No email"}</Text>
+              <Text style={styles.muted}>Site: {selectedCustomer.siteAddress || "-"} - Billing: {selectedCustomer.billingAddress || "-"} - Sales: {selectedCustomer.owner || "-"}</Text>
+              <Text style={styles.muted}>CRM notes: {selectedCustomer.notes || "-"}</Text>
+            </View>
+          )}
+          <View style={styles.formGrid}>
+            {renderInstallationField("Project", "project_name")}
+            {renderInstallationField("Lift", "lift_reference")}
+            {renderInstallationField("Installation status", "status")}
+            {renderInstallationField("Assigned team", "assigned_team")}
+            {renderInstallationField("Contractor", "contractor")}
+            {renderInstallationField("Engineer", "engineer")}
+            {renderInstallationField("Start date", "start_date")}
+            {renderInstallationField("Completion date", "completion_date")}
+            {renderInstallationField("Approved by", "approved_by", "Ashwani Ji")}
+            {renderInstallationField("Approval date", "approval_date")}
+            {renderInstallationField("Approval remarks", "approval_remarks")}
+          </View>
+          <Text style={styles.sectionTitle}>Technical Details</Text>
+          <View style={styles.formGrid}>
+            {["motor_make", "motor_model_number", "motor_sticker_photo", "door_make", "controller_make", "controller_type", "controller_communication", "protocol", "controller_username", "controller_password", "drive_model_number", "ard_or_ups", "ard_make", "battery_size", "battery_make", "battery_quantity", "battery_warranty_expiry", "door_sensor_make", "lop_make", "cop_make", "button_type"].map((key) => renderInstallationField(key.replace(/_/g, " "), key as keyof typeof emptyInstallationDraft))}
+          </View>
+          <Text style={styles.sectionTitle}>Uploads, Readiness, Handover</Text>
+          <View style={styles.formGrid}>
+            {["building_photo", "site_photo_url", "lift_video_url", "lift_well_construction", "expected_completion_date", "site_readiness_notes", "panni_removed", "panni_removal_date", "granite_required", "granite_status", "granite_completion_date", "granite_remarks", "installed_by", "commissioned_by", "handed_over_by", "handed_over_date", "warranty_start_date", "warranty_end_date", "final_remarks"].map((key) => renderInstallationField(key.replace(/_/g, " "), key as keyof typeof emptyInstallationDraft))}
+          </View>
+          <Text style={styles.sectionTitle}>Contractor & Financials</Text>
+          <View style={styles.formGrid}>
+            {["contractor_name", "contractor_mobile", "contractor_email", "contractor_gst", "contractor_address", "contractor_bank_details", "contract_value", "payment_terms", "contractor_payment_amount", "contractor_payment_date", "contractor_payment_method", "contractor_payment_remarks"].map((key) => renderInstallationField(key.replace(/_/g, " "), key as keyof typeof emptyInstallationDraft))}
+          </View>
+          <View style={styles.inlineActions}>
+            <Pressable style={styles.primaryButtonInline} onPress={saveInstallation} disabled={loading || !installationDraft.customer_id}>
+              <Text style={styles.primaryButtonText}>{installationDraft.id ? "Update installation" : "Create installation"}</Text>
+            </Pressable>
+            {!!installationDraft.id && <Pressable style={styles.secondaryButton} onPress={() => setInstallationDraft(emptyInstallationDraft)} disabled={loading}><Text style={styles.secondaryButtonText}>Cancel edit</Text></Pressable>}
+          </View>
+        </View>
+
+        <Text style={styles.sectionTitle}>Installation Records</Text>
+        <View style={styles.formCard}>
+          <TextInput style={styles.input} value={installationSearch} onChangeText={setInstallationSearch} placeholder="Search customer, project, lift, team, contractor, engineer" />
+          <View style={styles.formGrid}>
+            <View style={styles.field}>
+              <Text style={styles.label}>Report start date</Text>
+              <TextInput style={styles.input} value={installationReportStart} onChangeText={setInstallationReportStart} placeholder="YYYY-MM-DD" />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Report end date</Text>
+              <TextInput style={styles.input} value={installationReportEnd} onChangeText={setInstallationReportEnd} placeholder="YYYY-MM-DD" />
+            </View>
+          </View>
+          <View style={styles.inlineActions}>
+            {statusOptions.map((status) => <Pressable key={status} style={[styles.smallButton, installationStatusFilter === status && styles.selectorPillActive]} onPress={() => setInstallationStatusFilter(status)}><Text style={styles.smallButtonText}>{status}</Text></Pressable>)}
+            <Pressable style={styles.primaryButtonInline} onPress={downloadInstallationReport} disabled={loading}>
+              <Text style={styles.primaryButtonText}>Export CSV</Text>
+            </Pressable>
+          </View>
+        </View>
+        {filteredJobs.map((job, index) => {
+          const id = recordIdentity(job) || String(job.job_id || index);
+          const customerId = String(job.customer_id || "");
+          const technical = (job.technical_details || {}) as Record<string, unknown>;
+          const readiness = (job.site_readiness || {}) as Record<string, unknown>;
+          const checklist = asRecords(job.checklist);
+          const passedTests = checklist.filter((test) => String(test.result || "").toLowerCase() === "pass").length;
+          const totalDays = job.start_date && job.completion_date ? projectBusinessDays(job.start_date, job.completion_date) : 0;
+          return (
+            <View key={`installation-${id}`} style={styles.card}>
+              <View style={styles.cardHeaderRow}>
+                <View style={styles.cardTitleBlock}>
+                  <Text style={styles.cardTitle}>{String(job.job_id || id)} - {String(job.customer || "-")}</Text>
+                  <Text style={styles.muted}>CRM {customerId || "-"} - Project {String(job.project_name || "-")} - Lift {String(job.lift_reference || job.unit || "-")}</Text>
+                </View>
+                <Text style={styles.statusPill}>{String(job.status || "-")}</Text>
+              </View>
+              <Text style={styles.bodyText}>Team: {String(job.assigned_team || "-")} - Contractor: {String(job.contractor || job.contractor_name || "-")} - Engineer: {String(job.engineer || "-")}</Text>
+              <Text style={styles.bodyText}>Approval: {String(job.approval_status || "Pending")} - {String(job.approved_by || "-")} - {String(job.approval_date || "-")}</Text>
+              <Text style={styles.bodyText}>Dates: Start {String(job.start_date || "-")} - Completion {String(job.completion_date || "-")} - Total days {totalDays || "-"}</Text>
+              <Text style={styles.bodyText}>Technical: Motor {String(technical.motor_make || "-")} {String(technical.motor_model_number || "")} - Controller {String(technical.controller_make || "-")} / {String(technical.controller_type || "-")} / {String(technical.controller_communication || "-")}</Text>
+              <Text style={styles.bodyText}>Site readiness: {String(readiness.lift_well_construction || "-")} - Expected {String(readiness.expected_completion_date || "-")} - Panni {String(job.panni_removed || "No")} - Granite {String(job.granite_required || "No")} {String(job.granite_status || "")}</Text>
+              <Text style={styles.bodyText}>Checklist: {passedTests}/{checklist.length || 16} passed - Warranty {String(job.warranty_start_date || "-")} to {String(job.warranty_end_date || "-")}</Text>
+              <Text style={styles.bodyText}>Contract: {formatMoney(Number(job.contract_value || 0))} - Paid {formatMoney(Number(job.total_paid || 0))} - Due {formatMoney(Number(job.outstanding_balance || job.total_due || 0))}</Text>
+              <View style={styles.linkedSystemsPanel}>
+                <Text style={styles.cardLabel}>Customer lifecycle links</Text>
+                <Text style={styles.muted}>Tickets {asRecords(data?.project_tickets).filter((ticket) => String(ticket.customer_id || "") === customerId || crmNameKey(ticket.customer || ticket.project) === crmNameKey(job.customer)).length} - Service {asRecords(data?.service_records).filter((service) => String(service.customer_id || "") === customerId || crmNameKey(service.customer) === crmNameKey(job.customer)).length} - Commissioning {asRecords(data?.commissionings).filter((item) => String(item.customer_id || "") === customerId || String(item.installation_ref || "") === id).length}</Text>
+              </View>
+              <View style={styles.inlineActions}>
+                <Pressable style={styles.smallButton} onPress={() => editInstallation(job)} disabled={loading}><Text style={styles.smallButtonText}>Edit</Text></Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateInstallationRecord(job, { approved_by: "Ashwani Ji", approval_date: today, approval_status: "Approved" }, "Installation approved.")} disabled={loading}><Text style={styles.smallButtonText}>Approve</Text></Pressable>
+                {["Site Ready", "Material Ready", "Installation Assigned", "Under Installation", "Commissioning", "Handover Pending", "Completed", "Closed"].map((status) => <Pressable key={`${id}-${status}`} style={styles.smallButton} onPress={() => updateInstallationRecord(job, { status })} disabled={loading}><Text style={styles.smallButtonText}>{status}</Text></Pressable>)}
+                <Pressable style={styles.smallButton} onPress={() => sendInstallToCommissioning(job)} disabled={loading || !["Completed", "Commissioning", "Handover Pending"].includes(String(job.status || ""))}><Text style={styles.smallButtonText}>Send commissioning</Text></Pressable>
+                {!!customerId && <Pressable style={styles.smallButton} onPress={() => openCrmForCustomerNumber(customerId)} disabled={loading}><Text style={styles.smallButtonText}>Open CRM</Text></Pressable>}
+              </View>
+            </View>
+          );
+        })}
+        {!filteredJobs.length && <View style={styles.card}><Text style={styles.cardTitle}>No installations found</Text><Text style={styles.muted}>Create one from an existing CRM customer above.</Text></View>}
+
+        <Text style={styles.sectionTitle}>Team & Contractor Metrics</Text>
+        <View style={styles.metricGrid}>
+          {teams.slice(0, 8).map((team) => {
+            const name = fieldText(team, ["name"]);
+            const assignedCount = jobs.filter((job) => String(job.assigned_team || job.crew || "").toLowerCase().includes(name.toLowerCase())).length;
+            return <View key={`team-metric-${name}`} style={styles.card}><Text style={styles.cardLabel}>{name}</Text><Text style={styles.metricValue}>{assignedCount}</Text><Text style={styles.muted}>{fieldText(team, ["availability"])} - {fieldText(team, ["phone"])}</Text></View>;
+          })}
+          {contractors.slice(0, 8).map((contractor) => <View key={`contractor-metric-${recordIdentity(contractor) || fieldText(contractor, ["name", "contractor_name"])}`} style={styles.card}><Text style={styles.cardLabel}>{fieldText(contractor, ["contractor_name", "name"])}</Text><Text style={styles.metricValue}>{jobs.filter((job) => fieldText(job, ["contractor", "contractor_name"]) === fieldText(contractor, ["contractor_name", "name"])).length}</Text><Text style={styles.muted}>{fieldText(contractor, ["mobile", "phone"])} - GST {fieldText(contractor, ["gst", "gst_number"])}</Text></View>)}
+        </View>
+      </View>
+    );
+  }
+
   function renderInstallTeamPage() {
     const team = asRecords(data?.install_team);
     const jobs = asRecords(data?.install_jobs);
@@ -4569,6 +5010,9 @@ export default function App() {
               <Pressable style={styles.primaryButtonInline} onPress={downloadCrmData} disabled={loading}>
                 <Text style={styles.primaryButtonText}>Download CRM data</Text>
               </Pressable>
+              <Pressable style={styles.secondaryButton} onPress={sendCustomerOccasionReminders} disabled={loading}>
+                <Text style={styles.secondaryButtonText}>Send occasion reminders</Text>
+              </Pressable>
             </View>
           )}
         </View>
@@ -4876,6 +5320,7 @@ export default function App() {
             const latestMotor = latestMotorForCustomer(customer);
             const costingStatus = latestEstimate ? String(latestEstimate.status || latestEstimate.lead_status || "Costing") : "No costing";
             const customerSiteVisits = (data?.site_visits || []).filter((visit) => String(visit.customer_id || "") === String(customer.id || ""));
+            const customerInstallations = asRecords(data?.install_jobs).filter((job) => String(job.customer_id || "") === String(customer.id || "") || crmNameKey(job.customer) === crmNameKey(customer.name));
             const assignedTeam = customerAssignmentRecords(customer.id);
             const assignedStaffKeys = new Set(assignedTeam.map(assignmentStaffKey));
             const canEditAssignments = canManageCustomerAssignments();
@@ -4890,6 +5335,16 @@ export default function App() {
                 <Text style={styles.bodyText}>Site visits: {customerSiteVisits.length}{customerSiteVisits[0] ? ` - Latest ${String(customerSiteVisits[0].id || "-")} ${String(customerSiteVisits[0].site_visit_date || "")}` : ""}</Text>
                 {!!latestMotor && (
                   <Text style={styles.bodyText}>Motor: {fieldText(latestMotor, ["motor_serial_number", "motor_serial"])} - Nameplate: {fieldText(latestMotor, ["motor_nameplate_file", "motor_nameplate_url"])} - Commissioning {fieldText(latestMotor, ["id"])}</Text>
+                )}
+                {!!customerInstallations.length && (
+                  <View style={styles.linkedSystemsPanel}>
+                    <Text style={styles.cardLabel}>Installation History</Text>
+                    {customerInstallations.slice(0, 4).map((job, jobIndex) => (
+                      <Text key={`customer-install-${customer.id}-${String(job.id || jobIndex)}`} style={styles.muted}>
+                        {String(job.job_id || job.id || "-")} - {String(job.status || "-")} - Install {String(job.start_date || job.created_at || "-").slice(0, 10)} - Handover {String(job.handed_over_date || job.handover_date || "-").slice(0, 10)} - Warranty end {String(job.warranty_end_date || "-").slice(0, 10)} - Team {String(job.assigned_team || job.crew || "-")} - Contractor {String(job.contractor || job.contractor_name || "-")} - Engineer {String(job.engineer || job.assigned_engineer || "-")}
+                      </Text>
+                    ))}
+                  </View>
                 )}
                 <Text style={styles.bodyText}>{customer.contact_person || "No contact"} - {customer.phone || "No mobile"} - {customer.email || "No email"}</Text>
                 <Text style={styles.bodyText}>Owner: {customer.account_owner || "-"} - Source: {customer.lead_source || "-"} - Channel: {customer.preferred_channel || "-"}</Text>
@@ -7327,7 +7782,7 @@ export default function App() {
       case "projects":
         return renderDepartmentProjectDashboard();
       case "installations":
-        return renderFeaturePage("Installations", "Field installation jobs, active stages, and target handover data.", asRecords(data?.install_jobs), ["job_id", "id"], [["customer"], ["current_stage", "stage"], ["target_handover"]]);
+        return renderInstallationPage();
       case "team":
         return renderInstallTeamPage();
       case "accounts":
@@ -8160,6 +8615,27 @@ export default function App() {
       setMessage("CRM data download started.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "CRM data could not be downloaded.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function sendCustomerOccasionReminders() {
+    if (!isAdmin) {
+      setMessage("Only admin can send customer occasion reminders.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await apiFetch<{ count?: number; date?: string }>("/api/portal/customers/occasion-reminders", {
+        method: "POST",
+        token,
+        body: JSON.stringify({}),
+      });
+      await loadPortal();
+      setMessage(`${result.count || 0} customer occasion reminders queued for ${result.date || "today"}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Customer occasion reminders could not be sent.");
     } finally {
       setLoading(false);
     }

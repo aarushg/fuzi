@@ -118,6 +118,7 @@ const listFiles = {
   project_tickets: "project_tickets.json",
   install_jobs: "install_jobs.json",
   install_team: "install_team.json",
+  installation_contractors: "installation_contractors.json",
   payments: "payments.json",
   customer_users: "customer_users.json",
   sales_inquiries: "sales_inquiries.json",
@@ -140,6 +141,7 @@ const routeCollections = {
   "project-tickets": { key: "project_tickets", prefix: "PT" },
   "install-jobs": { key: "install_jobs", prefix: "JOB" },
   "install-team": { key: "install_team", prefix: "TM" },
+  "installation-contractors": { key: "installation_contractors", prefix: "CON" },
   users: { key: "users", prefix: "USR", public: true },
   customers: { key: "customers", prefix: "CUST" },
   inventory: { key: "inventory", prefix: "INV" },
@@ -356,7 +358,7 @@ const viewDataKeys = {
   marketing: ["marketing_assets", "customers", "estimates", "international_vendors"],
   tickets: ["project_tickets"],
   projects: ["projects", "install_jobs", "customers", "customer_assignments", "department_assignments", "time_tracking", "department_history", "org_chart", "users"],
-  installations: ["installations", "install_jobs"],
+  installations: ["installations", "install_jobs", "customers", "install_team", "installation_contractors", "payments", "project_tickets", "service_records", "commissionings", "dept_comms"],
   team: ["install_team", "install_jobs"],
   accounts: ["users"],
   renewals: ["renewals"],
@@ -380,7 +382,7 @@ const viewDataKeys = {
 };
 
 const restrictedPayloadKeys = [
-  "projects", "installations", "renewals", "work_orders", "project_tickets", "install_jobs", "install_team",
+  "projects", "installations", "renewals", "work_orders", "project_tickets", "install_jobs", "install_team", "installation_contractors",
   "users", "customers", "customer_assignments", "department_assignments", "time_tracking", "department_history", "site_visits", "platform_modules", "inventory", "inventory_insights", "org_chart", "attendance_today",
   "leave_requests", "estimates", "payments", "customer_users", "sales_inquiries", "sales_admin_panel", "breakdowns", "service_records",
   "gad_records", "commissionings", "factory_jobs", "tenders", "international_vendors", "marketing_assets", "dept_comms"
@@ -997,6 +999,266 @@ function normalizeTenderPayload(body = {}, existing = {}, records = []) {
     sd_refund_due_date: completionDate ? addDaysIso(completionDate, dlpPeriod) : "",
     updated_at: nowIso
   };
+}
+
+const mandatoryInstallationTests = [
+  "Floor to Floor Level",
+  "Overload Test",
+  "ARD Test",
+  "Locking System Test",
+  "Overspeed Test",
+  "Door Sensor Test"
+];
+
+function normalizeInstallationTests(value, existing = []) {
+  const incoming = Array.isArray(value) ? value : [];
+  const byName = new Map([...existing, ...incoming].map((item) => [String(item.name || item.test_name || "").trim().toLowerCase(), item]));
+  const mandatory = mandatoryInstallationTests.map((name) => ({
+    name,
+    result: String(byName.get(name.toLowerCase())?.result || "Pending"),
+    date: String(byName.get(name.toLowerCase())?.date || ""),
+    tested_by: String(byName.get(name.toLowerCase())?.tested_by || ""),
+    remarks: String(byName.get(name.toLowerCase())?.remarks || "")
+  }));
+  const custom = Array.from({ length: 10 }, (_, index) => {
+    const name = `Test ${index + 1}`;
+    const saved = byName.get(name.toLowerCase()) || {};
+    return {
+      name: String(saved.name || name),
+      result: String(saved.result || "Pending"),
+      date: String(saved.date || ""),
+      tested_by: String(saved.tested_by || ""),
+      remarks: String(saved.remarks || "")
+    };
+  });
+  return [...mandatory, ...custom];
+}
+
+function normalizeInstallationPayload(body = {}, existing = {}, records = []) {
+  const cleaned = cleanPayload(body);
+  const now = new Date().toISOString();
+  const statusInput = String(cleaned.status || existing.status || "Site Visit Pending").trim();
+  const approvedBy = String(cleaned.approved_by || existing.approved_by || "").trim();
+  const approvalDate = String(cleaned.approval_date || existing.approval_date || "").trim();
+  const approvalStatus = approvedBy && approvalDate ? "Approved" : String(cleaned.approval_status || existing.approval_status || "Pending");
+  const blockedUnderInstallation = statusInput === "Under Installation" && approvalStatus !== "Approved";
+  const contractorPayments = normalizeTenderArray(cleaned.contractor_payments || existing.contractor_payments).map((payment, index) => ({
+    id: String(payment.id || `CPAY-${index + 1}`),
+    date: String(payment.date || "").slice(0, 10),
+    amount: numberValue(payment.amount),
+    method: String(payment.method || "").trim(),
+    remarks: String(payment.remarks || "").trim()
+  }));
+  const contractValue = numberValue(cleaned.contract_value || existing.contract_value);
+  const totalPaid = contractorPayments.reduce((sum, payment) => sum + numberValue(payment.amount), 0);
+  const warrantyStart = String(cleaned.warranty_start_date || existing.warranty_start_date || "").slice(0, 10);
+  const warrantyMonths = numberValue(cleaned.warranty_months || existing.warranty_months, 12);
+  const warrantyEnd = String(cleaned.warranty_end_date || existing.warranty_end_date || "").slice(0, 10) || (warrantyStart ? addDaysIso(warrantyStart, warrantyMonths * 30) : "");
+  const panniRemoved = String(cleaned.panni_removed || existing.panni_removed || "No").trim();
+  const panniRemovalDate = panniRemoved.toLowerCase() === "yes" ? String(cleaned.panni_removal_date || existing.panni_removal_date || now.slice(0, 10)).slice(0, 10) : "";
+  return {
+    ...existing,
+    ...cleaned,
+    job_id: String(cleaned.job_id || existing.job_id || `INST-${String(records.length + 1).padStart(4, "0")}`).trim(),
+    customer_id: String(cleaned.customer_id || existing.customer_id || "").trim(),
+    customer: String(cleaned.customer || existing.customer || "").trim(),
+    company_name: String(cleaned.company_name || existing.company_name || cleaned.customer || existing.customer || "").trim(),
+    contact_person: String(cleaned.contact_person || existing.contact_person || "").trim(),
+    mobile: String(cleaned.mobile || existing.mobile || cleaned.customer_phone || existing.customer_phone || "").trim(),
+    whatsapp: String(cleaned.whatsapp || existing.whatsapp || cleaned.mobile || existing.mobile || "").trim(),
+    email: String(cleaned.email || existing.email || "").trim(),
+    site_address: String(cleaned.site_address || existing.site_address || cleaned.site || existing.site || cleaned.customer_address || existing.customer_address || "").trim(),
+    billing_address: String(cleaned.billing_address || existing.billing_address || cleaned.site_address || existing.site_address || "").trim(),
+    status: blockedUnderInstallation ? "Installation Assigned" : statusInput,
+    approval_status: blockedUnderInstallation ? "Pending" : approvalStatus,
+    approval_required: blockedUnderInstallation,
+    approved_by: approvedBy,
+    approval_date: approvalDate,
+    technical_details: {
+      motor_sticker_photo: String(cleaned.motor_sticker_photo || existing.technical_details?.motor_sticker_photo || ""),
+      motor_make: String(cleaned.motor_make || existing.technical_details?.motor_make || ""),
+      motor_model_number: String(cleaned.motor_model_number || existing.technical_details?.motor_model_number || ""),
+      door_make: String(cleaned.door_make || existing.technical_details?.door_make || ""),
+      controller_make: String(cleaned.controller_make || existing.technical_details?.controller_make || ""),
+      controller_type: String(cleaned.controller_type || existing.technical_details?.controller_type || "Closed Loop"),
+      controller_communication: String(cleaned.controller_communication || existing.technical_details?.controller_communication || "Full Serial"),
+      protocol: String(cleaned.protocol || existing.technical_details?.protocol || "Protocol"),
+      controller_username: String(cleaned.controller_username || existing.technical_details?.controller_username || ""),
+      controller_password: String(cleaned.controller_password || existing.technical_details?.controller_password || ""),
+      drive_model_number: String(cleaned.drive_model_number || existing.technical_details?.drive_model_number || ""),
+      ard_or_ups: String(cleaned.ard_or_ups || existing.technical_details?.ard_or_ups || ""),
+      ard_make: String(cleaned.ard_make || existing.technical_details?.ard_make || ""),
+      battery_size: String(cleaned.battery_size || existing.technical_details?.battery_size || ""),
+      battery_make: String(cleaned.battery_make || existing.technical_details?.battery_make || ""),
+      battery_quantity: String(cleaned.battery_quantity || existing.technical_details?.battery_quantity || ""),
+      battery_warranty_expiry: String(cleaned.battery_warranty_expiry || existing.technical_details?.battery_warranty_expiry || ""),
+      door_sensor_make: String(cleaned.door_sensor_make || existing.technical_details?.door_sensor_make || ""),
+      lop_make: String(cleaned.lop_make || existing.technical_details?.lop_make || ""),
+      cop_make: String(cleaned.cop_make || existing.technical_details?.cop_make || ""),
+      button_type: String(cleaned.button_type || existing.technical_details?.button_type || "Push Button")
+    },
+    uploads: {
+      building_photo: String(cleaned.building_photo || existing.uploads?.building_photo || ""),
+      motor_sticker_photo: String(cleaned.motor_sticker_photo || existing.uploads?.motor_sticker_photo || ""),
+      site_photos: normalizeTenderArray(cleaned.site_photos || existing.uploads?.site_photos),
+      lift_videos: normalizeTenderArray(cleaned.lift_videos || existing.uploads?.lift_videos)
+    },
+    site_readiness: {
+      lift_well_construction: String(cleaned.lift_well_construction || existing.site_readiness?.lift_well_construction || "Complete"),
+      expected_completion_date: String(cleaned.expected_completion_date || existing.site_readiness?.expected_completion_date || "").slice(0, 10),
+      notes: String(cleaned.site_readiness_notes || existing.site_readiness?.notes || "")
+    },
+    checklist: normalizeInstallationTests(cleaned.checklist, existing.checklist),
+    panni_removed: panniRemoved,
+    panni_removal_date: panniRemovalDate,
+    next_panni_reminder_date: panniRemoved.toLowerCase() === "yes" ? "" : addDaysIso(existing.next_panni_reminder_date || now.slice(0, 10), 15),
+    granite_required: String(cleaned.granite_required || existing.granite_required || "No"),
+    granite_status: String(cleaned.granite_status || existing.granite_status || "Pending"),
+    contractor_payments: contractorPayments,
+    total_paid: totalPaid,
+    total_due: Math.max(0, contractValue - totalPaid),
+    outstanding_balance: Math.max(0, contractValue - totalPaid),
+    warranty_start_date: warrantyStart,
+    warranty_end_date: warrantyEnd,
+    updated_at: now
+  };
+}
+
+function installationNotificationEvents(record = {}, previous = {}) {
+  const events = [];
+  const status = String(record.status || "").trim();
+  const previousStatus = String(previous.status || "").trim();
+  const customer = String(record.customer || record.company_name || "Customer").trim();
+  const siteReady = String(record.site_readiness?.lift_well_construction || "").toLowerCase();
+  const previousSiteReady = String(previous.site_readiness?.lift_well_construction || "").toLowerCase();
+  const warrantyStart = String(record.warranty_start_date || "").trim();
+  const warrantyEnd = String(record.warranty_end_date || "").trim();
+  if (!previous.id && (status || record.assigned_team || record.contractor || record.engineer)) {
+    events.push({
+      event_type: "installation-assigned",
+      subject: `Installation assigned: ${customer}`,
+      message: `Installation has been assigned for ${customer}. Team: ${record.assigned_team || "-"}, contractor: ${record.contractor || record.contractor_name || "-"}, engineer: ${record.engineer || "-"}.`
+    });
+  }
+  if (siteReady.includes("progress") && siteReady !== previousSiteReady) {
+    events.push({
+      event_type: "installation-site-not-ready",
+      subject: `Site not ready: ${customer}`,
+      message: "Lift installation cannot proceed because site construction is still under progress. Please complete remaining work before the expected completion date."
+    });
+  }
+  if (status && status !== previousStatus) {
+    const statusMessages = {
+      "Under Installation": "Installation work has started.",
+      Commissioning: "Commissioning has started.",
+      "Handover Pending": "Installation is ready for customer handover.",
+      Completed: "Installation handover has been completed.",
+      Closed: "Installation record has been closed.",
+      "Material Ready": "Installation material is ready.",
+      "Site Ready": "Site has been marked ready for installation."
+    };
+    if (statusMessages[status]) {
+      events.push({
+        event_type: `installation-${status.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`,
+        subject: `${status}: ${customer}`,
+        message: `${statusMessages[status]} Customer: ${customer}. Lift: ${record.lift_reference || record.unit || "-"}.`
+      });
+    }
+  }
+  if (warrantyStart && warrantyStart !== String(previous.warranty_start_date || "").trim()) {
+    events.push({
+      event_type: "installation-warranty-activated",
+      subject: `Warranty activated: ${customer}`,
+      message: `Warranty has been activated for ${customer}. Warranty end date: ${warrantyEnd || "-"}.`
+    });
+  }
+  if (String(record.panni_removed || "No").toLowerCase() !== "yes" && !previous.id) {
+    events.push({
+      event_type: "installation-panni-reminder-scheduled",
+      subject: `Panni reminder scheduled: ${customer}`,
+      message: "Protection sheet (Panni) has not yet been removed from the lift. Kindly arrange removal."
+    });
+  }
+  return events;
+}
+
+async function logInstallationNotifications(record = {}, previous = {}, actor = {}) {
+  const events = installationNotificationEvents(record, previous);
+  if (!events.length) return [];
+  const now = new Date().toISOString();
+  const deptComms = await readJson(listFiles.dept_comms, []);
+  const created = events.map((event, index) => ({
+    id: nextId([...deptComms, ...events.slice(0, index).map((_, eventIndex) => ({ id: `MSG-${String(deptComms.length + eventIndex + 1).padStart(3, "0")}` }))], "MSG"),
+    department: "Installation",
+    channel: "whatsapp",
+    notification_type: event.event_type,
+    subject: event.subject,
+    message: event.message,
+    status: "Queued",
+    read: false,
+    customer_id: String(record.customer_id || ""),
+    customer: String(record.customer || record.company_name || ""),
+    phone: String(record.whatsapp || record.mobile || record.customer_phone || ""),
+    installation_ref: String(record.id || record.job_id || ""),
+    job_id: String(record.job_id || record.id || ""),
+    created_by: actor?.display_name || actor?.username || "System",
+    created_at: now
+  }));
+  deptComms.unshift(...created);
+  await writeJson(listFiles.dept_comms, deptComms);
+  for (const item of created) {
+    const delivery = await communicationService.sendBusinessChannelUpdate(item.notification_type, {
+      agent: "Field Installation Manager",
+      channel: "whatsapp",
+      target: item.phone,
+      customer_id: item.customer_id,
+      job_id: item.job_id,
+      subject: item.subject,
+      message: item.message,
+      summary: item.message
+    }).catch((error) => ({ ok: false, error: error?.message || String(error) }));
+    item.delivery_status = delivery.ok ? "Sent" : "Logged";
+    item.delivery_error = delivery.ok ? "" : String(delivery.error || delivery.status || "");
+  }
+  await writeJson(listFiles.dept_comms, deptComms);
+  return created;
+}
+
+function installationReportRows(records = []) {
+  return records.map((record) => ({
+    installation_id: record.job_id || record.id || "",
+    customer_id: record.customer_id || "",
+    customer: record.customer || record.company_name || "",
+    project: record.project_name || "",
+    lift: record.lift_reference || record.unit || "",
+    status: record.status || "",
+    team: record.assigned_team || "",
+    engineer: record.engineer || "",
+    contractor: record.contractor || record.contractor_name || "",
+    start_date: record.start_date || "",
+    completion_date: record.completion_date || "",
+    handover_date: record.handed_over_date || record.handover_date || "",
+    warranty_start_date: record.warranty_start_date || "",
+    warranty_end_date: record.warranty_end_date || "",
+    contract_value: record.contract_value || 0,
+    total_paid: record.total_paid || 0,
+    outstanding_balance: record.outstanding_balance || record.total_due || 0,
+    panni_removed: record.panni_removed || "",
+    granite_required: record.granite_required || "",
+    site_readiness: record.site_readiness?.lift_well_construction || "",
+    updated_at: record.updated_at || record.created_at || ""
+  }));
+}
+
+function csvEscape(value) {
+  const text = String(value ?? "");
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function rowsToCsv(rows = []) {
+  const headers = Object.keys(rows[0] || {});
+  if (!headers.length) return "";
+  return [headers.join(","), ...rows.map((row) => headers.map((header) => csvEscape(row[header])).join(","))].join("\r\n");
 }
 
 function execFileAsync(command, args, options = {}) {
@@ -3409,9 +3671,13 @@ async function createCollectionRecord(routeName, body, res) {
   if (routeName === "estimates" && !offerPayload) return;
   const paymentPayload = routeName === "payments" ? normalizePaymentPayload(body) : null;
   const tenderPayload = routeName === "tender" ? normalizeTenderPayload(body, {}, records) : null;
-  const record = { id: nextId(records, config.prefix), ...(offerPayload || paymentPayload || tenderPayload || cleanPayload(body)), ...serviceLink, created_at: now, updated_at: now };
+  const installationPayload = routeName === "install-jobs" ? normalizeInstallationPayload(body, {}, records) : null;
+  const record = { id: nextId(records, config.prefix), ...(offerPayload || paymentPayload || tenderPayload || installationPayload || cleanPayload(body)), ...serviceLink, created_at: now, updated_at: now };
   records.unshift(record);
   await writeJson(config.file, records);
+  if (routeName === "install-jobs") {
+    await logInstallationNotifications(record, {}, res.req?.user || {});
+  }
   return res.json({ ok: true, record, [config.key.slice(0, -1) || "record"]: record });
 }
 
@@ -3421,6 +3687,7 @@ async function updateCollectionRecord(routeName, id, body, res) {
   const records = await readJson(config.file, []);
   const index = findRecordIndex(records, id);
   if (index < 0) return res.status(404).json({ ok: false, message: "Record not found." });
+  const previousRecord = records[index];
   const actionStatus = defaultStatusForAction(body?.action);
   const serviceLink = routeName === "service" && body?.customer_id ? await linkedCrmCustomerPayload(body, res) : {};
   if (routeName === "service" && body?.customer_id && !serviceLink) return;
@@ -3428,15 +3695,19 @@ async function updateCollectionRecord(routeName, id, body, res) {
   if (routeName === "estimates" && !offerPayload) return;
   const paymentPayload = routeName === "payments" ? normalizePaymentPayload({ ...records[index], ...body }) : null;
   const tenderPayload = routeName === "tender" ? normalizeTenderPayload(body, records[index], records) : null;
+  const installationPayload = routeName === "install-jobs" ? normalizeInstallationPayload(body, records[index], records) : null;
   const nextRecord = {
     ...records[index],
-    ...(offerPayload || paymentPayload || tenderPayload || cleanPayload(body)),
+    ...(offerPayload || paymentPayload || tenderPayload || installationPayload || cleanPayload(body)),
     ...serviceLink,
     ...(actionStatus ? { status: actionStatus } : {}),
     updated_at: new Date().toISOString()
   };
   records[index] = nextRecord;
   await writeJson(config.file, records);
+  if (routeName === "install-jobs") {
+    await logInstallationNotifications(nextRecord, previousRecord || {}, res.req?.user || {});
+  }
   return res.json({ ok: true, record: publicRecords(config.key, [nextRecord])[0] });
 }
 
@@ -3491,6 +3762,7 @@ function portalData(collections, user) {
     project_tickets: collections.project_tickets,
     install_jobs: collections.install_jobs,
     install_team: collections.install_team,
+    installation_contractors: collections.installation_contractors,
     users: collections.users.map(publicUser),
     customers: collections.customers,
     customer_assignments: collections.customer_assignments,
@@ -3668,6 +3940,62 @@ app.get("/api/portal/crm/export", authRequired, async (req, res) => {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="fuzi-crm-export-${stamp}.json"`);
   res.send(JSON.stringify(payload, null, 2));
+});
+
+app.post("/api/portal/customers/occasion-reminders", authRequired, async (req, res) => {
+  const today = String(req.body?.date || new Date().toISOString().slice(0, 10)).slice(0, 10);
+  const monthDay = today.slice(5);
+  const customers = await readJson(listFiles.customers, []);
+  const deptComms = await readJson(listFiles.dept_comms, []);
+  const reminders = [];
+  const alreadyLogged = new Set(deptComms
+    .filter((item) => String(item.notification_date || "").slice(0, 10) === today)
+    .map((item) => `${item.notification_type}:${item.customer_id}`));
+  for (const customer of customers) {
+    const occasions = [
+      { type: "customer-birthday", date: String(customer.date_of_birth || ""), message: "Happy Birthday from Fuzi Elevators." },
+      { type: "customer-anniversary", date: String(customer.anniversary_date || ""), message: "Happy Anniversary from Fuzi Elevators." }
+    ];
+    for (const occasion of occasions) {
+      if (!occasion.date || occasion.date.slice(5) !== monthDay) continue;
+      const key = `${occasion.type}:${customer.id}`;
+      if (alreadyLogged.has(key)) continue;
+      reminders.push({
+        id: nextId([...deptComms, ...reminders], "MSG"),
+        department: "CRM",
+        channel: "whatsapp",
+        notification_type: occasion.type,
+        notification_date: today,
+        subject: `${occasion.type === "customer-birthday" ? "Birthday" : "Anniversary"}: ${customer.name || customer.id}`,
+        message: occasion.message,
+        status: "Queued",
+        read: false,
+        customer_id: String(customer.id || ""),
+        customer: String(customer.name || ""),
+        phone: String(customer.phone || customer.whatsapp || ""),
+        created_by: req.user?.display_name || req.user?.username || "System",
+        created_at: new Date().toISOString()
+      });
+    }
+  }
+  if (reminders.length) {
+    deptComms.unshift(...reminders);
+    await writeJson(listFiles.dept_comms, deptComms);
+    for (const reminder of reminders) {
+      const delivery = await communicationService.sendBusinessChannelUpdate(reminder.notification_type, {
+        agent: "CRM Query Agent",
+        channel: "whatsapp",
+        target: reminder.phone,
+        customer_id: reminder.customer_id,
+        message: reminder.message,
+        summary: reminder.message
+      }).catch((error) => ({ ok: false, error: error?.message || String(error) }));
+      reminder.delivery_status = delivery.ok ? "Sent" : "Logged";
+      reminder.delivery_error = delivery.ok ? "" : String(delivery.error || delivery.status || "");
+    }
+    await writeJson(listFiles.dept_comms, deptComms);
+  }
+  res.json({ ok: true, reminders, count: reminders.length, date: today });
 });
 
 app.post("/api/portal/action", authRequired, async (req, res) => {
@@ -4808,6 +5136,37 @@ app.post("/api/portal/payments/auto-schedule", authRequired, async (req, res) =>
 
 app.post("/api/portal/comms/:id/read", authRequired, async (req, res) => {
   await updateCollectionRecord("comms", req.params.id, { ...req.body, read: true, status: "Read" }, res);
+});
+
+app.get("/api/portal/install-jobs/report", authRequired, async (req, res) => {
+  const records = await readJson(listFiles.install_jobs, []);
+  const query = String(req.query.q || "").trim().toLowerCase();
+  const status = String(req.query.status || "All").trim();
+  const startDate = String(req.query.start_date || "").trim();
+  const endDate = String(req.query.end_date || "").trim();
+  const filtered = records
+    .filter((record) => status === "All" || String(record.status || "") === status)
+    .filter((record) => !query || JSON.stringify(record).toLowerCase().includes(query))
+    .filter((record) => {
+      const date = String(record.start_date || record.created_at || "").slice(0, 10);
+      if (startDate && date < startDate) return false;
+      if (endDate && date > endDate) return false;
+      return true;
+    });
+  const rows = installationReportRows(filtered);
+  const format = String(req.query.format || "json").trim().toLowerCase();
+  if (format === "csv") {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="fuzi-installation-report-${stamp}.csv"`);
+    return res.send(rowsToCsv(rows));
+  }
+  const totals = rows.reduce((summary, row) => ({
+    contract_value: summary.contract_value + numberValue(row.contract_value),
+    total_paid: summary.total_paid + numberValue(row.total_paid),
+    outstanding_balance: summary.outstanding_balance + numberValue(row.outstanding_balance)
+  }), { contract_value: 0, total_paid: 0, outstanding_balance: 0 });
+  res.json({ ok: true, rows, totals, count: rows.length });
 });
 
 app.patch("/api/portal/install-jobs/:jobId/stages/:stageId", authRequired, async (req, res) => {

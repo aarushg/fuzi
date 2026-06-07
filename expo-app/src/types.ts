@@ -20,6 +20,8 @@ export type Customer = {
   account_owner?: string;
   next_follow_up?: string;
   preferred_channel?: string;
+  date_of_birth?: string;
+  anniversary_date?: string;
   gstin?: string;
   pan?: string;
   state?: string;
@@ -168,6 +170,7 @@ export type PortalData = {
   project_tickets?: Array<Record<string, unknown>>;
   install_jobs?: Array<Record<string, unknown>>;
   install_team?: Array<Record<string, unknown>>;
+  installation_contractors?: Array<Record<string, unknown>>;
   users?: Array<Record<string, unknown>>;
   fleet?: Array<Record<string, unknown>>;
   renewals?: Array<Record<string, unknown>>;

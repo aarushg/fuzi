@@ -509,6 +509,28 @@ Install completion handoff:
 
 API: `POST /api/portal/install-jobs/<id>/send-commissioning`
 
+### CRM-Linked Installation Management
+
+The Installations tab is now a CRM-first installation dashboard:
+
+- Installation records cannot be created from freeform customer text; every record must be linked to an existing CRM customer ID.
+- Selecting a CRM customer pulls read-only name, contact, mobile, email, site address, billing address, assigned salesperson, and CRM notes.
+- CRM customer cards show installation history with status, install date, handover date, warranty end date, assigned team, contractor, and engineer.
+- Installation records track project, lift, status, assigned team, contractor, engineer, start date, completion date, total days, and delays.
+- Approval data is stored with approved by, approval date, remarks, and approval status. Records requested as `Under Installation` stay at `Installation Assigned` until approved.
+- Technical detail capture includes motor, door, controller, drive, ARD/UPS, battery, door sensor, LOP/COP, button type, controller login, and protocol fields.
+- Upload references can be saved for building photo, motor sticker photo, site photos, and lift video.
+- Site readiness records lift-well construction status, expected completion date, and notes.
+- Mandatory checklist tests are initialized for floor-to-floor level, overload, ARD, locking system, overspeed, and door sensor, plus 10 configurable custom tests.
+- Handover fields store installed by, commissioned by, handed over by, handover date, warranty start/end, and final remarks.
+- Panni removal and granite work are tracked with reminder-ready dates/statuses.
+- Contractor information, contract value, payment terms, payment history, total paid, total due, and outstanding balance are stored on the installation record.
+- Dashboard cards show total installations, pending work, site not ready, under installation, commissioning pending, panni pending, warranty expiring, and contractor dues.
+- Lifecycle updates log CRM/WhatsApp-ready communication records for installation assignment, site not ready, installation start, commissioning, handover, warranty activation, and panni reminders.
+- Installation reports can be filtered by search, status, and date range, then exported as CSV from the Installation tab.
+
+API: `POST /api/portal/install-jobs`, `PATCH /api/portal/install-jobs/<id>`, `GET /api/portal/install-jobs/report?format=csv`, `GET/POST/PATCH /api/portal/installation-contractors`
+
 ---
 
 ### Install Team Management
@@ -582,8 +604,10 @@ Rolls up all department data into a single leadership view:
 - Work order status tracking.
 - Breakdown Portal dispatch assigns install/service staff from the saved team roster and supports dispatch, reached-site, and close statuses.
 - Breakdown calls must be linked to an existing customer ID before they can be logged.
+- CRM customer profiles store date of birth and anniversary date for WhatsApp-ready occasion reminders.
+- Admins can queue same-day birthday and anniversary reminders from Customer CRM; reminder records are saved in Department Comms and routed through the existing communication service when configured.
 
-API: `GET/POST/PATCH /api/portal/service`, `GET/POST/PATCH /api/portal/work-orders`
+API: `GET/POST/PATCH /api/portal/service`, `GET/POST/PATCH /api/portal/work-orders`, `POST /api/portal/customers/occasion-reminders`
 
 ---
 
