@@ -84,6 +84,15 @@ function openClawUrlFromParts({ url = "", address = "", host = "", port = "" } =
   return openClawUrlFromAddress(`${resolvedHost}:${String(port || defaultOpenClawPort).trim() || defaultOpenClawPort}`);
 }
 
+function hostPortFromUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.port ? `${parsed.hostname}:${parsed.port}` : parsed.host;
+  } catch {
+    return "";
+  }
+}
+
 function hasExplicitOpenClawConnectionEnv(env = process.env) {
   return Boolean(
     String(env.FUZI_OPENCLAW_URL || "").trim() ||
@@ -1593,14 +1602,25 @@ async function writeOperationsState(state) {
   await writeJson("operations_state.json", state);
 }
 
-function deliveryErrorMessage(delivery) {
+function deliveryErrorMessage(delivery, { includeAttemptedConnection = false } = {}) {
   if (!delivery || delivery.ok) return "";
   const json = delivery.json && typeof delivery.json === "object" ? delivery.json : {};
+  let errorMessage = "";
   for (const candidate of [delivery.error, delivery.error_message, json.error, json.message, delivery.body, delivery.status]) {
     const message = String(candidate || "").trim();
-    if (message) return message;
+    if (message) {
+      errorMessage = message;
+      break;
+    }
   }
-  return "";
+  if (!errorMessage) return "";
+  if (!includeAttemptedConnection) return errorMessage;
+  const attempted = String(delivery.url || "").trim();
+  const hostPort = hostPortFromUrl(attempted);
+  const attemptedMessage = hostPort ? `OpenClaw connection tried ${hostPort}.` : (attempted ? `OpenClaw connection tried ${attempted}.` : "");
+  return attemptedMessage && !errorMessage.includes(hostPort || attempted)
+    ? `${attemptedMessage} ${errorMessage}`
+    : errorMessage;
 }
 
 function normalizePhoneDeliveryTarget(target) {
@@ -5753,6 +5773,11 @@ async function storedOpenClawBreakdownErrorMessage() {
     const message = String(candidate || "").trim();
     if (message) return message;
   }
+  const attempted = String(connectorStatus.url || "").trim();
+  if (attempted) {
+    const hostPort = hostPortFromUrl(attempted);
+    return hostPort ? `OpenClaw connection tried ${hostPort}.` : `OpenClaw connection tried ${attempted}.`;
+  }
   return "";
 }
 
@@ -5765,7 +5790,7 @@ async function currentOpenClawBreakdownErrorMessage() {
     message: "Discord breakdown channel or bot token is not configured.",
     summary: "Discord breakdown channel or bot token is not configured."
   }).catch((error) => ({ ok: false, error: String(error) }));
-  return deliveryErrorMessage(delivery);
+  return deliveryErrorMessage(delivery, { includeAttemptedConnection: true });
 }
 
 async function discordBreakdownSyncErrorMessage(result, assignedWaiting = []) {
