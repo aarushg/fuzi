@@ -1575,6 +1575,16 @@ async function writeOperationsState(state) {
   await writeJson("operations_state.json", state);
 }
 
+function deliveryErrorMessage(delivery) {
+  if (!delivery || delivery.ok) return "";
+  const json = delivery.json && typeof delivery.json === "object" ? delivery.json : {};
+  for (const candidate of [delivery.error, delivery.error_message, json.error, json.message, delivery.body, delivery.status]) {
+    const message = String(candidate || "").trim();
+    if (message) return message;
+  }
+  return "";
+}
+
 function normalizePhoneDeliveryTarget(target) {
   const value = String(target || "").trim();
   if (!value) return "";
@@ -2363,6 +2373,11 @@ function createOpenClawCommunicationService({
       });
     }
 
+    const exactErrorMessage = deliveryErrorMessage(delivery);
+    if (!delivery.ok && exactErrorMessage) {
+      delivery.error = exactErrorMessage;
+      delivery.error_message = exactErrorMessage;
+    }
     const state = await readState();
     state.connector_status = {
       state: delivery.ok ? "online" : "error",
@@ -2370,8 +2385,19 @@ function createOpenClawCommunicationService({
       channel: sendChannel,
       target,
       url: delivery.url,
-      error: delivery.error || ""
+      error: exactErrorMessage,
+      error_message: exactErrorMessage,
+      response_body: delivery.ok ? "" : String(delivery.body || "").trim()
     };
+    if (!delivery.ok && exactErrorMessage) {
+      state.last_openclaw_error = exactErrorMessage;
+      state.last_openclaw_delivery_error = exactErrorMessage;
+      state.last_openclaw_error_at = now();
+      if (eventType === "breakdown-auto-assigned") {
+        state.last_discord_breakdown_openclaw_error = exactErrorMessage;
+        state.discord_breakdown_last_openclaw_delivery_error = exactErrorMessage;
+      }
+    }
     await writeState(state);
     return delivery;
   };
@@ -5671,19 +5697,27 @@ app.get("/", (_req, res) => {
 });
 
 let discordBreakdownSyncWarned = false;
-function deliveryErrorMessage(delivery) {
-  if (!delivery || delivery.ok) return "";
-  const json = delivery.json && typeof delivery.json === "object" ? delivery.json : {};
-  for (const candidate of [delivery.error, json.error, json.message, delivery.body, delivery.status]) {
-    const message = String(candidate || "").trim();
+function autoAssignmentNotificationErrorMessage(records = []) {
+  for (const record of records) {
+    const message = deliveryErrorMessage(record.auto_assignment_notification);
     if (message) return message;
   }
   return "";
 }
 
-function autoAssignmentNotificationErrorMessage(records = []) {
-  for (const record of records) {
-    const message = deliveryErrorMessage(record.auto_assignment_notification);
+async function storedOpenClawBreakdownErrorMessage() {
+  const state = await readOperationsState();
+  const connectorStatus = state.connector_status && typeof state.connector_status === "object" ? state.connector_status : {};
+  for (const candidate of [
+    state.last_discord_breakdown_openclaw_error,
+    state.discord_breakdown_last_openclaw_delivery_error,
+    state.last_openclaw_delivery_error,
+    state.last_openclaw_error,
+    connectorStatus.error_message,
+    connectorStatus.error,
+    connectorStatus.response_body
+  ]) {
+    const message = String(candidate || "").trim();
     if (message) return message;
   }
   return "";
@@ -5695,8 +5729,12 @@ async function runDiscordBreakdownSync() {
   if (assignedWaiting.length) result.assigned_waiting_breakdowns = assignedWaiting.length;
   if (!result.ok && !discordBreakdownSyncWarned) {
     discordBreakdownSyncWarned = true;
-    const errorMessage = autoAssignmentNotificationErrorMessage(assignedWaiting) || String(result.message || result.status || "unknown error");
-    console.warn(String(errorMessage));
+    const syncErrorMessage = String(result.message || result.status || "unknown error").trim();
+    const extraErrorMessage = String(autoAssignmentNotificationErrorMessage(assignedWaiting) || await storedOpenClawBreakdownErrorMessage() || "").trim();
+    const errorMessage = extraErrorMessage && extraErrorMessage !== syncErrorMessage
+      ? `${syncErrorMessage} ${extraErrorMessage}`
+      : syncErrorMessage;
+    console.warn(errorMessage);
   }
   if (result.ok) discordBreakdownSyncWarned = false;
   return result;
