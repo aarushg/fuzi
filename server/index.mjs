@@ -513,19 +513,46 @@ function filterPortalPayload(payload, access) {
   return payload;
 }
 
-async function ensureDepartmentHeadUsers() {
+async function ensureStaffPortalUsers() {
   const orgChart = await readJson(listFiles.org_chart, []);
   const users = await readJson(listFiles.users, []);
   const managers = new Set(orgChart.map((person) => person.reports_to).filter(Boolean));
   let changed = false;
-  for (const person of orgChart.filter((item) => isDepartmentHead(item) || managers.has(item.id))) {
-    const username = slugName(person.name);
-    if (!username || users.some((user) => String(user.username).toLowerCase() === username)) continue;
+  let created = 0;
+  let linked = 0;
+  for (const person of orgChart) {
+    const baseUsername = slugName(person.name);
+    if (!baseUsername) continue;
+    const linkedUser = users.find((user) =>
+      String(user.linked_org_node || "") === String(person.id || "") ||
+      staffLookupKey(user.display_name || user.username) === staffLookupKey(person.name)
+    );
+    if (linkedUser) {
+      const nextRole = String(person.department || "").toLowerCase() === "executive office"
+        ? "admin"
+        : (isDepartmentHead(person) || managers.has(person.id) ? "manager" : (linkedUser.role || "staff"));
+      if (!linkedUser.linked_org_node || !linkedUser.department || !linkedUser.display_name) {
+        linkedUser.linked_org_node = linkedUser.linked_org_node || person.id || "";
+        linkedUser.department = linkedUser.department || person.department || "";
+        linkedUser.display_name = linkedUser.display_name || person.name || linkedUser.username;
+        linkedUser.role = linkedUser.role || nextRole;
+        linkedUser.updated_at = new Date().toISOString();
+        changed = true;
+        linked += 1;
+      }
+      continue;
+    }
+    let username = baseUsername;
+    let suffix = 2;
+    while (users.some((user) => String(user.username).toLowerCase() === username)) {
+      username = `${baseUsername}.${suffix}`;
+      suffix += 1;
+    }
     users.push({
       id: nextId(users, "USR"),
       username,
       display_name: person.name,
-      role: String(person.department || "").toLowerCase() === "executive office" ? "admin" : "manager",
+      role: String(person.department || "").toLowerCase() === "executive office" ? "admin" : (isDepartmentHead(person) || managers.has(person.id) ? "manager" : "staff"),
       department: person.department || "",
       linked_org_node: person.id || "",
       active: true,
@@ -534,8 +561,10 @@ async function ensureDepartmentHeadUsers() {
       created_at: new Date().toISOString()
     });
     changed = true;
+    created += 1;
   }
   if (changed) await writeJson(listFiles.users, users);
+  users.sync_summary = { created, linked };
   return users;
 }
 
@@ -555,7 +584,7 @@ function verifyWerkzeugPassword(storedHash = "", password = "") {
 }
 
 async function ensureSharedStaffPortalPassword() {
-  const users = await ensureDepartmentHeadUsers();
+  const users = await ensureStaffPortalUsers();
   const sharedPasswordHash = sharedStaffPortalPasswordHash();
   let changed = false;
   for (const user of users) {
@@ -4709,6 +4738,19 @@ app.post("/api/portal/users", authRequired, async (req, res) => {
   res.json({ ok: true, user: publicUser(user) });
 });
 
+app.post("/api/portal/users/sync-staff", authRequired, async (_req, res) => {
+  if (!isAdminUser(_req.user)) return res.status(403).json({ ok: false, message: "Admin access required." });
+  const before = await readJson(listFiles.users, []);
+  const users = await ensureStaffPortalUsers();
+  const after = await readJson(listFiles.users, []);
+  res.json({
+    ok: true,
+    created: Math.max(0, after.length - before.length),
+    users: after.map(publicUser),
+    message: "Staff login accounts synced from the org chart."
+  });
+});
+
 app.patch("/api/portal/users/:id", authRequired, async (req, res) => {
   if (req.user.role !== "admin") return res.status(403).json({ ok: false, message: "Admin access required." });
   const users = await readJson(listFiles.users, []);
@@ -5475,6 +5517,94 @@ app.post("/api/portal/attendance", authRequired, async (req, res) => {
   }
   await writeJson(listFiles.attendance, records);
   res.json({ ok: true, attendance: record, record });
+});
+
+function canReviewLeaveRequest(user = {}, request = {}) {
+  if (isAdminUser(user) || String(user.department || "").toLowerCase() === "executive office") return true;
+  const role = String(user.role || "").toLowerCase();
+  if (!["manager", "team lead", "team_lead", "lead"].includes(role)) return false;
+  return staffLookupKey(user.department) && staffLookupKey(user.department) === staffLookupKey(request.department);
+}
+
+app.post("/api/portal/leave-requests", authRequired, async (req, res) => {
+  const payload = cleanPayload(req.body || {});
+  const personId = String(payload.person_id || payload.staff_id || req.user?.linked_org_node || "").trim();
+  const now = new Date().toISOString();
+  if (!personId) return res.status(400).json({ ok: false, message: "Leave request requires a linked staff profile." });
+  if (!payload.reason) return res.status(400).json({ ok: false, message: "Leave reason is required." });
+  const [records, orgChart, deptComms] = await Promise.all([
+    readJson(listFiles.leave_requests, []),
+    readJson(listFiles.org_chart, []),
+    readJson(listFiles.dept_comms, [])
+  ]);
+  const person = orgChart.find((item) => String(item.id || "") === personId) || {};
+  const department = String(payload.department || person.department || req.user?.department || "").trim();
+  const userRole = String(req.user?.role || "").toLowerCase();
+  const isSelfRequest = String(req.user?.linked_org_node || "") === personId;
+  const canSubmitForDepartment = isAdminUser(req.user) || String(req.user?.department || "").toLowerCase() === "executive office" || (["manager", "team lead", "team_lead", "lead"].includes(userRole) && staffLookupKey(req.user?.department) === staffLookupKey(department));
+  if (!isSelfRequest && !canSubmitForDepartment) {
+    return res.status(403).json({ ok: false, message: "Staff can only submit their own leave request." });
+  }
+  const reviewer = orgChart.find((item) => staffLookupKey(item.department) === staffLookupKey(department) && isDepartmentHead(item));
+  const record = {
+    id: nextId(records, "LEAVE"),
+    ...payload,
+    person_id: personId,
+    person_name: String(payload.person_name || person.name || req.user?.display_name || req.user?.username || "").trim(),
+    department,
+    leave_type: String(payload.leave_type || "Casual").trim(),
+    start_date: String(payload.start_date || now.slice(0, 10)).slice(0, 10),
+    end_date: String(payload.end_date || payload.start_date || now.slice(0, 10)).slice(0, 10),
+    reason: String(payload.reason || "").trim(),
+    status: "Pending",
+    requested_by: req.user?.display_name || req.user?.username || "",
+    requested_by_username: req.user?.username || "",
+    submitted_at: now,
+    department_head_id: String(reviewer?.id || ""),
+    department_head_name: String(reviewer?.name || ""),
+    created_at: now,
+    updated_at: now
+  };
+  records.unshift(record);
+  deptComms.unshift({
+    id: nextId(deptComms, "MSG"),
+    department,
+    notification_type: "leave-request",
+    subject: `Leave request: ${record.person_name}`,
+    message: `${record.person_name} requested ${record.leave_type} leave from ${record.start_date} to ${record.end_date}. Reason: ${record.reason}`,
+    status: "Unread",
+    read: false,
+    staff_id: record.person_id,
+    leave_request_id: record.id,
+    created_at: now
+  });
+  await Promise.all([
+    writeJson(listFiles.leave_requests, records),
+    writeJson(listFiles.dept_comms, deptComms)
+  ]);
+  res.json({ ok: true, record, leave_request: record });
+});
+
+app.patch("/api/portal/leave-requests/:id", authRequired, async (req, res) => {
+  const records = await readJson(listFiles.leave_requests, []);
+  const index = findRecordIndex(records, req.params.id);
+  if (index < 0) return res.status(404).json({ ok: false, message: "Leave request not found." });
+  if (!canReviewLeaveRequest(req.user, records[index])) {
+    return res.status(403).json({ ok: false, message: "Only admin or the department head can approve this leave request." });
+  }
+  const now = new Date().toISOString();
+  const status = String(req.body?.status || records[index].status || "Pending").trim();
+  records[index] = {
+    ...records[index],
+    ...cleanPayload(req.body),
+    status,
+    reviewed_by: req.user?.display_name || req.user?.username || "",
+    reviewed_by_username: req.user?.username || "",
+    reviewed_at: ["approved", "rejected"].includes(status.toLowerCase()) ? now : records[index].reviewed_at || "",
+    updated_at: now
+  };
+  await writeJson(listFiles.leave_requests, records);
+  res.json({ ok: true, record: records[index], leave_request: records[index] });
 });
 
 for (const routeName of Object.keys(routeCollections).filter((route) => !route.includes("/"))) {

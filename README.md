@@ -171,11 +171,11 @@ API: `POST /api/portal/auth/login`, `GET /api/portal/auth/session`, `POST /api/p
 ### Authentication & Role-Based Access
 
 - Bearer-token login with migrated Werkzeug-compatible password hashes.
-- Roles: `admin`, `manager`, `technician`.
+- Roles: `admin`, `manager`, `staff`, `technician`.
 - Admins and Executive Office users see the full Expo module navigation.
-- Department-head accounts are seeded from the org chart for every department head/supervisor/CEO.
+- Staff login accounts are synced from the org chart for every staff member, with department heads/supervisors created as managers and other staff created as staff users.
 - Department heads see only the portal views needed for their department.
-- Admin Team Accounts can create accounts, change usernames/passwords, reset passwords, and activate/deactivate staff logins when staff changes.
+- Admin Team Accounts can sync all staff logins, link accounts to staff profile IDs, create accounts, change usernames/passwords, reset passwords, and activate/deactivate staff logins when staff changes.
 - Department managers land on a focused workspace:
   - `Service Control` → Service, Work Orders, Staff & Attendance
   - `Project Office` → Project Tickets, Projects, Staff & Attendance
@@ -183,10 +183,10 @@ API: `POST /api/portal/auth/login`, `GET /api/portal/auth/session`, `POST /api/p
   - `Stores & Procurement` → Inventory, Staff & Attendance
   - `CRM & Renewals` → Customers, Renewals, Staff & Attendance
   - `Customer Success` → Customers, Service, Work Orders, Staff & Attendance
-- First-use accounts are blocked until the user rotates their temporary password.
+- Staff accounts use the configured staff portal password unless admin sets a user-specific password.
 - Admin can reset any team password from the Team Accounts view.
 
-API: `POST /api/portal/users`, `PATCH /api/portal/users/<id>`
+API: `POST /api/portal/users/sync-staff`, `POST /api/portal/users`, `PATCH /api/portal/users/<id>`
 
 ---
 
@@ -580,8 +580,8 @@ API: `GET /api/portal/inventory`, `POST /api/portal/inventory`, `PATCH /api/port
 - Optional notes per person.
 - Attendance console for manual edits after selecting a staff member.
 - Managers can mark attendance only for their own department; admin can mark for all.
-- Staff can apply for leave with leave type, date range, and reason.
-- Leave requests stay `Pending` until a manager/admin approves or rejects them, with a separate approval queue and leave history.
+- Staff can apply for leave with leave type, date range, and reason from their own login.
+- Leave requests stay `Pending` until the department head/manager or admin approves or rejects them. Admin sees all leave requests; department heads see their department; regular staff see their own requests and history.
 
 API: `GET /api/portal/org-chart`, `POST /api/portal/org-chart`, `PATCH /api/portal/org-chart/<id>`, `DELETE /api/portal/org-chart/<id>`, `GET /api/portal/attendance`, `POST /api/portal/attendance`, `PATCH /api/portal/attendance/<id>`, `GET /api/portal/leave-requests`, `POST /api/portal/leave-requests`, `PATCH /api/portal/leave-requests/<id>`
 

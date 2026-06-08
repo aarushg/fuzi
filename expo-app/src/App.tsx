@@ -467,6 +467,7 @@ const emptyAccountDraft = {
   display_name: "",
   department: "",
   role: "manager",
+  linked_org_node: "",
   password: "",
   active: "Y",
 };
@@ -3926,8 +3927,21 @@ export default function App() {
     const viewerStaff = viewerStaffRecord(staff);
     const viewerStaffId = viewerStaff ? fieldText(viewerStaff, ["id"]) : "";
     const viewerAttendance = viewerStaffId ? attendanceByPerson.get(viewerStaffId) : undefined;
-    const canManageAttendance = String(viewer.role || "").toLowerCase() === "admin" || String(viewer.department || "").toLowerCase() === "executive office";
+    const viewerRole = String(viewer.role || "").toLowerCase();
+    const viewerDepartment = fieldText(viewer, ["department"]);
+    const canManageAttendance = viewerRole === "admin" || String(viewerDepartment).toLowerCase() === "executive office";
+    const canReviewLeave = canManageAttendance || ["manager", "team lead", "team_lead", "lead"].includes(viewerRole);
     const pendingLeaves = leaves.filter((item) => String(item.status || "").toLowerCase() === "pending");
+    const visiblePendingLeaves = pendingLeaves.filter((item) => {
+      if (canManageAttendance) return true;
+      if (canReviewLeave) return normalizedKey(fieldText(item, ["department"])) === normalizedKey(viewerDepartment);
+      return fieldText(item, ["person_id", "staff_id"]) === viewerStaffId;
+    });
+    const visibleLeaveHistory = leaves.filter((item) => {
+      if (canManageAttendance) return true;
+      if (canReviewLeave) return normalizedKey(fieldText(item, ["department"])) === normalizedKey(viewerDepartment);
+      return fieldText(item, ["person_id", "staff_id"]) === viewerStaffId;
+    });
     const approvedLeaves = leaves.filter((item) => {
       const status = String(item.status || "").toLowerCase();
       const start = fieldText(item, ["start_date"]);
@@ -3963,7 +3977,7 @@ export default function App() {
           </View>
           <View style={styles.card}>
             <Text style={styles.cardLabel}>Pending leave</Text>
-            <Text style={styles.metricValue}>{pendingLeaves.length}</Text>
+            <Text style={styles.metricValue}>{visiblePendingLeaves.length}</Text>
             <Text style={styles.muted}>Manager action required.</Text>
           </View>
         </View>
@@ -3992,6 +4006,49 @@ export default function App() {
             </Pressable>
           </View>
           <Text style={styles.muted}>Location is captured from the staff member's browser when they check in or out.</Text>
+        </View>
+
+        <View style={styles.formCard}>
+          <View style={styles.cardHeaderRow}>
+            <View>
+              <Text style={styles.cardLabel}>My time off</Text>
+              <Text style={styles.cardTitle}>{leaveDraft.person_name || fieldText(viewerStaff || {}, ["name"]) || "Staff profile not linked"}</Text>
+            </View>
+            <Text style={styles.statusPill}>{leaveDraft.department || fieldText(viewerStaff || {}, ["department"]) || "Department"}</Text>
+          </View>
+          {!viewerStaff && <Text style={styles.muted}>Ask admin to link your login to a staff profile before requesting time off.</Text>}
+          <View style={styles.formGrid}>
+            {[
+              ["leave_type", "Leave type"],
+              ["start_date", "Start date"],
+              ["end_date", "End date"],
+              ["reason", "Reason"],
+            ].map(([key, label]) => (
+              <View key={`self-leave-${key}`} style={styles.field}>
+                <Text style={styles.label}>{label}</Text>
+                <TextInput
+                  style={[styles.input, key === "reason" && styles.textarea]}
+                  value={String(leaveDraft[key as keyof typeof leaveDraft] || "")}
+                  onChangeText={(value) => setLeaveDraft((draft) => ({ ...draft, [key]: value }))}
+                  multiline={key === "reason"}
+                />
+              </View>
+            ))}
+          </View>
+          <View style={styles.inlineActions}>
+            {["Casual", "Sick", "Earned", "Unpaid"].map((leaveType) => (
+              <Pressable key={`self-${leaveType}`} style={styles.smallButton} onPress={() => setLeaveDraft((draft) => ({ ...draft, leave_type: leaveType }))}>
+                <Text style={styles.smallButtonText}>{leaveType}</Text>
+              </Pressable>
+            ))}
+            <Pressable
+              style={styles.primaryButtonInline}
+              onPress={saveLeaveRequest}
+              disabled={loading || !viewerStaff || !leaveDraft.person_id}
+            >
+              <Text style={styles.primaryButtonText}>Request time off</Text>
+            </Pressable>
+          </View>
         </View>
 
         <View style={styles.formCard}>
@@ -4096,48 +4153,16 @@ export default function App() {
               <Text style={styles.primaryButtonText}>Save attendance</Text>
             </Pressable>
           </View>
-
-          <View style={styles.formCard}>
-            <Text style={styles.cardLabel}>Leave request</Text>
-            {[
-              ["person_name", "Staff name"],
-              ["department", "Department"],
-              ["leave_type", "Leave type"],
-              ["start_date", "Start date"],
-              ["end_date", "End date"],
-              ["reason", "Reason"],
-            ].map(([key, label]) => (
-              <View key={key} style={styles.field}>
-                <Text style={styles.label}>{label}</Text>
-                <TextInput
-                  style={[styles.input, key === "reason" && styles.textarea]}
-                  value={String(leaveDraft[key as keyof typeof leaveDraft] || "")}
-                  onChangeText={(value) => setLeaveDraft((draft) => ({ ...draft, [key]: value }))}
-                  multiline={key === "reason"}
-                />
-              </View>
-            ))}
-            <View style={styles.inlineActions}>
-              {["Casual", "Sick", "Earned", "Unpaid"].map((leaveType) => (
-                <Pressable key={leaveType} style={styles.smallButton} onPress={() => setLeaveDraft((draft) => ({ ...draft, leave_type: leaveType }))}>
-                  <Text style={styles.smallButtonText}>{leaveType}</Text>
-                </Pressable>
-              ))}
-            </View>
-            <Pressable style={styles.primaryButton} onPress={saveLeaveRequest} disabled={loading || !leaveDraft.person_id}>
-              <Text style={styles.primaryButtonText}>Submit leave request</Text>
-            </Pressable>
-          </View>
         </View>}
 
         <Text style={styles.sectionTitle}>Leave Approval Queue</Text>
-        {!pendingLeaves.length && (
+        {!visiblePendingLeaves.length && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No pending leave requests</Text>
             <Text style={styles.muted}>Approved and rejected requests stay in the leave history below.</Text>
           </View>
         )}
-        {pendingLeaves.map((item, index) => {
+        {visiblePendingLeaves.map((item, index) => {
           const id = recordIdentity(item) || String(item.id || `LEAVE-${index + 1}`);
           return (
             <View key={id} style={styles.card}>
@@ -4147,14 +4172,18 @@ export default function App() {
               </View>
               <Text style={styles.muted}>{fieldText(item, ["department"])} - {fieldText(item, ["leave_type"])} - {fieldText(item, ["start_date"])} to {fieldText(item, ["end_date"])}</Text>
               <Text style={styles.bodyText}>{fieldText(item, ["reason", "notes"])}</Text>
-              <View style={styles.inlineActions}>
-                <Pressable style={styles.smallButton} onPress={() => updateLeaveRequest(id, "Approved")} disabled={loading}>
-                  <Text style={styles.smallButtonText}>Approve</Text>
-                </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateLeaveRequest(id, "Rejected")} disabled={loading}>
-                  <Text style={styles.smallButtonText}>Reject</Text>
-                </Pressable>
-              </View>
+              {canReviewLeave ? (
+                <View style={styles.inlineActions}>
+                  <Pressable style={styles.smallButton} onPress={() => updateLeaveRequest(id, "Approved")} disabled={loading}>
+                    <Text style={styles.smallButtonText}>Approve</Text>
+                  </Pressable>
+                  <Pressable style={styles.smallButton} onPress={() => updateLeaveRequest(id, "Rejected")} disabled={loading}>
+                    <Text style={styles.smallButtonText}>Reject</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Text style={styles.muted}>Waiting for department head approval.</Text>
+              )}
             </View>
           );
         })}
@@ -4181,7 +4210,7 @@ export default function App() {
         ))}
 
         <Text style={styles.sectionTitle}>Leave History</Text>
-        {leaves.slice(0, 30).map((item, index) => {
+        {visibleLeaveHistory.slice(0, 30).map((item, index) => {
           const id = recordIdentity(item) || String(item.id || `LEAVE-HISTORY-${index + 1}`);
           return (
             <View key={id} style={styles.card}>
@@ -4194,7 +4223,7 @@ export default function App() {
               {!!fieldText(item, ["approved_by"]) && (
                 <Text style={styles.bodyText}>Approved by: {fieldText(item, ["approved_by"])} - {fieldText(item, ["approved_at"])}</Text>
               )}
-              {String(item.status || "").toLowerCase() === "pending" && (
+              {canReviewLeave && String(item.status || "").toLowerCase() === "pending" && (
                 <View style={styles.inlineActions}>
                   <Pressable style={styles.smallButton} onPress={() => updateLeaveRequest(id, "Approved")} disabled={loading}>
                     <Text style={styles.smallButtonText}>Approve</Text>
@@ -4207,7 +4236,7 @@ export default function App() {
             </View>
           );
         })}
-        {!leaves.length && (
+        {!visibleLeaveHistory.length && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No leave records</Text>
             <Text style={styles.muted}>Staff leave requests will appear here after submission.</Text>
@@ -6075,8 +6104,16 @@ export default function App() {
   function renderAccountsPage() {
     const users = asRecords(data?.users);
     const org = asRecords(data?.org_chart);
+    const managerIds = new Set(org.map((person) => fieldText(person, ["reports_to"])).filter(Boolean));
     const heads = org.filter((person) => /head|supervisor|manager|director|ceo/i.test(`${person.title || ""} ${person.name || ""}`));
     const isAdmin = data?.viewer?.role === "admin";
+    const loginForPerson = (person: Record<string, unknown>) => users.find((user) =>
+      String(user.linked_org_node || "") === String(person.id || "") ||
+      String(user.display_name || "").toLowerCase() === String(person.name || "").toLowerCase()
+    );
+    const roleForPerson = (person: Record<string, unknown>) => String(person.department || "").toLowerCase() === "executive office"
+      ? "admin"
+      : (/head|supervisor|manager|director|ceo/i.test(`${person.title || ""} ${person.name || ""}`) || managerIds.has(fieldText(person, ["id"])) ? "manager" : "staff");
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -6096,11 +6133,17 @@ export default function App() {
           <View style={styles.formCard}>
             <Text style={styles.cardLabel}>{accountDraft.id ? "Edit account" : "Create account"}</Text>
             <Text style={styles.muted}>Staff portal passwords are managed by the server secret file. Leave the password field blank to use the configured staff password.</Text>
+            <View style={styles.inlineActions}>
+              <Pressable style={styles.primaryButtonInline} onPress={syncStaffLogins} disabled={loading}>
+                <Text style={styles.primaryButtonText}>Sync all staff logins</Text>
+              </Pressable>
+            </View>
             {[
               ["username", "Username"],
               ["display_name", "Display name"],
               ["department", "Department"],
               ["role", "Role"],
+              ["linked_org_node", "Linked staff profile ID"],
               ["password", "New password"],
               ["active", "Active Y/N"],
             ].map(([key, label]) => (
@@ -6126,9 +6169,52 @@ export default function App() {
           </View>
         )}
 
+        <Text style={styles.sectionTitle}>Staff Login Coverage</Text>
+        {org.map((person) => {
+          const linked = loginForPerson(person);
+          return (
+            <View key={`staff-login-${String(person.id || person.name)}`} style={styles.card}>
+              <View style={styles.cardHeaderRow}>
+                <View>
+                  <Text style={styles.cardTitle}>{fieldText(person, ["name"])}</Text>
+                  <Text style={styles.muted}>{fieldText(person, ["title"])} - {fieldText(person, ["department"])}</Text>
+                </View>
+                <Text style={styles.statusPill}>{linked ? "Login ready" : "Missing login"}</Text>
+              </View>
+              <Text style={styles.bodyText}>Username: {linked ? fieldText(linked, ["username"]) : "-"}</Text>
+              <Text style={styles.bodyText}>Linked staff profile ID: {fieldText(person, ["id"]) || "-"}</Text>
+              {isAdmin && (
+                <View style={styles.inlineActions}>
+                  {linked ? (
+                    <Pressable style={styles.smallButton} onPress={() => editAccount(linked)} disabled={loading}>
+                      <Text style={styles.smallButtonText}>Edit login</Text>
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      style={styles.smallButton}
+                      onPress={() => setAccountDraft({
+                        id: "",
+                        username: String(person.name || "").toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.+|\.+$/g, ""),
+                        display_name: String(person.name || ""),
+                        department: String(person.department || ""),
+                        role: roleForPerson(person),
+                        linked_org_node: String(person.id || ""),
+                        password: "",
+                        active: "Y",
+                      })}
+                    >
+                      <Text style={styles.smallButtonText}>Prepare login</Text>
+                    </Pressable>
+                  )}
+                </View>
+              )}
+            </View>
+          );
+        })}
+
         <Text style={styles.sectionTitle}>Org Supervisors</Text>
         {heads.map((person) => {
-          const linked = users.find((user) => String(user.linked_org_node || "") === String(person.id) || String(user.display_name || "").toLowerCase() === String(person.name || "").toLowerCase());
+          const linked = loginForPerson(person);
           return (
             <View key={String(person.id)} style={styles.card}>
               <Text style={styles.cardTitle}>{fieldText(person, ["name"])}</Text>
@@ -6143,6 +6229,7 @@ export default function App() {
                     display_name: String(person.name || ""),
                     department: String(person.department || ""),
                     role: String(person.department || "").toLowerCase() === "executive office" ? "admin" : "manager",
+                    linked_org_node: String(person.id || ""),
                     password: "",
                     active: "Y",
                   })}
@@ -8765,6 +8852,7 @@ export default function App() {
       display_name: String(user.display_name || ""),
       department: String(user.department || ""),
       role: String(user.role || "manager"),
+      linked_org_node: String(user.linked_org_node || ""),
       password: "",
       active: String(user.active) === "false" ? "N" : "Y",
     });
@@ -8776,6 +8864,7 @@ export default function App() {
       display_name: accountDraft.display_name,
       department: accountDraft.department,
       role: accountDraft.role,
+      linked_org_node: accountDraft.linked_org_node,
       active: accountDraft.active.toUpperCase() !== "N",
       ...(accountDraft.password ? { password: accountDraft.password } : {}),
     };
@@ -8816,6 +8905,23 @@ export default function App() {
       setMessage("Team account updated.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Team account could not be updated.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function syncStaffLogins() {
+    setLoading(true);
+    try {
+      const result = await apiFetch<{ created?: number; message?: string }>("/api/portal/users/sync-staff", {
+        method: "POST",
+        token,
+        body: JSON.stringify({}),
+      });
+      await loadPortal();
+      setMessage(result.message || `Staff login accounts synced. Created ${result.created || 0}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Staff logins could not be synced.");
     } finally {
       setLoading(false);
     }
@@ -9478,6 +9584,17 @@ export default function App() {
     const interval = setInterval(() => setProjectNow(Date.now()), 60000);
     return () => clearInterval(interval);
   }, [token, activeTab]);
+
+  useEffect(() => {
+    const staff = viewerStaffRecord(asRecords(data?.org_chart));
+    if (!staff || leaveDraft.person_id) return;
+    setLeaveDraft((draft) => ({
+      ...draft,
+      person_id: fieldText(staff, ["id"]),
+      person_name: fieldText(staff, ["name"]),
+      department: fieldText(staff, ["department"]),
+    }));
+  }, [data?.org_chart, data?.viewer, leaveDraft.person_id]);
 
   useEffect(() => {
     setCustomerPage(1);
