@@ -4402,21 +4402,25 @@ export default function App() {
         })}
         {!assignedTeam.length && <Text style={styles.muted}>No staff assigned yet.</Text>}
         <Text style={styles.label}>Add staff member</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
-          {customerStaffDirectory.map((staff) => {
-            const active = assignedStaffKeys.has(assignmentStaffKey(staff));
-            return (
-              <Pressable
-                key={`edit-assign-${customer.id}-${staff.id}`}
-                style={[styles.selectorPill, active && styles.selectorPillActive]}
-                onPress={() => toggleCustomerStaffAssignment(customer, staff)}
-                disabled={loading}
-              >
-                <Text style={styles.selectorText}>{staff.name} - {staff.department}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+        {customerStaffDirectory.length ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
+            {customerStaffDirectory.map((staff) => {
+              const active = assignedStaffKeys.has(assignmentStaffKey(staff));
+              return (
+                <Pressable
+                  key={`edit-assign-${customer.id}-${staff.id}`}
+                  style={[styles.selectorPill, active && styles.selectorPillActive]}
+                  onPress={() => toggleCustomerStaffAssignment(customer, staff)}
+                  disabled={loading}
+                >
+                  <Text style={styles.selectorText}>{staff.name} - {staff.department}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        ) : (
+          <Text style={styles.muted}>Staff directory is still loading. Refresh once if staff names do not appear.</Text>
+        )}
       </View>
     );
   }
@@ -5506,9 +5510,6 @@ export default function App() {
                 <View style={styles.inlineActions}>
                   <Pressable style={styles.smallButton} onPress={() => editCustomer(customer)} disabled={loading}>
                     <Text style={styles.smallButtonText}>Edit</Text>
-                  </Pressable>
-                  <Pressable style={styles.smallButton} onPress={() => grantCustomerAccess(customer)} disabled={loading}>
-                    <Text style={styles.smallButtonText}>Grant portal access</Text>
                   </Pressable>
                   <Pressable
                     style={styles.smallButton}

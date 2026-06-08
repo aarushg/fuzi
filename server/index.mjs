@@ -341,6 +341,7 @@ function accessForUser(user = {}) {
     factory: ["overview", "factory", "inventory", "installations", "comms"],
     "back office": ["overview", "customers", "backoffice", "accounts", "orgchart", "siteVisits", "comms"],
     "project office": ["overview", "tickets", "projects", "installations", "team", "orgchart", "comms"],
+    staff: ["overview", "customers", "siteVisits", "orgchart", "comms"],
     "stores & procurement": ["overview", "inventory", "factory", "comms"]
   };
   const key = String(user.department || "").toLowerCase();
@@ -353,7 +354,7 @@ function accessForUser(user = {}) {
 const viewDataKeys = {
   overview: ["customers", "customer_assignments", "department_assignments", "time_tracking", "department_history", "org_chart", "users"],
   modules: ["platform_modules"],
-  customers: ["customers", "customer_assignments", "customer_users", "sales_inquiries", "estimates", "payments", "site_visits"],
+  customers: ["customers", "customer_assignments", "customer_users", "sales_inquiries", "estimates", "payments", "site_visits", "org_chart", "users"],
   offerManager: ["customers", "sales_inquiries", "estimates"],
   marketing: ["marketing_assets", "customers", "estimates", "international_vendors"],
   tickets: ["project_tickets"],
