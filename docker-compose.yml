@@ -12,7 +12,9 @@ services:
       FUZI_OPENCLAW_URL: ${FUZI_OPENCLAW_URL:-}
       FUZI_OPENCLAW_ADDRESS: ${FUZI_OPENCLAW_ADDRESS:-}
       FUZI_OPENCLAW_HOST: ${FUZI_OPENCLAW_HOST:-host.docker.internal}
-      FUZI_OPENCLAW_PORT: ${FUZI_OPENCLAW_PORT:-18789}
+      FUZI_OPENCLAW_PORT: ${FUZI_OPENCLAW_PUBLISHED_PORT:-${FUZI_OPENCLAW_PORT:-18789}}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${FUZI_API_PUBLISHED_PORT:-5000}:5000"
     volumes:
