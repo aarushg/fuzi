@@ -876,11 +876,23 @@ export default function App() {
   const asRecords = (value: unknown): Array<Record<string, unknown>> => (Array.isArray(value) ? (value as Array<Record<string, unknown>>) : []);
   const isAdmin = String(data?.viewer?.role || "").trim().toLowerCase() === "admin";
   const normalizedKey = (value: unknown) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
-  const loginDepartments = useMemo(() => Array.from(new Set(loginDirectory.map((user) => fieldText(user, ["department"]) || "Unassigned"))).sort(), [loginDirectory]);
+  const adminLoginUsers = useMemo(
+    () => loginDirectory.filter((user) => {
+      const text = `${fieldText(user, ["username"])} ${fieldText(user, ["display_name"])} ${fieldText(user, ["department"])} ${fieldText(user, ["role"])}`;
+      return /admin|ceo|chief executive|executive office/i.test(text);
+    }),
+    [loginDirectory],
+  );
+  const loginDepartments = useMemo(() => {
+    const departments = Array.from(new Set(loginDirectory.map((user) => fieldText(user, ["department"]) || "Unassigned"))).sort();
+    return adminLoginUsers.length ? ["Admin / CEO", ...departments.filter((department) => department !== "Admin / CEO")] : departments;
+  }, [adminLoginUsers.length, loginDirectory]);
   const selectedLoginDepartment = loginDepartment || loginDepartments[0] || "";
   const loginUsersForDepartment = useMemo(
-    () => loginDirectory.filter((user) => (fieldText(user, ["department"]) || "Unassigned") === selectedLoginDepartment),
-    [loginDirectory, selectedLoginDepartment],
+    () => selectedLoginDepartment === "Admin / CEO"
+      ? adminLoginUsers
+      : loginDirectory.filter((user) => (fieldText(user, ["department"]) || "Unassigned") === selectedLoginDepartment),
+    [adminLoginUsers, loginDirectory, selectedLoginDepartment],
   );
   const visibleNavItems = useMemo(() => {
     const allowed = data?.access?.allowed_views;
@@ -9554,7 +9566,11 @@ export default function App() {
         const users = result.users || [];
         setLoginDirectory(users);
         if (!loginDepartment && users.length) {
-          setLoginDepartment(fieldText(users[0], ["department"]) || "Unassigned");
+          const hasAdminLogin = users.some((user) => {
+            const text = `${fieldText(user, ["username"])} ${fieldText(user, ["display_name"])} ${fieldText(user, ["department"])} ${fieldText(user, ["role"])}`;
+            return /admin|ceo|chief executive|executive office/i.test(text);
+          });
+          setLoginDepartment(hasAdminLogin ? "Admin / CEO" : (fieldText(users[0], ["department"]) || "Unassigned"));
         }
       })
       .catch(() => setLoginDirectory([]));
