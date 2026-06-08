@@ -5816,9 +5816,16 @@ async function discordBreakdownSyncErrorMessage(result, assignedWaiting = []) {
   const syncErrorMessage = String(result?.message || result?.status || "unknown error").trim();
   const attemptedMessage = openClawConnectionTriedMessage();
   const extraErrorMessage = String(autoAssignmentNotificationErrorMessage(assignedWaiting) || await currentOpenClawBreakdownErrorMessage() || "").trim();
-  const extras = [attemptedMessage, extraErrorMessage]
-    .map((message) => String(message || "").trim())
-    .filter((message, index, messages) => message && message !== syncErrorMessage && messages.indexOf(message) === index);
+  const extras = [];
+  for (const message of [attemptedMessage, extraErrorMessage].map((item) => String(item || "").trim())) {
+    if (!message || message === syncErrorMessage) continue;
+    const existingIndex = extras.findIndex((existing) => existing === message || existing.includes(message) || message.includes(existing));
+    if (existingIndex >= 0) {
+      if (message.length > extras[existingIndex].length) extras[existingIndex] = message;
+    } else {
+      extras.push(message);
+    }
+  }
   return extras.length ? `${syncErrorMessage} ${extras.join(" ")}` : syncErrorMessage;
 }
 
