@@ -4885,6 +4885,7 @@ app.post("/api/portal/breakdown/sync-discord", authRequired, async (req, res) =>
     force: req.body?.force !== false,
     limit: Number(req.body?.limit || 50)
   });
+  if (!result.ok) result.message = await discordBreakdownSyncErrorMessage(result);
   res.status(result.ok ? 200 : 502).json(result);
 });
 
@@ -5723,18 +5724,22 @@ async function storedOpenClawBreakdownErrorMessage() {
   return "";
 }
 
+async function discordBreakdownSyncErrorMessage(result, assignedWaiting = []) {
+  const syncErrorMessage = String(result?.message || result?.status || "unknown error").trim();
+  const extraErrorMessage = String(autoAssignmentNotificationErrorMessage(assignedWaiting) || await storedOpenClawBreakdownErrorMessage() || "").trim();
+  return extraErrorMessage && extraErrorMessage !== syncErrorMessage
+    ? `${syncErrorMessage} ${extraErrorMessage}`
+    : syncErrorMessage;
+}
+
 async function runDiscordBreakdownSync() {
   const result = await discordBreakdownSyncService.sync();
   const assignedWaiting = await discordBreakdownSyncService.assignWaitingBreakdowns();
   if (assignedWaiting.length) result.assigned_waiting_breakdowns = assignedWaiting.length;
   if (!result.ok && !discordBreakdownSyncWarned) {
     discordBreakdownSyncWarned = true;
-    const syncErrorMessage = String(result.message || result.status || "unknown error").trim();
-    const extraErrorMessage = String(autoAssignmentNotificationErrorMessage(assignedWaiting) || await storedOpenClawBreakdownErrorMessage() || "").trim();
-    const errorMessage = extraErrorMessage && extraErrorMessage !== syncErrorMessage
-      ? `${syncErrorMessage} ${extraErrorMessage}`
-      : syncErrorMessage;
-    console.warn(errorMessage);
+    result.message = await discordBreakdownSyncErrorMessage(result, assignedWaiting);
+    console.warn(result.message);
   }
   if (result.ok) discordBreakdownSyncWarned = false;
   return result;
