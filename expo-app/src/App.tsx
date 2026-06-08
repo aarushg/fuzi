@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Linking,
   Modal,
   Platform,
@@ -1726,6 +1725,17 @@ export default function App() {
                 <Text style={styles.muted}>{String(item.assignment.staff_name || "-")} - {String(item.assignment.department || "-")} - {String(item.assignment.role || "-")}</Text>
               </View>
               {!!item.assignment.primary_owner && <Text style={styles.statusPill}>Primary</Text>}
+              <Pressable
+                style={styles.smallButton}
+                onPress={() => {
+                  const customer = item.customer;
+                  setCrmSearch(String(customer?.id || customer?.name || item.assignment.customer_id || ""));
+                  setActiveTab("customers");
+                }}
+                disabled={loading}
+              >
+                <Text style={styles.smallButtonText}>Open CRM</Text>
+              </Pressable>
             </View>
           ))}
           {!myAssignedCustomers.length && !departmentAssignedCustomers.length && (
@@ -4355,6 +4365,62 @@ export default function App() {
     await saveCustomerAssignments(customer, assignments);
   }
 
+  function renderCustomerAssignmentManager(customer: Customer) {
+    const assignedTeam = customerAssignmentRecords(customer.id);
+    const assignedStaffKeys = new Set(assignedTeam.map(assignmentStaffKey));
+    if (!canManageCustomerAssignments()) {
+      return <Text style={styles.muted}>Only Admin, Manager, or Team Lead users can change assignments.</Text>;
+    }
+    return (
+      <View style={styles.assignedTeamPanel}>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.cardLabel}>Assign Staff</Text>
+          {!!assignedTeam.length && <Text style={styles.statusPill}>{assignedTeam.length} selected</Text>}
+        </View>
+        {assignedTeam.map((assignment) => {
+          const name = String(assignment.staff_name || assignment.name || "-");
+          return (
+            <View key={`edit-assignment-${String(assignment.id || assignment.staff_id || name)}`} style={styles.assignmentRow}>
+              <View style={styles.assignmentAvatar}>
+                <Text style={styles.assignmentAvatarText}>{staffInitials(name)}</Text>
+              </View>
+              <View style={styles.assignmentDetails}>
+                <Text style={styles.assignmentName}>{name} - {String(assignment.department || "Unassigned")}</Text>
+                <Text style={styles.muted}>{String(assignment.role || assignment.position || "Role not set")}</Text>
+              </View>
+              {!!assignment.primary_owner && <Text style={styles.statusPill}>Primary</Text>}
+              {!assignment.primary_owner && (
+                <Pressable style={styles.smallButton} onPress={() => setPrimaryCustomerAssignment(customer, assignment)} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Make primary</Text>
+                </Pressable>
+              )}
+              <Pressable style={styles.dangerButton} onPress={() => toggleCustomerStaffAssignment(customer, assignment)} disabled={loading}>
+                <Text style={styles.dangerButtonText}>Remove</Text>
+              </Pressable>
+            </View>
+          );
+        })}
+        {!assignedTeam.length && <Text style={styles.muted}>No staff assigned yet.</Text>}
+        <Text style={styles.label}>Add staff member</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
+          {customerStaffDirectory.map((staff) => {
+            const active = assignedStaffKeys.has(assignmentStaffKey(staff));
+            return (
+              <Pressable
+                key={`edit-assign-${customer.id}-${staff.id}`}
+                style={[styles.selectorPill, active && styles.selectorPillActive]}
+                onPress={() => toggleCustomerStaffAssignment(customer, staff)}
+                disabled={loading}
+              >
+                <Text style={styles.selectorText}>{staff.name} - {staff.department}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  }
+
   function crmNameKey(value: unknown) {
     return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
   }
@@ -5155,6 +5221,7 @@ export default function App() {
                   />
                 </View>
               ))}
+              {!!customerDraft.id && renderCustomerAssignmentManager(customerDraft as Customer)}
               {!!customerDraft.id && (
                 <View style={styles.inlineRecordEditor}>
                   <View style={styles.inlineActions}>
@@ -5407,13 +5474,16 @@ export default function App() {
             const customerSiteVisits = (data?.site_visits || []).filter((visit) => String(visit.customer_id || "") === String(customer.id || ""));
             const customerInstallations = asRecords(data?.install_jobs).filter((job) => String(job.customer_id || "") === String(customer.id || "") || crmNameKey(job.customer) === crmNameKey(customer.name));
             const assignedTeam = customerAssignmentRecords(customer.id);
-            const assignedStaffKeys = new Set(assignedTeam.map(assignmentStaffKey));
-            const canEditAssignments = canManageCustomerAssignments();
             return (
               <View key={`customer-${customer.id}`} style={[styles.card, compactLists && styles.compactCard]}>
                 <View style={styles.cardHeaderRow}>
                   <Text style={styles.cardTitle}>{customer.name}</Text>
-                  <Text style={styles.statusPill}>{costingStatus}</Text>
+                  <View style={styles.cardTitleBlock}>
+                    <Text style={styles.statusPill}>{costingStatus}</Text>
+                    <Text style={styles.muted}>
+                      Assigned: {assignedTeam.length ? assignedTeam.map((assignment) => `${String(assignment.staff_name || assignment.name || "-")} - ${String(assignment.department || "Unassigned")}${assignment.primary_owner ? " (Primary)" : ""}`).join("; ") : "No staff assigned"}
+                    </Text>
+                  </View>
                 </View>
                 <Text style={styles.muted}>{customer.id} - {customer.address || "No address"} - Pipeline: {customer.pipeline_stage || "Lead"}</Text>
                 <Text style={styles.bodyText}>Offers: {customerEstimates.length}{latestEstimate ? ` - Latest ${String(latestEstimate.job_no || latestEstimate.id || "-")} - ${String(latestEstimate.offer_date || latestEstimate.created_at || "-")} - ${formatMoney(offerCostSummary(latestEstimate).totalCost)}` : ""}</Text>
@@ -5433,65 +5503,6 @@ export default function App() {
                 )}
                 <Text style={styles.bodyText}>{customer.contact_person || "No contact"} - {customer.phone || "No mobile"} - {customer.email || "No email"}</Text>
                 <Text style={styles.bodyText}>Owner: {customer.account_owner || "-"} - Source: {customer.lead_source || "-"} - Channel: {customer.preferred_channel || "-"}</Text>
-                <View style={styles.assignedTeamPanel}>
-                  <View style={styles.cardHeaderRow}>
-                    <Text style={styles.cardLabel}>Assigned Team</Text>
-                    {!!assignedTeam.length && <Text style={styles.statusPill}>{assignedTeam.length} staff</Text>}
-                  </View>
-                  {assignedTeam.map((assignment) => {
-                    const name = String(assignment.staff_name || assignment.name || "-");
-                    const avatarUrl = String(assignment.avatar_url || "");
-                    return (
-                      <View key={`assignment-${String(assignment.id || assignment.staff_id || name)}`} style={styles.assignmentRow}>
-                        {avatarUrl ? (
-                          <Image source={{ uri: avatarUrl }} style={styles.assignmentAvatarImage} />
-                        ) : (
-                          <View style={styles.assignmentAvatar}>
-                            <Text style={styles.assignmentAvatarText}>{staffInitials(name)}</Text>
-                          </View>
-                        )}
-                        <View style={styles.assignmentDetails}>
-                          <Text style={styles.assignmentName}>{name} - {String(assignment.department || "Unassigned")}</Text>
-                          <Text style={styles.muted}>{String(assignment.role || assignment.position || "Role not set")}</Text>
-                        </View>
-                        {!!assignment.primary_owner && <Text style={styles.statusPill}>Primary</Text>}
-                        {canEditAssignments && !assignment.primary_owner && (
-                          <Pressable style={styles.smallButton} onPress={() => setPrimaryCustomerAssignment(customer, assignment)} disabled={loading}>
-                            <Text style={styles.smallButtonText}>Make primary</Text>
-                          </Pressable>
-                        )}
-                        {canEditAssignments && (
-                          <Pressable style={styles.dangerButton} onPress={() => toggleCustomerStaffAssignment(customer, assignment)} disabled={loading}>
-                            <Text style={styles.dangerButtonText}>Remove</Text>
-                          </Pressable>
-                        )}
-                      </View>
-                    );
-                  })}
-                  {!assignedTeam.length && <Text style={styles.muted}>No staff assigned yet.</Text>}
-                  {canEditAssignments ? (
-                    <View style={styles.assignmentPicker}>
-                      <Text style={styles.label}>Add or change staff</Text>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
-                        {customerStaffDirectory.map((staff) => {
-                          const active = assignedStaffKeys.has(assignmentStaffKey(staff));
-                          return (
-                            <Pressable
-                              key={`assign-${customer.id}-${staff.id}`}
-                              style={[styles.selectorPill, active && styles.selectorPillActive]}
-                              onPress={() => toggleCustomerStaffAssignment(customer, staff)}
-                              disabled={loading}
-                            >
-                              <Text style={styles.selectorText}>{staff.name} - {staff.department}</Text>
-                            </Pressable>
-                          );
-                        })}
-                      </ScrollView>
-                    </View>
-                  ) : (
-                    <Text style={styles.muted}>Only Admin, Manager, or Team Lead users can change assignments.</Text>
-                  )}
-                </View>
                 <View style={styles.inlineActions}>
                   <Pressable style={styles.smallButton} onPress={() => editCustomer(customer)} disabled={loading}>
                     <Text style={styles.smallButtonText}>Edit</Text>
@@ -10002,7 +10013,6 @@ const styles = StyleSheet.create({
   assignedTeamPanel: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 12, gap: 10, marginTop: 12 },
   assignmentRow: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", borderTopWidth: 1, borderTopColor: "#e4e7ee", paddingTop: 10 },
   assignmentAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#11131b", alignItems: "center", justifyContent: "center" },
-  assignmentAvatarImage: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#e4e7ee" },
   assignmentAvatarText: { color: "#fff", fontSize: 12, fontWeight: "900" },
   assignmentDetails: { flex: 1, minWidth: 190 },
   assignmentName: { color: "#11131b", fontSize: 14, fontWeight: "900" },
