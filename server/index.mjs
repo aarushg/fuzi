@@ -2297,7 +2297,9 @@ function createOpenClawCommunicationService({
       } catch {
         json = {};
       }
-      return { ok: response.ok && (json.ok !== false), status: response.status, body: body.slice(0, 400), json, url: endpoint };
+      const ok = response.ok && (json.ok !== false);
+      const responseError = String(json.error || json.message || (!ok ? body : "") || "").trim();
+      return { ok, status: response.status, body: body.slice(0, 400), json, url: endpoint, ...(ok ? {} : { error: responseError }) };
     } catch (error) {
       return { ok: false, status: null, error: error?.name === "AbortError" ? "The OpenClaw request timed out." : String(error?.message || error), url: endpoint };
     } finally {
@@ -5669,13 +5671,32 @@ app.get("/", (_req, res) => {
 });
 
 let discordBreakdownSyncWarned = false;
+function deliveryErrorMessage(delivery) {
+  if (!delivery || delivery.ok) return "";
+  const json = delivery.json && typeof delivery.json === "object" ? delivery.json : {};
+  for (const candidate of [delivery.error, json.error, json.message, delivery.body, delivery.status]) {
+    const message = String(candidate || "").trim();
+    if (message) return message;
+  }
+  return "";
+}
+
+function autoAssignmentNotificationErrorMessage(records = []) {
+  for (const record of records) {
+    const message = deliveryErrorMessage(record.auto_assignment_notification);
+    if (message) return message;
+  }
+  return "";
+}
+
 async function runDiscordBreakdownSync() {
   const result = await discordBreakdownSyncService.sync();
   const assignedWaiting = await discordBreakdownSyncService.assignWaitingBreakdowns();
   if (assignedWaiting.length) result.assigned_waiting_breakdowns = assignedWaiting.length;
   if (!result.ok && !discordBreakdownSyncWarned) {
     discordBreakdownSyncWarned = true;
-    console.warn(`Discord breakdown sync unavailable: ${result.message || result.status || "unknown error"}`);
+    const errorMessage = autoAssignmentNotificationErrorMessage(assignedWaiting) || String(result.message || result.status || "unknown error");
+    console.warn(String(errorMessage));
   }
   if (result.ok) discordBreakdownSyncWarned = false;
   return result;
