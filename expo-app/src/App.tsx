@@ -102,20 +102,6 @@ const navItems: Array<{ key: TabKey; label: string; icon: string }> = [
   { key: "comms", label: "Dept Comms", icon: "☰" },
 ];
 
-const quickLoginAccounts = [
-  { label: "Admin", username: "admin" },
-  { label: "CEO", username: "atul.singhal" },
-  { label: "Installation Head", username: "ashwani.kumar" },
-  { label: "Breakdown Head", username: "bhanwar.choudhary" },
-  { label: "Service Head", username: "jitendra.choudhary" },
-  { label: "GAD Head", username: "diyanshu.bansal" },
-  { label: "Accounts Head", username: "sandeep.sharma" },
-  { label: "Commissioning Head", username: "vishram.kumawat" },
-  { label: "Tender Head", username: "bharat.singh.choudhary" },
-  { label: "Factory Head", username: "roopchand.gurjar" },
-  { label: "Back Office Head", username: "jitendra.singh.hada" },
-];
-
 const moduleConfigs: Partial<Record<TabKey, ModuleConfig>> = {
   tickets: { route: "/api/portal/project-tickets", titleLabel: "Ticket title", titleKey: "title", customerKey: "project", notesKey: "notes" },
   projects: { route: "/api/portal/install-jobs", titleLabel: "Project / job reference", titleKey: "job_id", customerKey: "customer", notesKey: "site" },
@@ -808,6 +794,10 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
   const [data, setData] = useState<PortalData | null>(null);
+  const [loginDirectory, setLoginDirectory] = useState<Array<Record<string, unknown>>>([]);
+  const [loginDepartment, setLoginDepartment] = useState("");
+  const [loginDepartmentOpen, setLoginDepartmentOpen] = useState(false);
+  const [loginUserOpen, setLoginUserOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [showPortalLogin, setShowPortalLogin] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -886,6 +876,12 @@ export default function App() {
   const asRecords = (value: unknown): Array<Record<string, unknown>> => (Array.isArray(value) ? (value as Array<Record<string, unknown>>) : []);
   const isAdmin = String(data?.viewer?.role || "").trim().toLowerCase() === "admin";
   const normalizedKey = (value: unknown) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  const loginDepartments = useMemo(() => Array.from(new Set(loginDirectory.map((user) => fieldText(user, ["department"]) || "Unassigned"))).sort(), [loginDirectory]);
+  const selectedLoginDepartment = loginDepartment || loginDepartments[0] || "";
+  const loginUsersForDepartment = useMemo(
+    () => loginDirectory.filter((user) => (fieldText(user, ["department"]) || "Unassigned") === selectedLoginDepartment),
+    [loginDirectory, selectedLoginDepartment],
+  );
   const visibleNavItems = useMemo(() => {
     const allowed = data?.access?.allowed_views;
     const roleFiltered = navItems.filter((item) => item.key !== "internationalVendor" || isAdmin);
@@ -9552,6 +9548,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (isSignedIn || !showPortalLogin) return;
+    apiFetch<{ users?: Array<Record<string, unknown>> }>("/api/portal/auth/login-directory")
+      .then((result) => {
+        const users = result.users || [];
+        setLoginDirectory(users);
+        if (!loginDepartment && users.length) {
+          setLoginDepartment(fieldText(users[0], ["department"]) || "Unassigned");
+        }
+      })
+      .catch(() => setLoginDirectory([]));
+  }, [isSignedIn, showPortalLogin, loginDepartment]);
+
+  useEffect(() => {
     if (!token || globalSearch.trim().length < 2) {
       setGlobalSearchResults([]);
       return;
@@ -9665,23 +9674,60 @@ export default function App() {
             <Text style={styles.primaryButtonText}>{loading ? "Signing in..." : "Sign in"}</Text>
           </Pressable>
           <Text style={styles.cardLabel}>Quick username select</Text>
-          <Text style={styles.muted}>Click a username, then enter the staff portal password from the private secrets folder.</Text>
-          <View style={styles.quickLoginGrid}>
-            {quickLoginAccounts.map((account) => (
-              <Pressable
-                key={account.username}
-                style={styles.quickLoginButton}
-                onPress={() => {
-                  setUsername(account.username);
-                  setPassword("");
-                }}
-                disabled={loading}
-              >
-                <Text style={styles.quickLoginText}>{account.label}</Text>
-                <Text style={styles.quickLoginSubLink}>{account.username}</Text>
-              </Pressable>
-            ))}
-          </View>
+          <Text style={styles.muted}>Choose your department, then pick your staff login and enter the staff portal password.</Text>
+          <Pressable
+            style={[styles.dropdownButton, loginDepartmentOpen && styles.selectorPillActive]}
+            onPress={() => setLoginDepartmentOpen((open) => !open)}
+            disabled={loading || !loginDepartments.length}
+          >
+            <Text style={styles.selectorText}>{selectedLoginDepartment || "Select department"}</Text>
+            <Text style={styles.dropdownChevron}>{loginDepartmentOpen ? "▲" : "▼"}</Text>
+          </Pressable>
+          {loginDepartmentOpen && (
+            <ScrollView style={styles.dropdownScroll} contentContainerStyle={styles.dropdownPanel}>
+              {loginDepartments.map((department) => (
+                <Pressable
+                  key={`login-dept-${department}`}
+                  style={styles.dropdownOption}
+                  onPress={() => {
+                    setLoginDepartment(department);
+                    setLoginDepartmentOpen(false);
+                    setLoginUserOpen(true);
+                  }}
+                >
+                  <Text style={styles.quickLoginText}>{department}</Text>
+                  <Text style={styles.quickLoginSub}>{loginDirectory.filter((user) => (fieldText(user, ["department"]) || "Unassigned") === department).length} logins</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+          <Pressable
+            style={[styles.dropdownButton, loginUserOpen && styles.selectorPillActive]}
+            onPress={() => setLoginUserOpen((open) => !open)}
+            disabled={loading || !loginUsersForDepartment.length}
+          >
+            <Text style={styles.selectorText}>{username || "Select staff login"}</Text>
+            <Text style={styles.dropdownChevron}>{loginUserOpen ? "▲" : "▼"}</Text>
+          </Pressable>
+          {loginUserOpen && (
+            <ScrollView style={styles.dropdownScroll} contentContainerStyle={styles.dropdownPanel}>
+              {loginUsersForDepartment.map((account) => (
+                <Pressable
+                  key={`login-user-${String(account.username)}`}
+                  style={styles.dropdownOption}
+                  onPress={() => {
+                    setUsername(String(account.username || ""));
+                    setPassword("");
+                    setLoginUserOpen(false);
+                  }}
+                  disabled={loading}
+                >
+                  <Text style={styles.quickLoginText}>{fieldText(account, ["display_name", "username"])}</Text>
+                  <Text style={styles.quickLoginSubLink}>{fieldText(account, ["username"])} - {fieldText(account, ["role"])}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
           <Text style={styles.hint}>API: {apiBaseUrl}</Text>
           {!!message && <Text style={styles.error}>{message}</Text>}
         </View>

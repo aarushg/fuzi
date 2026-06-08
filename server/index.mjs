@@ -531,11 +531,21 @@ async function ensureStaffPortalUsers() {
       const nextRole = String(person.department || "").toLowerCase() === "executive office"
         ? "admin"
         : (isDepartmentHead(person) || managers.has(person.id) ? "manager" : (linkedUser.role || "staff"));
-      if (!linkedUser.linked_org_node || !linkedUser.department || !linkedUser.display_name) {
-        linkedUser.linked_org_node = linkedUser.linked_org_node || person.id || "";
-        linkedUser.department = linkedUser.department || person.department || "";
-        linkedUser.display_name = linkedUser.display_name || person.name || linkedUser.username;
+      const nextLinkedOrgNode = linkedUser.linked_org_node || person.id || "";
+      const nextDepartment = person.department || linkedUser.department || "";
+      const nextDisplayName = person.name || linkedUser.display_name || linkedUser.username;
+      if (
+        linkedUser.linked_org_node !== nextLinkedOrgNode ||
+        linkedUser.department !== nextDepartment ||
+        linkedUser.display_name !== nextDisplayName ||
+        !linkedUser.role ||
+        linkedUser.active === false
+      ) {
+        linkedUser.linked_org_node = nextLinkedOrgNode;
+        linkedUser.department = nextDepartment;
+        linkedUser.display_name = nextDisplayName;
         linkedUser.role = linkedUser.role || nextRole;
+        linkedUser.active = true;
         linkedUser.updated_at = new Date().toISOString();
         changed = true;
         linked += 1;
@@ -3961,6 +3971,22 @@ app.post("/api/portal/auth/login", async (req, res) => {
   const token = crypto.randomBytes(48).toString("base64url");
   tokens.set(token, { user, createdAt: Date.now(), expiresAt: Date.now() + tokenTtlMs });
   return res.json({ ok: true, token, user: publicUser(user), access: accessForUser(user), must_change_password: Boolean(user.must_change_password) });
+});
+
+app.get("/api/portal/auth/login-directory", async (_req, res) => {
+  const users = await ensureSharedStaffPortalPassword();
+  const directory = users
+    .filter((user) => user.active !== false)
+    .map((user) => ({
+      username: String(user.username || ""),
+      display_name: String(user.display_name || user.username || ""),
+      department: String(user.department || "Unassigned"),
+      role: String(user.role || "staff"),
+      linked_org_node: String(user.linked_org_node || "")
+    }))
+    .sort((a, b) => `${a.department} ${a.display_name}`.localeCompare(`${b.department} ${b.display_name}`));
+  const departments = Array.from(new Set(directory.map((user) => user.department || "Unassigned"))).sort();
+  res.json({ ok: true, departments, users: directory });
 });
 
 app.get("/api/portal/auth/session", authRequired, (req, res) => {
