@@ -93,6 +93,13 @@ function hostPortFromUrl(url) {
   }
 }
 
+function openClawConnectionTriedMessage(url = defaultOpenClawUrl(process.env)) {
+  const attempted = String(url || "").trim();
+  if (!attempted) return "";
+  const hostPort = hostPortFromUrl(attempted);
+  return hostPort ? `OpenClaw connection tried ${hostPort}.` : `OpenClaw connection tried ${attempted}.`;
+}
+
 function hasExplicitOpenClawConnectionEnv(env = process.env) {
   return Boolean(
     String(env.FUZI_OPENCLAW_URL || "").trim() ||
@@ -5775,8 +5782,7 @@ async function storedOpenClawBreakdownErrorMessage() {
   }
   const attempted = String(connectorStatus.url || "").trim();
   if (attempted) {
-    const hostPort = hostPortFromUrl(attempted);
-    return hostPort ? `OpenClaw connection tried ${hostPort}.` : `OpenClaw connection tried ${attempted}.`;
+    return openClawConnectionTriedMessage(attempted);
   }
   return "";
 }
@@ -5795,10 +5801,12 @@ async function currentOpenClawBreakdownErrorMessage() {
 
 async function discordBreakdownSyncErrorMessage(result, assignedWaiting = []) {
   const syncErrorMessage = String(result?.message || result?.status || "unknown error").trim();
+  const attemptedMessage = openClawConnectionTriedMessage();
   const extraErrorMessage = String(autoAssignmentNotificationErrorMessage(assignedWaiting) || await currentOpenClawBreakdownErrorMessage() || "").trim();
-  return extraErrorMessage && extraErrorMessage !== syncErrorMessage
-    ? `${syncErrorMessage} ${extraErrorMessage}`
-    : syncErrorMessage;
+  const extras = [attemptedMessage, extraErrorMessage]
+    .map((message) => String(message || "").trim())
+    .filter((message, index, messages) => message && message !== syncErrorMessage && messages.indexOf(message) === index);
+  return extras.length ? `${syncErrorMessage} ${extras.join(" ")}` : syncErrorMessage;
 }
 
 async function runDiscordBreakdownSync() {
