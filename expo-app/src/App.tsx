@@ -5616,6 +5616,13 @@ export default function App() {
                       <Text style={styles.primaryButtonText}>Save changes</Text>
                     </Pressable>
                     <Pressable
+                      style={styles.smallButton}
+                      onPress={() => convertSalesInquiryToCustomer(item)}
+                      disabled={loading || !salesInquiryDraft.customer.trim()}
+                    >
+                      <Text style={styles.smallButtonText}>Update CRM profile</Text>
+                    </Pressable>
+                    <Pressable
                       style={styles.secondaryButton}
                       onPress={() => {
                         setSalesInquiryDraft(emptySalesInquiryDraft);
@@ -5649,18 +5656,6 @@ export default function App() {
                     </Pressable>
                     <Pressable style={styles.smallButton} onPress={() => openCostingForInquiry(item)} disabled={loading}>
                     <Text style={styles.smallButtonText}>Create offer</Text>
-                    </Pressable>
-                    {!item.converted_to_customer && (
-                      <Pressable style={styles.primaryButtonInline} onPress={() => convertSalesInquiryToCustomer(item)} disabled={loading}>
-                        <Text style={styles.primaryButtonText}>Create CRM customer</Text>
-                      </Pressable>
-                    )}
-                    <Pressable
-                      style={styles.smallButton}
-                      onPress={() => openSiteVisitForInquiry(item)}
-                      disabled={loading}
-                    >
-                      <Text style={styles.smallButtonText}>New site visit</Text>
                     </Pressable>
                     {isAdmin && (
                       <Pressable style={styles.dangerButton} onPress={() => deleteSalesInquiry(item)} disabled={loading}>
