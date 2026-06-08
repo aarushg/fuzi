@@ -72,8 +72,26 @@ function defaultOpenClawUrl(env = process.env) {
   if (env.FUZI_OPENCLAW_URL) return env.FUZI_OPENCLAW_URL;
   if (env.FUZI_OPENCLAW_ADDRESS) return openClawUrlFromAddress(env.FUZI_OPENCLAW_ADDRESS);
   const host = env.FUZI_OPENCLAW_HOST || (isDockerInstance(env) ? dockerOpenClawHost : localOpenClawHost);
-  const port = env.FUZI_OPENCLAW_PORT || defaultOpenClawPort;
+  const port = env.FUZI_OPENCLAW_PUBLISHED_PORT || env.FUZI_OPENCLAW_PORT || defaultOpenClawPort;
   return openClawUrlFromAddress(`${host}:${port}`);
+}
+
+function openClawUrlFromParts({ url = "", address = "", host = "", port = "" } = {}) {
+  if (String(url || "").trim()) return String(url).trim();
+  if (String(address || "").trim()) return openClawUrlFromAddress(address);
+  const resolvedHost = String(host || "").trim();
+  if (!resolvedHost) return "";
+  return openClawUrlFromAddress(`${resolvedHost}:${String(port || defaultOpenClawPort).trim() || defaultOpenClawPort}`);
+}
+
+function hasExplicitOpenClawConnectionEnv(env = process.env) {
+  return Boolean(
+    String(env.FUZI_OPENCLAW_URL || "").trim() ||
+    String(env.FUZI_OPENCLAW_ADDRESS || "").trim() ||
+    String(env.FUZI_OPENCLAW_HOST || "").trim() ||
+    String(env.FUZI_OPENCLAW_PORT || "").trim() ||
+    String(env.FUZI_OPENCLAW_PUBLISHED_PORT || "").trim()
+  );
 }
 
 const db = new Database(dbPath);
@@ -1603,6 +1621,7 @@ function defaultOpenClawCommunicationData(env, baseDir) {
   const homeDir = env.USERPROFILE || env.HOME || baseDir;
   return {
     url: defaultOpenClawUrl(env),
+    preferConfiguredUrl: hasExplicitOpenClawConnectionEnv(env),
     timeoutSeconds: Number(env.FUZI_OPENCLAW_TIMEOUT || 15),
     defaultChannel: env.FUZI_OPENCLAW_CHANNEL || "whatsapp",
     opsTarget: env.FUZI_OPENCLAW_OPS_TARGET || "",
@@ -2127,6 +2146,7 @@ function createOpenClawCommunicationService({
   const discoverDashboardUrl = async () => {
     if (dashboardLookupAttempted) return discoveredDashboardUrl;
     dashboardLookupAttempted = true;
+    if (config.preferConfiguredUrl) return "";
     if (!runCommand || !Array.isArray(config.allowedDashboardCommand) || !config.allowedDashboardCommand.length) return "";
     const [command, ...args] = config.allowedDashboardCommand;
     const output = await runCommand(command, args, Math.max(config.timeoutSeconds, 5) * 1000);
@@ -2134,7 +2154,19 @@ function createOpenClawCommunicationService({
     return discoveredDashboardUrl;
   };
 
+  const runtimeOpenClawBaseUrl = async () => {
+    const configuredUrl = openClawUrlFromParts({
+      url: await runtimeValue("FUZI_OPENCLAW_URL", ""),
+      address: await runtimeValue("FUZI_OPENCLAW_ADDRESS", ""),
+      host: await runtimeValue("FUZI_OPENCLAW_HOST", ""),
+      port: await runtimeValue("FUZI_OPENCLAW_PUBLISHED_PORT", await runtimeValue("FUZI_OPENCLAW_PORT", defaultOpenClawPort))
+    });
+    return configuredUrl ? (configuredUrl.endsWith("/") ? configuredUrl : `${configuredUrl}/`) : "";
+  };
+
   const openClawBaseUrl = async () => {
+    const configuredUrl = await runtimeOpenClawBaseUrl();
+    if (configuredUrl) return configuredUrl;
     const discoveredUrl = await discoverDashboardUrl();
     if (discoveredUrl) {
       try {
