@@ -5245,7 +5245,7 @@ export default function App() {
             <Text style={styles.label}>Enquiry remark</Text>
             <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.enquiry_remark} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, enquiry_remark: value }))} multiline />
           </View>
-          <Pressable style={styles.primaryButton} onPress={saveSalesInquiry} disabled={loading || !salesInquiryDraft.customer.trim()}>
+          <Pressable style={styles.primaryButton} onPress={() => saveSalesInquiry()} disabled={loading || !salesInquiryDraft.customer.trim()}>
             <Text style={styles.primaryButtonText}>{salesInquiryDraft.id ? "Update enquiry record" : "Save enquiry intake"}</Text>
           </Pressable>
           {!!salesInquiryDraft.id && (
@@ -5612,15 +5612,12 @@ export default function App() {
                     </Pressable>
                   </View>
                   <View style={styles.inlineActions}>
-                    <Pressable style={styles.primaryButtonInline} onPress={saveSalesInquiry} disabled={loading || !salesInquiryDraft.customer.trim()}>
-                      <Text style={styles.primaryButtonText}>Save changes</Text>
-                    </Pressable>
                     <Pressable
-                      style={styles.smallButton}
-                      onPress={() => convertSalesInquiryToCustomer(item)}
+                      style={styles.primaryButtonInline}
+                      onPress={() => saveSalesInquiry(true)}
                       disabled={loading || !salesInquiryDraft.customer.trim()}
                     >
-                      <Text style={styles.smallButtonText}>Update CRM profile</Text>
+                      <Text style={styles.primaryButtonText}>Save to system</Text>
                     </Pressable>
                     <Pressable
                       style={styles.secondaryButton}
@@ -7439,7 +7436,7 @@ export default function App() {
             <Text style={styles.label}>Enquiry remark</Text>
             <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.enquiry_remark} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, enquiry_remark: value }))} multiline />
           </View>
-          <Pressable style={styles.primaryButton} onPress={saveSalesInquiry} disabled={loading || !salesInquiryDraft.customer.trim()}>
+          <Pressable style={styles.primaryButton} onPress={() => saveSalesInquiry()} disabled={loading || !salesInquiryDraft.customer.trim()}>
             <Text style={styles.primaryButtonText}>Save enquiry intake</Text>
           </Pressable>
         </View>
@@ -7484,11 +7481,6 @@ export default function App() {
                 <Pressable style={styles.smallButton} onPress={() => updateSalesInquiry(item, { lead_status: "Lost", status: "Lost" })} disabled={loading}>
                   <Text style={styles.smallButtonText}>Lost</Text>
                 </Pressable>
-                {!item.converted_to_customer && (
-                  <Pressable style={styles.primaryButtonInline} onPress={() => convertSalesInquiryToCustomer(item)} disabled={loading}>
-                    <Text style={styles.primaryButtonText}>Create CRM customer</Text>
-                  </Pressable>
-                )}
               </View>
             </View>
           );
@@ -8345,7 +8337,7 @@ export default function App() {
     }
   }
 
-  async function saveSalesInquiry() {
+  async function saveSalesInquiry(syncToCrm = false) {
     if (!salesInquiryDraft.customer.trim()) {
       const text = "Lead/customer name is required.";
       Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
@@ -8359,7 +8351,7 @@ export default function App() {
     setLoading(true);
     try {
       const id = salesInquiryDraft.id || "";
-      await apiFetch(id ? `/api/portal/sales/inquiries/${encodeURIComponent(id)}` : "/api/portal/sales/inquiries", {
+      const saved = await apiFetch<{ record?: Record<string, unknown>; inquiry?: Record<string, unknown> }>(id ? `/api/portal/sales/inquiries/${encodeURIComponent(id)}` : "/api/portal/sales/inquiries", {
         method: id ? "PATCH" : "POST",
         token,
         body: JSON.stringify({
@@ -8369,10 +8361,18 @@ export default function App() {
           lost_reason: isLostInquiryStatus(salesInquiryDraft.lead_status) ? salesInquiryDraft.lost_reason : "",
         }),
       });
+      const savedId = id || recordIdentity(saved.record || {}) || recordIdentity(saved.inquiry || {});
+      if (syncToCrm && savedId) {
+        await apiFetch(`/api/portal/sales/inquiries/${encodeURIComponent(savedId)}/convert-customer`, {
+          method: "POST",
+          token,
+          body: JSON.stringify({}),
+        });
+      }
       setSalesInquiryDraft(emptySalesInquiryDraft);
       setSalesInquiryEditorOpen(false);
       await loadPortal();
-      setMessage(id ? "Enquiry record updated." : "Sales enquiry intake saved.");
+      setMessage(syncToCrm ? "Saved to system and CRM profile updated." : (id ? "Enquiry record updated." : "Sales enquiry intake saved."));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Sales enquiry could not be saved.");
     } finally {
