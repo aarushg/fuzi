@@ -5724,9 +5724,21 @@ async function storedOpenClawBreakdownErrorMessage() {
   return "";
 }
 
+async function currentOpenClawBreakdownErrorMessage() {
+  const stored = await storedOpenClawBreakdownErrorMessage();
+  if (stored) return stored;
+  const delivery = await communicationService.sendBusinessChannelUpdate("breakdown-sync-unavailable", {
+    channel: "discord",
+    target: await resolveDiscordBreakdownTarget() || "channel:breakdown-sync-unavailable",
+    message: "Discord breakdown channel or bot token is not configured.",
+    summary: "Discord breakdown channel or bot token is not configured."
+  }).catch((error) => ({ ok: false, error: String(error) }));
+  return deliveryErrorMessage(delivery);
+}
+
 async function discordBreakdownSyncErrorMessage(result, assignedWaiting = []) {
   const syncErrorMessage = String(result?.message || result?.status || "unknown error").trim();
-  const extraErrorMessage = String(autoAssignmentNotificationErrorMessage(assignedWaiting) || await storedOpenClawBreakdownErrorMessage() || "").trim();
+  const extraErrorMessage = String(autoAssignmentNotificationErrorMessage(assignedWaiting) || await currentOpenClawBreakdownErrorMessage() || "").trim();
   return extraErrorMessage && extraErrorMessage !== syncErrorMessage
     ? `${syncErrorMessage} ${extraErrorMessage}`
     : syncErrorMessage;
