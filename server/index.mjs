@@ -2311,7 +2311,7 @@ function createOpenClawCommunicationService({
       const responseError = String(json.error || json.message || (!ok ? body : "") || "").trim();
       return { ok, status: response.status, body: body.slice(0, 400), json, url: endpoint, ...(ok ? {} : { error: responseError }) };
     } catch (error) {
-      return { ok: false, status: null, error: error?.name === "AbortError" ? "The OpenClaw request timed out." : String(error?.message || error), url: endpoint };
+      return { ok: false, status: null, error: String(error), url: endpoint };
     } finally {
       clearTimeout(timeout);
     }
