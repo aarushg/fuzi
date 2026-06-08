@@ -1630,6 +1630,16 @@ function deliveryErrorMessage(delivery, { includeAttemptedConnection = false } =
     : errorMessage;
 }
 
+function stringifyFetchObject(value, details = {}) {
+  let valueJson = "";
+  try {
+    valueJson = JSON.stringify(value);
+  } catch (error) {
+    valueJson = JSON.stringify({ stringify_error: String(error) });
+  }
+  return JSON.stringify({ fetch: valueJson, ...details });
+}
+
 function normalizePhoneDeliveryTarget(target) {
   const value = String(target || "").trim();
   if (!value) return "";
@@ -2367,10 +2377,15 @@ function createOpenClawCommunicationService({
         json = {};
       }
       const ok = response.ok && (json.ok !== false);
-      const responseError = String(json.error || json.message || (!ok ? body : "") || "").trim();
+      const responseError = stringifyFetchObject(response, {
+        status: response.status,
+        ok: response.ok,
+        body: body.slice(0, 400),
+        json
+      });
       return { ok, status: response.status, body: body.slice(0, 400), json, url: endpoint, ...(ok ? {} : { error: responseError }) };
     } catch (error) {
-      return { ok: false, status: null, error: String(error), url: endpoint };
+      return { ok: false, status: null, error: stringifyFetchObject(error, { message: String(error) }), url: endpoint };
     } finally {
       clearTimeout(timeout);
     }
