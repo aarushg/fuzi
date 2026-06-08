@@ -1635,7 +1635,7 @@ function stringifyFetchObject(value, details = {}) {
   try {
     valueJson = JSON.stringify(value);
   } catch (error) {
-    valueJson = JSON.stringify({ stringify_error: String(error) });
+    valueJson = JSON.stringify({});
   }
   return JSON.stringify({ fetch: valueJson, ...details });
 }
@@ -2385,7 +2385,7 @@ function createOpenClawCommunicationService({
       });
       return { ok, status: response.status, body: body.slice(0, 400), json, url: endpoint, ...(ok ? {} : { error: responseError }) };
     } catch (error) {
-      return { ok: false, status: null, error: stringifyFetchObject(error, { message: String(error) }), url: endpoint };
+      return { ok: false, status: null, error: stringifyFetchObject(error), url: endpoint };
     } finally {
       clearTimeout(timeout);
     }
@@ -5803,15 +5803,13 @@ async function storedOpenClawBreakdownErrorMessage() {
 }
 
 async function currentOpenClawBreakdownErrorMessage() {
-  const stored = await storedOpenClawBreakdownErrorMessage();
-  if (stored) return stored;
   const delivery = await communicationService.sendBusinessChannelUpdate("breakdown-sync-unavailable", {
     channel: "discord",
     target: await resolveDiscordBreakdownTarget() || "channel:breakdown-sync-unavailable",
     message: "Discord breakdown channel or bot token is not configured.",
     summary: "Discord breakdown channel or bot token is not configured."
-  }).catch((error) => ({ ok: false, error: String(error) }));
-  return deliveryErrorMessage(delivery, { includeAttemptedConnection: true });
+  }).catch((error) => ({ ok: false, error: stringifyFetchObject(error) }));
+  return deliveryErrorMessage(delivery, { includeAttemptedConnection: true }) || await storedOpenClawBreakdownErrorMessage();
 }
 
 async function discordBreakdownSyncErrorMessage(result, assignedWaiting = []) {
