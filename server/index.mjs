@@ -2280,12 +2280,12 @@ function createOpenClawCommunicationService({
     const envValues = await loadEnvValues();
     const dashboardToken = extractOpenClawTokenFromDashboardUrl(await discoverDashboardUrl());
     for (const candidate of [
+      env.OPENCLAW_GATEWAY_TOKEN,
+      envValues.OPENCLAW_GATEWAY_TOKEN,
       readAppSecret("fuzi_openclaw_token"),
       readAppSecret("openclaw_gateway_token"),
       readAppSecret("fuzi_openclaw_password"),
       readAppSecret("openclaw_gateway_password"),
-      env.OPENCLAW_GATEWAY_TOKEN,
-      envValues.OPENCLAW_GATEWAY_TOKEN,
       await configSecret("token"),
       env.FUZI_OPENCLAW_PASSWORD,
       env.OPENCLAW_GATEWAY_PASSWORD,
