@@ -5778,42 +5778,10 @@ function autoAssignmentNotificationErrorMessage(records = []) {
   return "";
 }
 
-async function storedOpenClawBreakdownErrorMessage() {
-  const state = await readOperationsState();
-  const connectorStatus = state.connector_status && typeof state.connector_status === "object" ? state.connector_status : {};
-  for (const candidate of [
-    state.last_discord_breakdown_openclaw_error,
-    state.discord_breakdown_last_openclaw_delivery_error,
-    state.last_openclaw_delivery_error,
-    state.last_openclaw_error,
-    connectorStatus.error_message,
-    connectorStatus.error,
-    connectorStatus.response_body
-  ]) {
-    const message = String(candidate || "").trim();
-    if (message) return message;
-  }
-  const attempted = String(connectorStatus.url || "").trim();
-  if (attempted) {
-    return openClawConnectionTriedMessage(attempted);
-  }
-  return "";
-}
-
-async function currentOpenClawBreakdownErrorMessage() {
-  const delivery = await communicationService.sendBusinessChannelUpdate("breakdown-sync-unavailable", {
-    channel: "discord",
-    target: await resolveDiscordBreakdownTarget() || "channel:breakdown-sync-unavailable",
-    message: "Discord breakdown channel or bot token is not configured.",
-    summary: "Discord breakdown channel or bot token is not configured."
-  }).catch((error) => ({ ok: false, error: stringifyFetchObject(error) }));
-  return deliveryErrorMessage(delivery, { includeAttemptedConnection: true }) || await storedOpenClawBreakdownErrorMessage();
-}
-
 async function discordBreakdownSyncErrorMessage(result, assignedWaiting = []) {
   const syncErrorMessage = String(result?.message || result?.status || "unknown error").trim();
   const attemptedMessage = openClawConnectionTriedMessage();
-  const extraErrorMessage = String(autoAssignmentNotificationErrorMessage(assignedWaiting) || await currentOpenClawBreakdownErrorMessage() || "").trim();
+  const extraErrorMessage = String(autoAssignmentNotificationErrorMessage(assignedWaiting) || "").trim();
   const extras = [];
   for (const message of [attemptedMessage, extraErrorMessage].map((item) => String(item || "").trim())) {
     if (!message || message === syncErrorMessage) continue;
