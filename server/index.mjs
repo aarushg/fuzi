@@ -2627,7 +2627,12 @@ function createDiscordBreakdownSyncService({
         status: response.status,
         ok: response.ok,
         found: Boolean(target),
-        target: target || ""
+        target: target || "",
+        returned: {
+          status: response.status,
+          ok: response.ok,
+          body
+        }
       };
       return target;
     } catch (error) {
@@ -2635,7 +2640,11 @@ function createDiscordBreakdownSyncService({
         ...lastBreakdownChannelLookup,
         ok: false,
         found: false,
-        error: error?.name === "AbortError" ? "OpenClaw gateway lookup timed out." : String(error?.message || "OpenClaw gateway lookup failed.")
+        error: error?.name === "AbortError" ? "OpenClaw gateway lookup timed out." : String(error?.message || "OpenClaw gateway lookup failed."),
+        returned: {
+          ok: false,
+          error: error?.name === "AbortError" ? "OpenClaw gateway lookup timed out." : String(error?.message || "OpenClaw gateway lookup failed.")
+        }
       };
       return "";
     } finally {
@@ -3197,10 +3206,11 @@ function createDiscordBreakdownSyncService({
         ? ` Target lookup fetch: POST ${lookup.url} tool=${lookup.tool} session=${lookup.sessionKey} key=${lookup.key}.`
         : "";
       const targetText = diagnostics.target ? ` Target value: ${diagnostics.target}.` : " Target value was not found.";
+      const returnedText = lookup?.returned ? ` Target lookup returned: ${JSON.stringify(lookup.returned)}.` : "";
       return {
         ok: false,
         imported: 0,
-        message: `Discord breakdown ${diagnostics.missing.join(" and ")} is not configured. ${diagnostics.openclaw_connection}${lookupText}${targetText}`.replace(/\s+/g, " ").trim(),
+        message: `Discord breakdown ${diagnostics.missing.join(" and ")} is not configured. ${diagnostics.openclaw_connection}${lookupText}${targetText}${returnedText}`.replace(/\s+/g, " ").trim(),
         diagnostics
       };
     }
