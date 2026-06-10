@@ -1687,6 +1687,8 @@ function defaultDiscordBreakdownSyncData(env, baseDir) {
   const homeDir = env.USERPROFILE || env.HOME || baseDir;
   return {
     apiBaseUrl: env.DISCORD_API_BASE_URL || "https://discord.com/api/v10",
+    openClawUrl: defaultOpenClawUrl(env),
+    openClawTimeoutSeconds: Number(env.FUZI_OPENCLAW_TIMEOUT || 15),
     configFile: path.join(homeDir, ".openclaw", "openclaw.json"),
     envFile: path.join(homeDir, ".openclaw", ".env"),
     channelTarget: env.FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL || "",
@@ -2542,7 +2544,79 @@ function createDiscordBreakdownSyncService({
 
   const runtimeValue = async (key, fallback = "") => {
     const envValues = await loadEnvValues();
-    return String(env[key] || envValues[key] || fallback || "").trim();
+    const localValue = String(env[key] || envValues[key] || fallback || "").trim();
+    if (localValue || key !== "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL") return localValue;
+    return await openClawBreakdownChannelTarget();
+  };
+
+  const openClawEndpoint = (endpointPath = "/tools/invoke") => {
+    const base = String(config.openClawUrl || "").trim();
+    if (!base) return "";
+    return new URL(endpointPath.replace(/^\/+/, ""), base.endsWith("/") ? base : `${base}/`).toString();
+  };
+
+  const openClawAuthSecret = async () => {
+    const envValues = await loadEnvValues();
+    const openClawConfig = await loadJsonConfig();
+    const gateway = openClawConfig.gateway && typeof openClawConfig.gateway === "object" ? openClawConfig.gateway : {};
+    const auth = gateway.auth && typeof gateway.auth === "object" ? gateway.auth : {};
+    for (const candidate of [
+      env.OPENCLAW_GATEWAY_TOKEN,
+      envValues.OPENCLAW_GATEWAY_TOKEN,
+      env.FUZI_OPENCLAW_TOKEN,
+      envValues.FUZI_OPENCLAW_TOKEN,
+      env.FUZI_OPENCLAW_PASSWORD,
+      envValues.FUZI_OPENCLAW_PASSWORD,
+      auth.token,
+      auth.gatewayToken,
+      auth.gateway_token,
+      auth.authToken,
+      auth.auth_token,
+      auth.password
+    ]) {
+      const resolved = await resolvePossiblyEnvValue(candidate);
+      if (resolved) return resolved;
+    }
+    return "";
+  };
+
+  const extractBreakdownTarget = (value = "") => {
+    const match = String(value || "").match(/(?:^|[^A-Za-z0-9_-])(channel:\d{6,})(?:[^A-Za-z0-9_-]|$)/);
+    return match ? match[1] : "";
+  };
+
+  const openClawBreakdownChannelTarget = async () => {
+    const endpoint = openClawEndpoint("/tools/invoke");
+    if (!endpoint) return "";
+    const secret = await openClawAuthSecret();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), Math.max(Number(config.openClawTimeoutSeconds || 15), 1) * 1000);
+    const payload = {
+      tool: "fuzidiscordchannel",
+      action: "resolve",
+      sessionKey: "agent:main:explicit:fuzidiscordchannel",
+      key: "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL",
+      expose: "value-only",
+      readonly: true
+    };
+    try {
+      const response = await fetchImpl(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(secret ? { Authorization: `Bearer ${secret}` } : {})
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      const body = await response.text();
+      const target = extractBreakdownTarget(body);
+      return target;
+    } catch {
+      return "";
+    } finally {
+      clearTimeout(timeout);
+    }
   };
 
   const discordChannelId = async () => {
@@ -4008,6 +4082,81 @@ const communicationService = createOpenClawCommunicationService({
 });
 
 const discordBreakdownConfig = defaultDiscordBreakdownSyncData(process.env, rootDir);
+const resolveDiscordBreakdownTargetFromOpenClaw = async () => {
+  const endpoint = (() => {
+    const base = String(discordBreakdownConfig.openClawUrl || "").trim();
+    if (!base) return "";
+    return new URL("tools/invoke", base.endsWith("/") ? base : `${base}/`).toString();
+  })();
+  if (!endpoint) return "";
+  const envValues = {};
+  try {
+    const text = await fs.readFile(discordBreakdownConfig.envFile, "utf8");
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#") || !line.includes("=")) continue;
+      const [key, ...rest] = line.split("=");
+      envValues[key.trim()] = rest.join("=").trim().replace(/^['"]|['"]$/g, "");
+    }
+  } catch {
+    // The gateway tool call can still work without a local OpenClaw env file.
+  }
+  const resolvePossiblyEnvValue = (value) => {
+    const resolved = String(value || "").trim();
+    if (!resolved.startsWith("${") || !resolved.endsWith("}")) return resolved;
+    const envKey = resolved.slice(2, -1);
+    return String(process.env[envKey] || envValues[envKey] || "").trim();
+  };
+  let openClawConfig = {};
+  try {
+    openClawConfig = JSON.parse(await fs.readFile(discordBreakdownConfig.configFile, "utf8")) || {};
+  } catch {
+    openClawConfig = {};
+  }
+  const gateway = openClawConfig.gateway && typeof openClawConfig.gateway === "object" ? openClawConfig.gateway : {};
+  const auth = gateway.auth && typeof gateway.auth === "object" ? gateway.auth : {};
+  const secret = [
+    process.env.OPENCLAW_GATEWAY_TOKEN,
+    envValues.OPENCLAW_GATEWAY_TOKEN,
+    process.env.FUZI_OPENCLAW_TOKEN,
+    envValues.FUZI_OPENCLAW_TOKEN,
+    process.env.FUZI_OPENCLAW_PASSWORD,
+    envValues.FUZI_OPENCLAW_PASSWORD,
+    auth.token,
+    auth.gatewayToken,
+    auth.gateway_token,
+    auth.authToken,
+    auth.auth_token,
+    auth.password
+  ].map(resolvePossiblyEnvValue).find(Boolean) || "";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.max(Number(discordBreakdownConfig.openClawTimeoutSeconds || 15), 1) * 1000);
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(secret ? { Authorization: `Bearer ${secret}` } : {})
+      },
+      body: JSON.stringify({
+        tool: "fuzidiscordchannel",
+        action: "resolve",
+        sessionKey: "agent:main:explicit:fuzidiscordchannel",
+        key: "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL",
+        expose: "value-only",
+        readonly: true
+      }),
+      signal: controller.signal
+    });
+    const body = await response.text();
+    const match = String(body || "").match(/(?:^|[^A-Za-z0-9_-])(channel:\d{6,})(?:[^A-Za-z0-9_-]|$)/);
+    return match ? match[1] : "";
+  } catch {
+    return "";
+  } finally {
+    clearTimeout(timeout);
+  }
+};
 const resolveDiscordBreakdownTarget = async () => {
   if (String(discordBreakdownConfig.channelTarget || "").trim()) return String(discordBreakdownConfig.channelTarget).trim();
   try {
@@ -4022,7 +4171,7 @@ const resolveDiscordBreakdownTarget = async () => {
   } catch {
     // Auto-assignment replies should use the same OpenClaw env-file target as incoming breakdown sync.
   }
-  return "";
+  return await resolveDiscordBreakdownTargetFromOpenClaw();
 };
 const discordBreakdownSyncService = createDiscordBreakdownSyncService({
   config: discordBreakdownConfig,

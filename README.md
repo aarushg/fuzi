@@ -767,7 +767,12 @@ The main routing targets are:
 - `FUZI_OPENCLAW_TARGET_WORK_ORDERS` → `#site-work-orders`
 - `FUZI_OPENCLAW_TARGET_INSTALLATIONS` → `#field-installations`
 
-Also set `FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL` for Discord `#fuzi-breakdown`.
+Also set `FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL` for Discord `#fuzi-breakdown`. The reusable helper in `../fuzicommands` can create/use an OpenClaw session named `fuzidiscordchannel` and run a read-only shell tool call to discover the current target without changing the FUZI breakdown target:
+
+```sh
+cd ../fuzicommands
+npm run fuzidiscordchannel -- --openclaw-dir "../dockeropenclaw/data/config"
+```
 
 ### `#fuzi-breakdown` Chat Input And Output
 
