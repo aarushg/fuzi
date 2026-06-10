@@ -2541,6 +2541,7 @@ function createDiscordBreakdownSyncService({
     const envKey = resolved.slice(2, -1);
     return String(env[envKey] || envValues[envKey] || "").trim();
   };
+  let lastBreakdownChannelLookup = null;
 
   const runtimeValue = async (key, fallback = "") => {
     const envValues = await loadEnvValues();
@@ -2599,6 +2600,16 @@ function createDiscordBreakdownSyncService({
       expose: "value-only",
       readonly: true
     };
+    lastBreakdownChannelLookup = {
+      url: endpoint,
+      method: "POST",
+      tool: payload.tool,
+      sessionKey: payload.sessionKey,
+      key: payload.key,
+      expose: payload.expose,
+      readonly: payload.readonly,
+      openclaw_connection: openClawConnectionTriedMessage(config.openClawUrl)
+    };
     try {
       const response = await fetchImpl(endpoint, {
         method: "POST",
@@ -2611,8 +2622,21 @@ function createDiscordBreakdownSyncService({
       });
       const body = await response.text();
       const target = extractBreakdownTarget(body);
+      lastBreakdownChannelLookup = {
+        ...lastBreakdownChannelLookup,
+        status: response.status,
+        ok: response.ok,
+        found: Boolean(target),
+        target: target || ""
+      };
       return target;
-    } catch {
+    } catch (error) {
+      lastBreakdownChannelLookup = {
+        ...lastBreakdownChannelLookup,
+        ok: false,
+        found: false,
+        error: error?.name === "AbortError" ? "OpenClaw gateway lookup timed out." : String(error?.message || "OpenClaw gateway lookup failed.")
+      };
       return "";
     } finally {
       clearTimeout(timeout);
@@ -2640,6 +2664,30 @@ function createDiscordBreakdownSyncService({
       if (resolved) return resolved;
     }
     return "";
+  };
+
+  const discordConfigurationDiagnostics = (channelId, token) => {
+    const target = channelId ? `channel:${channelId}` : String(lastBreakdownChannelLookup?.target || "").trim();
+    const missing = [
+      channelId ? "" : "channel",
+      token ? "" : "bot token"
+    ].filter(Boolean);
+    return {
+      missing,
+      target: target || "",
+      bot_token_configured: Boolean(token),
+      openclaw_connection: openClawConnectionTriedMessage(config.openClawUrl),
+      target_lookup_fetch: lastBreakdownChannelLookup || {
+        url: openClawEndpoint("/tools/invoke"),
+        method: "POST",
+        tool: "fuzidiscordchannel",
+        sessionKey: "agent:main:explicit:fuzidiscordchannel",
+        key: "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL",
+        expose: "value-only",
+        readonly: true,
+        openclaw_connection: openClawConnectionTriedMessage(config.openClawUrl)
+      }
+    };
   };
 
   const cleanLineValue = (value) => String(value || "").replace(/\*\*/g, "").trim().replace(/\.+$/g, "").trim();
@@ -3142,7 +3190,20 @@ function createDiscordBreakdownSyncService({
   const sync = async ({ force = false, limit = config.limit } = {}) => {
     const channelId = await discordChannelId();
     const token = await discordBotToken();
-    if (!channelId || !token) return { ok: false, imported: 0, message: "Discord breakdown channel or bot token is not configured." };
+    if (!channelId || !token) {
+      const diagnostics = discordConfigurationDiagnostics(channelId, token);
+      const lookup = diagnostics.target_lookup_fetch;
+      const lookupText = lookup?.url
+        ? ` Target lookup fetch: POST ${lookup.url} tool=${lookup.tool} session=${lookup.sessionKey} key=${lookup.key}.`
+        : "";
+      const targetText = diagnostics.target ? ` Target value: ${diagnostics.target}.` : " Target value was not found.";
+      return {
+        ok: false,
+        imported: 0,
+        message: `Discord breakdown ${diagnostics.missing.join(" and ")} is not configured. ${diagnostics.openclaw_connection}${lookupText}${targetText}`.replace(/\s+/g, " ").trim(),
+        diagnostics
+      };
+    }
     const state = await readState();
     const cursors = state.discord_cursors && typeof state.discord_cursors === "object" ? state.discord_cursors : {};
     const cursor = String(cursors.breakdown_last_message_id || "");
