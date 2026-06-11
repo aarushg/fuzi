@@ -1736,12 +1736,14 @@ function defaultOpenClawCommunicationData(env, baseDir) {
 
 function defaultDiscordBreakdownSyncData(env, baseDir) {
   // WARNING: Breakdown sync must not use Discord REST here. OpenClaw owns Discord access and FUZI reads OpenClaw session history only.
+  const homeDir = env.USERPROFILE || env.HOME || baseDir;
+  const openClawConfigDir = env.FUZI_OPENCLAW_CONFIG_DIR || path.join(homeDir, ".openclaw");
   return {
     openClawUrl: defaultOpenClawUrl(env),
     openClawBreakdownSessionKey: env.FUZI_OPENCLAW_BREAKDOWN_SESSION_KEY || "",
     openClawTimeoutSeconds: Number(env.FUZI_OPENCLAW_TIMEOUT || 15),
-    configFile: "",
-    envFile: "",
+    configFile: env.FUZI_OPENCLAW_CONFIG_FILE || path.join(openClawConfigDir, "openclaw.json"),
+    envFile: env.FUZI_OPENCLAW_ENV_FILE || path.join(openClawConfigDir, ".env"),
     channelTarget: env.FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL || "",
     pollMs: Math.max(Number(env.FUZI_BREAKDOWN_DISCORD_POLL_MS || 15000), 5000),
     limit: Math.min(Math.max(Number(env.FUZI_BREAKDOWN_DISCORD_LIMIT || 50), 1), 100)
@@ -2713,6 +2715,7 @@ function createDiscordBreakdownSyncService({
     const endpoint = openClawEndpoint("/tools/invoke");
     const payload = {
       tool,
+      args,
       ...args
     };
     const invoke = {
@@ -2996,7 +2999,7 @@ function createDiscordBreakdownSyncService({
         raw: value
       });
     }
-    for (const key of ["messages", "history", "items", "events", "entries", "content", "result"]) {
+    for (const key of ["messages", "history", "items", "events", "entries", "content", "result", "details"]) {
       if (value[key] && value[key] !== value) collectOpenClawMessages(value[key], messages, seen);
     }
     return messages;
@@ -3028,6 +3031,11 @@ function createDiscordBreakdownSyncService({
   const openClawHistoryMessages = async ({ channelId = "", limit = config.limit } = {}) => {
     // WARNING: Do not replace this with Discord channel polling. OpenClaw stores the Discord session/history and exposes it via existing tools.
     const explicitSessionKey = String(config.openClawBreakdownSessionKey || env.FUZI_OPENCLAW_BREAKDOWN_SESSION_KEY || "").trim();
+    const directSessionKeys = [
+      explicitSessionKey,
+      channelId ? `agent:main:discord:channel:${channelId}` : "",
+      channelId ? `agent:main:discord:${channelId}` : ""
+    ].filter(Boolean);
     const searchHints = [
       explicitSessionKey,
       channelId ? `channel:${channelId}` : "",
@@ -3037,6 +3045,19 @@ function createDiscordBreakdownSyncService({
     ].filter(Boolean);
     let sessionKey = explicitSessionKey;
     let listResult = null;
+    for (const directSessionKey of directSessionKeys) {
+      const historyResult = await openClawToolInvoke("sessions_history", {
+        sessionKey: directSessionKey,
+        limit: Math.max(Number(limit || config.limit || 1), 1),
+        includeTools: false
+      });
+      if (historyResult.ok) {
+        const messages = collectOpenClawMessages(historyResult.result)
+          .filter((message) => message.content && !["developer", "system", "tool", "function"].includes(message.role))
+          .filter((message) => messageLooksLikeBreakdownChannel(message, channelId));
+        return { ok: true, messages, sessionKey: directSessionKey, listResult, historyResult };
+      }
+    }
     if (!sessionKey) {
       for (const search of searchHints.slice(1)) {
         listResult = await openClawToolInvoke("sessions_list", {
@@ -3051,6 +3072,15 @@ function createDiscordBreakdownSyncService({
           .filter((item) => item && typeof item === "object");
         const flatSessions = [];
         const collectSessions = (value, seen = new Set()) => {
+          if (typeof value === "string") {
+            try {
+              const parsed = JSON.parse(value);
+              collectSessions(parsed, seen);
+            } catch {
+              // Non-JSON text cannot contain structured session entries.
+            }
+            return;
+          }
           if (!value || typeof value !== "object" || seen.has(value)) return;
           seen.add(value);
           if (Array.isArray(value)) {
@@ -3059,7 +3089,7 @@ function createDiscordBreakdownSyncService({
           }
           const key = String(value.sessionKey || value.key || value.id || value.sessionId || value.label || "").trim();
           if (key && (value.sessionKey || value.sessionId || value.label || value.lastMessage || value.last_message)) flatSessions.push(value);
-          for (const nestedKey of ["sessions", "items", "result", "content"]) collectSessions(value[nestedKey], seen);
+          for (const nestedKey of ["sessions", "items", "result", "content", "details", "text"]) collectSessions(value[nestedKey], seen);
         };
         collectSessions(listResult.result);
         flatSessions.push(...sessions);
@@ -3549,6 +3579,7 @@ function createDiscordBreakdownSyncService({
         id: openClawMessageId(message, index),
         content: message.content,
         embeds: Array.isArray(message.raw?.embeds) ? message.raw.embeds : [],
+        role: message.role,
         raw: message.raw,
         timestamp: message.timestamp
       }))
@@ -3559,8 +3590,23 @@ function createDiscordBreakdownSyncService({
     const latest = candidates[candidates.length - 1];
     for (const message of latest ? [latest] : []) {
       const messageId = String(message.id || "");
-      const record = parseConfirmation(message);
+      let record = parseConfirmation(message);
+      if (!record) {
+        const parsed = parseHumanBreakdownMessage({
+          id: messageId,
+          message_id: messageId,
+          discord_message_id: messageId,
+          text: message.content,
+          content: message.content,
+          channel: channelId ? `channel:${channelId}` : "discord"
+        });
+        if (parsed.unit || parsed.fault || parsed.issue) record = parsed;
+      }
       if (record) {
+        if (!record.id) {
+          const breakdowns = await readCollection("breakdowns");
+          record.id = nextRecordId(breakdowns, "BRK");
+        }
         const result = await upsertBreakdown(record);
         if (result.changed) imported.push(result.record);
       }
