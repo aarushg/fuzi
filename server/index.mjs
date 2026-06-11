@@ -1735,9 +1735,10 @@ function defaultOpenClawCommunicationData(env, baseDir) {
 }
 
 function defaultDiscordBreakdownSyncData(env, baseDir) {
+  // WARNING: Breakdown sync must not use Discord REST here. OpenClaw owns Discord access and FUZI reads OpenClaw session history only.
   return {
-    apiBaseUrl: env.DISCORD_API_BASE_URL || "https://discord.com/api/v10",
     openClawUrl: defaultOpenClawUrl(env),
+    openClawBreakdownSessionKey: env.FUZI_OPENCLAW_BREAKDOWN_SESSION_KEY || "",
     openClawTimeoutSeconds: Number(env.FUZI_OPENCLAW_TIMEOUT || 15),
     configFile: "",
     envFile: "",
@@ -2576,6 +2577,7 @@ function createDiscordBreakdownSyncService({
   nextRecordId,
   now
 }) {
+  // WARNING: Maintain the removed Discord REST fetch. This service must call OpenClaw tools only, never discord.com APIs.
   const loadJsonConfig = async () => {
     const text = await readText(config.configFile);
     if (!text.trim()) return {};
@@ -2622,16 +2624,11 @@ function createDiscordBreakdownSyncService({
     return String(env[envKey] || envValues[envKey] || "").trim();
   };
   let lastBreakdownChannelLookup = null;
-  let lastDiscordBotTokenLookup = null;
   const openClawRuntimeLookupKeys = new Set([
     "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL",
     "FUZI_OPENCLAW_CONFIG_DIR",
     "FUZI_OPENCLAW_CONFIG_FILE",
-    "FUZI_OPENCLAW_ENV_FILE",
-    "DISCORD_BOT_TOKEN",
-    "OPENCLAW_DISCORD_TOKEN",
-    "FUZI_DISCORD_BOT_TOKEN",
-    "FUZI_BREAKDOWN_DISCORD_BOT_TOKEN"
+    "FUZI_OPENCLAW_ENV_FILE"
   ]);
 
   const runtimeValue = async (key, fallback = "") => {
@@ -2702,6 +2699,74 @@ function createDiscordBreakdownSyncService({
     }
   };
 
+  const parseOpenClawGatewayBody = (body = "") => {
+    try {
+      const parsed = JSON.parse(String(body || ""));
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch {
+      // Keep the raw body available to diagnostics below.
+    }
+    return { ok: false, raw: String(body || "") };
+  };
+
+  const openClawToolInvoke = async (tool, args = {}) => {
+    const endpoint = openClawEndpoint("/tools/invoke");
+    const payload = {
+      tool,
+      ...args
+    };
+    const invoke = {
+      url: endpoint,
+      method: "POST",
+      tool,
+      openclaw_connection: openClawConnectionTriedMessage(config.openClawUrl)
+    };
+    if (!endpoint) {
+      return {
+        ok: false,
+        invoke,
+        returned: { ok: false, error: "OpenClaw gateway URL is not configured." },
+        result: null
+      };
+    }
+    const secret = await openClawAuthSecret();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), Math.max(Number(config.openClawTimeoutSeconds || 15), 1) * 1000);
+    try {
+      const response = await fetchImpl(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(secret ? { Authorization: `Bearer ${secret}` } : {})
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      const body = await response.text();
+      const parsed = parseOpenClawGatewayBody(body);
+      const returned = { status: response.status, ok: response.ok, body };
+      return {
+        ok: response.ok && parsed?.ok !== false,
+        status: response.status,
+        invoke,
+        returned,
+        gateway: parsed,
+        result: parsed?.result ?? parsed
+      };
+    } catch (error) {
+      const message = error?.name === "AbortError" ? "OpenClaw gateway tool call timed out." : String(error?.message || "OpenClaw gateway tool call failed.");
+      return {
+        ok: false,
+        invoke,
+        returned: { ok: false, error: message },
+        result: null,
+        error: message
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
   const openClawRuntimeValue = async (key) => {
     const endpoint = openClawEndpoint("/tools/invoke");
     if (!endpoint) return "";
@@ -2727,7 +2792,6 @@ function createDiscordBreakdownSyncService({
       openclaw_connection: openClawConnectionTriedMessage(config.openClawUrl)
     };
     if (key === "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL") lastBreakdownChannelLookup = lookup;
-    else if (/DISCORD.*TOKEN/.test(key)) lastDiscordBotTokenLookup = lookup;
     try {
       const response = await fetchImpl(endpoint, {
         method: "POST",
@@ -2754,7 +2818,6 @@ function createDiscordBreakdownSyncService({
         }
       };
       if (key === "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL") lastBreakdownChannelLookup = updatedLookup;
-      else if (/DISCORD.*TOKEN/.test(key)) lastDiscordBotTokenLookup = updatedLookup;
       return value;
     } catch (error) {
       const updatedLookup = {
@@ -2768,7 +2831,6 @@ function createDiscordBreakdownSyncService({
         }
       };
       if (key === "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL") lastBreakdownChannelLookup = updatedLookup;
-      else if (/DISCORD.*TOKEN/.test(key)) lastDiscordBotTokenLookup = updatedLookup;
       return "";
     } finally {
       clearTimeout(timeout);
@@ -2781,55 +2843,15 @@ function createDiscordBreakdownSyncService({
     return value.startsWith("channel:") ? value.slice("channel:".length).trim() : value;
   };
 
-  const discordBotToken = async () => {
-    const normalizeToken = (value = "") => String(value || "").trim().replace(/^(?:Bot|Bearer)\s+/i, "").trim();
-    for (const key of [
-      "DISCORD_BOT_TOKEN",
-      "OPENCLAW_DISCORD_TOKEN",
-      "FUZI_DISCORD_BOT_TOKEN",
-      "FUZI_BREAKDOWN_DISCORD_BOT_TOKEN"
-    ]) {
-      const direct = normalizeToken(await runtimeValue(key, ""));
-      if (direct) return direct;
-    }
-    const openClawConfig = await loadJsonConfig();
-    const discord = openClawConfig.channels?.discord || {};
-    const accounts = discord.accounts || {};
-    const candidates = [
-      discord.token,
-      discord.botToken,
-      discord.bot_token,
-      discord.apiToken,
-      discord.api_token
-    ];
-    if (accounts.default?.token) candidates.push(accounts.default.token);
-    if (accounts.default?.botToken) candidates.push(accounts.default.botToken);
-    if (accounts.default?.bot_token) candidates.push(accounts.default.bot_token);
-    if (Array.isArray(accounts)) candidates.push(...accounts.map((account) => account?.token));
-    if (Array.isArray(accounts)) candidates.push(...accounts.map((account) => account?.botToken || account?.bot_token));
-    if (accounts && typeof accounts === "object") {
-      candidates.push(...Object.values(accounts).map((account) => account?.token));
-      candidates.push(...Object.values(accounts).map((account) => account?.botToken || account?.bot_token));
-    }
-    for (const candidate of candidates) {
-      const resolved = normalizeToken(await resolvePossiblyEnvValue(candidate));
-      if (resolved) return resolved;
-    }
-    return "";
-  };
-
-  const discordConfigurationDiagnostics = (channelId, token) => {
+  const discordConfigurationDiagnostics = (channelId) => {
     const target = channelId ? `channel:${channelId}` : String(lastBreakdownChannelLookup?.target || "").trim();
     const missing = [
-      channelId ? "" : "channel",
-      token ? "" : "bot token"
+      channelId ? "" : "channel"
     ].filter(Boolean);
     return {
       missing,
       target: target || "",
-      bot_token_configured: Boolean(token),
       openclaw_connection: openClawConnectionTriedMessage(config.openClawUrl),
-      bot_token_lookup_fetch: lastDiscordBotTokenLookup,
       target_lookup_fetch: lastBreakdownChannelLookup || {
         url: openClawEndpoint("/tools/invoke"),
         method: "POST",
@@ -2932,6 +2954,152 @@ function createDiscordBreakdownSyncService({
       created_at: now(),
       updated_at: now()
     };
+  };
+
+  const normalizeOpenClawContentText = (value) => {
+    if (typeof value === "string") return value.trim();
+    if (Array.isArray(value)) {
+      return value.map((item) => normalizeOpenClawContentText(item)).filter(Boolean).join("\n").trim();
+    }
+    if (value && typeof value === "object") {
+      return String(value.text || value.message || value.content || value.body || value.value || "").trim();
+    }
+    return "";
+  };
+
+  const collectOpenClawMessages = (value, messages = [], seen = new Set()) => {
+    if (!value || typeof value !== "object") return messages;
+    if (seen.has(value)) return messages;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (const item of value) collectOpenClawMessages(item, messages, seen);
+      return messages;
+    }
+    const text = normalizeOpenClawContentText(value.content || value.message || value.text || value.body);
+    const role = String(value.role || value.type || value.kind || value.authorRole || "").trim().toLowerCase();
+    const id = String(value.id || value.message_id || value.messageId || value.discord_message_id || value.discordMessageId || value.event_id || value.eventId || "").trim();
+    const timestamp = String(value.timestamp || value.created_at || value.createdAt || value.time || value.date || "").trim();
+    const sender = String(value.sender || value.author || value.author_name || value.authorName || value.from || value.username || "").trim();
+    const channel = String(value.channel || value.provider || value.source || "").trim();
+    const looksLikeMessage = Boolean(text) && (
+      Boolean(id || timestamp || sender) ||
+      ["user", "assistant", "message", "event_msg", "input", "output"].includes(role)
+    );
+    if (looksLikeMessage) {
+      messages.push({
+        id,
+        timestamp,
+        sender,
+        channel,
+        role,
+        content: text,
+        raw: value
+      });
+    }
+    for (const key of ["messages", "history", "items", "events", "entries", "content", "result"]) {
+      if (value[key] && value[key] !== value) collectOpenClawMessages(value[key], messages, seen);
+    }
+    return messages;
+  };
+
+  const openClawMessageId = (message = {}, fallbackIndex = 0) => {
+    const raw = message.raw || {};
+    return String(
+      message.id ||
+      raw.id ||
+      raw.message_id ||
+      raw.messageId ||
+      raw.discord_message_id ||
+      raw.discordMessageId ||
+      raw.payload?.message_id ||
+      raw.payload?.messageId ||
+      raw.payload?.id ||
+      ""
+    ).trim() || `openclaw-${message.timestamp || fallbackIndex}`;
+  };
+
+  const messageLooksLikeBreakdownChannel = (message = {}, channelId = "") => {
+    const haystack = JSON.stringify(message.raw || message).toLowerCase();
+    const target = String(channelId || "").trim().toLowerCase();
+    if (!target) return true;
+    return haystack.includes(target) || haystack.includes(`channel:${target}`) || haystack.includes("fuzi-breakdown") || haystack.includes("breakdown");
+  };
+
+  const openClawHistoryMessages = async ({ channelId = "", limit = config.limit } = {}) => {
+    // WARNING: Do not replace this with Discord channel polling. OpenClaw stores the Discord session/history and exposes it via existing tools.
+    const explicitSessionKey = String(config.openClawBreakdownSessionKey || env.FUZI_OPENCLAW_BREAKDOWN_SESSION_KEY || "").trim();
+    const searchHints = [
+      explicitSessionKey,
+      channelId ? `channel:${channelId}` : "",
+      channelId,
+      "fuzi-breakdown",
+      "breakdown"
+    ].filter(Boolean);
+    let sessionKey = explicitSessionKey;
+    let listResult = null;
+    if (!sessionKey) {
+      for (const search of searchHints.slice(1)) {
+        listResult = await openClawToolInvoke("sessions_list", {
+          search,
+          agentId: "main",
+          includeLastMessage: true,
+          messageLimit: 1,
+          limit: 10
+        });
+        const sessions = collectOpenClawMessages(listResult.result)
+          .map((item) => item.raw)
+          .filter((item) => item && typeof item === "object");
+        const flatSessions = [];
+        const collectSessions = (value, seen = new Set()) => {
+          if (!value || typeof value !== "object" || seen.has(value)) return;
+          seen.add(value);
+          if (Array.isArray(value)) {
+            value.forEach((item) => collectSessions(item, seen));
+            return;
+          }
+          const key = String(value.sessionKey || value.key || value.id || value.sessionId || value.label || "").trim();
+          if (key && (value.sessionKey || value.sessionId || value.label || value.lastMessage || value.last_message)) flatSessions.push(value);
+          for (const nestedKey of ["sessions", "items", "result", "content"]) collectSessions(value[nestedKey], seen);
+        };
+        collectSessions(listResult.result);
+        flatSessions.push(...sessions);
+        const match = flatSessions.find((item) => {
+          const text = JSON.stringify(item).toLowerCase();
+          return text.includes(search.toLowerCase()) || text.includes("fuzi-breakdown") || text.includes(channelId);
+        }) || flatSessions[0];
+        sessionKey = String(match?.sessionKey || match?.key || match?.id || match?.label || "").trim();
+        if (sessionKey) break;
+      }
+    }
+    if (!sessionKey) {
+      return {
+        ok: false,
+        messages: [],
+        sessionKey: "",
+        listResult,
+        historyResult: null,
+        message: "OpenClaw breakdown session was not found from sessions_list."
+      };
+    }
+    const historyResult = await openClawToolInvoke("sessions_history", {
+      sessionKey,
+      limit: Math.max(Number(limit || config.limit || 1), 1),
+      includeTools: false
+    });
+    if (!historyResult.ok) {
+      return {
+        ok: false,
+        messages: [],
+        sessionKey,
+        listResult,
+        historyResult,
+        message: "OpenClaw breakdown session history could not be fetched."
+      };
+    }
+    const messages = collectOpenClawMessages(historyResult.result)
+      .filter((message) => message.content && !["developer", "system", "tool", "function"].includes(message.role))
+      .filter((message) => messageLooksLikeBreakdownChannel(message, channelId));
+    return { ok: true, messages, sessionKey, listResult, historyResult };
   };
 
   const selectedEngineerFromBody = (body = {}) => String(
@@ -3341,65 +3509,56 @@ function createDiscordBreakdownSyncService({
   };
 
   const sync = async ({ force = false, limit = config.limit } = {}) => {
+    // WARNING: This sync intentionally reads one latest message from OpenClaw session history; direct Discord REST fetch was removed.
     const channelId = await discordChannelId();
-    const token = await discordBotToken();
-    if (!channelId || !token) {
-      const diagnostics = discordConfigurationDiagnostics(channelId, token);
+    if (!channelId) {
+      const diagnostics = discordConfigurationDiagnostics(channelId, "");
       const lookup = diagnostics.target_lookup_fetch;
-      const tokenLookup = diagnostics.bot_token_lookup_fetch;
       const lookupText = lookup?.url
         ? ` Target lookup fetch: POST ${lookup.url} tool=${lookup.tool} session=${lookup.sessionKey} key=${lookup.key}.`
         : "";
       const targetText = diagnostics.target ? ` Target value: ${diagnostics.target}.` : " Target value was not found.";
       const returnedText = lookup?.returned ? ` Target lookup returned: ${JSON.stringify(lookup.returned)}.` : "";
-      const tokenLookupText = tokenLookup?.url
-        ? ` Bot token lookup fetch: POST ${tokenLookup.url} tool=${tokenLookup.tool} session=${tokenLookup.sessionKey} key=${tokenLookup.key}.`
-        : "";
-      const tokenReturnedText = tokenLookup?.returned
-        ? ` Bot token lookup returned: ${JSON.stringify({ status: tokenLookup.returned.status, ok: tokenLookup.returned.ok, found: Boolean(tokenLookup.found || tokenLookup.value_found) })}.`
-        : "";
       return {
         ok: false,
         imported: 0,
-        message: `Discord breakdown ${diagnostics.missing.join(" and ")} is not configured. ${diagnostics.openclaw_connection}${lookupText}${targetText}${returnedText}${tokenLookupText}${tokenReturnedText}`.replace(/\s+/g, " ").trim(),
+        message: `Discord breakdown channel is not configured. ${diagnostics.openclaw_connection}${lookupText}${targetText}${returnedText}`.replace(/\s+/g, " ").trim(),
         diagnostics
       };
     }
     const state = await readState();
     const cursors = state.discord_cursors && typeof state.discord_cursors === "object" ? state.discord_cursors : {};
     const cursor = String(cursors.breakdown_last_message_id || "");
-    const endpoint = `${String(config.apiBaseUrl || "").replace(/\/+$/g, "")}/channels/${encodeURIComponent(channelId)}/messages?limit=${encodeURIComponent(limit)}`;
-    const response = await fetchImpl(endpoint, { headers: { Authorization: `Bot ${token}` } });
-    if (!response.ok) {
-      const body = await response.text();
-      const discordFetch = {
-        endpoint,
-        method: "GET",
-        channel: `channel:${channelId}`,
-        status: response.status,
-        ok: response.ok,
-        returned: {
-          status: response.status,
-          ok: response.ok,
-          body
-        }
-      };
+    const history = await openClawHistoryMessages({ channelId, limit: Math.max(Number(limit || 1), 1) });
+    if (!history.ok) {
+      const returned = history.historyResult?.returned || history.listResult?.returned || { ok: false, error: history.message };
       return {
         ok: false,
         imported: 0,
-        status: response.status,
-        message: `Discord messages could not be fetched. Discord fetch returned: ${JSON.stringify(discordFetch.returned)}.`,
-        discord_fetch: discordFetch
+        status: history.historyResult?.status || history.listResult?.status || null,
+        message: `${history.message} OpenClaw history returned: ${JSON.stringify(returned)}. ${openClawConnectionTriedMessage(config.openClawUrl)}`.replace(/\s+/g, " ").trim(),
+        openclaw_history: {
+          sessionKey: history.sessionKey,
+          list_returned: history.listResult?.returned,
+          history_returned: history.historyResult?.returned
+        }
       };
     }
-    const messages = await response.json();
-    if (!Array.isArray(messages)) return { ok: false, imported: 0, message: "Discord response did not include a message list." };
-    const ordered = messages.slice().sort((a, b) => idGreaterThan(a.id, b.id) ? 1 : -1);
+    const ordered = history.messages
+      .map((message, index) => ({
+        id: openClawMessageId(message, index),
+        content: message.content,
+        embeds: Array.isArray(message.raw?.embeds) ? message.raw.embeds : [],
+        raw: message.raw,
+        timestamp: message.timestamp
+      }))
+      .sort((a, b) => idGreaterThan(a.id, b.id) ? 1 : -1);
     const imported = [];
     let newestId = cursor;
-    for (const message of ordered) {
+    const candidates = ordered.filter((message) => force || !cursor || idGreaterThan(String(message.id || ""), cursor));
+    const latest = candidates[candidates.length - 1];
+    for (const message of latest ? [latest] : []) {
       const messageId = String(message.id || "");
-      if (!force && cursor && !idGreaterThan(messageId, cursor)) continue;
       const record = parseConfirmation(message);
       if (record) {
         const result = await upsertBreakdown(record);
@@ -3411,7 +3570,7 @@ function createDiscordBreakdownSyncService({
       state.discord_cursors = { ...cursors, breakdown_last_message_id: newestId };
       await writeState(state);
     }
-    return { ok: true, imported: imported.length, records: imported };
+    return { ok: true, imported: imported.length, records: imported, openclaw_session: history.sessionKey };
   };
 
   const createFromDiscordMessage = async (body = {}) => {

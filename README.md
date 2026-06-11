@@ -849,7 +849,7 @@ Pure status/acknowledgement words are meaningful in the channel:
 
 ### Breakdown Sync And Duplicate Protection
 
-FUZI can also poll the configured Discord channel and import bot confirmation messages with `POST /api/portal/breakdown/sync-discord` or the background poller in [server/index.mjs](server/index.mjs). The sync path preserves existing `assignment_source: "openclaw-judgement"` records so a later confirmation import cannot overwrite the engineer that OpenClaw already selected.
+FUZI can also read OpenClaw's stored breakdown session history and import the latest bot confirmation message with `POST /api/portal/breakdown/sync-discord` or the background poller in [server/index.mjs](server/index.mjs). The sync path talks only to the OpenClaw gateway, using existing `sessions_list` / `sessions_history` tools, and preserves existing `assignment_source: "openclaw-judgement"` records so a later confirmation import cannot overwrite the engineer that OpenClaw already selected.
 
 Existing Discord message ids are idempotent. Reprocessing the same `message_id` returns the existing breakdown and does not overwrite saved site, unit, phone, or fault text unless OpenClaw explicitly sends replacement fields.
 

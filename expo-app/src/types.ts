@@ -160,6 +160,7 @@ export type Estimate = {
 };
 
 export type PortalData = {
+  // WARNING: PortalData is FUZI domain state only. Do not add raw Discord/OpenClaw message history, transcripts, or transport payloads.
   [key: string]: unknown;
   metrics: Metric[];
   customers: Customer[];

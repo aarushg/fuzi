@@ -802,6 +802,38 @@ function offerInventoryTotal(record: Record<string, unknown>) {
   }, 0);
 }
 
+const rawTransportKeys = new Set([
+  "discord_fetch",
+  "openclaw_history",
+  "historyResult",
+  "history_result",
+  "history",
+  "listResult",
+  "list_result",
+  "messages",
+  "session_history",
+  "transcript",
+  "gateway",
+  "returned",
+  "raw"
+]);
+
+function stripRawTransportPayloads<T>(value: T, key = ""): T {
+  if (rawTransportKeys.has(key)) return undefined as T;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => stripRawTransportPayloads(item))
+      .filter((item) => item !== undefined) as T;
+  }
+  if (!value || typeof value !== "object") return value;
+  const next: Record<string, unknown> = {};
+  for (const [entryKey, entryValue] of Object.entries(value as Record<string, unknown>)) {
+    if (rawTransportKeys.has(entryKey)) continue;
+    next[entryKey] = stripRawTransportPayloads(entryValue, entryKey);
+  }
+  return next as T;
+}
+
 function currentFiscalYearRange() {
   const today = new Date();
   const year = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1;
@@ -8768,12 +8800,14 @@ export default function App() {
 
   async function loadPortal(nextToken = token) {
     const portalData = await apiFetch<PortalData>("/api/portal/data", { token: nextToken });
-    setData(portalData);
+    // WARNING: Frontend state stores FUZI domain records only. Never store raw Discord/OpenClaw message history or transport payloads here.
+    setData(stripRawTransportPayloads(portalData));
   }
 
   async function syncDiscordBreakdowns() {
     setLoading(true);
     try {
+      // WARNING: This endpoint must stay OpenClaw-only. Do not add Discord REST fetches in the app.
       const result = await apiFetch<{ imported?: number; message?: string }>("/api/portal/breakdown/sync-discord", {
         method: "POST",
         token,
