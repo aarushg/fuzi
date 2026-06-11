@@ -1685,12 +1685,13 @@ function defaultOpenClawCommunicationData(env, baseDir) {
 
 function defaultDiscordBreakdownSyncData(env, baseDir) {
   const homeDir = env.USERPROFILE || env.HOME || baseDir;
+  const openClawDir = env.FUZI_OPENCLAW_CONFIG_DIR || path.join(homeDir, ".openclaw");
   return {
     apiBaseUrl: env.DISCORD_API_BASE_URL || "https://discord.com/api/v10",
     openClawUrl: defaultOpenClawUrl(env),
     openClawTimeoutSeconds: Number(env.FUZI_OPENCLAW_TIMEOUT || 15),
-    configFile: path.join(homeDir, ".openclaw", "openclaw.json"),
-    envFile: path.join(homeDir, ".openclaw", ".env"),
+    configFile: env.FUZI_OPENCLAW_CONFIG_FILE || path.join(openClawDir, "openclaw.json"),
+    envFile: env.FUZI_OPENCLAW_ENV_FILE || path.join(openClawDir, ".env"),
     channelTarget: env.FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL || "",
     pollMs: Math.max(Number(env.FUZI_BREAKDOWN_DISCORD_POLL_MS || 15000), 5000),
     limit: Math.min(Math.max(Number(env.FUZI_BREAKDOWN_DISCORD_LIMIT || 50), 1), 100)
@@ -2238,18 +2239,33 @@ function createOpenClawCommunicationService({
     const values = {};
     const text = await readText(config.envFile);
     for (const rawLine of text.split(/\r?\n/)) {
-      const line = rawLine.trim();
+      const line = rawLine.replace(/\r$/, "").trim();
       if (!line || line.startsWith("#") || !line.includes("=")) continue;
       const [key, ...rest] = line.split("=");
-      values[key.trim()] = rest.join("=").trim().replace(/^['"]|['"]$/g, "");
+      const normalizedKey = key.trim().replace(/^export\s+/, "").trim();
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(normalizedKey)) continue;
+      values[normalizedKey] = rest.join("=").trim().replace(/^['"]|['"]$/g, "");
     }
     return values;
   };
 
   const resolvePossiblyEnvValue = async (value) => {
-    const resolved = String(value || "").trim();
-    if (!resolved.startsWith("${") || !resolved.endsWith("}")) return resolved;
+    if (value && typeof value === "object") {
+      const envValues = await loadEnvValues();
+      const source = String(value.source || value.refSource || value.ref_source || "").trim().toLowerCase();
+      const id = String(value.id || value.key || value.name || value.env || value.envVar || value.env_var || "").trim();
+      if ((source === "env" || value.provider || id) && id) return String(env[id] || envValues[id] || "").trim();
+      for (const candidate of [value.value, value.token, value.secret]) {
+        const resolvedObjectValue = await resolvePossiblyEnvValue(candidate);
+        if (resolvedObjectValue) return resolvedObjectValue;
+      }
+      return "";
+    }
     const envValues = await loadEnvValues();
+    const resolved = String(value || "").trim();
+    const secretRefEnv = resolved.match(/^secretref-env:([A-Za-z_][A-Za-z0-9_]*)$/);
+    if (secretRefEnv) return String(env[secretRefEnv[1]] || envValues[secretRefEnv[1]] || "").trim();
+    if (!resolved.startsWith("${") || !resolved.endsWith("}")) return resolved;
     const envKey = resolved.slice(2, -1);
     return String(env[envKey] || envValues[envKey] || "").trim();
   };
@@ -2526,18 +2542,33 @@ function createDiscordBreakdownSyncService({
     const values = {};
     const text = await readText(config.envFile);
     for (const rawLine of text.split(/\r?\n/)) {
-      const line = rawLine.trim();
+      const line = rawLine.replace(/\r$/, "").trim();
       if (!line || line.startsWith("#") || !line.includes("=")) continue;
       const [key, ...rest] = line.split("=");
-      values[key.trim()] = rest.join("=").trim().replace(/^['"]|['"]$/g, "");
+      const normalizedKey = key.trim().replace(/^export\s+/, "").trim();
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(normalizedKey)) continue;
+      values[normalizedKey] = rest.join("=").trim().replace(/^['"]|['"]$/g, "");
     }
     return values;
   };
 
   const resolvePossiblyEnvValue = async (value) => {
-    const resolved = String(value || "").trim();
-    if (!resolved.startsWith("${") || !resolved.endsWith("}")) return resolved;
+    if (value && typeof value === "object") {
+      const envValues = await loadEnvValues();
+      const source = String(value.source || value.refSource || value.ref_source || "").trim().toLowerCase();
+      const id = String(value.id || value.key || value.name || value.env || value.envVar || value.env_var || "").trim();
+      if ((source === "env" || value.provider || id) && id) return String(env[id] || envValues[id] || "").trim();
+      for (const candidate of [value.value, value.token, value.secret]) {
+        const resolvedObjectValue = await resolvePossiblyEnvValue(candidate);
+        if (resolvedObjectValue) return resolvedObjectValue;
+      }
+      return "";
+    }
     const envValues = await loadEnvValues();
+    const resolved = String(value || "").trim();
+    const secretRefEnv = resolved.match(/^secretref-env:([A-Za-z_][A-Za-z0-9_]*)$/);
+    if (secretRefEnv) return String(env[secretRefEnv[1]] || envValues[secretRefEnv[1]] || "").trim();
+    if (!resolved.startsWith("${") || !resolved.endsWith("}")) return resolved;
     const envKey = resolved.slice(2, -1);
     return String(env[envKey] || envValues[envKey] || "").trim();
   };
@@ -2659,15 +2690,34 @@ function createDiscordBreakdownSyncService({
   };
 
   const discordBotToken = async () => {
-    const direct = await runtimeValue("DISCORD_BOT_TOKEN", "");
-    if (direct) return direct;
+    for (const key of [
+      "DISCORD_BOT_TOKEN",
+      "OPENCLAW_DISCORD_TOKEN",
+      "FUZI_DISCORD_BOT_TOKEN",
+      "FUZI_BREAKDOWN_DISCORD_BOT_TOKEN"
+    ]) {
+      const direct = await runtimeValue(key, "");
+      if (direct) return direct;
+    }
     const openClawConfig = await loadJsonConfig();
     const discord = openClawConfig.channels?.discord || {};
     const accounts = discord.accounts || {};
-    const candidates = [];
+    const candidates = [
+      discord.token,
+      discord.botToken,
+      discord.bot_token,
+      discord.apiToken,
+      discord.api_token
+    ];
     if (accounts.default?.token) candidates.push(accounts.default.token);
+    if (accounts.default?.botToken) candidates.push(accounts.default.botToken);
+    if (accounts.default?.bot_token) candidates.push(accounts.default.bot_token);
     if (Array.isArray(accounts)) candidates.push(...accounts.map((account) => account?.token));
-    if (accounts && typeof accounts === "object") candidates.push(...Object.values(accounts).map((account) => account?.token));
+    if (Array.isArray(accounts)) candidates.push(...accounts.map((account) => account?.botToken || account?.bot_token));
+    if (accounts && typeof accounts === "object") {
+      candidates.push(...Object.values(accounts).map((account) => account?.token));
+      candidates.push(...Object.values(accounts).map((account) => account?.botToken || account?.bot_token));
+    }
     for (const candidate of candidates) {
       const resolved = await resolvePossiblyEnvValue(candidate);
       if (resolved) return resolved;
