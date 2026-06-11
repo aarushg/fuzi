@@ -187,6 +187,18 @@ export type PortalData = {
   org_chart?: Array<Record<string, unknown>>;
   leave_requests?: Array<Record<string, unknown>>;
   payments?: Array<Record<string, unknown>>;
+  approvals?: Array<Record<string, unknown>>;
+  documents?: Array<Record<string, unknown>>;
+  escalation_rules?: Array<Record<string, unknown>>;
+  conversations?: Array<Record<string, unknown>>;
+  audit_logs?: Array<Record<string, unknown>>;
+  warranty_records?: Array<Record<string, unknown>>;
+  dispatch_records?: Array<Record<string, unknown>>;
+  readiness_checklists?: Array<Record<string, unknown>>;
+  skill_matrix?: Array<Record<string, unknown>>;
+  handover_packs?: Array<Record<string, unknown>>;
+  breakdowns?: Array<Record<string, unknown>>;
+  service_records?: Array<Record<string, unknown>>;
   viewer?: { display_name?: string; username?: string; department?: string; role?: string; linked_org_node?: string; linked_team_member?: string };
   access?: { allowed_views?: string[]; selected_view?: string; default_view?: string; is_restricted?: boolean };
   synced_at?: string;

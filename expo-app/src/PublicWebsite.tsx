@@ -1,8 +1,8 @@
-import { StatusBar } from "expo-status-bar";
-import { createElement, useEffect, useMemo, useState } from "react";
+﻿import { StatusBar } from "expo-status-bar";
+import { useMemo, useState } from "react";
 import {
+  Image,
   Linking,
-  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -154,17 +154,6 @@ export function PublicWebsite({ onOpenPortal }: { onOpenPortal: () => void }) {
   const isWide = width >= 900;
   const selectedProduct = productByKey.get(page);
 
-  useEffect(() => {
-    if (Platform.OS !== "web") return;
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === "fuzi-open-portal") {
-        onOpenPortal();
-      }
-    };
-    globalThis.addEventListener?.("message", handleMessage as EventListener);
-    return () => globalThis.removeEventListener?.("message", handleMessage as EventListener);
-  }, [onOpenPortal]);
-
   const groupedProducts = useMemo(
     () => ({
       elevators: products.filter((item) => item.category === "Elevators"),
@@ -172,24 +161,6 @@ export function PublicWebsite({ onOpenPortal }: { onOpenPortal: () => void }) {
     }),
     [],
   );
-
-  if (Platform.OS === "web") {
-    return (
-      <SafeAreaView style={styles.staticSiteSafe}>
-        <StatusBar style="light" />
-        {createElement("iframe", {
-          src: "/site/index.html",
-          title: "FUZI Classic Elevators",
-          style: {
-            border: "0",
-            flex: 1,
-            height: "100%",
-            width: "100%",
-          },
-        })}
-      </SafeAreaView>
-    );
-  }
 
   function openUrl(url: string) {
     Linking.openURL(url).catch(() => undefined);
@@ -336,7 +307,7 @@ export function PublicWebsite({ onOpenPortal }: { onOpenPortal: () => void }) {
               <View style={styles.featureGrid}>
                 {product.features.map((feature) => (
                   <View key={feature} style={styles.featureCard}>
-                    <Text style={styles.featureDot}>●</Text>
+                    <Text style={styles.featureDot}>•</Text>
                     <Text style={styles.featureText}>{feature}</Text>
                   </View>
                 ))}
@@ -443,7 +414,10 @@ function ProductCard({ product, setPage }: { product: ProductPage; setPage: (pag
   return (
     <Pressable style={styles.productCard} onPress={() => setPage(product.key)}>
       <View style={styles.productImage}>
-        <Text style={styles.productImageText}>{product.category}</Text>
+        <Image source={{ uri: product.image }} style={styles.productImageAsset} resizeMode="cover" />
+        <View style={styles.productImageOverlay}>
+          <Text style={styles.productImageText}>{product.category}</Text>
+        </View>
       </View>
       <View style={styles.productBody}>
         <Text style={styles.productCategory}>{product.category}</Text>
@@ -483,7 +457,7 @@ function Footer({ setPage, openUrl }: { setPage: (page: PublicPage) => void; ope
           <Text style={styles.footerLink}>WhatsApp Enquiry</Text>
         </Pressable>
       </View>
-      <Text style={styles.footerCopy}>© 2024 FUZI Classic Elevators. Website and operations portal now run from the Expo app.</Text>
+      <Text style={styles.footerCopy}>© 2024 FUZI Classic Elevators. Website and operations portal run from the Expo app.</Text>
     </View>
   );
 }
@@ -493,7 +467,6 @@ function titleCase(value: string) {
 }
 
 const styles = StyleSheet.create({
-  staticSiteSafe: { flex: 1, backgroundColor: "#0f1117" },
   safe: { flex: 1, backgroundColor: "#0f1117" },
   scroll: { flex: 1, backgroundColor: "#fff" },
   content: { backgroundColor: "#fff" },
@@ -545,8 +518,10 @@ const styles = StyleSheet.create({
   sectionTitle: { color: "#11131b", fontSize: 30, lineHeight: 36, fontWeight: "900", marginBottom: 24 },
   cardGrid: { flexDirection: "row", flexWrap: "wrap", gap: 16 },
   productCard: { width: 300, maxWidth: "100%", backgroundColor: "#fff", borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, overflow: "hidden" },
-  productImage: { height: 128, backgroundColor: "#11131b", alignItems: "center", justifyContent: "center" },
-  productImageText: { color: "rgba(255,255,255,0.56)", fontWeight: "900", textTransform: "uppercase", letterSpacing: 1.1 },
+  productImage: { height: 146, backgroundColor: "#11131b", overflow: "hidden" },
+  productImageAsset: { width: "100%", height: "100%" },
+  productImageOverlay: { position: "absolute", left: 0, right: 0, bottom: 0, padding: 10, backgroundColor: "rgba(0,0,0,0.5)" },
+  productImageText: { color: "#fff", fontWeight: "900", textTransform: "uppercase", letterSpacing: 1.1, fontSize: 11 },
   productBody: { padding: 16, gap: 7 },
   productCategory: { color: "#e02020", fontSize: 11, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 },
   productTitle: { color: "#11131b", fontSize: 18, fontWeight: "900" },

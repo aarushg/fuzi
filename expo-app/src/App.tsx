@@ -20,6 +20,8 @@ import { PublicWebsite } from "./PublicWebsite";
 import type { Customer, PortalData, SiteVisit } from "./types";
 
 type TabKey =
+  | "today"
+  | "intelligence"
   | "overview"
   | "modules"
   | "customers"
@@ -46,6 +48,9 @@ type TabKey =
   | "tender"
   | "factory"
   | "internationalVendor"
+  | "approvals"
+  | "documents"
+  | "engineer"
   | "comms"
   | "siteVisits";
 
@@ -73,6 +78,8 @@ type CostingSource = {
 };
 
 const navItems: Array<{ key: TabKey; label: string; icon: string }> = [
+  { key: "today", label: "Today", icon: "!" },
+  { key: "intelligence", label: "Command Intelligence", icon: "#" },
   { key: "overview", label: "Overview", icon: "⌂" },
   { key: "modules", label: "Platform Modules", icon: "▦" },
   { key: "customers", label: "Customers", icon: "◉" },
@@ -98,6 +105,9 @@ const navItems: Array<{ key: TabKey; label: string; icon: string }> = [
   { key: "tender", label: "Tender", icon: "◈" },
   { key: "factory", label: "Factory", icon: "▧" },
   { key: "internationalVendor", label: "International Vendor", icon: "⇄" },
+  { key: "approvals", label: "Approvals", icon: "✓" },
+  { key: "documents", label: "Documents", icon: "▨" },
+  { key: "engineer", label: "Engineer Jobs", icon: "⌁" },
   { key: "comms", label: "Dept Comms", icon: "☰" },
 ];
 
@@ -121,10 +131,21 @@ const moduleConfigs: Partial<Record<TabKey, ModuleConfig>> = {
   factory: { route: "/api/portal/factory", titleLabel: "Factory order ref", titleKey: "order_ref", customerKey: "customer", notesKey: "materials" },
   internationalVendor: { route: "/api/portal/international-vendors", titleLabel: "Company", titleKey: "company", customerKey: "country", notesKey: "notes" },
   marketing: { route: "/api/portal/marketing-assets", titleLabel: "Campaign", titleKey: "campaign_name", customerKey: "channel", notesKey: "notes" },
+  approvals: { route: "/api/portal/approvals", titleLabel: "Approval reference", titleKey: "reference", customerKey: "customer", notesKey: "notes" },
+  documents: { route: "/api/portal/documents", titleLabel: "Document title", titleKey: "title", customerKey: "customer", notesKey: "notes" },
   comms: { route: "/api/portal/comms", titleLabel: "Subject", titleKey: "subject", customerKey: "department", notesKey: "message" },
 };
 
 const emptyModuleDraft = { title: "", customer: "", customer_id: "", status: "Open", notes: "" };
+const emptyApprovalDraft = { type: "Offer", reference: "", customer: "", amount: "", status: "Pending", notes: "" };
+const emptyDocumentDraft = { title: "", linked_type: "Customer", linked_id: "", customer: "", document_type: "General", url: "", notes: "" };
+const emptyEscalationDraft = { name: "Breakdown unassigned", module: "Breakdown", condition: "Unassigned over 30 minutes", threshold_minutes: "30", manager: "", active: "true" };
+const emptyConversationDraft = { customer: "", customer_id: "", channel: "WhatsApp", subject: "", message: "", linked_type: "Customer", linked_id: "", status: "Open" };
+const emptyWarrantyDraft = { customer: "", customer_id: "", unit: "", install_job_id: "", warranty_start: "", warranty_end: "", status: "Active", notes: "" };
+const emptyDispatchDraft = { job_id: "", customer: "", material: "", status: "Packed", transporter: "", lr_number: "", delivered_at: "", shortage_notes: "" };
+const emptyReadinessDraft = { job_id: "", customer: "", pit_ready: "No", shaft_ready: "No", power_ready: "No", storage_ready: "No", access_ready: "No", safety_ready: "No", notes: "" };
+const emptySkillDraft = { engineer: "", department: "", controller_type: "", door_type: "", hydraulic: "No", mrl: "No", escalator: "No", commissioning: "No", troubleshooting: "No", notes: "" };
+const emptyHandoverDraft = { job_id: "", customer: "", warranty_id: "", service_schedule: "", payment_summary: "", gad_document: "", commissioning_report: "", photo_links: "", customer_signature: "", status: "Draft" };
 const emptyPaymentDraft = {
   payment_type: "Contract",
   customer_id: "",
@@ -815,6 +836,15 @@ export default function App() {
   const [serviceCustomerSearch, setServiceCustomerSearch] = useState("");
   const [serviceRecordSearch, setServiceRecordSearch] = useState("");
   const [paymentDraft, setPaymentDraft] = useState(emptyPaymentDraft);
+  const [approvalDraft, setApprovalDraft] = useState(emptyApprovalDraft);
+  const [documentDraft, setDocumentDraft] = useState(emptyDocumentDraft);
+  const [escalationDraft, setEscalationDraft] = useState(emptyEscalationDraft);
+  const [conversationDraft, setConversationDraft] = useState(emptyConversationDraft);
+  const [warrantyDraft, setWarrantyDraft] = useState(emptyWarrantyDraft);
+  const [dispatchDraft, setDispatchDraft] = useState(emptyDispatchDraft);
+  const [readinessDraft, setReadinessDraft] = useState(emptyReadinessDraft);
+  const [skillDraft, setSkillDraft] = useState(emptySkillDraft);
+  const [handoverDraft, setHandoverDraft] = useState(emptyHandoverDraft);
   const [breakdownDraft, setBreakdownDraft] = useState(emptyBreakdownDraft);
   const [installationDraft, setInstallationDraft] = useState<Record<string, string>>(emptyInstallationDraft);
   const [installationEditorOpen, setInstallationEditorOpen] = useState(false);
@@ -902,10 +932,10 @@ export default function App() {
   }, [data?.access, isAdmin]);
   const navGroups = useMemo(() => {
     const groupFor = (key: TabKey) => {
-      if (["overview", "modules", "comms"].includes(key)) return "Command";
+      if (["today", "intelligence", "overview", "modules", "comms"].includes(key)) return "Command";
       if (["customers", "sales", "offerManager", "marketing", "siteVisits"].includes(key)) return "CRM & Sales";
-      if (["tickets", "projects", "installations", "installation_dept", "team", "commissioning", "factory"].includes(key)) return "Projects & Installation";
-      if (["breakdown", "service", "workorders", "renewals", "inventory"].includes(key)) return "Service Ops";
+      if (["tickets", "projects", "installations", "installation_dept", "team", "commissioning", "factory", "engineer"].includes(key)) return "Projects & Installation";
+      if (["breakdown", "service", "workorders", "renewals", "inventory", "documents"].includes(key)) return "Service Ops";
       return "Admin & Finance";
     };
     const query = navSearch.trim().toLowerCase();
@@ -916,6 +946,7 @@ export default function App() {
       }))
       .filter((section) => section.items.length);
   }, [navSearch, visibleNavItems]);
+  const activeNavItem = visibleNavItems.find((item) => item.key === activeTab) || navItems.find((item) => item.key === activeTab);
   const unreadNotifications = asRecords(data?.dept_comms).filter((item) => item.read !== true && String(item.status || "").toLowerCase() !== "read");
   const lowStock = useMemo(
     () => (data?.inventory || []).filter((item) => {
@@ -1739,7 +1770,7 @@ export default function App() {
             </View>
           ))}
           {!myAssignedCustomers.length && !departmentAssignedCustomers.length && (
-            <Text style={styles.muted}>Assigned customer lists will appear here after managers assign staff to CRM accounts.</Text>
+            <Text style={styles.muted}>No assigned customers match your staff profile or department filters.</Text>
           )}
         </View>
 
@@ -1771,7 +1802,7 @@ export default function App() {
               <Text style={styles.muted}>{item.hours.toFixed(1)} live hours in department.</Text>
             </View>
           ))}
-          {!departmentCapacity.some((item) => item.active > 0) && <Text style={styles.muted}>Department workflow metrics will appear after customers enter department queues.</Text>}
+          {!departmentCapacity.some((item) => item.active > 0) && <Text style={styles.muted}>No active department queues are open right now.</Text>}
         </View>
 
         <Text style={styles.sectionTitle}>Workload Analytics</Text>
@@ -3823,7 +3854,7 @@ export default function App() {
         {!messages.length && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No install handoff messages</Text>
-            <Text style={styles.muted}>When the install team sends an installed product to commissioning, the message will appear here.</Text>
+            <Text style={styles.muted}>No install-to-commissioning handoff messages are open.</Text>
           </View>
         )}
         {messages.slice(0, 10).map((item, index) => (
@@ -4257,7 +4288,7 @@ export default function App() {
         {!visibleLeaveHistory.length && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No leave records</Text>
-            <Text style={styles.muted}>Staff leave requests will appear here after submission.</Text>
+            <Text style={styles.muted}>No staff leave requests are waiting in this queue.</Text>
           </View>
         )}
       </View>
@@ -4474,6 +4505,34 @@ export default function App() {
     return Number.isFinite(value) && value > 0 ? value : 7;
   }
 
+  function statusText(record: Record<string, unknown>) {
+    return String(record.status || record.state || record.lead_status || record.approval_status || "").trim();
+  }
+
+  function recordDate(record: Record<string, unknown>, keys: string[]) {
+    for (const key of keys) {
+      const text = String(record[key] || "").slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+    }
+    return "";
+  }
+
+  function recordIsClosed(record: Record<string, unknown>) {
+    return /closed|resolved|done|completed|cancelled|paid|received|collected|won|lost|rejected/i.test(statusText(record));
+  }
+
+  function customerMatchesRecord(customer: Record<string, unknown>, record: Record<string, unknown>) {
+    const customerId = String(customer.id || "").trim();
+    const customerName = crmNameKey(customer.name || customer.customer || customer.customer_name);
+    const recordId = String(record.customer_id || record.crm_customer_id || "").trim();
+    const recordName = crmNameKey(record.customer || record.customer_name || record.building || record.account || record.client || record.site || record.location);
+    return Boolean((customerId && recordId && customerId === recordId) || (customerName && recordName && customerName === recordName));
+  }
+
+  function timelineDate(record: Record<string, unknown>) {
+    return recordDate(record, ["updated_at", "created_at", "received_date", "site_visit_date", "offer_date", "due_date", "scheduled_at", "service_date", "renewal_date", "date"]);
+  }
+
   async function scheduleFollowUp(record: Record<string, unknown>, days: number) {
     await updateSalesInquiry(record, {
       next_followup: datePlusDays(days),
@@ -4489,6 +4548,176 @@ export default function App() {
       next_followup: datePlusDays(days),
       followup_status: "Scheduled",
     });
+  }
+
+  async function saveApprovalRequest() {
+    if (!approvalDraft.reference.trim() && !approvalDraft.customer.trim()) {
+      setMessage("Approval needs a reference or customer.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await apiFetch("/api/portal/approvals", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          ...approvalDraft,
+          requested_by: data?.viewer?.display_name || username,
+          requested_at: new Date().toISOString(),
+        }),
+      });
+      setApprovalDraft(emptyApprovalDraft);
+      await loadPortal();
+      setMessage("Approval request saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Approval request could not be saved.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function updateApproval(record: Record<string, unknown>, status: string) {
+    const id = recordIdentity(record) || fieldText(record, ["id", "reference"]);
+    setLoading(true);
+    try {
+      await apiFetch(`/api/portal/approvals/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({
+          status,
+          approved_by: data?.viewer?.display_name || username,
+          approved_at: new Date().toISOString(),
+        }),
+      });
+      await loadPortal();
+      setMessage(`Approval ${status.toLowerCase()}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Approval could not be updated.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveDocumentRecord(payload: Record<string, unknown>) {
+    setLoading(true);
+    try {
+      await apiFetch("/api/portal/documents", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          ...payload,
+          uploaded_by: data?.viewer?.display_name || username,
+          uploaded_at: new Date().toISOString(),
+        }),
+      });
+      setDocumentDraft(emptyDocumentDraft);
+      await loadPortal();
+      setMessage("Document saved to vault.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Document could not be saved.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function uploadVaultDocument() {
+    if (Platform.OS !== "web" || typeof document === "undefined") {
+      setMessage("Document upload is available in the web portal.");
+      return;
+    }
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/pdf,image/*,.doc,.docx,.xls,.xlsx";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async () => {
+        await saveDocumentRecord({
+          ...documentDraft,
+          title: documentDraft.title || file.name,
+          filename: file.name,
+          content_type: file.type || "application/octet-stream",
+          data_url: String(reader.result || ""),
+        });
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  }
+
+  async function saveEscalationRule() {
+    if (!escalationDraft.name.trim()) {
+      setMessage("Escalation rule needs a name.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await apiFetch("/api/portal/escalation-rules", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          ...escalationDraft,
+          threshold_minutes: Number(escalationDraft.threshold_minutes || 0),
+          active: String(escalationDraft.active).toLowerCase() !== "false",
+        }),
+      });
+      setEscalationDraft(emptyEscalationDraft);
+      await loadPortal();
+      setMessage("Escalation rule saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Escalation rule could not be saved.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveConversation() {
+    if (!conversationDraft.customer.trim() && !conversationDraft.message.trim()) {
+      setMessage("Conversation needs a customer or message.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await apiFetch("/api/portal/conversations", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          ...conversationDraft,
+          received_at: new Date().toISOString(),
+          owner: data?.viewer?.display_name || username,
+        }),
+      });
+      setConversationDraft(emptyConversationDraft);
+      await loadPortal();
+      setMessage("Conversation saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Conversation could not be saved.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveIntelligenceRecord(route: string, payload: Record<string, unknown>, reset: () => void, success: string) {
+    setLoading(true);
+    try {
+      await apiFetch(`/api/portal/${route}`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          ...payload,
+          owner: data?.viewer?.display_name || username,
+          recorded_at: new Date().toISOString(),
+        }),
+      });
+      reset();
+      await loadPortal();
+      setMessage(success);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : `${success} failed.`);
+    } finally {
+      setLoading(false);
+    }
   }
 
   function openSiteVisitForCustomer(customer: Customer) {
@@ -5108,6 +5337,542 @@ export default function App() {
     );
   }
 
+  function todayActions() {
+    const todayDate = new Date().toISOString().slice(0, 10);
+    const soonDate = datePlusDays(2);
+    const actions: Array<{ id: string; priority: number; label: string; title: string; detail: string; tab: TabKey; date?: string }> = [];
+    const add = (action: { id: string; priority: number; label: string; title: string; detail: string; tab: TabKey; date?: string }) => actions.push(action);
+    asRecords(data?.sales_inquiries).forEach((item, index) => {
+      const due = followupDate(item);
+      if (due && due <= todayDate && !recordIsClosed(item)) add({ id: `followup-${index}`, priority: 2, label: "Follow-up", title: fieldText(item, ["customer", "lead_name", "name"]), detail: `Due ${due} - ${fieldText(item, ["assigned_to", "account_owner"])}`, tab: "customers", date: due });
+      if (/site visit/i.test(`${item.status || ""} ${item.lead_status || ""}`) && !recordIsClosed(item)) add({ id: `site-pending-${index}`, priority: 3, label: "Site visit", title: fieldText(item, ["customer", "lead_name", "name"]), detail: `Pending visit - ${fieldText(item, ["phone", "whatsapp_no"])}`, tab: "siteVisits" });
+    });
+    asRecords(data?.site_visits).forEach((item, index) => {
+      const visitDate = recordDate(item, ["site_visit_date", "scheduled_at", "date"]);
+      if (!recordIsClosed(item) && (!visitDate || visitDate <= todayDate)) add({ id: `visit-${index}`, priority: 3, label: "Site visit", title: fieldText(item, ["customer_name", "customer", "id"]), detail: `Visit ${visitDate || "not scheduled"} - ${fieldText(item, ["visited_by", "submitted_by"])}`, tab: "siteVisits", date: visitDate });
+    });
+    asRecords(data?.breakdowns).forEach((item, index) => {
+      if (recordIsClosed(item)) return;
+      const assigned = fieldText(item, ["engineer", "assigned_to", "technician", "scheduled_engineer"]).replace("-", "").trim();
+      const trapped = /true|yes|y|1/i.test(String(item.trapped_passenger || item.passenger_trapped || ""));
+      add({ id: `breakdown-${index}`, priority: trapped || !assigned ? 1 : 2, label: "Breakdown", title: fieldText(item, ["unit", "id", "customer"]), detail: `${assigned ? `Engineer ${assigned}` : "Unassigned"} - ${fieldText(item, ["customer", "location", "site"])}`, tab: "breakdown", date: recordDate(item, ["scheduled_at", "created_at"]) });
+    });
+    lowStock.forEach((item, index) => add({ id: `stock-${index}`, priority: 2, label: "Low stock", title: fieldText(item, ["name", "item", "part_name", "id"]), detail: `Available ${Number(item.qty_on_hand ?? item.stock ?? 0) - Number(item.qty_reserved ?? 0)} - reorder ${fieldText(item, ["reorder_point", "min_stock"])}`, tab: "inventory" }));
+    asRecords(data?.tenders).forEach((item, index) => {
+      const due = recordDate(item, ["tender_due_at", "tender_deadline", "due_date", "submission_date"]);
+      if (due && due <= soonDate && !recordIsClosed(item)) add({ id: `tender-${index}`, priority: due <= todayDate ? 1 : 2, label: "Tender", title: fieldText(item, ["title", "tender_title", "id"]), detail: `Due ${due} - ${fieldText(item, ["customer", "department"])}`, tab: "tender", date: due });
+    });
+    asRecords(data?.payments).forEach((item, index) => {
+      const due = recordDate(item, ["next_reminder_date", "due_date", "outstanding_date"]);
+      if (due && due <= todayDate && !recordIsClosed(item)) add({ id: `payment-${index}`, priority: 2, label: "Payment", title: fieldText(item, ["customer_name", "customer", "milestone"]), detail: `${fieldText(item, ["milestone", "payment_id"])} - ${fieldText(item, ["amount", "outstanding_amount"])}`, tab: "finance", date: due });
+    });
+    asRecords(data?.install_jobs).forEach((item, index) => {
+      const due = recordDate(item, ["handover_date", "target_date", "due_date", "next_action_date"]);
+      if (!recordIsClosed(item) && due && due <= todayDate) add({ id: `install-${index}`, priority: 3, label: "Install", title: fieldText(item, ["job_id", "id", "customer"]), detail: `Target ${due} - ${fieldText(item, ["site", "assigned_team", "crew"])}`, tab: "installations", date: due });
+    });
+    asRecords(data?.renewals).forEach((item, index) => {
+      const due = recordDate(item, ["renewal_date", "date"]);
+      if (due && due <= soonDate && !recordIsClosed(item)) add({ id: `renewal-${index}`, priority: 3, label: "Renewal", title: fieldText(item, ["customer", "building", "name"]), detail: `Renewal ${due} - ${fieldText(item, ["contact_email", "phone"])}`, tab: "renewals", date: due });
+    });
+    asRecords(data?.approvals).forEach((item, index) => {
+      if (!/approved|rejected/i.test(statusText(item))) add({ id: `approval-${index}`, priority: 2, label: "Approval", title: fieldText(item, ["reference", "type", "customer"]), detail: `${fieldText(item, ["type"])} - ${fieldText(item, ["amount", "notes"])}`, tab: "approvals", date: recordDate(item, ["requested_at", "created_at"]) });
+    });
+    return actions.sort((a, b) => a.priority - b.priority || String(a.date || "").localeCompare(String(b.date || "")));
+  }
+
+  function renderTodayActionQueue() {
+    const actions = todayActions();
+    const critical = actions.filter((item) => item.priority === 1);
+    const todayDue = actions.filter((item) => item.date && item.date <= new Date().toISOString().slice(0, 10));
+    return (
+      <View>
+        <View style={styles.moduleHero}>
+          <Text style={styles.eyebrow}>Today</Text>
+          <Text style={styles.moduleHeroTitle}>Daily Action Queue</Text>
+          <Text style={styles.moduleHeroText}>One prioritized operating list for follow-ups, site visits, breakdowns, low stock, tenders, payments, renewals, approvals, and stalled installs.</Text>
+        </View>
+        <View style={styles.metricGrid}>
+          <View style={styles.card}><Text style={styles.cardLabel}>Critical</Text><Text style={styles.metricValue}>{critical.length}</Text><Text style={styles.muted}>Breakdowns, tenders, and urgent unassigned work.</Text></View>
+          <View style={styles.card}><Text style={styles.cardLabel}>Due now</Text><Text style={styles.metricValue}>{todayDue.length}</Text><Text style={styles.muted}>Due today or overdue.</Text></View>
+          <View style={styles.card}><Text style={styles.cardLabel}>Open breakdowns</Text><Text style={styles.metricValue}>{asRecords(data?.breakdowns).filter((item) => !recordIsClosed(item)).length}</Text><Text style={styles.muted}>Active breakdown records.</Text></View>
+          <View style={styles.card}><Text style={styles.cardLabel}>Low stock</Text><Text style={styles.metricValue}>{lowStock.length}</Text><Text style={styles.muted}>Items at reorder threshold.</Text></View>
+        </View>
+        <Text style={styles.sectionTitle}>Priority List</Text>
+        <View style={styles.analyticsPanel}>
+          {!actions.length && <Text style={styles.muted}>Nothing urgent is queued from the loaded records.</Text>}
+          {actions.slice(0, 40).map((item) => (
+            <Pressable key={item.id} style={[styles.analyticsRow, item.priority === 1 && styles.alertCard]} onPress={() => setActiveTab(item.tab)}>
+              <View style={styles.analyticsRowHeader}>
+                <View style={styles.cardTitleBlock}>
+                  <Text style={styles.cardLabel}>{item.label}</Text>
+                  <Text style={styles.cardTitle}>{item.title}</Text>
+                </View>
+                <Text style={styles.statusPill}>{item.priority === 1 ? "Critical" : item.priority === 2 ? "High" : "Normal"}</Text>
+              </View>
+              <Text style={styles.muted}>{item.detail}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    );
+  }
+
+  function commandIntelligence() {
+    const todayDate = new Date().toISOString().slice(0, 10);
+    const staff = viewerStaffRecord(asRecords(data?.org_chart));
+    const viewerDepartment = String(data?.viewer?.department || fieldText(staff || {}, ["department"]) || "Operations");
+    const openBreakdowns = asRecords(data?.breakdowns).filter((item) => !recordIsClosed(item));
+    const unassignedBreakdowns = openBreakdowns.filter((item) => !fieldText(item, ["engineer", "assigned_to", "technician", "scheduled_engineer"]).replace("-", "").trim());
+    const overduePayments = asRecords(data?.payments).filter((item) => !recordIsClosed(item) && recordDate(item, ["next_reminder_date", "due_date", "outstanding_date"]) <= todayDate);
+    const tenderDue = asRecords(data?.tenders).filter((item) => !recordIsClosed(item) && recordDate(item, ["tender_due_at", "tender_deadline", "due_date", "submission_date"]) <= datePlusDays(1));
+    const stalledInstalls = asRecords(data?.install_jobs).filter((item) => !recordIsClosed(item) && recordDate(item, ["handover_date", "target_date", "due_date", "next_action_date"]) <= todayDate);
+    const pendingApprovals = asRecords(data?.approvals).filter((item) => !/approved|rejected/i.test(statusText(item)));
+    const roleMetrics = [
+      { label: "Sales", count: asRecords(data?.sales_inquiries).filter((item) => !recordIsClosed(item)).length, tab: "customers" as TabKey, detail: "Open enquiries and follow-ups" },
+      { label: "Accounts", count: overduePayments.length, tab: "finance" as TabKey, detail: "Payment reminders due" },
+      { label: "Breakdown", count: openBreakdowns.length, tab: "breakdown" as TabKey, detail: "Active breakdown calls" },
+      { label: "Installation", count: stalledInstalls.length, tab: "installations" as TabKey, detail: "Install jobs due or stalled" },
+      { label: "Stores", count: lowStock.length, tab: "inventory" as TabKey, detail: "Parts at reorder threshold" },
+      { label: "Tender", count: tenderDue.length, tab: "tender" as TabKey, detail: "Due today or tomorrow" },
+    ];
+    const escalationHits = [
+      ...unassignedBreakdowns.map((item, index) => ({ key: `esc-brk-${index}`, title: `Unassigned breakdown ${fieldText(item, ["unit", "id"])}`, detail: fieldText(item, ["customer", "location", "site"]), tab: "breakdown" as TabKey })),
+      ...overduePayments.map((item, index) => ({ key: `esc-pay-${index}`, title: `Payment overdue ${fieldText(item, ["payment_id", "milestone"])}`, detail: fieldText(item, ["customer_name", "customer"]), tab: "finance" as TabKey })),
+      ...tenderDue.map((item, index) => ({ key: `esc-tdr-${index}`, title: `Tender due ${fieldText(item, ["title", "tender_title", "id"])}`, detail: recordDate(item, ["tender_due_at", "tender_deadline", "due_date", "submission_date"]), tab: "tender" as TabKey })),
+      ...stalledInstalls.map((item, index) => ({ key: `esc-ins-${index}`, title: `Install target due ${fieldText(item, ["job_id", "id"])}`, detail: fieldText(item, ["customer", "site", "status"]), tab: "installations" as TabKey })),
+    ];
+    const healthRows = asRecords(data?.customers).map((customer) => {
+      const relatedBreakdowns = asRecords(data?.breakdowns).filter((item) => customerMatchesRecord(customer, item) && !recordIsClosed(item)).length;
+      const relatedPayments = asRecords(data?.payments).filter((item) => customerMatchesRecord(customer, item) && !recordIsClosed(item)).length;
+      const relatedRenewals = asRecords(data?.renewals).filter((item) => customerMatchesRecord(customer, item) && !recordIsClosed(item)).length;
+      const relatedService = asRecords(data?.service_records).filter((item) => customerMatchesRecord(customer, item) && !recordIsClosed(item)).length;
+      const score = Math.max(0, 100 - relatedBreakdowns * 18 - relatedPayments * 14 - relatedRenewals * 8 - relatedService * 6);
+      return { customer, score, risk: relatedBreakdowns + relatedPayments + relatedRenewals + relatedService };
+    }).sort((a, b) => a.score - b.score);
+    const engineers = asRecords(data?.install_team).concat(asRecords(data?.org_chart)).filter((item, index, list) => {
+      const name = fieldText(item, ["name"]);
+      return name !== "-" && list.findIndex((candidate) => fieldText(candidate, ["name"]).toLowerCase() === name.toLowerCase()) === index;
+    });
+    const routeJobs = [
+      ...openBreakdowns.map((record) => ({ type: "Breakdown", record, priority: /true|yes|1/i.test(String(record.trapped_passenger || record.passenger_trapped || "")) ? 1 : 2 })),
+      ...asRecords(data?.service_records).filter((item) => !recordIsClosed(item)).map((record) => ({ type: "Service", record, priority: 3 })),
+      ...asRecords(data?.site_visits).filter((item) => !recordIsClosed(item)).map((record) => ({ type: "Site Visit", record, priority: 4 })),
+    ].sort((a, b) => a.priority - b.priority);
+    const assignmentRows = routeJobs.slice(0, 12).map((job, index) => {
+      const selected = engineers
+        .map((engineer) => {
+          const name = fieldText(engineer, ["name"]);
+          const busy = fieldText(engineer, ["current_job", "current_task"]).replace("-", "").trim();
+          const available = !busy && !/off|leave|busy/i.test(fieldText(engineer, ["availability", "status"]));
+          const load = openBreakdowns.filter((item) => fieldText(item, ["engineer", "assigned_to", "technician"]).toLowerCase() === name.toLowerCase()).length;
+          return { name, available, load };
+        })
+        .sort((a, b) => Number(b.available) - Number(a.available) || a.load - b.load)[0];
+      return { ...job, key: `assign-${index}`, engineer: selected?.name || "Unassigned" };
+    });
+    const purchaseSuggestions = lowStock.map((item, index) => {
+      const onHand = Number(item.qty_on_hand ?? item.stock ?? 0);
+      const reserved = Number(item.qty_reserved ?? 0);
+      const target = Number(item.target_stock ?? item.reorder_point ?? item.min_stock ?? 0) || Math.max(1, Number(item.reorder_point ?? item.min_stock ?? 1) * 2);
+      return { key: `po-${index}`, item, qty: Math.max(0, Math.ceil(target - (onHand - reserved))) };
+    }).filter((item) => item.qty > 0);
+    const installTimeline = asRecords(data?.install_jobs).filter((item) => !recordIsClosed(item)).slice(0, 10).map((job, index) => ({
+      key: `gantt-${index}`,
+      job,
+      steps: ["Site Ready", "Material Ready", "Under Installation", "Commissioning", "Handover Pending", "Completed"],
+      status: statusText(job) || "Open"
+    }));
+    const offerVersions = asRecords(data?.estimates).slice(0, 12).map((offer) => {
+      const id = recordIdentity(offer);
+      const edits = asRecords(data?.audit_logs).filter((log) => String(log.collection || "") === "estimates" && String(log.record_id || "") === id);
+      return { offer, edits };
+    });
+    const warrantyRows = [
+      ...asRecords(data?.warranty_records),
+      ...asRecords(data?.install_jobs).filter((job) => fieldText(job, ["warranty_end_date", "warranty_end"]).replace("-", "").trim()).map((job) => ({
+        id: recordIdentity(job),
+        customer: fieldText(job, ["customer"]),
+        customer_id: fieldText(job, ["customer_id"]),
+        unit: fieldText(job, ["unit", "job_id", "id"]),
+        warranty_start: fieldText(job, ["warranty_start_date", "warranty_start"]),
+        warranty_end: fieldText(job, ["warranty_end_date", "warranty_end"]),
+        status: fieldText(job, ["warranty_status", "status"]),
+      }))
+    ].filter((item) => fieldText(item, ["warranty_end"]).replace("-", "").trim()).sort((a, b) => fieldText(a, ["warranty_end"]).localeCompare(fieldText(b, ["warranty_end"])));
+    const dispatchRows = asRecords(data?.dispatch_records);
+    const readinessRows = asRecords(data?.readiness_checklists);
+    const skillRows = asRecords(data?.skill_matrix);
+    const handoverRows = asRecords(data?.handover_packs);
+    const repeatComplaints = asRecords(data?.breakdowns).reduce<Array<{ key: string; customer: string; unit: string; count: number; fault: string }>>((rows, item) => {
+      const key = `${fieldText(item, ["customer", "customer_name"])}|${fieldText(item, ["unit", "lift_no"])}|${fieldText(item, ["fault", "issue"]).slice(0, 40)}`;
+      const existing = rows.find((row) => row.key === key);
+      if (existing) existing.count += 1;
+      else rows.push({ key, customer: fieldText(item, ["customer", "customer_name"]), unit: fieldText(item, ["unit", "lift_no"]), fault: fieldText(item, ["fault", "issue"]), count: 1 });
+      return rows;
+    }, []).filter((row) => row.count > 1).sort((a, b) => b.count - a.count);
+    const amcCalendar = asRecords(data?.renewals)
+      .filter((item) => !recordIsClosed(item))
+      .map((item, index) => ({ key: `amc-${index}`, customer: fieldText(item, ["customer", "building", "name"]), date: recordDate(item, ["next_visit_date", "renewal_date", "date"]), status: statusText(item) || "Open" }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const customerPortalRows = asRecords(data?.customers).slice(0, 12).map((customer) => {
+      const id = fieldText(customer, ["id"]);
+      const portalUser = asRecords(data?.customer_users).find((user) => fieldText(user, ["customer_id"]) === id);
+      return { customer, portalUser, active: Boolean(portalUser) };
+    });
+    const profitabilityRows = asRecords(data?.estimates).slice(0, 12).map((offer) => {
+      const summary = offerCostSummary(offer);
+      const collected = asRecords(data?.payments).filter((payment) => fieldText(payment, ["estimate_id", "offer_id"]) === fieldText(offer, ["id", "job_no"])).reduce((sum, payment) => sum + paymentAccountSummary(payment).receivedTotal, 0);
+      const cost = summary.materialCost + summary.installCost;
+      return { offer, revenue: summary.totalCost, collected, cost, margin: summary.totalCost - cost };
+    }).sort((a, b) => b.margin - a.margin);
+    const vendorRows = asRecords(data?.inventory).reduce<Array<{ vendor: string; items: number; lowStock: number; value: number }>>((rows, item) => {
+      const vendor = fieldText(item, ["vendor", "supplier"]).replace("-", "Unassigned");
+      const row = rows.find((entry) => entry.vendor === vendor) || { vendor, items: 0, lowStock: 0, value: 0 };
+      if (!rows.includes(row)) rows.push(row);
+      row.items += 1;
+      row.value += inventoryPrice(item) * Number(item.qty_on_hand ?? item.stock ?? 0);
+      if (lowStock.includes(item)) row.lowStock += 1;
+      return rows;
+    }, []).sort((a, b) => b.value - a.value);
+    return {
+      viewerDepartment,
+      roleMetrics,
+      escalationHits,
+      healthRows,
+      routeJobs,
+      assignmentRows,
+      purchaseSuggestions,
+      installTimeline,
+      offerVersions,
+      pendingApprovals,
+      warrantyRows,
+      dispatchRows,
+      readinessRows,
+      skillRows,
+      handoverRows,
+      repeatComplaints,
+      amcCalendar,
+      customerPortalRows,
+      profitabilityRows,
+      vendorRows,
+    };
+  }
+
+  function renderCommandIntelligencePage() {
+    const intel = commandIntelligence();
+    const conversations = asRecords(data?.conversations);
+    const rules = asRecords(data?.escalation_rules);
+    const auditLogs = asRecords(data?.audit_logs);
+    return (
+      <View>
+        <View style={styles.moduleHero}>
+          <Text style={styles.eyebrow}>Command Intelligence</Text>
+          <Text style={styles.moduleHeroTitle}>Operational intelligence across every department</Text>
+          <Text style={styles.moduleHeroText}>Live dashboards, escalation rules, customer health, routing, assignment, purchasing, timelines, offer versions, inbox, and audit history from FUZI records.</Text>
+        </View>
+
+        <Text style={styles.sectionTitle}>1. Role-Based Home Dashboards</Text>
+        <View style={styles.metricGrid}>
+          {intel.roleMetrics.map((item) => (
+            <Pressable key={item.label} style={styles.card} onPress={() => setActiveTab(item.tab)}>
+              <Text style={styles.cardLabel}>{item.label}</Text>
+              <Text style={styles.metricValue}>{item.count}</Text>
+              <Text style={styles.muted}>{item.detail}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <Text style={styles.sectionTitle}>2. Escalation Rules Engine</Text>
+        <View style={styles.formCard}>
+          <View style={styles.formGrid}>
+            {(["name", "module", "condition", "threshold_minutes", "manager"] as const).map((key) => (
+              <View key={key} style={styles.field}>
+                <Text style={styles.label}>{key}</Text>
+                <TextInput style={styles.input} value={escalationDraft[key]} onChangeText={(value) => setEscalationDraft((draft) => ({ ...draft, [key]: value }))} />
+              </View>
+            ))}
+          </View>
+          <Pressable style={styles.primaryButtonInline} onPress={saveEscalationRule} disabled={loading}>
+            <Text style={styles.primaryButtonText}>Save escalation rule</Text>
+          </Pressable>
+          <Text style={styles.muted}>{rules.length} saved rule records. {intel.escalationHits.length} live records currently match escalation conditions.</Text>
+        </View>
+        <View style={styles.analyticsPanel}>
+          {intel.escalationHits.slice(0, 12).map((item) => (
+            <Pressable key={item.key} style={[styles.analyticsRow, styles.alertCard]} onPress={() => setActiveTab(item.tab)}>
+              <Text style={styles.cardTitle}>{item.title}</Text>
+              <Text style={styles.muted}>{item.detail}</Text>
+            </Pressable>
+          ))}
+          {!intel.escalationHits.length && <Text style={styles.muted}>No records currently match escalation conditions.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>3. Customer 360 Health Score</Text>
+        <View style={styles.analyticsPanel}>
+          {intel.healthRows.slice(0, 10).map((row) => (
+            <Pressable key={`health-${fieldText(row.customer, ["id", "name"])}`} style={row.score < 65 ? [styles.analyticsRow, styles.alertCard] : styles.analyticsRow} onPress={() => { setCrmSearch(fieldText(row.customer, ["id", "name"])); setActiveTab("customers"); }}>
+              <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.customer, ["name"])}</Text><Text style={styles.statusPill}>{row.score}/100</Text></View>
+              <Text style={styles.muted}>{row.risk} open risk signals across payments, breakdowns, service, and renewals.</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <Text style={styles.sectionTitle}>4. Engineer Route Planner</Text>
+        <View style={styles.analyticsPanel}>
+          {intel.routeJobs.slice(0, 12).map((job, index) => (
+            <View key={`route-${index}`} style={styles.analyticsRow}>
+              <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{index + 1}. {job.type} - {fieldText(job.record, ["customer", "customer_name", "unit", "id"])}</Text><Text style={styles.statusPill}>P{job.priority}</Text></View>
+              <Text style={styles.muted}>{fieldText(job.record, ["site", "location", "address"])} - {fieldText(job.record, ["phone", "caller_mobile", "contact_phone"])}</Text>
+            </View>
+          ))}
+          {!intel.routeJobs.length && <Text style={styles.muted}>No open route jobs are waiting.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>5. WhatsApp/Discord Conversation Inbox</Text>
+        <View style={styles.formCard}>
+          <View style={styles.formGrid}>
+            {(["customer", "customer_id", "channel", "subject", "linked_type", "linked_id", "status"] as const).map((key) => (
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={conversationDraft[key]} onChangeText={(value) => setConversationDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+            ))}
+          </View>
+          <TextInput style={[styles.input, styles.textarea]} value={conversationDraft.message} onChangeText={(value) => setConversationDraft((draft) => ({ ...draft, message: value }))} placeholder="Message" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={saveConversation} disabled={loading}><Text style={styles.primaryButtonText}>Save conversation</Text></Pressable>
+        </View>
+        <View style={styles.analyticsPanel}>
+          {conversations.slice(0, 8).map((item, index) => <View key={`conv-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer", "subject"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["channel"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["linked_type"])} {fieldText(item, ["linked_id"])} - {fieldText(item, ["status"])}</Text><Text style={styles.bodyText}>{fieldText(item, ["message"])}</Text></View>)}
+          {!conversations.length && <Text style={styles.muted}>No linked customer conversations are saved yet.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>6. Smart Auto Assignment</Text>
+        <View style={styles.analyticsPanel}>
+          {intel.assignmentRows.map((row) => (
+            <View key={row.key} style={styles.analyticsRow}>
+              <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.type}: {fieldText(row.record, ["unit", "job_id", "job_number", "customer"])}</Text><Text style={styles.statusPill}>{row.engineer}</Text></View>
+              <Text style={styles.muted}>Suggested from availability, current task, and open workload.</Text>
+            </View>
+          ))}
+        </View>
+
+        <Text style={styles.sectionTitle}>7. Offer Versioning & Comparison</Text>
+        <View style={styles.analyticsPanel}>
+          {intel.offerVersions.map((row, index) => <Pressable key={`offer-version-${recordIdentity(row.offer) || index}`} style={styles.analyticsRow} onPress={() => setActiveTab("offerManager")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.offer, ["job_no", "id", "customer_name"])}</Text><Text style={styles.statusPill}>{row.edits.length + 1} versions</Text></View><Text style={styles.muted}>{fieldText(row.offer, ["customer_name", "offer_name"])} - {formatMoney(offerCostSummary(row.offer).totalCost)}</Text></Pressable>)}
+          {!intel.offerVersions.length && <Text style={styles.muted}>No offer records are available for version comparison.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>8. Inventory Purchase Planning</Text>
+        <View style={styles.analyticsPanel}>
+          {intel.purchaseSuggestions.slice(0, 12).map((row) => <View key={row.key} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.item, ["name", "item", "part_name"])}</Text><Text style={styles.statusPill}>Buy {row.qty}</Text></View><Text style={styles.muted}>Vendor {fieldText(row.item, ["vendor"])} - bin {fieldText(row.item, ["bin_location"])}</Text></View>)}
+          {!intel.purchaseSuggestions.length && <Text style={styles.muted}>No purchase suggestions from current stock thresholds.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>9. Install Project Gantt View</Text>
+        <View style={styles.analyticsPanel}>
+          {intel.installTimeline.map((row) => <View key={row.key} style={styles.analyticsRow}><Text style={styles.cardTitle}>{fieldText(row.job, ["job_id", "id"])} - {fieldText(row.job, ["customer", "site"])}</Text><View style={styles.inlineActions}>{row.steps.map((step) => <Text key={step} style={[styles.statusPill, row.status.toLowerCase().includes(step.toLowerCase()) && styles.selectorPillActive]}>{step}</Text>)}</View></View>)}
+          {!intel.installTimeline.length && <Text style={styles.muted}>No active installation jobs need timeline tracking.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>10. Audit Trail Everywhere</Text>
+        <View style={styles.analyticsPanel}>
+          {auditLogs.slice(0, 14).map((item, index) => <View key={`audit-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["collection"])} - {fieldText(item, ["action"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["actor"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["record_id"])} - {fieldText(item, ["changed_at"])}</Text></View>)}
+          {!auditLogs.length && <Text style={styles.muted}>Audit entries will be recorded as portal records are created, updated, or deleted.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>11. Warranty Tracker</Text>
+        <View style={styles.formCard}>
+          <View style={styles.formGrid}>
+            {(["customer", "customer_id", "unit", "install_job_id", "warranty_start", "warranty_end", "status"] as const).map((key) => (
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={warrantyDraft[key]} onChangeText={(value) => setWarrantyDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+            ))}
+          </View>
+          <TextInput style={[styles.input, styles.textarea]} value={warrantyDraft.notes} onChangeText={(value) => setWarrantyDraft((draft) => ({ ...draft, notes: value }))} placeholder="Warranty notes" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("warranty-records", warrantyDraft, () => setWarrantyDraft(emptyWarrantyDraft), "Warranty record saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save warranty</Text></Pressable>
+        </View>
+        <View style={styles.analyticsPanel}>
+          {intel.warrantyRows.slice(0, 10).map((item, index) => <View key={`war-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer"])} - {fieldText(item, ["unit"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["warranty_end"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["status"])} - Customer ID {fieldText(item, ["customer_id"])}</Text></View>)}
+          {!intel.warrantyRows.length && <Text style={styles.muted}>No warranty records have been saved or detected from installations.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>12. Material Dispatch Board</Text>
+        <View style={styles.formCard}>
+          <View style={styles.formGrid}>
+            {(["job_id", "customer", "material", "status", "transporter", "lr_number", "delivered_at"] as const).map((key) => (
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={dispatchDraft[key]} onChangeText={(value) => setDispatchDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+            ))}
+          </View>
+          <TextInput style={[styles.input, styles.textarea]} value={dispatchDraft.shortage_notes} onChangeText={(value) => setDispatchDraft((draft) => ({ ...draft, shortage_notes: value }))} placeholder="Shortage/damage notes" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("dispatch-records", dispatchDraft, () => setDispatchDraft(emptyDispatchDraft), "Dispatch record saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save dispatch</Text></Pressable>
+        </View>
+        <View style={styles.analyticsPanel}>
+          {intel.dispatchRows.slice(0, 10).map((item, index) => <View key={`dispatch-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["material"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["transporter"])} - LR {fieldText(item, ["lr_number"])} - Delivered {fieldText(item, ["delivered_at"])}</Text></View>)}
+          {!intel.dispatchRows.length && <Text style={styles.muted}>No dispatch records are currently saved.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>13. Site Readiness Checklist</Text>
+        <View style={styles.formCard}>
+          <View style={styles.formGrid}>
+            {(["job_id", "customer", "pit_ready", "shaft_ready", "power_ready", "storage_ready", "access_ready", "safety_ready"] as const).map((key) => (
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={readinessDraft[key]} onChangeText={(value) => setReadinessDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+            ))}
+          </View>
+          <TextInput style={[styles.input, styles.textarea]} value={readinessDraft.notes} onChangeText={(value) => setReadinessDraft((draft) => ({ ...draft, notes: value }))} placeholder="Readiness notes" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("readiness-checklists", readinessDraft, () => setReadinessDraft(emptyReadinessDraft), "Readiness checklist saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save readiness</Text></Pressable>
+        </View>
+        <View style={styles.analyticsPanel}>
+          {intel.readinessRows.slice(0, 8).map((item, index) => <View key={`ready-${recordIdentity(item) || index}`} style={styles.analyticsRow}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.muted}>Pit {fieldText(item, ["pit_ready"])} - Shaft {fieldText(item, ["shaft_ready"])} - Power {fieldText(item, ["power_ready"])} - Safety {fieldText(item, ["safety_ready"])}</Text></View>)}
+          {!intel.readinessRows.length && <Text style={styles.muted}>No readiness checklists are saved yet.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>14. Engineer Skill Matrix</Text>
+        <View style={styles.formCard}>
+          <View style={styles.formGrid}>
+            {(["engineer", "department", "controller_type", "door_type", "hydraulic", "mrl", "escalator", "commissioning", "troubleshooting"] as const).map((key) => (
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={skillDraft[key]} onChangeText={(value) => setSkillDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+            ))}
+          </View>
+          <TextInput style={[styles.input, styles.textarea]} value={skillDraft.notes} onChangeText={(value) => setSkillDraft((draft) => ({ ...draft, notes: value }))} placeholder="Skill notes" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("skill-matrix", skillDraft, () => setSkillDraft(emptySkillDraft), "Engineer skill record saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save skills</Text></Pressable>
+        </View>
+        <View style={styles.analyticsPanel}>
+          {intel.skillRows.slice(0, 10).map((item, index) => <View key={`skill-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["engineer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["department"])}</Text></View><Text style={styles.muted}>Controller {fieldText(item, ["controller_type"])} - Door {fieldText(item, ["door_type"])} - Troubleshooting {fieldText(item, ["troubleshooting"])}</Text></View>)}
+          {!intel.skillRows.length && <Text style={styles.muted}>No engineer skill records are saved yet.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>15. Complaint Repeat Analysis</Text>
+        <View style={styles.analyticsPanel}>
+          {intel.repeatComplaints.slice(0, 12).map((row) => <Pressable key={row.key} style={[styles.analyticsRow, styles.alertCard]} onPress={() => setActiveTab("breakdown")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.customer} - {row.unit}</Text><Text style={styles.statusPill}>{row.count} repeats</Text></View><Text style={styles.muted}>{row.fault}</Text></Pressable>)}
+          {!intel.repeatComplaints.length && <Text style={styles.muted}>No repeated complaint pattern has crossed the repeat threshold.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>16. AMC Visit Calendar</Text>
+        <View style={styles.analyticsPanel}>
+          {intel.amcCalendar.slice(0, 12).map((row) => <Pressable key={row.key} style={styles.analyticsRow} onPress={() => setActiveTab("renewals")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.customer}</Text><Text style={styles.statusPill}>{row.date || "No date"}</Text></View><Text style={styles.muted}>{row.status}</Text></Pressable>)}
+          {!intel.amcCalendar.length && <Text style={styles.muted}>No open AMC visits or renewals are scheduled.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>17. Customer Portal</Text>
+        <View style={styles.analyticsPanel}>
+          {intel.customerPortalRows.map((row) => <Pressable key={`portal-${fieldText(row.customer, ["id"])}`} style={styles.analyticsRow} onPress={() => { setCrmSearch(fieldText(row.customer, ["id", "name"])); setActiveTab("customers"); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.customer, ["name"])}</Text><Text style={styles.statusPill}>{row.active ? "Portal active" : "No portal user"}</Text></View><Text style={styles.muted}>Customer ID {fieldText(row.customer, ["id"])} - User {fieldText(row.portalUser || {}, ["username"])}</Text></Pressable>)}
+          {!intel.customerPortalRows.length && <Text style={styles.muted}>No customers are loaded for portal access review.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>18. Profitability Dashboard</Text>
+        <View style={styles.analyticsPanel}>
+          {intel.profitabilityRows.slice(0, 12).map((row, index) => <Pressable key={`profit-${recordIdentity(row.offer) || index}`} style={styles.analyticsRow} onPress={() => setActiveTab("offerManager")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.offer, ["job_no", "customer_name", "id"])}</Text><Text style={styles.statusPill}>{formatMoney(row.margin)}</Text></View><Text style={styles.muted}>Revenue {formatMoney(row.revenue)} - Cost {formatMoney(row.cost)} - Collected {formatMoney(row.collected)}</Text></Pressable>)}
+          {!intel.profitabilityRows.length && <Text style={styles.muted}>No offers are available for profitability analysis.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>19. Vendor Performance Scorecard</Text>
+        <View style={styles.analyticsPanel}>
+          {intel.vendorRows.slice(0, 12).map((row) => <View key={`vendor-${row.vendor}`} style={row.lowStock ? [styles.analyticsRow, styles.alertCard] : styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.vendor}</Text><Text style={styles.statusPill}>{row.items} items</Text></View><Text style={styles.muted}>Inventory value {formatMoney(row.value)} - {row.lowStock} low-stock items</Text></View>)}
+          {!intel.vendorRows.length && <Text style={styles.muted}>No vendor-linked inventory is available for scoring.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>20. Digital Handover Pack</Text>
+        <View style={styles.formCard}>
+          <View style={styles.formGrid}>
+            {(["job_id", "customer", "warranty_id", "service_schedule", "payment_summary", "gad_document", "commissioning_report", "customer_signature", "status"] as const).map((key) => (
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={handoverDraft[key]} onChangeText={(value) => setHandoverDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+            ))}
+          </View>
+          <TextInput style={[styles.input, styles.textarea]} value={handoverDraft.photo_links} onChangeText={(value) => setHandoverDraft((draft) => ({ ...draft, photo_links: value }))} placeholder="Photo/document links" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("handover-packs", handoverDraft, () => setHandoverDraft(emptyHandoverDraft), "Handover pack saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save handover pack</Text></Pressable>
+        </View>
+        <View style={styles.analyticsPanel}>
+          {intel.handoverRows.slice(0, 10).map((item, index) => <View key={`handover-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>Warranty {fieldText(item, ["warranty_id"])} - Signature {fieldText(item, ["customer_signature"])}</Text></View>)}
+          {!intel.handoverRows.length && <Text style={styles.muted}>No digital handover packs are saved yet.</Text>}
+        </View>
+      </View>
+    );
+  }
+
+  function customerTimeline(customer: Record<string, unknown>) {
+    const sources: Array<[string, TabKey, Array<Record<string, unknown>>, string[]]> = [
+      ["Enquiry", "customers", asRecords(data?.sales_inquiries), ["customer", "lead_name", "enquiry_no"]],
+      ["Site visit", "siteVisits", asRecords(data?.site_visits), ["site_visit_date", "site_enquiry_no", "id"]],
+      ["Offer", "offerManager", asRecords(data?.estimates), ["job_no", "offer_date", "status"]],
+      ["Payment", "finance", asRecords(data?.payments), ["milestone", "due_date", "status"]],
+      ["Install", "installations", asRecords(data?.install_jobs), ["job_id", "status", "handover_date"]],
+      ["Service", "service", asRecords(data?.service_records), ["job_number", "status", "service_date"]],
+      ["Breakdown", "breakdown", asRecords(data?.breakdowns), ["unit", "status", "issue"]],
+      ["AMC renewal", "renewals", asRecords(data?.renewals), ["renewal_date", "status", "value"]],
+      ["Comms", "comms", asRecords(data?.dept_comms), ["subject", "department", "status"]],
+    ];
+    return sources.flatMap(([label, tab, records, keys]) => records.filter((record) => customerMatchesRecord(customer, record)).map((record, index) => ({
+      label,
+      tab,
+      date: timelineDate(record) || "-",
+      title: fieldText(record, keys),
+      detail: fieldText(record, ["notes", "message", "issue", "summary", "status"]),
+      key: `${label}-${index}-${recordIdentity(record)}`,
+    }))).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  }
+
+  function renderApprovalsPage() {
+    const approvals = asRecords(data?.approvals);
+    const pending = approvals.filter((item) => !/approved|rejected/i.test(statusText(item)));
+    return (
+      <View>
+        <View style={styles.moduleHero}><Text style={styles.eyebrow}>Controls</Text><Text style={styles.moduleHeroTitle}>Approval Workflow</Text><Text style={styles.moduleHeroText}>Manager approvals for offers, discounts, tender submissions, purchase orders, and payment changes.</Text></View>
+        <View style={styles.formCard}>
+          <Text style={styles.cardLabel}>New approval request</Text>
+          <View style={styles.formGrid}>
+            {(["type", "reference", "customer", "amount"] as const).map((key) => <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={approvalDraft[key]} onChangeText={(value) => setApprovalDraft((draft) => ({ ...draft, [key]: value }))} /></View>)}
+          </View>
+          <TextInput style={[styles.input, styles.textarea]} value={approvalDraft.notes} onChangeText={(value) => setApprovalDraft((draft) => ({ ...draft, notes: value }))} placeholder="Approval notes" multiline />
+          <Pressable style={styles.primaryButton} onPress={saveApprovalRequest} disabled={loading}><Text style={styles.primaryButtonText}>Request approval</Text></Pressable>
+        </View>
+        <View style={styles.metricGrid}><View style={styles.card}><Text style={styles.cardLabel}>Pending</Text><Text style={styles.metricValue}>{pending.length}</Text><Text style={styles.muted}>Awaiting manager decision.</Text></View><View style={styles.card}><Text style={styles.cardLabel}>Total</Text><Text style={styles.metricValue}>{approvals.length}</Text><Text style={styles.muted}>Approval records in audit trail.</Text></View></View>
+        <View style={styles.analyticsPanel}>
+          {approvals.map((item, index) => <View key={`approval-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["reference", "type", "customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["type"])} - {fieldText(item, ["customer"])} - {fieldText(item, ["amount"])}</Text><Text style={styles.bodyText}>{fieldText(item, ["notes"])}</Text>{!/approved|rejected/i.test(statusText(item)) && <View style={styles.inlineActions}><Pressable style={styles.smallButton} onPress={() => updateApproval(item, "Approved")} disabled={loading}><Text style={styles.smallButtonText}>Approve</Text></Pressable><Pressable style={styles.dangerButton} onPress={() => updateApproval(item, "Rejected")} disabled={loading}><Text style={styles.dangerButtonText}>Reject</Text></Pressable></View>}</View>)}
+          {!approvals.length && <Text style={styles.muted}>No approval records yet.</Text>}
+        </View>
+      </View>
+    );
+  }
+
+  function renderDocumentVaultPage() {
+    const documents = asRecords(data?.documents);
+    return (
+      <View>
+        <View style={styles.moduleHero}><Text style={styles.eyebrow}>Vault</Text><Text style={styles.moduleHeroTitle}>Document Vault</Text><Text style={styles.moduleHeroText}>Attach signed offers, POs, invoices, site photos, GAD drawings, service reports, and receipts to customers and jobs.</Text></View>
+        <View style={styles.formCard}>
+          <Text style={styles.cardLabel}>Add document</Text>
+          <View style={styles.formGrid}>
+            {(["title", "linked_type", "linked_id", "customer", "document_type", "url"] as const).map((key) => <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={documentDraft[key]} onChangeText={(value) => setDocumentDraft((draft) => ({ ...draft, [key]: value }))} /></View>)}
+          </View>
+          <TextInput style={[styles.input, styles.textarea]} value={documentDraft.notes} onChangeText={(value) => setDocumentDraft((draft) => ({ ...draft, notes: value }))} placeholder="Notes" multiline />
+          <View style={styles.inlineActions}><Pressable style={styles.primaryButtonInline} onPress={uploadVaultDocument} disabled={loading}><Text style={styles.primaryButtonText}>Upload file</Text></Pressable><Pressable style={styles.secondaryButton} onPress={() => saveDocumentRecord(documentDraft)} disabled={loading}><Text style={styles.secondaryButtonText}>Save link</Text></Pressable></View>
+        </View>
+        <View style={styles.analyticsPanel}>
+          {documents.map((item, index) => <View key={`doc-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["title", "filename"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["document_type", "linked_type"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["customer"])} - {fieldText(item, ["linked_type"])} {fieldText(item, ["linked_id"])}</Text><Text style={styles.bodyText}>{fieldText(item, ["notes"])}</Text>{!!fieldText(item, ["url", "data_url"])?.replace("-", "") && <Pressable style={styles.smallButton} onPress={() => Linking.openURL(fieldText(item, ["url", "data_url"]))}><Text style={styles.smallButtonText}>Open document</Text></Pressable>}</View>)}
+          {!documents.length && <Text style={styles.muted}>No documents have been attached yet.</Text>}
+        </View>
+      </View>
+    );
+  }
+
+  function renderEngineerMobileJobView() {
+    const staff = viewerStaffRecord(asRecords(data?.org_chart));
+    const name = fieldText(staff || {}, ["name"]);
+    const matchesEngineer = (record: Record<string, unknown>) => !name || JSON.stringify(record).toLowerCase().includes(name.toLowerCase());
+    const jobs = [
+      ...asRecords(data?.breakdowns).filter((item) => !recordIsClosed(item) && matchesEngineer(item)).map((item) => ({ type: "Breakdown", tab: "breakdown" as TabKey, record: item })),
+      ...asRecords(data?.service_records).filter((item) => !recordIsClosed(item) && matchesEngineer(item)).map((item) => ({ type: "Service", tab: "service" as TabKey, record: item })),
+      ...asRecords(data?.install_jobs).filter((item) => !recordIsClosed(item) && matchesEngineer(item)).map((item) => ({ type: "Install", tab: "installations" as TabKey, record: item })),
+    ];
+    return (
+      <View>
+        <View style={styles.moduleHero}><Text style={styles.eyebrow}>Field</Text><Text style={styles.moduleHeroTitle}>Engineer Mobile Job View</Text><Text style={styles.moduleHeroText}>A focused technician screen for today’s assigned jobs, customer contact, check-in, photos, status, notes, and signature handoff.</Text></View>
+        <View style={styles.metricGrid}><View style={styles.card}><Text style={styles.cardLabel}>Assigned jobs</Text><Text style={styles.metricValue}>{jobs.length}</Text><Text style={styles.muted}>{name || "Current user"} active queue.</Text></View><View style={styles.card}><Text style={styles.cardLabel}>Attendance</Text><Text style={styles.metricValue}>{fieldText(asRecords(data?.attendance_today).find((item) => fieldText(item, ["person_id", "staff_id"]) === fieldText(staff || {}, ["id"])) || {}, ["status"]) || "-"}</Text><Text style={styles.muted}>Today field attendance.</Text></View></View>
+        <View style={styles.inlineActions}><Pressable style={styles.smallButton} onPress={() => markSelfAttendance("check_in")} disabled={loading}><Text style={styles.smallButtonText}>Check in</Text></Pressable><Pressable style={styles.smallButton} onPress={() => markSelfAttendance("check_out")} disabled={loading}><Text style={styles.smallButtonText}>Check out</Text></Pressable></View>
+        <View style={styles.analyticsPanel}>
+          {jobs.map((job, index) => <Pressable key={`engineer-${job.type}-${index}`} style={styles.analyticsRow} onPress={() => setActiveTab(job.tab)}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{job.type}: {fieldText(job.record, ["unit", "job_id", "job_number", "id", "customer"])}</Text><Text style={styles.statusPill}>{fieldText(job.record, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(job.record, ["customer", "customer_name"])} - {fieldText(job.record, ["site", "location", "address"])}</Text><Text style={styles.bodyText}>Contact: {fieldText(job.record, ["phone", "caller_mobile", "contact_phone"])} - Schedule: {fieldText(job.record, ["scheduled_at", "service_date", "handover_date", "due_date"])}</Text><Text style={styles.bodyText}>Notes/signature/photos can be added from the linked job record.</Text></Pressable>)}
+          {!jobs.length && <Text style={styles.muted}>No assigned open jobs matched your staff profile.</Text>}
+        </View>
+      </View>
+    );
+  }
+
   function renderCustomerCrmPage() {
     const customers = data?.customers || [];
     const visibleCustomers = filteredCustomers();
@@ -5426,7 +6191,7 @@ export default function App() {
             <Text style={styles.cardTitle}>{dueFollowUps.length} due today or overdue</Text>
             <Text style={styles.statusPill}>Auto follow-up</Text>
           </View>
-          {!dueFollowUps.length && <Text style={styles.muted}>No due follow-ups. Scheduled records will appear here on their next follow-up date.</Text>}
+          {!dueFollowUps.length && <Text style={styles.muted}>No due follow-ups. Future follow-ups are already scheduled by date.</Text>}
           {dueFollowUps.slice(0, 12).map((item, index) => {
             const id = recordIdentity(item) || String(item.enquiry_no || item.id || index);
             return (
@@ -5474,6 +6239,7 @@ export default function App() {
             const customerEstimates = estimatesForCustomer(customer, offers);
             const latestEstimate = customerEstimates[0];
             const latestMotor = latestMotorForCustomer(customer);
+            const timeline = customerTimeline(customer);
             const costingStatus = latestEstimate ? String(latestEstimate.status || latestEstimate.lead_status || "Costing") : "No costing";
             const customerSiteVisits = (data?.site_visits || []).filter((visit) => String(visit.customer_id || "") === String(customer.id || ""));
             const customerInstallations = asRecords(data?.install_jobs).filter((job) => String(job.customer_id || "") === String(customer.id || "") || crmNameKey(job.customer) === crmNameKey(customer.name));
@@ -5505,6 +6271,16 @@ export default function App() {
                     ))}
                   </View>
                 )}
+                <View style={styles.linkedSystemsPanel}>
+                  <Text style={styles.cardLabel}>Customer Timeline</Text>
+                  {timeline.slice(0, 8).map((item) => (
+                    <Pressable key={item.key} onPress={() => setActiveTab(item.tab)}>
+                      <Text style={styles.muted}>{item.date} - {item.label} - {item.title}</Text>
+                      {!!item.detail && item.detail !== "-" && <Text style={styles.bodyText}>{item.detail}</Text>}
+                    </Pressable>
+                  ))}
+                  {!timeline.length && <Text style={styles.muted}>No linked department history yet.</Text>}
+                </View>
                 <Text style={styles.bodyText}>{customer.contact_person || "No contact"} - {customer.phone || "No mobile"} - {customer.email || "No email"}</Text>
                 <Text style={styles.bodyText}>Owner: {customer.account_owner || "-"} - Source: {customer.lead_source || "-"} - Channel: {customer.preferred_channel || "-"}</Text>
                 <View style={styles.inlineActions}>
@@ -7927,6 +8703,14 @@ export default function App() {
 
   function renderActiveFeaturePage() {
     switch (activeTab) {
+      case "intelligence":
+        return renderCommandIntelligencePage();
+      case "approvals":
+        return renderApprovalsPage();
+      case "documents":
+        return renderDocumentVaultPage();
+      case "engineer":
+        return renderEngineerMobileJobView();
       case "modules":
         return renderFeaturePage("Platform Modules", "Operating modules from the FUZI README are available in this Expo shell.", asRecords(data?.platform_modules), ["name"], [["owner"], ["status"], ["summary"]]);
       case "tickets":
@@ -9667,7 +10451,13 @@ export default function App() {
       ))}
     </ScrollView>
   ) : (
-    <ScrollView showsVerticalScrollIndicator={false} style={styles.tabs} contentContainerStyle={styles.mobileNavRail}>
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      showsVerticalScrollIndicator={false}
+      style={styles.tabs}
+      contentContainerStyle={styles.mobileNavRail}
+    >
       {navGroups.flatMap((section) => section.items).map((item) => (
         <Pressable
           key={item.key}
@@ -9786,11 +10576,11 @@ export default function App() {
         <View style={styles.main}>
           <View style={[styles.topbar, !isWide && styles.topbarMobile]}>
             <View style={styles.topTitleBlock}>
-              <Text style={styles.eyebrow}>Operations Command Center</Text>
-              <Text style={styles.topTitle}>Live Operations Dashboard</Text>
+              <Text style={styles.eyebrow}>{isWide ? "Operations Command Center" : "Current workspace"}</Text>
+              <Text style={[styles.topTitle, !isWide && styles.topTitleMobile]}>{isWide ? "Live Operations Dashboard" : activeNavItem?.label || "Operations"}</Text>
             </View>
             <View style={[styles.topActions, !isWide && styles.topActionsMobile]}>
-              <View style={styles.globalSearchBox}>
+              <View style={[styles.globalSearchBox, !isWide && styles.globalSearchBoxMobile]}>
                 <TextInput
                   style={styles.globalSearchInput}
                   value={globalSearch}
@@ -9802,22 +10592,22 @@ export default function App() {
                   placeholder="Search CRM, service, jobs"
                 />
               </View>
-              <Pressable style={styles.ghostButton} onPress={() => setCompactLists((value) => !value)}>
+              <Pressable style={[styles.ghostButton, !isWide && styles.mobileActionButton]} onPress={() => setCompactLists((value) => !value)}>
                 <Text style={styles.ghostButtonText}>{compactLists ? "Comfort view" : "Compact view"}</Text>
               </Pressable>
-              <Pressable style={styles.ghostButton} onPress={() => setNotificationPanelOpen((open) => !open)}>
+              <Pressable style={[styles.ghostButton, !isWide && styles.mobileActionButton]} onPress={() => setNotificationPanelOpen((open) => !open)}>
                 <Text style={styles.ghostButtonText}>Inbox {unreadNotifications.length ? `(${unreadNotifications.length})` : ""}</Text>
               </Pressable>
-              <View style={styles.syncPill}>
+              <View style={[styles.syncPill, !isWide && styles.mobileMetaPill]}>
                 <Text style={styles.syncPillText}>Synced {data?.synced_at || "now"}</Text>
               </View>
-              <View style={styles.userPill}>
+              <View style={[styles.userPill, !isWide && styles.mobileMetaPill]}>
                 <Text style={styles.userPillText}>{data?.viewer?.display_name || username}</Text>
               </View>
-              <Pressable style={styles.ghostButton} onPress={() => loadPortal().catch((error) => setMessage(error.message))}>
+              <Pressable style={[styles.ghostButton, !isWide && styles.mobileActionButton]} onPress={() => loadPortal().catch((error) => setMessage(error.message))}>
                 <Text style={styles.ghostButtonText}>Refresh</Text>
               </Pressable>
-              <Pressable style={styles.ghostButton} onPress={signOut}>
+              <Pressable style={[styles.ghostButton, !isWide && styles.mobileActionButton]} onPress={signOut}>
                 <Text style={styles.ghostButtonText}>Logout</Text>
               </Pressable>
             </View>
@@ -9880,8 +10670,9 @@ export default function App() {
           {loading && <ActivityIndicator style={styles.loader} />}
           {!!message && <Text style={styles.banner}>{message}</Text>}
 
-          <ScrollView contentContainerStyle={styles.content}>
+          <ScrollView contentContainerStyle={[styles.content, isWide && styles.contentWide]}>
         {activeTab === "overview" && renderOverviewAnalytics()}
+        {activeTab === "today" && renderTodayActionQueue()}
 
         {activeTab === "customers" && (
           renderCustomerCrmPage()
@@ -9958,40 +10749,45 @@ const styles = StyleSheet.create({
   connectorCopy: { color: "rgba(255,255,255,0.62)", fontSize: 12, lineHeight: 18 },
   main: { flex: 1, minWidth: 0 },
   topbar: { backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e4e7ee", paddingHorizontal: 24, paddingVertical: 18, gap: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" },
-  topbarMobile: { paddingHorizontal: 16, alignItems: "stretch" },
+  topbarMobile: { paddingHorizontal: 14, paddingVertical: 12, alignItems: "stretch", gap: 10 },
   topTitleBlock: { gap: 3 },
   eyebrow: { color: "#e02020", fontSize: 11, fontWeight: "900", textTransform: "uppercase", letterSpacing: 1.6 },
   topTitle: { color: "#11131b", fontSize: 26, fontWeight: "900" },
+  topTitleMobile: { fontSize: 20, lineHeight: 24 },
   topActions: { flexDirection: "row", gap: 10, alignItems: "center", flexWrap: "wrap" },
-  topActionsMobile: { width: "100%", justifyContent: "flex-start" },
+  topActionsMobile: { width: "100%", justifyContent: "flex-start", gap: 8 },
   globalSearchBox: { minWidth: 220, flex: 1, maxWidth: 360 },
+  globalSearchBoxMobile: { minWidth: "100%", maxWidth: "100%", flexBasis: "100%" },
   globalSearchInput: { minHeight: 40, borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 10, backgroundColor: "#f3f5f8", paddingHorizontal: 12, color: "#11131b", fontWeight: "800" },
-  quickPanel: { marginHorizontal: 24, marginTop: 10, borderWidth: 1, borderColor: "#d5dae4", borderRadius: 8, backgroundColor: "#fff", padding: 12, gap: 8, shadowColor: "#11131b", shadowOpacity: 0.08, shadowRadius: 16, shadowOffset: { width: 0, height: 10 } },
+  quickPanel: { marginHorizontal: 14, marginTop: 10, borderWidth: 1, borderColor: "#d5dae4", borderRadius: 8, backgroundColor: "#fff", padding: 12, gap: 8, shadowColor: "#11131b", shadowOpacity: 0.08, shadowRadius: 16, shadowOffset: { width: 0, height: 10 } },
   quickPanelRow: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 10, gap: 3 },
   syncPill: { borderWidth: 1, borderColor: "#e4e7ee", backgroundColor: "#f3f5f8", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 9 },
   syncPillText: { color: "#2d3240", fontWeight: "800", fontSize: 12 },
   userPill: { borderWidth: 1, borderColor: "#e4e7ee", backgroundColor: "#fff", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 9 },
   userPillText: { color: "#2d3240", fontWeight: "800", fontSize: 12 },
-  mobileBrandRow: { paddingHorizontal: 16, paddingVertical: 14, backgroundColor: "#11131b", flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  mobileActionButton: { minHeight: 38, paddingHorizontal: 10, paddingVertical: 8 },
+  mobileMetaPill: { minHeight: 38, paddingHorizontal: 10, paddingVertical: 8 },
+  mobileBrandRow: { paddingHorizontal: 14, paddingVertical: 10, backgroundColor: "#11131b", flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   mobileDepartment: { color: "rgba(255,255,255,0.7)", fontWeight: "800", fontSize: 12 },
   tabs: { backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e4e7ee" },
-  mobileNavRail: { gap: 8, padding: 12, flexDirection: "row", flexWrap: "wrap" },
-  tab: { minWidth: 126, minHeight: 46, borderRadius: 10, borderWidth: 1, borderColor: "#e4e7ee", backgroundColor: "#fff", alignItems: "center", justifyContent: "center", paddingHorizontal: 10, flexDirection: "row", gap: 7 },
+  mobileNavRail: { gap: 8, paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row" },
+  tab: { minWidth: 112, maxWidth: 148, minHeight: 42, borderRadius: 10, borderWidth: 1, borderColor: "#e4e7ee", backgroundColor: "#fff", alignItems: "center", justifyContent: "center", paddingHorizontal: 10, flexDirection: "row", gap: 7 },
   activeTab: { backgroundColor: "#e02020", borderColor: "#e02020" },
   tabIcon: { color: "#747b8d", fontSize: 14, lineHeight: 16, fontWeight: "900" },
   tabText: { fontWeight: "900", color: "#2d3240", fontSize: 11, textAlign: "center" },
   activeTabText: { color: "#fff" },
-  content: { padding: 24, gap: 16, paddingBottom: 46, maxWidth: 1240, width: "100%", alignSelf: "center" },
-  commandBand: { borderRadius: 12, backgroundColor: "#11131b", padding: 22, borderWidth: 1, borderColor: "rgba(224,32,32,0.24)", marginBottom: 8 },
+  content: { padding: 14, gap: 12, paddingBottom: 36, maxWidth: 1240, width: "100%", alignSelf: "center" },
+  contentWide: { padding: 24, gap: 16, paddingBottom: 46 },
+  commandBand: { borderRadius: 10, backgroundColor: "#11131b", padding: 16, borderWidth: 1, borderColor: "rgba(224,32,32,0.24)", marginBottom: 6 },
   commandCopy: { gap: 8 },
-  commandTitle: { color: "#fff", fontSize: 24, lineHeight: 30, fontWeight: "900" },
+  commandTitle: { color: "#fff", fontSize: 20, lineHeight: 26, fontWeight: "900" },
   commandText: { color: "rgba(255,255,255,0.68)", fontSize: 14, lineHeight: 22 },
-  moduleHero: { borderRadius: 8, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e4e7ee", padding: 18, gap: 8, marginBottom: 12 },
-  moduleHeroTitle: { color: "#11131b", fontSize: 24, fontWeight: "900" },
+  moduleHero: { borderRadius: 8, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e4e7ee", padding: 14, gap: 6, marginBottom: 10 },
+  moduleHeroTitle: { color: "#11131b", fontSize: 21, lineHeight: 26, fontWeight: "900" },
   moduleHeroText: { color: "#747b8d", fontSize: 14, lineHeight: 22 },
-  sectionTitle: { fontSize: 19, fontWeight: "900", color: "#11131b", marginTop: 10, marginBottom: 8 },
+  sectionTitle: { fontSize: 17, fontWeight: "900", color: "#11131b", marginTop: 8, marginBottom: 6 },
   metricGrid: { gap: 12 },
-  card: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", padding: 16, marginBottom: 10, shadowColor: "#11131b", shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } },
+  card: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", padding: 13, marginBottom: 8, shadowColor: "#11131b", shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 6 } },
   compactCard: { padding: 11, marginBottom: 6, shadowOpacity: 0.03, shadowRadius: 8 },
   kanbanBoard: { gap: 12, paddingVertical: 4, paddingRight: 12 },
   kanbanColumn: { width: 292, minHeight: 360, borderRadius: 8, borderWidth: 1, borderColor: "#dfe4ed", backgroundColor: "#f8fafc", padding: 10, gap: 10 },
@@ -10022,12 +10818,12 @@ const styles = StyleSheet.create({
   portalShortcut: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 2, borderColor: "#e02020", padding: 16, marginBottom: 10, gap: 6 },
   cardHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" },
   cardTitleBlock: { flex: 1, minWidth: 220 },
-  formCard: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", padding: 16, gap: 11, marginBottom: 12 },
+  formCard: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", padding: 13, gap: 10, marginBottom: 10 },
   formGrid: { gap: 10 },
   sectionHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" },
   cardLabel: { color: "#e02020", fontSize: 11, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 },
   cardTitle: { color: "#11131b", fontSize: 16, fontWeight: "900", marginBottom: 5 },
-  metricValue: { color: "#11131b", fontSize: 28, fontWeight: "900", marginVertical: 5 },
+  metricValue: { color: "#11131b", fontSize: 24, fontWeight: "900", marginVertical: 4 },
   inventoryStats: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 12, marginBottom: 6 },
   inventoryStat: { minWidth: 105, borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 10 },
   inventoryValue: { color: "#11131b", fontSize: 20, fontWeight: "900", marginTop: 4 },
@@ -10042,7 +10838,7 @@ const styles = StyleSheet.create({
   statusPill: { color: "#b91414", backgroundColor: "#fff5f5", borderWidth: 1, borderColor: "rgba(224,32,32,0.2)", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, overflow: "hidden", fontWeight: "900", fontSize: 11 },
   field: { gap: 6 },
   label: { color: "#11131b", fontWeight: "900", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 },
-  input: { minHeight: 46, borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 10, backgroundColor: "#f3f5f8", paddingHorizontal: 12, color: "#11131b", fontWeight: "700" },
+  input: { minHeight: 44, borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 10, backgroundColor: "#f3f5f8", paddingHorizontal: 12, color: "#11131b", fontWeight: "700" },
   textarea: { minHeight: 92, paddingTop: 10, textAlignVertical: "top" },
   costingSourcePanel: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#fff", padding: 12, gap: 12 },
   costingStepper: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },

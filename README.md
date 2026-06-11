@@ -1,6 +1,6 @@
 # FUZI Operations Portal
 
-React/Expo operations and customer portal for FUZI Classic Elevators, backed by a lightweight Node/Express API. The public website is still served from static HTML files, while the staff/mobile portal runs from the Expo app for web and Android.
+React/Expo operations and customer portal for FUZI Classic Elevators, backed by a lightweight Node/Express API. The public website, staff portal, and mobile portal run from the Expo app for web and Android.
 
 ---
 
@@ -152,7 +152,7 @@ $env:EXPO_PUBLIC_FUZI_API_URL="http://YOUR_COMPUTER_IP:5000"
 npm run android
 ```
 
-The Expo app includes login, live metrics, saved estimates, customer lifecycle tracking, `.xlsx` costing source review, and site visit reports inside Customer CRM. Its navigation mirrors the staff portal modules: Overview, Platform Modules, Customers, Project Tickets, Projects, Installations, Install Team, Team Accounts, Renewals, Work Orders, Inventory, Staff & Attendance, Installation Dept, Breakdown Portal, Service, GAD Drawings, Accounts, Commissioning, Back Office, Tender, Factory, International Vendor, and Dept Comms.
+The Expo app includes login, live metrics, saved estimates, customer lifecycle tracking, `.xlsx` costing source review, site visit reports inside Customer CRM, Daily Action Queue, and Command Intelligence. Its navigation mirrors the staff portal modules: Today, Command Intelligence, Overview, Platform Modules, Customers, Project Tickets, Projects, Installations, Install Team, Team Accounts, Renewals, Work Orders, Inventory, Staff & Attendance, Installation Dept, Breakdown Portal, Service, GAD Drawings, Accounts, Commissioning, Back Office, Tender, Factory, International Vendor, Approvals, Documents, Engineer Jobs, and Dept Comms.
 
 Most module pages include shared add/update controls backed by the Node compatibility API, so the React/Expo portal can create and update the same SQLite-backed operational records that the legacy portal used: project tickets, install jobs, install team, users, inventory, estimates, payments, sales inquiries, breakdowns, service records, GAD drawings, commissioning, factory jobs, tenders, department comms, org chart, and attendance.
 
@@ -163,6 +163,37 @@ Customer/Site Visit rule:
 - The Site Visit form asks "How many stops?" and creates one opening row per stop/opening for floor, floor-to-floor height, and lintel height.
 
 API: `POST /api/portal/auth/login`, `GET /api/portal/auth/session`, `POST /api/portal/auth/logout`, `GET /api/portal/data`, `POST /api/portal/customers`, `POST /api/portal/site-visits`, `GET /api/portal/costing-source-data`, plus legacy-compatible collection routes like `GET/POST/PATCH /api/portal/inventory`, `GET/POST/PATCH /api/portal/tender`, and `GET/POST/PATCH /api/portal/sales/inquiries`.
+
+---
+
+### Daily Action Queue & Command Intelligence
+
+The `Today` page is a live action queue. It prioritizes overdue follow-ups, pending site visits, open breakdowns, low stock, tender deadlines, payment reminders, stalled installs, renewals, and pending approvals from existing portal records.
+
+The `Command Intelligence` page is a data-backed operations cockpit. It combines live calculations with saved records:
+
+- Role-based home dashboards from live department queues.
+- Escalation rules saved through `POST /api/portal/escalation-rules` into `escalation_rules`.
+- Customer 360 health scores calculated from open payments, breakdowns, service records, and renewals.
+- Engineer route planner from open breakdown, service, and site-visit records.
+- WhatsApp/Discord conversation inbox saved through `POST /api/portal/conversations` into `conversations`.
+- Smart assignment suggestions from engineer availability, current task, and open workload.
+- Offer versioning from `estimates` plus `audit_logs`.
+- Inventory purchase planning from stock, reserved quantity, reorder point, and target stock.
+- Install project Gantt view from active installation job status.
+- Audit trail in `audit_logs`, automatically written by generic portal create/update/delete routes and key custom CRM flows.
+- Warranty tracker saved through `POST /api/portal/warranty-records` into `warranty_records`.
+- Material dispatch board saved through `POST /api/portal/dispatch-records` into `dispatch_records`.
+- Site readiness checklist saved through `POST /api/portal/readiness-checklists` into `readiness_checklists`.
+- Engineer skill matrix saved through `POST /api/portal/skill-matrix` into `skill_matrix`.
+- Complaint repeat analysis calculated from breakdown history.
+- AMC visit calendar calculated from renewal records.
+- Customer portal access review from `customers` and `customer_users`.
+- Profitability dashboard from estimates, offer costs, and payment collection.
+- Vendor performance scorecard from inventory vendor, value, and low-stock data.
+- Digital handover packs saved through `POST /api/portal/handover-packs` into `handover_packs`.
+
+Generic collection routes also support `GET`, `PATCH`, and `DELETE` for these saved intelligence collections, subject to portal authentication.
 
 ---
 

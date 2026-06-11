@@ -168,6 +168,16 @@ const listFiles = {
   marketing_assets: "marketing_assets.json",
   attendance: "attendance.json",
   leave_requests: "leave_requests.json",
+  approvals: "approvals.json",
+  documents: "documents.json",
+  escalation_rules: "escalation_rules.json",
+  conversations: "conversations.json",
+  audit_logs: "audit_logs.json",
+  warranty_records: "warranty_records.json",
+  dispatch_records: "dispatch_records.json",
+  readiness_checklists: "readiness_checklists.json",
+  skill_matrix: "skill_matrix.json",
+  handover_packs: "handover_packs.json",
   org_chart: "org_chart.json"
 };
 
@@ -193,6 +203,16 @@ const routeCollections = {
   tender: { key: "tenders", prefix: "TDR" },
   comms: { key: "dept_comms", prefix: "MSG" },
   "marketing-assets": { key: "marketing_assets", prefix: "MKT" },
+  approvals: { key: "approvals", prefix: "APR" },
+  documents: { key: "documents", prefix: "DOC" },
+  "escalation-rules": { key: "escalation_rules", prefix: "ESC" },
+  conversations: { key: "conversations", prefix: "CNV" },
+  "audit-logs": { key: "audit_logs", prefix: "AUD" },
+  "warranty-records": { key: "warranty_records", prefix: "WAR" },
+  "dispatch-records": { key: "dispatch_records", prefix: "DSP" },
+  "readiness-checklists": { key: "readiness_checklists", prefix: "RDY" },
+  "skill-matrix": { key: "skill_matrix", prefix: "SKL" },
+  "handover-packs": { key: "handover_packs", prefix: "HOV" },
   "sales/inquiries": { key: "sales_inquiries", prefix: "SIQ" },
   "sales/admin-panel": { key: "sales_admin_panel", prefix: "SAP", singleton: true }
 };
@@ -355,40 +375,43 @@ function isDepartmentHead(person) {
 
 function accessForUser(user = {}) {
   const allViews = [
-    "overview", "modules", "customers", "offerManager", "marketing", "tickets", "projects", "installations", "team", "accounts",
+    "today", "overview", "modules", "customers", "offerManager", "marketing", "tickets", "projects", "installations", "team", "accounts",
     "renewals", "workorders", "inventory", "estimator", "orgchart", "sales", "installation_dept", "breakdown", "service",
-    "gad", "finance", "commissioning", "backoffice", "tender", "factory", "internationalVendor", "comms", "siteVisits"
+    "gad", "finance", "commissioning", "backoffice", "tender", "factory", "internationalVendor", "comms", "siteVisits", "intelligence",
+    "approvals", "documents", "engineer"
   ];
   if (user.role === "admin" || String(user.department || "").toLowerCase() === "executive office") {
     return { allowed_views: allViews, selected_view: "overview", default_view: "overview", is_restricted: false };
   }
   const byDepartment = {
-    sales: ["overview", "customers", "offerManager", "marketing", "sales", "renewals", "estimator", "siteVisits", "comms"],
-    installation: ["overview", "customers", "installations", "team", "installation_dept", "commissioning", "siteVisits", "orgchart", "comms"],
-    "install operations": ["overview", "customers", "installations", "team", "installation_dept", "commissioning", "siteVisits", "orgchart", "comms"],
-    breakdown: ["overview", "customers", "breakdown", "workorders", "orgchart", "comms"],
-    service: ["overview", "customers", "workorders", "service", "orgchart", "comms"],
-    gad: ["overview", "customers", "gad", "projects", "comms"],
-    accounts: ["overview", "customers", "offerManager", "marketing", "finance", "estimator", "comms"],
-    commissioning: ["overview", "customers", "commissioning", "installations", "orgchart", "comms"],
-    tender: ["overview", "customers", "offerManager", "tender", "estimator", "comms"],
-    factory: ["overview", "factory", "inventory", "installations", "comms"],
-    "back office": ["overview", "customers", "backoffice", "accounts", "orgchart", "siteVisits", "comms"],
-    "project office": ["overview", "tickets", "projects", "installations", "team", "orgchart", "comms"],
-    staff: ["overview", "customers", "siteVisits", "orgchart", "comms"],
-    "stores & procurement": ["overview", "inventory", "factory", "comms"]
+    sales: ["today", "overview", "intelligence", "customers", "offerManager", "marketing", "sales", "renewals", "estimator", "siteVisits", "approvals", "documents", "comms"],
+    installation: ["today", "overview", "intelligence", "customers", "installations", "team", "installation_dept", "commissioning", "siteVisits", "orgchart", "approvals", "documents", "engineer", "comms"],
+    "install operations": ["today", "overview", "intelligence", "customers", "installations", "team", "installation_dept", "commissioning", "siteVisits", "orgchart", "approvals", "documents", "engineer", "comms"],
+    breakdown: ["today", "overview", "intelligence", "customers", "breakdown", "workorders", "orgchart", "documents", "engineer", "comms"],
+    service: ["today", "overview", "intelligence", "customers", "workorders", "service", "orgchart", "documents", "engineer", "comms"],
+    gad: ["today", "overview", "intelligence", "customers", "gad", "projects", "approvals", "documents", "comms"],
+    accounts: ["today", "overview", "intelligence", "customers", "offerManager", "marketing", "finance", "estimator", "approvals", "documents", "comms"],
+    commissioning: ["today", "overview", "intelligence", "customers", "commissioning", "installations", "orgchart", "approvals", "documents", "engineer", "comms"],
+    tender: ["today", "overview", "intelligence", "customers", "offerManager", "tender", "estimator", "approvals", "documents", "comms"],
+    factory: ["today", "overview", "intelligence", "factory", "inventory", "installations", "approvals", "documents", "comms"],
+    "back office": ["today", "overview", "intelligence", "customers", "backoffice", "accounts", "orgchart", "siteVisits", "approvals", "documents", "comms"],
+    "project office": ["today", "overview", "intelligence", "tickets", "projects", "installations", "team", "orgchart", "approvals", "documents", "comms"],
+    staff: ["today", "overview", "intelligence", "customers", "siteVisits", "orgchart", "documents", "engineer", "comms"],
+    "stores & procurement": ["today", "overview", "intelligence", "inventory", "factory", "approvals", "documents", "comms"]
   };
   const key = String(user.department || "").toLowerCase();
-  const allowed = [...(byDepartment[key] || ["overview", "comms"])];
+  const allowed = [...(byDepartment[key] || ["today", "overview", "comms"])];
   if (!allowed.includes("orgchart")) allowed.push("orgchart");
   if (!allowed.includes("siteVisits")) allowed.push("siteVisits");
   return { allowed_views: allowed, selected_view: allowed[0], default_view: allowed[0], is_restricted: true };
 }
 
 const viewDataKeys = {
+  today: ["customers", "sales_inquiries", "site_visits", "breakdowns", "inventory", "payments", "tenders", "install_jobs", "service_records", "renewals", "work_orders", "project_tickets", "dept_comms", "approvals", "documents", "org_chart", "attendance_today"],
+  intelligence: ["customers", "customer_users", "sales_inquiries", "site_visits", "breakdowns", "inventory", "payments", "tenders", "install_jobs", "install_team", "service_records", "renewals", "work_orders", "project_tickets", "dept_comms", "approvals", "documents", "org_chart", "attendance_today", "estimates", "escalation_rules", "conversations", "audit_logs", "customer_assignments", "warranty_records", "dispatch_records", "readiness_checklists", "skill_matrix", "handover_packs"],
   overview: ["customers", "customer_assignments", "department_assignments", "time_tracking", "department_history", "org_chart", "users"],
   modules: ["platform_modules"],
-  customers: ["customers", "customer_assignments", "customer_users", "sales_inquiries", "estimates", "payments", "site_visits", "org_chart", "users"],
+  customers: ["customers", "customer_assignments", "customer_users", "sales_inquiries", "estimates", "payments", "site_visits", "install_jobs", "service_records", "breakdowns", "renewals", "commissionings", "dept_comms", "documents", "org_chart", "users"],
   offerManager: ["customers", "sales_inquiries", "estimates"],
   marketing: ["marketing_assets", "customers", "estimates", "international_vendors"],
   tickets: ["project_tickets"],
@@ -413,14 +436,18 @@ const viewDataKeys = {
   factory: ["factory_jobs", "inventory"],
   internationalVendor: ["international_vendors"],
   comms: ["dept_comms"],
-  siteVisits: ["site_visits", "customers", "sales_inquiries", "org_chart"]
+  siteVisits: ["site_visits", "customers", "sales_inquiries", "org_chart"],
+  approvals: ["approvals", "estimates", "tenders", "payments", "install_jobs", "inventory", "customers"],
+  documents: ["documents", "customers", "site_visits", "tenders", "install_jobs", "service_records", "breakdowns"],
+  engineer: ["breakdowns", "service_records", "install_jobs", "install_team", "org_chart", "attendance_today", "customers"]
 };
 
 const restrictedPayloadKeys = [
   "projects", "installations", "renewals", "work_orders", "project_tickets", "install_jobs", "install_team", "installation_contractors",
   "users", "customers", "customer_assignments", "department_assignments", "time_tracking", "department_history", "site_visits", "platform_modules", "inventory", "inventory_insights", "org_chart", "attendance_today",
   "leave_requests", "estimates", "payments", "customer_users", "sales_inquiries", "sales_admin_panel", "breakdowns", "service_records",
-  "gad_records", "commissionings", "factory_jobs", "tenders", "international_vendors", "marketing_assets", "dept_comms"
+  "gad_records", "commissionings", "factory_jobs", "tenders", "international_vendors", "marketing_assets", "dept_comms",
+  "approvals", "documents", "escalation_rules", "conversations", "audit_logs", "warranty_records", "dispatch_records", "readiness_checklists", "skill_matrix", "handover_packs"
 ];
 
 function parseCostingWorkbooks() {
@@ -1583,12 +1610,36 @@ function findRecordIndex(records, id) {
   return records.findIndex((record) => String(record.id || record.job_id || record.payment_id || record.drawing_no || record.job_number || record.enquiry_no) === String(id));
 }
 
+function recordIdentityForAudit(record = {}) {
+  return String(record.id || record.job_id || record.payment_id || record.drawing_no || record.job_number || record.enquiry_no || record.reference || "");
+}
+
 function normalizedLookup(value) {
   return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function publicRecords(key, records) {
   return key === "users" ? records.map(publicUser) : records;
+}
+
+async function appendAuditLog({ user = {}, collection = "", recordId = "", action = "", before = null, after = null }) {
+  if (!listFiles.audit_logs || collection === "audit_logs") return;
+  const records = await readJson(listFiles.audit_logs, []);
+  const now = new Date().toISOString();
+  const entry = {
+    id: nextId(records, "AUD"),
+    collection,
+    record_id: String(recordId || ""),
+    action,
+    actor: String(user.display_name || user.username || "system"),
+    actor_username: String(user.username || ""),
+    actor_department: String(user.department || ""),
+    changed_at: now,
+    before,
+    after
+  };
+  records.unshift(entry);
+  await writeJson(listFiles.audit_logs, records.slice(0, 1000));
 }
 
 function defaultStatusForAction(action) {
@@ -1684,14 +1735,12 @@ function defaultOpenClawCommunicationData(env, baseDir) {
 }
 
 function defaultDiscordBreakdownSyncData(env, baseDir) {
-  const homeDir = env.USERPROFILE || env.HOME || baseDir;
-  const openClawDir = env.FUZI_OPENCLAW_CONFIG_DIR || path.join(homeDir, ".openclaw");
   return {
     apiBaseUrl: env.DISCORD_API_BASE_URL || "https://discord.com/api/v10",
     openClawUrl: defaultOpenClawUrl(env),
     openClawTimeoutSeconds: Number(env.FUZI_OPENCLAW_TIMEOUT || 15),
-    configFile: env.FUZI_OPENCLAW_CONFIG_FILE || path.join(openClawDir, "openclaw.json"),
-    envFile: env.FUZI_OPENCLAW_ENV_FILE || path.join(openClawDir, ".env"),
+    configFile: "",
+    envFile: "",
     channelTarget: env.FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL || "",
     pollMs: Math.max(Number(env.FUZI_BREAKDOWN_DISCORD_POLL_MS || 15000), 5000),
     limit: Math.min(Math.max(Number(env.FUZI_BREAKDOWN_DISCORD_LIMIT || 50), 1), 100)
@@ -2573,12 +2622,20 @@ function createDiscordBreakdownSyncService({
     return String(env[envKey] || envValues[envKey] || "").trim();
   };
   let lastBreakdownChannelLookup = null;
+  let lastDiscordBotTokenLookup = null;
+  const openClawRuntimeLookupKeys = new Set([
+    "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL",
+    "DISCORD_BOT_TOKEN",
+    "OPENCLAW_DISCORD_TOKEN",
+    "FUZI_DISCORD_BOT_TOKEN",
+    "FUZI_BREAKDOWN_DISCORD_BOT_TOKEN"
+  ]);
 
   const runtimeValue = async (key, fallback = "") => {
     const envValues = await loadEnvValues();
     const localValue = String(env[key] || envValues[key] || fallback || "").trim();
-    if (localValue || key !== "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL") return localValue;
-    return await openClawBreakdownChannelTarget();
+    if (localValue || !openClawRuntimeLookupKeys.has(key)) return localValue;
+    return await openClawRuntimeValue(key);
   };
 
   const openClawEndpoint = (endpointPath = "/tools/invoke") => {
@@ -2617,7 +2674,21 @@ function createDiscordBreakdownSyncService({
     return match ? match[1] : "";
   };
 
-  const openClawBreakdownChannelTarget = async () => {
+  const extractOpenClawToolText = (body = "") => {
+    try {
+      const parsed = JSON.parse(String(body || ""));
+      const content = parsed?.result?.content;
+      if (Array.isArray(content)) {
+        const text = content.map((item) => item?.text).filter(Boolean).join("\n").trim();
+        if (text) return text;
+      }
+      return String(parsed?.result?.details || parsed?.result || "").trim();
+    } catch {
+      return String(body || "").trim();
+    }
+  };
+
+  const openClawRuntimeValue = async (key) => {
     const endpoint = openClawEndpoint("/tools/invoke");
     if (!endpoint) return "";
     const secret = await openClawAuthSecret();
@@ -2627,11 +2698,11 @@ function createDiscordBreakdownSyncService({
       tool: "fuzidiscordchannel",
       action: "resolve",
       sessionKey: "agent:main:explicit:fuzidiscordchannel",
-      key: "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL",
+      key,
       expose: "value-only",
       readonly: true
     };
-    lastBreakdownChannelLookup = {
+    const lookup = {
       url: endpoint,
       method: "POST",
       tool: payload.tool,
@@ -2641,6 +2712,8 @@ function createDiscordBreakdownSyncService({
       readonly: payload.readonly,
       openclaw_connection: openClawConnectionTriedMessage(config.openClawUrl)
     };
+    if (key === "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL") lastBreakdownChannelLookup = lookup;
+    else if (/DISCORD.*TOKEN/.test(key)) lastDiscordBotTokenLookup = lookup;
     try {
       const response = await fetchImpl(endpoint, {
         method: "POST",
@@ -2652,23 +2725,26 @@ function createDiscordBreakdownSyncService({
         signal: controller.signal
       });
       const body = await response.text();
-      const target = extractBreakdownTarget(body);
-      lastBreakdownChannelLookup = {
-        ...lastBreakdownChannelLookup,
+      const text = extractOpenClawToolText(body);
+      const value = key === "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL" ? extractBreakdownTarget(text || body) : text.trim();
+      const updatedLookup = {
+        ...lookup,
         status: response.status,
         ok: response.ok,
-        found: Boolean(target),
-        target: target || "",
+        found: Boolean(value),
+        ...(key === "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL" ? { target: value || "" } : { value_found: Boolean(value) }),
         returned: {
           status: response.status,
           ok: response.ok,
           body
         }
       };
-      return target;
+      if (key === "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL") lastBreakdownChannelLookup = updatedLookup;
+      else if (/DISCORD.*TOKEN/.test(key)) lastDiscordBotTokenLookup = updatedLookup;
+      return value;
     } catch (error) {
-      lastBreakdownChannelLookup = {
-        ...lastBreakdownChannelLookup,
+      const updatedLookup = {
+        ...lookup,
         ok: false,
         found: false,
         error: error?.name === "AbortError" ? "OpenClaw gateway lookup timed out." : String(error?.message || "OpenClaw gateway lookup failed."),
@@ -2677,6 +2753,8 @@ function createDiscordBreakdownSyncService({
           error: error?.name === "AbortError" ? "OpenClaw gateway lookup timed out." : String(error?.message || "OpenClaw gateway lookup failed.")
         }
       };
+      if (key === "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL") lastBreakdownChannelLookup = updatedLookup;
+      else if (/DISCORD.*TOKEN/.test(key)) lastDiscordBotTokenLookup = updatedLookup;
       return "";
     } finally {
       clearTimeout(timeout);
@@ -2736,6 +2814,7 @@ function createDiscordBreakdownSyncService({
       target: target || "",
       bot_token_configured: Boolean(token),
       openclaw_connection: openClawConnectionTriedMessage(config.openClawUrl),
+      bot_token_lookup_fetch: lastDiscordBotTokenLookup,
       target_lookup_fetch: lastBreakdownChannelLookup || {
         url: openClawEndpoint("/tools/invoke"),
         method: "POST",
@@ -3252,15 +3331,22 @@ function createDiscordBreakdownSyncService({
     if (!channelId || !token) {
       const diagnostics = discordConfigurationDiagnostics(channelId, token);
       const lookup = diagnostics.target_lookup_fetch;
+      const tokenLookup = diagnostics.bot_token_lookup_fetch;
       const lookupText = lookup?.url
         ? ` Target lookup fetch: POST ${lookup.url} tool=${lookup.tool} session=${lookup.sessionKey} key=${lookup.key}.`
         : "";
       const targetText = diagnostics.target ? ` Target value: ${diagnostics.target}.` : " Target value was not found.";
       const returnedText = lookup?.returned ? ` Target lookup returned: ${JSON.stringify(lookup.returned)}.` : "";
+      const tokenLookupText = tokenLookup?.url
+        ? ` Bot token lookup fetch: POST ${tokenLookup.url} tool=${tokenLookup.tool} session=${tokenLookup.sessionKey} key=${tokenLookup.key}.`
+        : "";
+      const tokenReturnedText = tokenLookup?.returned
+        ? ` Bot token lookup returned: ${JSON.stringify({ status: tokenLookup.returned.status, ok: tokenLookup.returned.ok, found: Boolean(tokenLookup.found || tokenLookup.value_found) })}.`
+        : "";
       return {
         ok: false,
         imported: 0,
-        message: `Discord breakdown ${diagnostics.missing.join(" and ")} is not configured. ${diagnostics.openclaw_connection}${lookupText}${targetText}${returnedText}`.replace(/\s+/g, " ").trim(),
+        message: `Discord breakdown ${diagnostics.missing.join(" and ")} is not configured. ${diagnostics.openclaw_connection}${lookupText}${targetText}${returnedText}${tokenLookupText}${tokenReturnedText}`.replace(/\s+/g, " ").trim(),
         diagnostics
       };
     }
@@ -3599,6 +3685,7 @@ async function updateOperationsRecord(listKey, id, body, res) {
   const prefix = operationsPrefixes[listKey] || listKey.toUpperCase();
   const index = records.findIndex((record, i) => normalizedOpsRecord(record, prefix, i).id === id);
   if (index < 0) return res.status(404).json({ ok: false, message: "Record not found." });
+  const previousRecord = normalizedOpsRecord(records[index], prefix, index);
   const actionStatus = defaultStatusForAction(body?.action);
   records[index] = {
     ...records[index],
@@ -3608,7 +3695,9 @@ async function updateOperationsRecord(listKey, id, body, res) {
   };
   state[listKey] = records;
   await writeOperationsState(state);
-  res.json({ ok: true, record: normalizedOpsRecord(records[index], prefix, index) });
+  const nextRecord = normalizedOpsRecord(records[index], prefix, index);
+  await appendAuditLog({ user: res.req?.user || {}, collection: listKey, recordId: nextRecord.id, action: "update", before: previousRecord, after: nextRecord });
+  res.json({ ok: true, record: nextRecord });
 }
 
 async function listCollection(routeName, res) {
@@ -4037,6 +4126,7 @@ async function createCollectionRecord(routeName, body, res) {
     const existing = await readJson(config.file, {});
     const updated = { ...existing, ...cleanPayload(body), updated_at: new Date().toISOString() };
     await writeJson(config.file, updated);
+    await appendAuditLog({ user: res.req?.user || {}, collection: config.key, recordId: config.key, action: "update", before: existing, after: updated });
     return res.json({ ok: true, record: updated, [config.key]: updated });
   }
   const records = await readJson(config.file, []);
@@ -4051,6 +4141,7 @@ async function createCollectionRecord(routeName, body, res) {
   const record = { id: nextId(records, config.prefix), ...(offerPayload || paymentPayload || tenderPayload || installationPayload || cleanPayload(body)), ...serviceLink, created_at: now, updated_at: now };
   records.unshift(record);
   await writeJson(config.file, records);
+  await appendAuditLog({ user: res.req?.user || {}, collection: config.key, recordId: record.id, action: "create", before: null, after: record });
   if (routeName === "install-jobs") {
     await logInstallationNotifications(record, {}, res.req?.user || {});
   }
@@ -4081,6 +4172,7 @@ async function updateCollectionRecord(routeName, id, body, res) {
   };
   records[index] = nextRecord;
   await writeJson(config.file, records);
+  await appendAuditLog({ user: res.req?.user || {}, collection: config.key, recordId: recordIdentityForAudit(nextRecord), action: "update", before: previousRecord, after: nextRecord });
   if (routeName === "install-jobs") {
     await logInstallationNotifications(nextRecord, previousRecord || {}, res.req?.user || {});
   }
@@ -4091,9 +4183,11 @@ async function deleteCollectionRecord(routeName, id, res) {
   const config = resolveCollection(routeName);
   if (!config) return res.status(404).json({ ok: false, message: "Unknown portal module." });
   const records = await readJson(config.file, []);
+  const deletedRecord = records.find((record) => findRecordIndex([record], id) === 0);
   const nextRecords = records.filter((record) => findRecordIndex([record], id) !== 0);
   if (nextRecords.length === records.length) return res.status(404).json({ ok: false, message: "Record not found." });
   await writeJson(config.file, nextRecords);
+  await appendAuditLog({ user: res.req?.user || {}, collection: config.key, recordId: id, action: "delete", before: deletedRecord || null, after: null });
   return res.json({ ok: true });
 }
 
@@ -4169,6 +4263,16 @@ function portalData(collections, user) {
     international_vendors: collections.international_vendors,
     marketing_assets: collections.marketing_assets,
     dept_comms: collections.dept_comms,
+    approvals: collections.approvals,
+    documents: collections.documents,
+    escalation_rules: collections.escalation_rules,
+    conversations: collections.conversations,
+    audit_logs: collections.audit_logs,
+    warranty_records: collections.warranty_records,
+    dispatch_records: collections.dispatch_records,
+    readiness_checklists: collections.readiness_checklists,
+    skill_matrix: collections.skill_matrix,
+    handover_packs: collections.handover_packs,
     synced_at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
   };
   return filterPortalPayload(payload, access);
@@ -4823,6 +4927,7 @@ app.post("/api/portal/renewals", authRequired, async (req, res) => {
   renewals.unshift(renewal);
   state.renewals = renewals;
   await writeOperationsState(state);
+  await appendAuditLog({ user: req.user || {}, collection: "renewals", recordId: renewal.id, action: "create", before: null, after: renewal });
   res.json({ ok: true, renewal });
 });
 
@@ -4852,6 +4957,7 @@ app.post("/api/portal/customers", authRequired, async (req, res) => {
   };
   customers.unshift(customer);
   await writeJson(listFiles.customers, customers);
+  await appendAuditLog({ user: req.user || {}, collection: "customers", recordId: customer.id, action: "create", before: null, after: customer });
   res.json({ ok: true, customer, message: `${name} saved.` });
 });
 
@@ -5316,6 +5422,7 @@ app.post("/api/portal/site-visits", authRequired, async (req, res) => {
   };
   siteVisits.unshift(siteVisit);
   await writeJson(listFiles.site_visits, siteVisits);
+  await appendAuditLog({ user: req.user || {}, collection: "site_visits", recordId: siteVisit.id, action: "create", before: null, after: siteVisit });
   res.json({ ok: true, site_visit: siteVisit, message: `Site visit report saved for ${customerLink.customer_name}.` });
 });
 
@@ -5335,8 +5442,10 @@ app.patch("/api/portal/site-visits/:id", authRequired, async (req, res) => {
     updated_by_username: req.user?.username || "",
     updated_at: new Date().toISOString()
   };
+  const previousVisit = siteVisits[index];
   siteVisits[index] = siteVisit;
   await writeJson(listFiles.site_visits, siteVisits);
+  await appendAuditLog({ user: req.user || {}, collection: "site_visits", recordId: siteVisit.id, action: "update", before: previousVisit, after: siteVisit });
   res.json({ ok: true, site_visit: siteVisit, message: `Site visit report updated for ${siteVisit.customer_name}.` });
 });
 
@@ -5359,6 +5468,7 @@ app.post("/api/portal/sales/inquiries", authRequired, async (req, res) => {
   if (!inquiry.customer) return res.status(400).json({ ok: false, message: "Lead/customer name is required for enquiry intake." });
   records.unshift(inquiry);
   await writeJson(listFiles.sales_inquiries, records);
+  await appendAuditLog({ user: req.user || {}, collection: "sales_inquiries", recordId: inquiry.id, action: "create", before: null, after: inquiry });
   res.json({ ok: true, inquiry, record: inquiry });
 });
 
@@ -5366,11 +5476,13 @@ app.patch("/api/portal/sales/inquiries/:id", authRequired, async (req, res) => {
   const records = await readJson(listFiles.sales_inquiries, []);
   const index = findRecordIndex(records, req.params.id);
   if (index < 0) return res.status(404).json({ ok: false, message: "Sales inquiry not found." });
+  const previousInquiry = records[index];
   records[index] = {
     ...normalizeSalesInquiryPayload(req.body, records[index]),
     updated_at: new Date().toISOString()
   };
   await writeJson(listFiles.sales_inquiries, records);
+  await appendAuditLog({ user: req.user || {}, collection: "sales_inquiries", recordId: recordIdentityForAudit(records[index]), action: "update", before: previousInquiry, after: records[index] });
   res.json({ ok: true, inquiry: records[index], record: records[index] });
 });
 
