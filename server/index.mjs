@@ -2625,6 +2625,9 @@ function createDiscordBreakdownSyncService({
   let lastDiscordBotTokenLookup = null;
   const openClawRuntimeLookupKeys = new Set([
     "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL",
+    "FUZI_OPENCLAW_CONFIG_DIR",
+    "FUZI_OPENCLAW_CONFIG_FILE",
+    "FUZI_OPENCLAW_ENV_FILE",
     "DISCORD_BOT_TOKEN",
     "OPENCLAW_DISCORD_TOKEN",
     "FUZI_DISCORD_BOT_TOKEN",
@@ -2672,6 +2675,17 @@ function createDiscordBreakdownSyncService({
   const extractBreakdownTarget = (value = "") => {
     const match = String(value || "").match(/(?:^|[^A-Za-z0-9_-])(channel:\d{6,})(?:[^A-Za-z0-9_-]|$)/);
     return match ? match[1] : "";
+  };
+
+  const extractRuntimeResultValue = (key, value = "") => {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    if (key === "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL") return extractBreakdownTarget(text);
+    const exactLine = text.split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.startsWith(`${key}=`) || line.startsWith(`${key}:`));
+    if (exactLine) return exactLine.slice(key.length + 1).trim();
+    return text;
   };
 
   const extractOpenClawToolText = (body = "") => {
@@ -2726,7 +2740,7 @@ function createDiscordBreakdownSyncService({
       });
       const body = await response.text();
       const text = extractOpenClawToolText(body);
-      const value = key === "FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL" ? extractBreakdownTarget(text || body) : text.trim();
+      const value = extractRuntimeResultValue(key, text || body);
       const updatedLookup = {
         ...lookup,
         status: response.status,
@@ -2768,13 +2782,14 @@ function createDiscordBreakdownSyncService({
   };
 
   const discordBotToken = async () => {
+    const normalizeToken = (value = "") => String(value || "").trim().replace(/^(?:Bot|Bearer)\s+/i, "").trim();
     for (const key of [
       "DISCORD_BOT_TOKEN",
       "OPENCLAW_DISCORD_TOKEN",
       "FUZI_DISCORD_BOT_TOKEN",
       "FUZI_BREAKDOWN_DISCORD_BOT_TOKEN"
     ]) {
-      const direct = await runtimeValue(key, "");
+      const direct = normalizeToken(await runtimeValue(key, ""));
       if (direct) return direct;
     }
     const openClawConfig = await loadJsonConfig();
@@ -2797,7 +2812,7 @@ function createDiscordBreakdownSyncService({
       candidates.push(...Object.values(accounts).map((account) => account?.botToken || account?.bot_token));
     }
     for (const candidate of candidates) {
-      const resolved = await resolvePossiblyEnvValue(candidate);
+      const resolved = normalizeToken(await resolvePossiblyEnvValue(candidate));
       if (resolved) return resolved;
     }
     return "";
@@ -3355,7 +3370,28 @@ function createDiscordBreakdownSyncService({
     const cursor = String(cursors.breakdown_last_message_id || "");
     const endpoint = `${String(config.apiBaseUrl || "").replace(/\/+$/g, "")}/channels/${encodeURIComponent(channelId)}/messages?limit=${encodeURIComponent(limit)}`;
     const response = await fetchImpl(endpoint, { headers: { Authorization: `Bot ${token}` } });
-    if (!response.ok) return { ok: false, imported: 0, status: response.status, message: "Discord messages could not be fetched." };
+    if (!response.ok) {
+      const body = await response.text();
+      const discordFetch = {
+        endpoint,
+        method: "GET",
+        channel: `channel:${channelId}`,
+        status: response.status,
+        ok: response.ok,
+        returned: {
+          status: response.status,
+          ok: response.ok,
+          body
+        }
+      };
+      return {
+        ok: false,
+        imported: 0,
+        status: response.status,
+        message: `Discord messages could not be fetched. Discord fetch returned: ${JSON.stringify(discordFetch.returned)}.`,
+        discord_fetch: discordFetch
+      };
+    }
     const messages = await response.json();
     if (!Array.isArray(messages)) return { ok: false, imported: 0, message: "Discord response did not include a message list." };
     const ordered = messages.slice().sort((a, b) => idGreaterThan(a.id, b.id) ? 1 : -1);
