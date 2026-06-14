@@ -152,7 +152,7 @@ $env:EXPO_PUBLIC_FUZI_API_URL="http://YOUR_COMPUTER_IP:5000"
 npm run android
 ```
 
-The Expo app includes login, live metrics, saved estimates, customer lifecycle tracking, `.xlsx` costing source review, site visit reports inside Customer CRM, Daily Action Queue, and Command Intelligence. Its navigation mirrors the staff portal modules: Today, Command Intelligence, Overview, Platform Modules, Customers, Project Tickets, Projects, Installations, Install Team, Team Accounts, Renewals, Work Orders, Inventory, Staff & Attendance, Installation Dept, Breakdown Portal, Service, GAD Drawings, Accounts, Commissioning, Back Office, Tender, Factory, International Vendor, Approvals, Documents, Engineer Jobs, and Dept Comms.
+The Expo app includes login, live metrics, saved estimates, customer lifecycle tracking, `.xlsx` costing source review, site visit reports inside Customer CRM, Daily Action Queue, Command Intelligence, and an in-app Operations Backlog. Its navigation mirrors the staff portal modules: Today, Command Intelligence, Operations Backlog, Overview, Platform Modules, Customers, Project Tickets, Projects, Installations, Install Team, Team Accounts, Renewals, Work Orders, Inventory, Staff & Attendance, Installation Dept, Breakdown Portal, Service, GAD Drawings, Accounts, Commissioning, Back Office, Tender, Factory, International Vendor, Approvals, Documents, Engineer Jobs, and Dept Comms.
 
 Most module pages include shared add/update controls backed by the Node compatibility API, so the React/Expo portal can create and update the same SQLite-backed operational records that the legacy portal used: project tickets, install jobs, install team, users, inventory, estimates, payments, sales inquiries, breakdowns, service records, GAD drawings, commissioning, factory jobs, tenders, department comms, org chart, and attendance.
 
@@ -192,6 +192,16 @@ The `Command Intelligence` page is a data-backed operations cockpit. It combines
 - Profitability dashboard from estimates, offer costs, and payment collection.
 - Vendor performance scorecard from inventory vendor, value, and low-stock data.
 - Digital handover packs saved through `POST /api/portal/handover-packs` into `handover_packs`.
+- Lift asset registry saved through `POST /api/portal/lift-assets` into `lift_assets`, with controller, motor, door, warranty, AMC, and site details.
+- Spare parts usage ledger saved through `POST /api/portal/parts-usage` into `parts_usage`, linked to job, unit, engineer, and inventory item IDs.
+- QR service lookup values generated from registered lift assets, with optional stored QR overrides.
+- Service report generator saved through `POST /api/portal/service-reports` into `service_reports`, with checklist, parts used, next visit, notes, and customer signature fields.
+- Payment collection forecast calculated from open payment records, reminder dates, due dates, and outstanding totals.
+- Engineer performance dashboard calculated from engineer-linked breakdown, service, and installation records.
+- Safety incident register saved through `POST /api/portal/safety-incidents` into `safety_incidents`.
+- Tender document checklist saved through `POST /api/portal/tender-checklists` into `tender_checklists`.
+- AMC contract builder saved through `POST /api/portal/amc-contracts` into `amc_contracts`.
+- Management daily brief saved through `POST /api/portal/daily-briefs` into `daily_briefs`, with browser print support for saving the brief as a PDF.
 
 Generic collection routes also support `GET`, `PATCH`, and `DELETE` for these saved intelligence collections, subject to portal authentication.
 
@@ -344,6 +354,111 @@ The CRM roadmap is shaped for an Indian elevator sales, installation, AMC, warra
 98. WhatsApp/SMS template registry [Roadmap]
 99. CEO/MIS summary reports [Roadmap]
 100. Backup and restore controls [Roadmap]
+
+**Operations platform backlog - next 100 feature ideas:**
+
+These items are also available inside the staff portal under `Operations Backlog`, with category filters, search, priority bands, and department summary counts.
+
+1. Lead scoring for sales enquiries [Backlog]
+2. Auto follow-up reminders by customer stage [Backlog]
+3. Lost enquiry reason analytics [Backlog]
+4. Quotation win/loss dashboard [Backlog]
+5. Duplicate customer detection [Backlog]
+6. Customer merge tool [Backlog]
+7. Customer priority rating [Backlog]
+8. Customer branch/site hierarchy [Backlog]
+9. Contact person directory per customer [Backlog]
+10. Customer blacklist / credit hold flag [Backlog]
+11. Auto quotation number generation [Backlog]
+12. Offer revision comparison [Backlog]
+13. Discount approval limits by role [Backlog]
+14. Offer expiry alerts [Backlog]
+15. Offer PDF template selector [Backlog]
+16. GST-ready invoice draft generator [Backlog]
+17. Payment milestone templates [Backlog]
+18. Payment receipt upload [Backlog]
+19. Outstanding balance aging report [Backlog]
+20. Collection promise tracking [Backlog]
+21. Site visit route planner [Backlog]
+22. Site visit photo capture [Backlog]
+23. Site measurement validation [Backlog]
+24. Shaft readiness photo checklist [Backlog]
+25. Auto convert site visit to offer [Backlog]
+26. Site visit reschedule tracking [Backlog]
+27. Geo-tagged site visit check-in [Backlog]
+28. Civil work pending tracker [Backlog]
+29. Customer signature on site visit [Backlog]
+30. Site visit quality review [Backlog]
+31. Installation stage checklist [Backlog]
+32. Material readiness tracker [Backlog]
+33. Installation delay reason log [Backlog]
+34. Contractor assignment calendar [Backlog]
+35. Installation handover approval [Backlog]
+36. Commissioning certificate generator [Backlog]
+37. Installation photo timeline [Backlog]
+38. Daily installation progress notes [Backlog]
+39. Lift-wise installation dashboard [Backlog]
+40. Project risk score [Backlog]
+41. Breakdown SLA timer [Backlog]
+42. Trapped passenger priority mode [Backlog]
+43. Auto escalation to manager [Backlog]
+44. Engineer nearest-location assignment [Backlog]
+45. Breakdown repeat-fault detection [Backlog]
+46. Breakdown root-cause tagging [Backlog]
+47. Breakdown customer notification log [Backlog]
+48. Breakdown spare-part suggestion [Backlog]
+49. Breakdown closure approval [Backlog]
+50. Breakdown cost tracking [Backlog]
+51. Preventive maintenance calendar [Backlog]
+52. AMC renewal pipeline [Backlog]
+53. AMC visit auto-scheduler [Backlog]
+54. Service checklist by lift type [Backlog]
+55. Service report PDF [Backlog]
+56. Customer digital signature for service [Backlog]
+57. Service photo attachments [Backlog]
+58. Missed service alert [Backlog]
+59. AMC profitability dashboard [Backlog]
+60. Contract coverage rules [Backlog]
+61. Lift asset registry [Backlog]
+62. QR code per lift [Backlog]
+63. Lift technical history [Backlog]
+64. Controller/password vault with restricted access [Backlog]
+65. Warranty expiry alerts [Backlog]
+66. Parts replacement history [Backlog]
+67. Modernization opportunity alerts [Backlog]
+68. Lift health score [Backlog]
+69. Lift downtime report [Backlog]
+70. Lift document pack [Backlog]
+71. Inventory reorder automation [Backlog]
+72. Vendor price comparison [Backlog]
+73. Purchase request workflow [Backlog]
+74. Stock reservation for jobs [Backlog]
+75. Bin/location scanner [Backlog]
+76. Inventory audit count mode [Backlog]
+77. Low-stock WhatsApp/email alert [Backlog]
+78. Spare consumption forecast [Backlog]
+79. Material dispatch challan [Backlog]
+80. Returned material tracking [Backlog]
+81. Staff attendance geofencing [Backlog]
+82. Engineer daily job app [Backlog]
+83. Leave approval workflow [Backlog]
+84. Department workload dashboard [Backlog]
+85. Skill matrix by engineer [Backlog]
+86. Performance scorecards [Backlog]
+87. Training/certification tracker [Backlog]
+88. Staff document vault [Backlog]
+89. Overtime approval tracking [Backlog]
+90. Payroll export summary [Backlog]
+91. In-app notification center [Backlog]
+92. Global search across all records [Backlog]
+93. Advanced filters saved per user [Backlog]
+94. Audit trail viewer [Backlog]
+95. Role permission editor [Backlog]
+96. Data import/export wizard [Backlog]
+97. Scheduled management email report [Backlog]
+98. Offline mobile mode [Backlog]
+99. Multi-branch/company support [Backlog]
+100. AI daily operations brief [Backlog]
 
 ---
 
@@ -632,9 +747,13 @@ Rolls up all department data into a single leadership view:
 
 - Customer-linked service records with job number, building, owner, and notes.
 - Service records must be linked to an existing CRM customer before they can be created.
+- New service visits capture a system-generated `service_number` and `breakdown_number`, date/time, CRM customer, assigned engineer, common elevator issue category, action taken, parts used, parts quantity, and customer comments.
+- Service engineers can check in and check out from the Service module; each action stores timestamp and browser geolocation when permission is granted.
+- Linked CRM customer records store `service_count` / `services_done`, recalculated whenever service records or breakdown calls are created, edited, or deleted.
 - Work order status tracking.
 - Breakdown Portal dispatch assigns install/service staff from the saved team roster and supports dispatch, reached-site, and close statuses.
 - Breakdown calls must be linked to an existing customer ID before they can be logged.
+- Breakdown calls now capture a system-generated `breakdown_number`, date/time, CRM customer, assigned engineer, common elevator issue category, action taken, parts used, parts quantity, customer comments, and engineer check-in/check-out timestamps with browser geolocation when permission is granted.
 - CRM customer profiles store date of birth and anniversary date for WhatsApp-ready occasion reminders.
 - Admins can queue same-day birthday and anniversary reminders from Customer CRM; reminder records are saved in Department Comms and routed through the existing communication service when configured.
 

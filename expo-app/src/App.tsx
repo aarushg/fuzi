@@ -22,6 +22,7 @@ import type { Customer, PortalData, SiteVisit } from "./types";
 type TabKey =
   | "today"
   | "intelligence"
+  | "backlog"
   | "overview"
   | "modules"
   | "customers"
@@ -77,9 +78,127 @@ type CostingSource = {
   cells: CostingSourceCell[];
 };
 
+const operationsBacklog = [
+  "Lead scoring for sales enquiries",
+  "Auto follow-up reminders by customer stage",
+  "Lost enquiry reason analytics",
+  "Quotation win/loss dashboard",
+  "Duplicate customer detection",
+  "Customer merge tool",
+  "Customer priority rating",
+  "Customer branch/site hierarchy",
+  "Contact person directory per customer",
+  "Customer blacklist / credit hold flag",
+  "Auto quotation number generation",
+  "Offer revision comparison",
+  "Discount approval limits by role",
+  "Offer expiry alerts",
+  "Offer PDF template selector",
+  "GST-ready invoice draft generator",
+  "Payment milestone templates",
+  "Payment receipt upload",
+  "Outstanding balance aging report",
+  "Collection promise tracking",
+  "Site visit route planner",
+  "Site visit photo capture",
+  "Site measurement validation",
+  "Shaft readiness photo checklist",
+  "Auto convert site visit to offer",
+  "Site visit reschedule tracking",
+  "Geo-tagged site visit check-in",
+  "Civil work pending tracker",
+  "Customer signature on site visit",
+  "Site visit quality review",
+  "Installation stage checklist",
+  "Material readiness tracker",
+  "Installation delay reason log",
+  "Contractor assignment calendar",
+  "Installation handover approval",
+  "Commissioning certificate generator",
+  "Installation photo timeline",
+  "Daily installation progress notes",
+  "Lift-wise installation dashboard",
+  "Project risk score",
+  "Breakdown SLA timer",
+  "Trapped passenger priority mode",
+  "Auto escalation to manager",
+  "Engineer nearest-location assignment",
+  "Breakdown repeat-fault detection",
+  "Breakdown root-cause tagging",
+  "Breakdown customer notification log",
+  "Breakdown spare-part suggestion",
+  "Breakdown closure approval",
+  "Breakdown cost tracking",
+  "Preventive maintenance calendar",
+  "AMC renewal pipeline",
+  "AMC visit auto-scheduler",
+  "Service checklist by lift type",
+  "Service report PDF",
+  "Customer digital signature for service",
+  "Service photo attachments",
+  "Missed service alert",
+  "AMC profitability dashboard",
+  "Contract coverage rules",
+  "Lift asset registry",
+  "QR code per lift",
+  "Lift technical history",
+  "Controller/password vault with restricted access",
+  "Warranty expiry alerts",
+  "Parts replacement history",
+  "Modernization opportunity alerts",
+  "Lift health score",
+  "Lift downtime report",
+  "Lift document pack",
+  "Inventory reorder automation",
+  "Vendor price comparison",
+  "Purchase request workflow",
+  "Stock reservation for jobs",
+  "Bin/location scanner",
+  "Inventory audit count mode",
+  "Low-stock WhatsApp/email alert",
+  "Spare consumption forecast",
+  "Material dispatch challan",
+  "Returned material tracking",
+  "Staff attendance geofencing",
+  "Engineer daily job app",
+  "Leave approval workflow",
+  "Department workload dashboard",
+  "Skill matrix by engineer",
+  "Performance scorecards",
+  "Training/certification tracker",
+  "Staff document vault",
+  "Overtime approval tracking",
+  "Payroll export summary",
+  "In-app notification center",
+  "Global search across all records",
+  "Advanced filters saved per user",
+  "Audit trail viewer",
+  "Role permission editor",
+  "Data import/export wizard",
+  "Scheduled management email report",
+  "Offline mobile mode",
+  "Multi-branch/company support",
+  "AI daily operations brief",
+].map((title, index) => {
+  const number = index + 1;
+  const category = number <= 10 ? "CRM"
+    : number <= 20 ? "Offers & Payments"
+    : number <= 30 ? "Site Visits"
+    : number <= 40 ? "Installation"
+    : number <= 50 ? "Breakdown"
+    : number <= 60 ? "Service & AMC"
+    : number <= 70 ? "Lift Assets"
+    : number <= 80 ? "Inventory"
+    : number <= 90 ? "Staff"
+    : "Platform";
+  const priority = number <= 20 ? "Near-term" : number <= 60 ? "Next" : "Later";
+  return { number, title, category, priority, status: "Backlog" };
+});
+
 const navItems: Array<{ key: TabKey; label: string; icon: string }> = [
   { key: "today", label: "Today", icon: "!" },
   { key: "intelligence", label: "Command Intelligence", icon: "#" },
+  { key: "backlog", label: "Operations Backlog", icon: "★" },
   { key: "overview", label: "Overview", icon: "⌂" },
   { key: "modules", label: "Platform Modules", icon: "▦" },
   { key: "customers", label: "Customers", icon: "◉" },
@@ -137,6 +256,37 @@ const moduleConfigs: Partial<Record<TabKey, ModuleConfig>> = {
 };
 
 const emptyModuleDraft = { title: "", customer: "", customer_id: "", status: "Open", notes: "" };
+const serviceIssueCategories = [
+  "Door not opening / closing",
+  "Door sensor or light curtain fault",
+  "Lift not moving",
+  "Stuck between floors",
+  "Misleveling / stops unevenly",
+  "Unusual noise or vibration",
+  "Slow operation",
+  "Power failure / rescue mode",
+  "Controller or display fault",
+  "Brake / traction / drive fault",
+  "Overheating motor or machine room",
+  "Safety circuit fault",
+  "Button / COP / LOP fault",
+  "Water ingress",
+  "Other",
+];
+const emptyServiceDraft = {
+  customer_id: "",
+  customer: "",
+  source_inquiry_id: "",
+  site: "",
+  phone: "",
+  assigned_engineer: "",
+  issue_category: serviceIssueCategories[0],
+  action_taken: "",
+  parts_used: "",
+  parts_quantity: "0",
+  customer_comments: "",
+  status: "Open",
+};
 const emptyApprovalDraft = { type: "Offer", reference: "", customer: "", amount: "", status: "Pending", notes: "" };
 const emptyDocumentDraft = { title: "", linked_type: "Customer", linked_id: "", customer: "", document_type: "General", url: "", notes: "" };
 const emptyEscalationDraft = { name: "Breakdown unassigned", module: "Breakdown", condition: "Unassigned over 30 minutes", threshold_minutes: "30", manager: "", active: "true" };
@@ -146,6 +296,13 @@ const emptyDispatchDraft = { job_id: "", customer: "", material: "", status: "Pa
 const emptyReadinessDraft = { job_id: "", customer: "", pit_ready: "No", shaft_ready: "No", power_ready: "No", storage_ready: "No", access_ready: "No", safety_ready: "No", notes: "" };
 const emptySkillDraft = { engineer: "", department: "", controller_type: "", door_type: "", hydraulic: "No", mrl: "No", escalator: "No", commissioning: "No", troubleshooting: "No", notes: "" };
 const emptyHandoverDraft = { job_id: "", customer: "", warranty_id: "", service_schedule: "", payment_summary: "", gad_document: "", commissioning_report: "", photo_links: "", customer_signature: "", status: "Draft" };
+const emptyLiftAssetDraft = { customer: "", customer_id: "", unit: "", site: "", controller: "", motor: "", door_type: "", warranty_id: "", amc_status: "Open", qr_code: "" };
+const emptyPartsUsageDraft = { job_id: "", customer: "", unit: "", engineer: "", part_name: "", item_id: "", quantity: "1", notes: "" };
+const emptySafetyIncidentDraft = { job_id: "", customer: "", site: "", incident_type: "Near miss", severity: "Medium", trapped_passenger: "No", corrective_action: "", responsible_staff: "", status: "Open" };
+const emptyTenderChecklistDraft = { tender_id: "", tender_title: "", emd: "Pending", sd: "Pending", gst_docs: "Pending", pan: "Pending", certificates: "Pending", technical_sheets: "Pending", drawings: "Pending", annexures: "Pending", final_submission: "Pending" };
+const emptyAmcContractDraft = { customer: "", customer_id: "", lift_count: "1", service_frequency: "Monthly", parts_included: "No", warranty_status: "", annual_price: "", terms: "", status: "Draft" };
+const emptyServiceReportDraft = { job_id: "", customer: "", unit: "", engineer: "", checklist: "", parts_used: "", notes: "", next_visit_date: "", customer_signature: "", status: "Draft" };
+const emptyDailyBriefDraft = { date: new Date().toISOString().slice(0, 10), audience: "Management", summary: "", status: "Draft" };
 const emptyPaymentDraft = {
   payment_type: "Contract",
   customer_id: "",
@@ -283,14 +440,22 @@ const internationalVendorPipelineStages = [
 const emptyBreakdownDraft = {
   customer_id: "",
   customer: "",
+  source_inquiry_id: "",
   unit: "",
   phone: "",
   location: "",
-  issue: "",
+  issue: serviceIssueCategories[0],
+  issue_category: serviceIssueCategories[0],
+  action_taken: "",
+  parts_used: "",
+  parts_quantity: "0",
+  customer_comments: "",
   priority: "High",
   engineer: "",
+  assigned_engineer: "",
   trapped_passenger: "N",
   scheduled_at: "",
+  status: "Open",
 };
 const emptyInstallationDraft = {
   id: "",
@@ -863,6 +1028,8 @@ export default function App() {
   const [siteVisitEditorOpen, setSiteVisitEditorOpen] = useState(false);
   const [siteVisitCustomerSearch, setSiteVisitCustomerSearch] = useState("");
   const [moduleDraft, setModuleDraft] = useState(emptyModuleDraft);
+  const [serviceDraft, setServiceDraft] = useState(emptyServiceDraft);
+  const [serviceIssueDropdownOpen, setServiceIssueDropdownOpen] = useState(false);
   const [serviceEditDrafts, setServiceEditDrafts] = useState<Record<string, Record<string, string>>>({});
   const [serviceCustomerDropdownOpen, setServiceCustomerDropdownOpen] = useState(false);
   const [serviceCustomerSearch, setServiceCustomerSearch] = useState("");
@@ -877,6 +1044,13 @@ export default function App() {
   const [readinessDraft, setReadinessDraft] = useState(emptyReadinessDraft);
   const [skillDraft, setSkillDraft] = useState(emptySkillDraft);
   const [handoverDraft, setHandoverDraft] = useState(emptyHandoverDraft);
+  const [liftAssetDraft, setLiftAssetDraft] = useState(emptyLiftAssetDraft);
+  const [partsUsageDraft, setPartsUsageDraft] = useState(emptyPartsUsageDraft);
+  const [safetyIncidentDraft, setSafetyIncidentDraft] = useState(emptySafetyIncidentDraft);
+  const [tenderChecklistDraft, setTenderChecklistDraft] = useState(emptyTenderChecklistDraft);
+  const [amcContractDraft, setAmcContractDraft] = useState(emptyAmcContractDraft);
+  const [serviceReportDraft, setServiceReportDraft] = useState(emptyServiceReportDraft);
+  const [dailyBriefDraft, setDailyBriefDraft] = useState(emptyDailyBriefDraft);
   const [breakdownDraft, setBreakdownDraft] = useState(emptyBreakdownDraft);
   const [installationDraft, setInstallationDraft] = useState<Record<string, string>>(emptyInstallationDraft);
   const [installationEditorOpen, setInstallationEditorOpen] = useState(false);
@@ -904,6 +1078,8 @@ export default function App() {
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
   const [navSearch, setNavSearch] = useState("");
+  const [backlogSearch, setBacklogSearch] = useState("");
+  const [backlogCategory, setBacklogCategory] = useState("All");
   const [compactLists, setCompactLists] = useState(true);
   const [customerPage, setCustomerPage] = useState(1);
   const [enquiryPage, setEnquiryPage] = useState(1);
@@ -931,6 +1107,7 @@ export default function App() {
   const [breakdownEngineerTaskDrafts, setBreakdownEngineerTaskDrafts] = useState<Record<string, string>>({});
   const [breakdownCustomerDropdownOpen, setBreakdownCustomerDropdownOpen] = useState(false);
   const [breakdownCustomerSearch, setBreakdownCustomerSearch] = useState("");
+  const [breakdownIssueDropdownOpen, setBreakdownIssueDropdownOpen] = useState(false);
 
   const isSignedIn = Boolean(token);
   const isWide = width >= 920;
@@ -964,7 +1141,7 @@ export default function App() {
   }, [data?.access, isAdmin]);
   const navGroups = useMemo(() => {
     const groupFor = (key: TabKey) => {
-      if (["today", "intelligence", "overview", "modules", "comms"].includes(key)) return "Command";
+      if (["today", "intelligence", "backlog", "overview", "modules", "comms"].includes(key)) return "Command";
       if (["customers", "sales", "offerManager", "marketing", "siteVisits"].includes(key)) return "CRM & Sales";
       if (["tickets", "projects", "installations", "installation_dept", "team", "commissioning", "factory", "engineer"].includes(key)) return "Projects & Installation";
       if (["breakdown", "service", "workorders", "renewals", "inventory", "documents"].includes(key)) return "Service Ops";
@@ -2339,13 +2516,88 @@ export default function App() {
         city: String(record.city || ""),
         phone: String(record.phone || ""),
         status: String(record.status || ""),
-        technician: String(record.technician || ""),
+        technician: String(record.technician || record.assigned_engineer || ""),
+        assigned_engineer: String(record.assigned_engineer || record.technician || ""),
+        issue_category: String(record.issue_category || ""),
+        action_taken: String(record.action_taken || ""),
+        parts_used: String(record.parts_used || ""),
+        parts_quantity: String(record.parts_quantity || ""),
+        customer_comments: String(record.customer_comments || ""),
         scheduled_date: String(record.scheduled_date || ""),
         completed_date: String(record.completed_date || ""),
         next_service_date: String(record.next_service_date || ""),
         findings: String(record.findings || ""),
       },
     }));
+  }
+
+  function serviceEngineerOptions() {
+    const rows = [...asRecords(data?.install_team), ...asRecords(data?.org_chart), ...asRecords(data?.users)];
+    const seen = new Set<string>();
+    return rows.map((item) => ({
+      name: fieldText(item, ["name", "display_name", "username"]).replace("-", ""),
+      department: fieldText(item, ["department", "role", "title"]).replace("-", ""),
+    })).filter((item) => {
+      if (!item.name) return false;
+      const key = item.name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return /service|breakdown|installation|technician|engineer|field/i.test(`${item.name} ${item.department}`) || rows.length < 12;
+    }).slice(0, 80);
+  }
+
+  async function saveNewServiceRecord() {
+    if (!serviceDraft.customer_id.trim()) {
+      const text = "Select a CRM customer before creating a service record.";
+      Platform.OS === "web" ? setMessage(text) : Alert.alert("Customer required", text);
+      return;
+    }
+    setLoading(true);
+    try {
+      await apiFetch("/api/portal/service", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          ...serviceDraft,
+          technician: serviceDraft.assigned_engineer,
+          service_date: new Date().toISOString(),
+          parts_quantity: String(Math.max(0, Number(serviceDraft.parts_quantity || 0))),
+          findings: serviceDraft.action_taken,
+          notes: serviceDraft.customer_comments,
+        }),
+      });
+      setServiceDraft(emptyServiceDraft);
+      await loadPortal();
+      setMessage("Service record created with a system generated breakdown number.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Service record could not be created.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function updateServiceVisitPoint(record: Record<string, unknown>, point: "check_in" | "check_out") {
+    const id = recordIdentity(record);
+    if (!id) return;
+    const location = await captureAttendanceLocation();
+    if (!location) return;
+    const now = new Date().toISOString();
+    setLoading(true);
+    try {
+      await apiFetch(`/api/portal/service/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify(point === "check_in"
+          ? { check_in_at: now, check_in_location: location, status: "In Progress" }
+          : { check_out_at: now, check_out_location: location, status: "Completed", completed_date: now.slice(0, 10) }),
+      });
+      await loadPortal();
+      setMessage(point === "check_in" ? "Service check-in captured." : "Service check-out captured.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Service location update could not be saved.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function saveServiceRecord(id: string) {
@@ -2378,11 +2630,19 @@ export default function App() {
 
   function renderServicePage() {
     const records = asRecords((data as Record<string, unknown> | null)?.service_records);
+    const customerOptions = crmCustomerOptions();
+    const selectedServiceCustomer = customerOptions.find((customer) => customer.id === serviceDraft.customer_id);
+    const serviceCustomerQuery = serviceCustomerSearch.trim().toLowerCase();
+    const visibleServiceCustomers = customerOptions
+      .filter((customer) => !serviceCustomerQuery || `${customer.id} ${customer.name} ${customer.phone} ${customer.source_inquiry_id}`.toLowerCase().includes(serviceCustomerQuery))
+      .slice(0, 80);
+    const engineerOptions = serviceEngineerOptions();
     const query = serviceRecordSearch.trim().toLowerCase();
     const filteredRecords = records.filter((record) => {
       if (!query) return true;
       return [
         record.id,
+        record.breakdown_number,
         record.job_number,
         record.job_no,
         record.customer_id,
@@ -2393,6 +2653,8 @@ export default function App() {
         record.area,
         record.phone,
         record.technician,
+        record.assigned_engineer,
+        record.issue_category,
         record.status,
         record.next_service_date,
         record.scheduled_date,
@@ -2404,9 +2666,95 @@ export default function App() {
         <View style={styles.moduleHero}>
           <Text style={styles.eyebrow}>FUZI Ops Module</Text>
           <Text style={styles.moduleHeroTitle}>Service</Text>
-          <Text style={styles.moduleHeroText}>Service records, technician updates, customer comments, and linked CRM customer numbers.</Text>
+          <Text style={styles.moduleHeroText}>Service records, system generated breakdown numbers, engineer check-in/out, customer comments, parts usage, and linked CRM service counts.</Text>
         </View>
-        {renderModuleForm(moduleConfigs.service!)}
+        <View style={styles.formCard}>
+          <Text style={styles.cardLabel}>New service visit</Text>
+          <Text style={styles.muted}>Breakdown/service number, date, and time are generated by the system when this record is saved.</Text>
+          <View style={styles.formGrid}>
+            <View style={styles.field}>
+              <Text style={styles.label}>CRM customer</Text>
+              <Pressable
+                style={[styles.dropdownButton, serviceCustomerDropdownOpen && styles.selectorPillActive]}
+                onPress={() => setServiceCustomerDropdownOpen((open) => !open)}
+                disabled={loading || !customerOptions.length}
+              >
+                <Text style={styles.selectorText}>
+                  {selectedServiceCustomer
+                    ? `${selectedServiceCustomer.id} - ${selectedServiceCustomer.name}${selectedServiceCustomer.phone ? ` - ${selectedServiceCustomer.phone}` : ""}`
+                    : "Select CRM customer"}
+                </Text>
+                <Text style={styles.dropdownChevron}>{serviceCustomerDropdownOpen ? "▲" : "▼"}</Text>
+              </Pressable>
+              {serviceCustomerDropdownOpen && (
+                <View style={styles.dropdownPanel}>
+                  <TextInput style={styles.input} value={serviceCustomerSearch} onChangeText={setServiceCustomerSearch} placeholder="Search customer number, name, phone, CRM ID" />
+                  <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                    {visibleServiceCustomers.map((customer, index) => (
+                      <Pressable
+                        key={`new-service-customer-${customer.id}-${customer.source_inquiry_id}-${index}`}
+                        style={[styles.dropdownOption, serviceDraft.customer_id === customer.id && styles.selectorPillActive]}
+                        onPress={() => {
+                          setServiceDraft((draft) => ({
+                            ...draft,
+                            customer_id: customer.id,
+                            customer: customer.name,
+                            source_inquiry_id: customer.source_inquiry_id,
+                            site: customer.address,
+                            phone: customer.phone,
+                          }));
+                          setServiceCustomerDropdownOpen(false);
+                          setServiceCustomerSearch("");
+                        }}
+                      >
+                        <Text style={styles.selectorText}>{customer.id} - {customer.name}</Text>
+                        <Text style={styles.muted}>{customer.phone || "No phone"}{customer.source_inquiry_id ? ` - ${customer.source_inquiry_id}` : ""}</Text>
+                      </Pressable>
+                    ))}
+                    {!visibleServiceCustomers.length && <Text style={styles.muted}>No CRM customers match that search.</Text>}
+                  </ScrollView>
+                </View>
+              )}
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Assigned engineer</Text>
+              <TextInput style={styles.input} value={serviceDraft.assigned_engineer} onChangeText={(value) => setServiceDraft((draft) => ({ ...draft, assigned_engineer: value }))} placeholder="Engineer name" />
+              {!!engineerOptions.length && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
+                  {engineerOptions.slice(0, 12).map((engineer) => (
+                    <Pressable key={`svc-eng-${engineer.name}`} style={[styles.smallButton, serviceDraft.assigned_engineer === engineer.name && styles.selectorPillActive]} onPress={() => setServiceDraft((draft) => ({ ...draft, assigned_engineer: engineer.name }))}>
+                      <Text style={styles.smallButtonText}>{engineer.name}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              )}
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Common elevator issue</Text>
+              <Pressable style={[styles.dropdownButton, serviceIssueDropdownOpen && styles.selectorPillActive]} onPress={() => setServiceIssueDropdownOpen((open) => !open)}>
+                <Text style={styles.selectorText}>{serviceDraft.issue_category}</Text>
+                <Text style={styles.dropdownChevron}>{serviceIssueDropdownOpen ? "▲" : "▼"}</Text>
+              </Pressable>
+              {serviceIssueDropdownOpen && (
+                <View style={styles.dropdownPanel}>
+                  {serviceIssueCategories.map((issue) => (
+                    <Pressable key={issue} style={[styles.dropdownOption, serviceDraft.issue_category === issue && styles.selectorPillActive]} onPress={() => { setServiceDraft((draft) => ({ ...draft, issue_category: issue })); setServiceIssueDropdownOpen(false); }}>
+                      <Text style={styles.selectorText}>{issue}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
+            <View style={styles.field}><Text style={styles.label}>Parts used</Text><TextInput style={styles.input} value={serviceDraft.parts_used} onChangeText={(value) => setServiceDraft((draft) => ({ ...draft, parts_used: value }))} placeholder="Part names / item IDs" /></View>
+            <View style={styles.field}><Text style={styles.label}>Parts quantity</Text><TextInput style={styles.input} value={serviceDraft.parts_quantity} onChangeText={(value) => setServiceDraft((draft) => ({ ...draft, parts_quantity: value.replace(/[^\d.]/g, "") }))} keyboardType="numeric" /></View>
+            <View style={styles.field}><Text style={styles.label}>Status</Text><TextInput style={styles.input} value={serviceDraft.status} onChangeText={(value) => setServiceDraft((draft) => ({ ...draft, status: value }))} /></View>
+          </View>
+          <View style={styles.field}><Text style={styles.label}>Action taken</Text><TextInput style={[styles.input, styles.textarea]} value={serviceDraft.action_taken} onChangeText={(value) => setServiceDraft((draft) => ({ ...draft, action_taken: value }))} multiline /></View>
+          <View style={styles.field}><Text style={styles.label}>Customer comments</Text><TextInput style={[styles.input, styles.textarea]} value={serviceDraft.customer_comments} onChangeText={(value) => setServiceDraft((draft) => ({ ...draft, customer_comments: value }))} multiline /></View>
+          <Pressable style={styles.primaryButton} onPress={saveNewServiceRecord} disabled={loading || !serviceDraft.customer_id}>
+            <Text style={styles.primaryButtonText}>Create service record</Text>
+          </Pressable>
+        </View>
         <View style={styles.formCard}>
           <View style={styles.sectionHeaderRow}>
             <View>
@@ -2468,7 +2816,10 @@ export default function App() {
                       ["city", "City"],
                       ["phone", "Phone"],
                       ["status", "Status"],
-                      ["technician", "Technician"],
+                      ["assigned_engineer", "Assigned engineer"],
+                      ["issue_category", "Common issue"],
+                      ["parts_used", "Parts used"],
+                      ["parts_quantity", "Parts quantity"],
                       ["scheduled_date", "Scheduled date"],
                       ["completed_date", "Completed date"],
                       ["next_service_date", "Next service date"],
@@ -2484,11 +2835,20 @@ export default function App() {
                     ))}
                   </View>
                   <View style={styles.field}>
-                    <Text style={styles.label}>Findings / notes</Text>
+                    <Text style={styles.label}>Action taken</Text>
                     <TextInput
                       style={[styles.input, styles.textarea]}
-                      value={String(draft.findings || "")}
-                      onChangeText={(value) => setServiceEditDrafts((drafts) => ({ ...drafts, [id]: { ...drafts[id], findings: value } }))}
+                      value={String(draft.action_taken || "")}
+                      onChangeText={(value) => setServiceEditDrafts((drafts) => ({ ...drafts, [id]: { ...drafts[id], action_taken: value, findings: value } }))}
+                      multiline
+                    />
+                  </View>
+                  <View style={styles.field}>
+                    <Text style={styles.label}>Customer comments</Text>
+                    <TextInput
+                      style={[styles.input, styles.textarea]}
+                      value={String(draft.customer_comments || "")}
+                      onChangeText={(value) => setServiceEditDrafts((drafts) => ({ ...drafts, [id]: { ...drafts[id], customer_comments: value } }))}
                       multiline
                     />
                   </View>
@@ -2512,10 +2872,22 @@ export default function App() {
               ) : (
                 <>
                   <Text style={styles.bodyText}>{String(record.customer || "-")} - {String(record.site || record.city || "-")}</Text>
-                  <Text style={styles.bodyText}>Technician: {String(record.technician || "-")} - Next service: {String(record.next_service_date || record.scheduled_date || "-")}</Text>
+                  <Text style={styles.bodyText}>Breakdown no: {String(record.breakdown_number || record.service_number || record.id || "-")} - Date/time: {String(record.service_date || record.created_at || "-")}</Text>
+                  <Text style={styles.bodyText}>Engineer: {String(record.assigned_engineer || record.technician || "-")} - Issue: {String(record.issue_category || "-")}</Text>
+                  <Text style={styles.bodyText}>Parts: {String(record.parts_used || "-")} - Qty {String(record.parts_quantity || "0")}</Text>
+                  <Text style={styles.bodyText}>Check-in: {String(record.check_in_at || "-")} - Check-out: {String(record.check_out_at || "-")}</Text>
+                  {!!attendanceLocationText(record.check_in_location) && <Text style={styles.muted}>Check-in location: {attendanceLocationText(record.check_in_location)}</Text>}
+                  {!!attendanceLocationText(record.check_out_location) && <Text style={styles.muted}>Check-out location: {attendanceLocationText(record.check_out_location)}</Text>}
                   <Text style={styles.bodyText}>Completed: {String(record.completed_date || "-")} - History entries: {historyCount}</Text>
-                  <Text style={styles.muted}>{String(record.findings || "")}</Text>
+                  <Text style={styles.muted}>Action taken: {String(record.action_taken || record.findings || "-")}</Text>
+                  {!!String(record.customer_comments || "").trim() && <Text style={styles.muted}>Customer comments: {String(record.customer_comments)}</Text>}
                   <View style={styles.inlineActions}>
+                    <Pressable style={styles.smallButton} onPress={() => updateServiceVisitPoint(record, "check_in")} disabled={loading}>
+                      <Text style={styles.smallButtonText}>Check in</Text>
+                    </Pressable>
+                    <Pressable style={styles.smallButton} onPress={() => updateServiceVisitPoint(record, "check_out")} disabled={loading}>
+                      <Text style={styles.smallButtonText}>Check out</Text>
+                    </Pressable>
                     <Pressable style={styles.smallButton} onPress={() => startServiceEdit(record)} disabled={loading}>
                       <Text style={styles.smallButtonText}>Edit</Text>
                     </Pressable>
@@ -3020,6 +3392,7 @@ export default function App() {
     const activeBreakdowns = breakdowns.filter((item) => !["closed", "resolved", "done"].includes(String(item.status || "").toLowerCase()));
     const trappedCalls = breakdowns.filter((item) => ["y", "yes", "true"].includes(String(item.trapped_passenger || item.passenger_trapped || "").toLowerCase()));
     const availableEngineers = assignableStaff.filter((member) => staffAvailabilityInfo(member).availableNow);
+    const engineerOptions = serviceEngineerOptions();
     const breakdownSupervisor = asRecords(data?.org_chart).find((person) =>
       String(person.department || "").trim().toLowerCase() === "breakdown" &&
       String(person.title || "").toLowerCase().includes("supervisor")
@@ -3145,6 +3518,7 @@ export default function App() {
                             ...draft,
                             customer_id: customer.id,
                             customer: customer.name,
+                            source_inquiry_id: customer.enquiryNo,
                             phone: draft.phone || customer.phone,
                             location: customer.address,
                           }));
@@ -3161,48 +3535,74 @@ export default function App() {
               )}
             </View>
           )}
-          {[
-            ["unit", "Lift / unit"],
-            ["phone", "Caller mobile"],
-            ["location", "Location"],
-            ["priority", "Priority"],
-            ["trapped_passenger", "Trapped passenger Y/N"],
-            ["scheduled_at", "Schedule engineer YYYY-MM-DD HH:mm"],
-          ].map(([key, label]) => (
-            <View key={key} style={styles.field}>
-              <Text style={styles.label}>{label}</Text>
-              <TextInput
-                style={styles.input}
-                value={String(breakdownDraft[key as keyof typeof breakdownDraft] || "")}
-                onChangeText={(value) => setBreakdownDraft((draft) => ({ ...draft, [key]: value }))}
-                editable={key !== "location"}
-                placeholder={key === "location" ? "Taken from selected CRM customer" : undefined}
-              />
+          <Text style={styles.muted}>Breakdown number, date, and time are generated by the system when this record is saved.</Text>
+          <View style={styles.formGrid}>
+            {[
+              ["unit", "Lift / unit"],
+              ["phone", "Caller mobile"],
+              ["location", "Location"],
+              ["priority", "Priority"],
+              ["trapped_passenger", "Trapped passenger Y/N"],
+              ["scheduled_at", "Schedule engineer YYYY-MM-DD HH:mm"],
+            ].map(([key, label]) => (
+              <View key={key} style={styles.field}>
+                <Text style={styles.label}>{label}</Text>
+                <TextInput
+                  style={styles.input}
+                  value={String(breakdownDraft[key as keyof typeof breakdownDraft] || "")}
+                  onChangeText={(value) => setBreakdownDraft((draft) => ({ ...draft, [key]: value }))}
+                  editable={key !== "location"}
+                  placeholder={key === "location" ? "Taken from selected CRM customer" : undefined}
+                />
+              </View>
+            ))}
+            <View style={styles.field}>
+              <Text style={styles.label}>Assigned engineer</Text>
+              <TextInput style={styles.input} value={breakdownDraft.engineer} onChangeText={(value) => setBreakdownDraft((draft) => ({ ...draft, engineer: value, assigned_engineer: value }))} placeholder="Engineer name" />
+              {!!engineerOptions.length && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
+                  {engineerOptions.slice(0, 12).map((engineer) => (
+                    <Pressable key={`brk-eng-${engineer.name}`} style={[styles.smallButton, breakdownDraft.engineer === engineer.name && styles.selectorPillActive]} onPress={() => setBreakdownDraft((draft) => ({ ...draft, engineer: engineer.name, assigned_engineer: engineer.name, scheduled_at: draft.scheduled_at || defaultBreakdownScheduleTime() }))}>
+                      <Text style={styles.smallButtonText}>{engineer.name}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              )}
             </View>
-          ))}
-          <View style={styles.field}>
-            <Text style={styles.label}>Schedule engineer</Text>
-            <View style={styles.selectorList}>
-              {assignableStaff.map((member) => (
-                <Pressable
-                  key={member.id}
-                  style={[styles.selectorPill, breakdownDraft.engineer === member.name && styles.selectorPillActive]}
-                  onPress={() => setBreakdownDraft((draft) => ({ ...draft, engineer: member.name, scheduled_at: draft.scheduled_at || defaultBreakdownScheduleTime() }))}
-                >
-                  <Text style={[styles.selectorText, breakdownDraft.engineer === member.name && styles.selectorTextActive]}>
-                    {member.name} - {member.role}
-                  </Text>
-                  <Text style={styles.muted}>{staffAvailabilityInfo(member).summary}</Text>
-                </Pressable>
-              ))}
+            <View style={styles.field}>
+              <Text style={styles.label}>Common elevator issue</Text>
+              <Pressable style={[styles.dropdownButton, breakdownIssueDropdownOpen && styles.selectorPillActive]} onPress={() => setBreakdownIssueDropdownOpen((open) => !open)}>
+                <Text style={styles.selectorText}>{breakdownDraft.issue_category}</Text>
+                <Text style={styles.dropdownChevron}>{breakdownIssueDropdownOpen ? "▲" : "▼"}</Text>
+              </Pressable>
+              {breakdownIssueDropdownOpen && (
+                <View style={styles.dropdownPanel}>
+                  {serviceIssueCategories.map((issue) => (
+                    <Pressable key={`breakdown-issue-${issue}`} style={[styles.dropdownOption, breakdownDraft.issue_category === issue && styles.selectorPillActive]} onPress={() => { setBreakdownDraft((draft) => ({ ...draft, issue: issue, issue_category: issue })); setBreakdownIssueDropdownOpen(false); }}>
+                      <Text style={styles.selectorText}>{issue}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
             </View>
+            <View style={styles.field}><Text style={styles.label}>Parts used</Text><TextInput style={styles.input} value={breakdownDraft.parts_used} onChangeText={(value) => setBreakdownDraft((draft) => ({ ...draft, parts_used: value }))} placeholder="Part names / item IDs" /></View>
+            <View style={styles.field}><Text style={styles.label}>Parts quantity</Text><TextInput style={styles.input} value={breakdownDraft.parts_quantity} onChangeText={(value) => setBreakdownDraft((draft) => ({ ...draft, parts_quantity: value.replace(/[^\d.]/g, "") }))} keyboardType="numeric" /></View>
           </View>
           <View style={styles.field}>
-            <Text style={styles.label}>Fault / issue</Text>
+            <Text style={styles.label}>Action taken</Text>
             <TextInput
               style={[styles.input, styles.textarea]}
-              value={breakdownDraft.issue}
-              onChangeText={(value) => setBreakdownDraft((draft) => ({ ...draft, issue: value }))}
+              value={breakdownDraft.action_taken}
+              onChangeText={(value) => setBreakdownDraft((draft) => ({ ...draft, action_taken: value }))}
+              multiline
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Customer comments</Text>
+            <TextInput
+              style={[styles.input, styles.textarea]}
+              value={breakdownDraft.customer_comments}
+              onChangeText={(value) => setBreakdownDraft((draft) => ({ ...draft, customer_comments: value }))}
               multiline
             />
           </View>
@@ -3223,14 +3623,21 @@ export default function App() {
           return (
             <View key={id} style={styles.card}>
               <View style={styles.cardHeaderRow}>
-                <Text style={styles.cardTitle}>{fieldText(item, ["unit", "id"])}</Text>
+                <Text style={styles.cardTitle}>{fieldText(item, ["unit", "breakdown_number", "id"])}</Text>
                 <Text style={styles.statusPill}>{fieldText(item, ["priority", "status"])}</Text>
               </View>
+              <Text style={styles.bodyText}>Breakdown no: {fieldText(item, ["breakdown_number", "id"])} - Date/time: {fieldText(item, ["date_time", "breakdown_date", "created_at"])}</Text>
               <Text style={styles.muted}>{fieldText(item, ["customer"])} - {fieldText(item, ["location", "site"])} - {fieldText(item, ["status"])}</Text>
-              <Text style={styles.bodyText}>{fieldText(item, ["issue", "fault", "notes"])}</Text>
-              <Text style={styles.bodyText}>Engineer: {fieldText(item, ["engineer", "assigned_to"])} - Caller: {fieldText(item, ["phone", "caller_mobile"])}</Text>
+              <Text style={styles.bodyText}>Issue: {fieldText(item, ["issue_category", "issue", "fault", "notes"])}</Text>
+              <Text style={styles.bodyText}>Engineer: {fieldText(item, ["engineer", "assigned_engineer", "assigned_to"])} - Caller: {fieldText(item, ["phone", "caller_mobile", "customer_phone"])}</Text>
               <Text style={styles.bodyText}>Scheduled: {fieldText(item, ["scheduled_at", "scheduled_time", "dispatch_time"])}</Text>
               <Text style={styles.bodyText}>Trapped passenger: {fieldText(item, ["trapped_passenger", "passenger_trapped"])}</Text>
+              <Text style={styles.bodyText}>Parts: {fieldText(item, ["parts_used"])} - Qty {fieldText(item, ["parts_quantity"])}</Text>
+              <Text style={styles.bodyText}>Check-in: {fieldText(item, ["check_in_at"])} - Check-out: {fieldText(item, ["check_out_at"])}</Text>
+              {!!attendanceLocationText(item.check_in_location) && <Text style={styles.muted}>Check-in location: {attendanceLocationText(item.check_in_location)}</Text>}
+              {!!attendanceLocationText(item.check_out_location) && <Text style={styles.muted}>Check-out location: {attendanceLocationText(item.check_out_location)}</Text>}
+              {!!fieldText(item, ["action_taken"]).replace("-", "").trim() && <Text style={styles.muted}>Action taken: {fieldText(item, ["action_taken"])}</Text>}
+              {!!fieldText(item, ["customer_comments"]).replace("-", "").trim() && <Text style={styles.muted}>Customer comments: {fieldText(item, ["customer_comments"])}</Text>}
               <View style={styles.field}>
                 <Text style={styles.label}>Schedule time</Text>
                 <TextInput
@@ -3266,6 +3673,12 @@ export default function App() {
                 })}
               </View>
               <View style={styles.inlineActions}>
+                <Pressable style={styles.smallButton} onPress={() => updateBreakdownVisitPoint(item, "check_in")} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Check in</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateBreakdownVisitPoint(item, "check_out")} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Check out</Text>
+                </Pressable>
                 <Pressable style={styles.smallButton} onPress={() => updateBreakdown(id, "Dispatched")} disabled={loading}>
                   <Text style={styles.smallButtonText}>Dispatch</Text>
                 </Pressable>
@@ -5566,6 +5979,78 @@ export default function App() {
       if (lowStock.includes(item)) row.lowStock += 1;
       return rows;
     }, []).sort((a, b) => b.value - a.value);
+    const liftAssetRows = [
+      ...asRecords(data?.lift_assets),
+      ...asRecords(data?.install_jobs).filter((job) => fieldText(job, ["unit", "lift_no", "job_id", "id"]).replace("-", "").trim()).map((job) => ({
+        id: recordIdentity(job),
+        customer: fieldText(job, ["customer", "customer_name"]),
+        customer_id: fieldText(job, ["customer_id"]),
+        unit: fieldText(job, ["unit", "lift_no", "job_id", "id"]),
+        site: fieldText(job, ["site", "address", "location"]),
+        controller: fieldText(job, ["controller", "controller_type"]),
+        motor: fieldText(job, ["motor", "motor_type"]),
+        door_type: fieldText(job, ["door_type"]),
+        warranty_id: fieldText(job, ["warranty_id"]),
+        amc_status: statusText(job) || "Open",
+      })),
+    ].filter((asset, index, list) => {
+      const key = `${fieldText(asset, ["customer_id"])}|${fieldText(asset, ["unit"])}`.toLowerCase();
+      return key !== "-|-" && list.findIndex((candidate) => `${fieldText(candidate, ["customer_id"])}|${fieldText(candidate, ["unit"])}`.toLowerCase() === key) === index;
+    });
+    const partsUsageRows = asRecords(data?.parts_usage);
+    const qrRows = liftAssetRows.map((asset, index) => ({
+      asset,
+      key: `qr-${index}`,
+      qr: fieldText(asset, ["qr_code"]).replace("-", "").trim() || `FUZI-LIFT:${fieldText(asset, ["customer_id"])}:${fieldText(asset, ["unit"])}`
+    }));
+    const serviceReportRows = [
+      ...asRecords(data?.service_reports),
+      ...asRecords(data?.service_records).map((service) => ({
+        id: recordIdentity(service),
+        job_id: fieldText(service, ["job_number", "job_id", "id"]),
+        customer: fieldText(service, ["customer", "customer_name"]),
+        unit: fieldText(service, ["unit", "lift_no"]),
+        engineer: fieldText(service, ["engineer", "technician", "assigned_to"]),
+        checklist: fieldText(service, ["checklist", "work_done"]),
+        parts_used: fieldText(service, ["parts_used"]),
+        notes: fieldText(service, ["notes", "summary"]),
+        next_visit_date: recordDate(service, ["next_visit_date", "due_date"]),
+        status: statusText(service) || "Open",
+      })),
+    ];
+    const paymentForecastRows = asRecords(data?.payments)
+      .filter((item) => !recordIsClosed(item))
+      .map((item, index) => ({
+        key: `forecast-${index}`,
+        customer: fieldText(item, ["customer_name", "customer"]),
+        date: recordDate(item, ["due_date", "next_reminder_date", "outstanding_date"]) || datePlusDays(7),
+        amount: paymentAccountSummary(item).outstandingTotal || offerNumber(item.amount),
+        status: statusText(item) || "Open",
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const engineerPerformanceRows = engineers.map((engineer) => {
+      const name = fieldText(engineer, ["name"]);
+      const matchesEngineer = (record: Record<string, unknown>) => fieldText(record, ["engineer", "assigned_to", "technician", "scheduled_engineer", "name"]).toLowerCase() === name.toLowerCase();
+      const assignedBreakdowns = asRecords(data?.breakdowns).filter(matchesEngineer);
+      const assignedService = asRecords(data?.service_records).filter(matchesEngineer);
+      const assignedInstalls = asRecords(data?.install_jobs).filter(matchesEngineer);
+      const closed = [...assignedBreakdowns, ...assignedService, ...assignedInstalls].filter(recordIsClosed).length;
+      const open = [...assignedBreakdowns, ...assignedService, ...assignedInstalls].filter((record) => !recordIsClosed(record)).length;
+      return { engineer, name, closed, open, total: closed + open };
+    }).filter((row) => row.total > 0 || fieldText(row.engineer, ["availability", "status"]).replace("-", "").trim()).sort((a, b) => b.closed - a.closed || a.open - b.open);
+    const safetyRows = asRecords(data?.safety_incidents);
+    const tenderChecklistRows = asRecords(data?.tender_checklists);
+    const amcContractRows = asRecords(data?.amc_contracts);
+    const dailyBriefRows = asRecords(data?.daily_briefs);
+    const managementBrief = {
+      actions: todayActions().length,
+      overduePayments: overduePayments.length,
+      openBreakdowns: openBreakdowns.length,
+      stalledInstalls: stalledInstalls.length,
+      tenderDue: tenderDue.length,
+      lowStock: lowStock.length,
+      escalations: escalationHits.length,
+    };
     return {
       viewerDepartment,
       roleMetrics,
@@ -5587,6 +6072,17 @@ export default function App() {
       customerPortalRows,
       profitabilityRows,
       vendorRows,
+      liftAssetRows,
+      partsUsageRows,
+      qrRows,
+      serviceReportRows,
+      paymentForecastRows,
+      engineerPerformanceRows,
+      safetyRows,
+      tenderChecklistRows,
+      amcContractRows,
+      dailyBriefRows,
+      managementBrief,
     };
   }
 
@@ -5812,6 +6308,223 @@ export default function App() {
         <View style={styles.analyticsPanel}>
           {intel.handoverRows.slice(0, 10).map((item, index) => <View key={`handover-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>Warranty {fieldText(item, ["warranty_id"])} - Signature {fieldText(item, ["customer_signature"])}</Text></View>)}
           {!intel.handoverRows.length && <Text style={styles.muted}>No digital handover packs are saved yet.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>21. Lift Asset Registry</Text>
+        <View style={styles.formCard}>
+          <View style={styles.formGrid}>
+            {(["customer", "customer_id", "unit", "site", "controller", "motor", "door_type", "warranty_id", "amc_status"] as const).map((key) => (
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={liftAssetDraft[key]} onChangeText={(value) => setLiftAssetDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+            ))}
+          </View>
+          <TextInput style={styles.input} value={liftAssetDraft.qr_code} onChangeText={(value) => setLiftAssetDraft((draft) => ({ ...draft, qr_code: value }))} placeholder="QR code override" />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("lift-assets", liftAssetDraft, () => setLiftAssetDraft(emptyLiftAssetDraft), "Lift asset saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save lift asset</Text></Pressable>
+        </View>
+        <View style={styles.analyticsPanel}>
+          {intel.liftAssetRows.slice(0, 10).map((item, index) => <View key={`asset-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer"])} - {fieldText(item, ["unit"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["amc_status", "status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["site"])} - Controller {fieldText(item, ["controller"])} - Door {fieldText(item, ["door_type"])}</Text></View>)}
+          {!intel.liftAssetRows.length && <Text style={styles.muted}>No lift assets are registered yet.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>22. Spare Parts Usage Ledger</Text>
+        <View style={styles.formCard}>
+          <View style={styles.formGrid}>
+            {(["job_id", "customer", "unit", "engineer", "part_name", "item_id", "quantity"] as const).map((key) => (
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={partsUsageDraft[key]} onChangeText={(value) => setPartsUsageDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+            ))}
+          </View>
+          <TextInput style={[styles.input, styles.textarea]} value={partsUsageDraft.notes} onChangeText={(value) => setPartsUsageDraft((draft) => ({ ...draft, notes: value }))} placeholder="Usage notes" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("parts-usage", partsUsageDraft, () => setPartsUsageDraft(emptyPartsUsageDraft), "Parts usage saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save parts usage</Text></Pressable>
+        </View>
+        <View style={styles.analyticsPanel}>
+          {intel.partsUsageRows.slice(0, 10).map((item, index) => <View key={`part-use-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["part_name"])} - {fieldText(item, ["job_id"])}</Text><Text style={styles.statusPill}>Qty {fieldText(item, ["quantity"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["customer"])} - {fieldText(item, ["engineer"])} - {fieldText(item, ["unit"])}</Text></View>)}
+          {!intel.partsUsageRows.length && <Text style={styles.muted}>No spare part usage entries are saved yet.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>23. QR Code on Every Lift</Text>
+        <View style={styles.analyticsPanel}>
+          {intel.qrRows.slice(0, 12).map((row) => <Pressable key={row.key} style={styles.analyticsRow} onPress={() => { setServiceRecordSearch(fieldText(row.asset, ["unit", "customer"])); setActiveTab("service"); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.asset, ["unit"])} - {fieldText(row.asset, ["customer"])}</Text><Text style={styles.statusPill}>Service link</Text></View><Text style={styles.muted}>{row.qr}</Text></Pressable>)}
+          {!intel.qrRows.length && <Text style={styles.muted}>Register lift assets to generate service lookup QR values.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>24. Service Report Generator</Text>
+        <View style={styles.formCard}>
+          <View style={styles.formGrid}>
+            {(["job_id", "customer", "unit", "engineer", "next_visit_date", "customer_signature", "status"] as const).map((key) => (
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={serviceReportDraft[key]} onChangeText={(value) => setServiceReportDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+            ))}
+          </View>
+          <TextInput style={[styles.input, styles.textarea]} value={serviceReportDraft.checklist} onChangeText={(value) => setServiceReportDraft((draft) => ({ ...draft, checklist: value }))} placeholder="Checklist completed" multiline />
+          <TextInput style={[styles.input, styles.textarea]} value={serviceReportDraft.parts_used} onChangeText={(value) => setServiceReportDraft((draft) => ({ ...draft, parts_used: value }))} placeholder="Parts used" multiline />
+          <TextInput style={[styles.input, styles.textarea]} value={serviceReportDraft.notes} onChangeText={(value) => setServiceReportDraft((draft) => ({ ...draft, notes: value }))} placeholder="Service notes" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("service-reports", serviceReportDraft, () => setServiceReportDraft(emptyServiceReportDraft), "Service report saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save service report</Text></Pressable>
+        </View>
+        <View style={styles.analyticsPanel}>
+          {intel.serviceReportRows.slice(0, 10).map((item, index) => <View key={`service-report-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["engineer"])} - Next {fieldText(item, ["next_visit_date"])}</Text></View>)}
+          {!intel.serviceReportRows.length && <Text style={styles.muted}>No service reports are saved yet.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>25. Payment Collection Forecast</Text>
+        <View style={styles.metricGrid}>
+          <View style={styles.card}><Text style={styles.cardLabel}>Open forecast</Text><Text style={styles.metricValue}>{intel.paymentForecastRows.length}</Text><Text style={styles.muted}>Unclosed payment reminders</Text></View>
+          <View style={styles.card}><Text style={styles.cardLabel}>Forecast value</Text><Text style={styles.metricValue}>{formatMoney(intel.paymentForecastRows.reduce((sum, row) => sum + row.amount, 0))}</Text><Text style={styles.muted}>Outstanding and scheduled collection</Text></View>
+        </View>
+        <View style={styles.analyticsPanel}>
+          {intel.paymentForecastRows.slice(0, 12).map((row) => <Pressable key={row.key} style={styles.analyticsRow} onPress={() => setActiveTab("finance")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.customer}</Text><Text style={styles.statusPill}>{formatMoney(row.amount)}</Text></View><Text style={styles.muted}>{row.date} - {row.status}</Text></Pressable>)}
+          {!intel.paymentForecastRows.length && <Text style={styles.muted}>No open payment collection items are due.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>26. Engineer Performance Dashboard</Text>
+        <View style={styles.analyticsPanel}>
+          {intel.engineerPerformanceRows.slice(0, 12).map((row) => <View key={`eng-perf-${row.name}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.name}</Text><Text style={styles.statusPill}>{row.closed} closed</Text></View><Text style={styles.muted}>{row.open} open jobs - {fieldText(row.engineer, ["department", "role"])} - {fieldText(row.engineer, ["availability", "status"])}</Text></View>)}
+          {!intel.engineerPerformanceRows.length && <Text style={styles.muted}>No engineer-linked job history is available yet.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>27. Safety Incident Register</Text>
+        <View style={styles.formCard}>
+          <View style={styles.formGrid}>
+            {(["job_id", "customer", "site", "incident_type", "severity", "trapped_passenger", "responsible_staff", "status"] as const).map((key) => (
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={safetyIncidentDraft[key]} onChangeText={(value) => setSafetyIncidentDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+            ))}
+          </View>
+          <TextInput style={[styles.input, styles.textarea]} value={safetyIncidentDraft.corrective_action} onChangeText={(value) => setSafetyIncidentDraft((draft) => ({ ...draft, corrective_action: value }))} placeholder="Corrective action" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("safety-incidents", safetyIncidentDraft, () => setSafetyIncidentDraft(emptySafetyIncidentDraft), "Safety incident saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save safety incident</Text></Pressable>
+        </View>
+        <View style={styles.analyticsPanel}>
+          {intel.safetyRows.slice(0, 10).map((item, index) => <View key={`safety-${recordIdentity(item) || index}`} style={/high|critical/i.test(fieldText(item, ["severity"])) ? [styles.analyticsRow, styles.alertCard] : styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["incident_type"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["severity"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["site"])} - {fieldText(item, ["status"])}</Text></View>)}
+          {!intel.safetyRows.length && <Text style={styles.muted}>No safety incidents are registered.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>28. Tender Document Checklist</Text>
+        <View style={styles.formCard}>
+          <View style={styles.formGrid}>
+            {(["tender_id", "tender_title", "emd", "sd", "gst_docs", "pan", "certificates", "technical_sheets", "drawings", "annexures", "final_submission"] as const).map((key) => (
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={tenderChecklistDraft[key]} onChangeText={(value) => setTenderChecklistDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+            ))}
+          </View>
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("tender-checklists", tenderChecklistDraft, () => setTenderChecklistDraft(emptyTenderChecklistDraft), "Tender checklist saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save tender checklist</Text></Pressable>
+        </View>
+        <View style={styles.analyticsPanel}>
+          {intel.tenderChecklistRows.slice(0, 10).map((item, index) => <View key={`tdc-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["tender_title", "tender_id"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["final_submission"])}</Text></View><Text style={styles.muted}>EMD {fieldText(item, ["emd"])} - GST {fieldText(item, ["gst_docs"])} - Drawings {fieldText(item, ["drawings"])}</Text></View>)}
+          {!intel.tenderChecklistRows.length && <Text style={styles.muted}>No tender checklists are saved yet.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>29. AMC Contract Builder</Text>
+        <View style={styles.formCard}>
+          <View style={styles.formGrid}>
+            {(["customer", "customer_id", "lift_count", "service_frequency", "parts_included", "warranty_status", "annual_price", "status"] as const).map((key) => (
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={amcContractDraft[key]} onChangeText={(value) => setAmcContractDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+            ))}
+          </View>
+          <TextInput style={[styles.input, styles.textarea]} value={amcContractDraft.terms} onChangeText={(value) => setAmcContractDraft((draft) => ({ ...draft, terms: value }))} placeholder="AMC terms" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("amc-contracts", amcContractDraft, () => setAmcContractDraft(emptyAmcContractDraft), "AMC contract saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save AMC contract</Text></Pressable>
+        </View>
+        <View style={styles.analyticsPanel}>
+          {intel.amcContractRows.slice(0, 10).map((item, index) => <View key={`amc-contract-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{formatMoney(offerNumber(item.annual_price))}</Text></View><Text style={styles.muted}>{fieldText(item, ["lift_count"])} lifts - {fieldText(item, ["service_frequency"])} - {fieldText(item, ["status"])}</Text></View>)}
+          {!intel.amcContractRows.length && <Text style={styles.muted}>No AMC contracts are saved yet.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>30. Management Daily Brief PDF</Text>
+        <View style={styles.formCard}>
+          <View style={styles.formGrid}>
+            {(["date", "audience", "status"] as const).map((key) => (
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={dailyBriefDraft[key]} onChangeText={(value) => setDailyBriefDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+            ))}
+          </View>
+          <View style={styles.metricGrid}>
+            <View style={styles.card}><Text style={styles.cardLabel}>Action queue</Text><Text style={styles.metricValue}>{intel.managementBrief.actions}</Text><Text style={styles.muted}>Items requiring attention</Text></View>
+            <View style={styles.card}><Text style={styles.cardLabel}>Escalations</Text><Text style={styles.metricValue}>{intel.managementBrief.escalations}</Text><Text style={styles.muted}>Live operational risks</Text></View>
+            <View style={styles.card}><Text style={styles.cardLabel}>Breakdowns</Text><Text style={styles.metricValue}>{intel.managementBrief.openBreakdowns}</Text><Text style={styles.muted}>Currently open</Text></View>
+          </View>
+          <TextInput style={[styles.input, styles.textarea]} value={dailyBriefDraft.summary} onChangeText={(value) => setDailyBriefDraft((draft) => ({ ...draft, summary: value }))} placeholder="Brief summary" multiline />
+          <View style={styles.inlineActions}>
+            <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("daily-briefs", dailyBriefDraft.summary ? dailyBriefDraft : { ...dailyBriefDraft, summary: `Actions ${intel.managementBrief.actions}; escalations ${intel.managementBrief.escalations}; breakdowns ${intel.managementBrief.openBreakdowns}; payments overdue ${intel.managementBrief.overduePayments}; stalled installs ${intel.managementBrief.stalledInstalls}; tenders due ${intel.managementBrief.tenderDue}; low stock ${intel.managementBrief.lowStock}.` }, () => setDailyBriefDraft(emptyDailyBriefDraft), "Daily brief saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save daily brief</Text></Pressable>
+            <Pressable style={styles.secondaryButton} onPress={() => {
+              const printPage = (globalThis as unknown as { print?: () => void }).print;
+              if (Platform.OS === "web" && typeof printPage === "function") printPage();
+              else setMessage("PDF export is available from the web portal print dialog.");
+            }}><Text style={styles.secondaryButtonText}>Print / Save PDF</Text></Pressable>
+          </View>
+        </View>
+        <View style={styles.analyticsPanel}>
+          {intel.dailyBriefRows.slice(0, 8).map((item, index) => <View key={`brief-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["date"])} - {fieldText(item, ["audience"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["summary"])}</Text></View>)}
+          {!intel.dailyBriefRows.length && <Text style={styles.muted}>No management daily briefs are saved yet.</Text>}
+        </View>
+      </View>
+    );
+  }
+
+  function renderOperationsBacklogPage() {
+    const categories = ["All", ...Array.from(new Set(operationsBacklog.map((item) => item.category)))];
+    const query = backlogSearch.trim().toLowerCase();
+    const filtered = operationsBacklog.filter((item) => {
+      const matchesCategory = backlogCategory === "All" || item.category === backlogCategory;
+      const matchesQuery = !query || `${item.number} ${item.title} ${item.category} ${item.priority}`.toLowerCase().includes(query);
+      return matchesCategory && matchesQuery;
+    });
+    const categoryRows = categories.filter((category) => category !== "All").map((category) => ({
+      category,
+      total: operationsBacklog.filter((item) => item.category === category).length,
+      nearTerm: operationsBacklog.filter((item) => item.category === category && item.priority === "Near-term").length,
+    }));
+    return (
+      <View>
+        <View style={styles.moduleHero}>
+          <Text style={styles.eyebrow}>Operations Backlog</Text>
+          <Text style={styles.moduleHeroTitle}>100 roadmap features from the README backlog</Text>
+          <Text style={styles.moduleHeroText}>Search, group, and prioritize future FUZI platform work without leaving the portal.</Text>
+        </View>
+
+        <View style={styles.metricGrid}>
+          <View style={styles.card}><Text style={styles.cardLabel}>Total ideas</Text><Text style={styles.metricValue}>{operationsBacklog.length}</Text><Text style={styles.muted}>Backlog items documented in README.</Text></View>
+          <View style={styles.card}><Text style={styles.cardLabel}>Near-term</Text><Text style={styles.metricValue}>{operationsBacklog.filter((item) => item.priority === "Near-term").length}</Text><Text style={styles.muted}>CRM, offer, payment, and collection wins.</Text></View>
+          <View style={styles.card}><Text style={styles.cardLabel}>Categories</Text><Text style={styles.metricValue}>{categoryRows.length}</Text><Text style={styles.muted}>Grouped by operating department.</Text></View>
+        </View>
+
+        <View style={styles.formCard}>
+          <View style={styles.formGrid}>
+            <View style={styles.field}>
+              <Text style={styles.label}>Search backlog</Text>
+              <TextInput style={styles.input} value={backlogSearch} onChangeText={setBacklogSearch} placeholder="Search feature, department, priority" />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Category</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
+                {categories.map((category) => (
+                  <Pressable key={category} style={[styles.smallButton, backlogCategory === category && styles.selectorPillActive]} onPress={() => setBacklogCategory(category)}>
+                    <Text style={styles.smallButtonText}>{category}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+        </View>
+
+        <Text style={styles.sectionTitle}>Backlog by Department</Text>
+        <View style={styles.metricGrid}>
+          {categoryRows.map((row) => (
+            <Pressable key={row.category} style={styles.card} onPress={() => setBacklogCategory(row.category)}>
+              <Text style={styles.cardLabel}>{row.category}</Text>
+              <Text style={styles.metricValue}>{row.total}</Text>
+              <Text style={styles.muted}>{row.nearTerm} near-term items</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <Text style={styles.sectionTitle}>Filtered Roadmap</Text>
+        <View style={styles.analyticsPanel}>
+          {filtered.map((item) => (
+            <View key={`backlog-${item.number}`} style={styles.analyticsRow}>
+              <View style={styles.analyticsRowHeader}>
+                <View style={styles.cardTitleBlock}>
+                  <Text style={styles.cardLabel}>#{item.number} - {item.category}</Text>
+                  <Text style={styles.cardTitle}>{item.title}</Text>
+                </View>
+                <Text style={[styles.statusPill, item.priority === "Near-term" && styles.selectorPillActive]}>{item.priority}</Text>
+              </View>
+              <Text style={styles.muted}>{item.status} item from the operations platform backlog.</Text>
+            </View>
+          ))}
+          {!filtered.length && <Text style={styles.muted}>No backlog items match the current search.</Text>}
         </View>
       </View>
     );
@@ -6274,6 +6987,9 @@ export default function App() {
             const timeline = customerTimeline(customer);
             const costingStatus = latestEstimate ? String(latestEstimate.status || latestEstimate.lead_status || "Costing") : "No costing";
             const customerSiteVisits = (data?.site_visits || []).filter((visit) => String(visit.customer_id || "") === String(customer.id || ""));
+            const liveServiceCount = asRecords(data?.service_records).filter((service) => String(service.customer_id || "") === String(customer.id || "") || crmNameKey(service.customer) === crmNameKey(customer.name)).length;
+            const storedServiceCount = Number(customer.service_count ?? customer.services_done);
+            const serviceCount = Number.isFinite(storedServiceCount) ? storedServiceCount : liveServiceCount;
             const customerInstallations = asRecords(data?.install_jobs).filter((job) => String(job.customer_id || "") === String(customer.id || "") || crmNameKey(job.customer) === crmNameKey(customer.name));
             const assignedTeam = customerAssignmentRecords(customer.id);
             return (
@@ -6290,6 +7006,7 @@ export default function App() {
                 <Text style={styles.muted}>{customer.id} - {customer.address || "No address"} - Pipeline: {customer.pipeline_stage || "Lead"}</Text>
                 <Text style={styles.bodyText}>Offers: {customerEstimates.length}{latestEstimate ? ` - Latest ${String(latestEstimate.job_no || latestEstimate.id || "-")} - ${String(latestEstimate.offer_date || latestEstimate.created_at || "-")} - ${formatMoney(offerCostSummary(latestEstimate).totalCost)}` : ""}</Text>
                 <Text style={styles.bodyText}>Site visits: {customerSiteVisits.length}{customerSiteVisits[0] ? ` - Latest ${String(customerSiteVisits[0].id || "-")} ${String(customerSiteVisits[0].site_visit_date || "")}` : ""}</Text>
+                <Text style={styles.bodyText}>Services done: {serviceCount}{liveServiceCount !== serviceCount ? ` - live linked ${liveServiceCount}` : ""}</Text>
                 {!!latestMotor && (
                   <Text style={styles.bodyText}>Motor: {fieldText(latestMotor, ["motor_serial_number", "motor_serial"])} - Nameplate: {fieldText(latestMotor, ["motor_nameplate_file", "motor_nameplate_url"])} - Commissioning {fieldText(latestMotor, ["id"])}</Text>
                 )}
@@ -8737,6 +9454,8 @@ export default function App() {
     switch (activeTab) {
       case "intelligence":
         return renderCommandIntelligencePage();
+      case "backlog":
+        return renderOperationsBacklogPage();
       case "approvals":
         return renderApprovalsPage();
       case "documents":
@@ -9943,6 +10662,10 @@ export default function App() {
         body: JSON.stringify({
           ...breakdownDraft,
           assigned_to: breakdownDraft.engineer,
+          assigned_engineer: breakdownDraft.engineer,
+          issue_category: breakdownDraft.issue_category || breakdownDraft.issue,
+          parts_quantity: String(Math.max(0, Number(breakdownDraft.parts_quantity || 0))),
+          notes: breakdownDraft.customer_comments,
           status: breakdownDraft.engineer && breakdownDraft.scheduled_at ? "Scheduled" : "Open",
         }),
       });
@@ -9968,6 +10691,30 @@ export default function App() {
       setMessage(staffName ? `Breakdown assigned to ${staffName}.` : `Breakdown marked ${status}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Breakdown could not be updated.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function updateBreakdownVisitPoint(record: Record<string, unknown>, point: "check_in" | "check_out") {
+    const id = recordIdentity(record);
+    if (!id) return;
+    const location = await captureAttendanceLocation();
+    if (!location) return;
+    const now = new Date().toISOString();
+    setLoading(true);
+    try {
+      await apiFetch(`/api/portal/breakdown/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify(point === "check_in"
+          ? { check_in_at: now, check_in_location: location, status: "In Progress" }
+          : { check_out_at: now, check_out_location: location, status: "Closed", completed_at: now, closed_at: now }),
+      });
+      await loadPortal();
+      setMessage(point === "check_in" ? "Breakdown check-in captured." : "Breakdown check-out captured.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Breakdown location update could not be saved.");
     } finally {
       setLoading(false);
     }

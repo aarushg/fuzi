@@ -178,6 +178,13 @@ const listFiles = {
   readiness_checklists: "readiness_checklists.json",
   skill_matrix: "skill_matrix.json",
   handover_packs: "handover_packs.json",
+  lift_assets: "lift_assets.json",
+  parts_usage: "parts_usage.json",
+  safety_incidents: "safety_incidents.json",
+  tender_checklists: "tender_checklists.json",
+  amc_contracts: "amc_contracts.json",
+  service_reports: "service_reports.json",
+  daily_briefs: "daily_briefs.json",
   org_chart: "org_chart.json"
 };
 
@@ -213,6 +220,13 @@ const routeCollections = {
   "readiness-checklists": { key: "readiness_checklists", prefix: "RDY" },
   "skill-matrix": { key: "skill_matrix", prefix: "SKL" },
   "handover-packs": { key: "handover_packs", prefix: "HOV" },
+  "lift-assets": { key: "lift_assets", prefix: "LFT" },
+  "parts-usage": { key: "parts_usage", prefix: "PRT" },
+  "safety-incidents": { key: "safety_incidents", prefix: "SAF" },
+  "tender-checklists": { key: "tender_checklists", prefix: "TDC" },
+  "amc-contracts": { key: "amc_contracts", prefix: "AMC" },
+  "service-reports": { key: "service_reports", prefix: "SRP" },
+  "daily-briefs": { key: "daily_briefs", prefix: "BRF" },
   "sales/inquiries": { key: "sales_inquiries", prefix: "SIQ" },
   "sales/admin-panel": { key: "sales_admin_panel", prefix: "SAP", singleton: true }
 };
@@ -375,7 +389,7 @@ function isDepartmentHead(person) {
 
 function accessForUser(user = {}) {
   const allViews = [
-    "today", "overview", "modules", "customers", "offerManager", "marketing", "tickets", "projects", "installations", "team", "accounts",
+    "today", "overview", "modules", "backlog", "customers", "offerManager", "marketing", "tickets", "projects", "installations", "team", "accounts",
     "renewals", "workorders", "inventory", "estimator", "orgchart", "sales", "installation_dept", "breakdown", "service",
     "gad", "finance", "commissioning", "backoffice", "tender", "factory", "internationalVendor", "comms", "siteVisits", "intelligence",
     "approvals", "documents", "engineer"
@@ -384,20 +398,20 @@ function accessForUser(user = {}) {
     return { allowed_views: allViews, selected_view: "overview", default_view: "overview", is_restricted: false };
   }
   const byDepartment = {
-    sales: ["today", "overview", "intelligence", "customers", "offerManager", "marketing", "sales", "renewals", "estimator", "siteVisits", "approvals", "documents", "comms"],
-    installation: ["today", "overview", "intelligence", "customers", "installations", "team", "installation_dept", "commissioning", "siteVisits", "orgchart", "approvals", "documents", "engineer", "comms"],
-    "install operations": ["today", "overview", "intelligence", "customers", "installations", "team", "installation_dept", "commissioning", "siteVisits", "orgchart", "approvals", "documents", "engineer", "comms"],
-    breakdown: ["today", "overview", "intelligence", "customers", "breakdown", "workorders", "orgchart", "documents", "engineer", "comms"],
-    service: ["today", "overview", "intelligence", "customers", "workorders", "service", "orgchart", "documents", "engineer", "comms"],
-    gad: ["today", "overview", "intelligence", "customers", "gad", "projects", "approvals", "documents", "comms"],
-    accounts: ["today", "overview", "intelligence", "customers", "offerManager", "marketing", "finance", "estimator", "approvals", "documents", "comms"],
-    commissioning: ["today", "overview", "intelligence", "customers", "commissioning", "installations", "orgchart", "approvals", "documents", "engineer", "comms"],
-    tender: ["today", "overview", "intelligence", "customers", "offerManager", "tender", "estimator", "approvals", "documents", "comms"],
-    factory: ["today", "overview", "intelligence", "factory", "inventory", "installations", "approvals", "documents", "comms"],
-    "back office": ["today", "overview", "intelligence", "customers", "backoffice", "accounts", "orgchart", "siteVisits", "approvals", "documents", "comms"],
-    "project office": ["today", "overview", "intelligence", "tickets", "projects", "installations", "team", "orgchart", "approvals", "documents", "comms"],
-    staff: ["today", "overview", "intelligence", "customers", "siteVisits", "orgchart", "documents", "engineer", "comms"],
-    "stores & procurement": ["today", "overview", "intelligence", "inventory", "factory", "approvals", "documents", "comms"]
+    sales: ["today", "overview", "intelligence", "backlog", "customers", "offerManager", "marketing", "sales", "renewals", "estimator", "siteVisits", "approvals", "documents", "comms"],
+    installation: ["today", "overview", "intelligence", "backlog", "customers", "installations", "team", "installation_dept", "commissioning", "siteVisits", "orgchart", "approvals", "documents", "engineer", "comms"],
+    "install operations": ["today", "overview", "intelligence", "backlog", "customers", "installations", "team", "installation_dept", "commissioning", "siteVisits", "orgchart", "approvals", "documents", "engineer", "comms"],
+    breakdown: ["today", "overview", "intelligence", "backlog", "customers", "breakdown", "workorders", "orgchart", "documents", "engineer", "comms"],
+    service: ["today", "overview", "intelligence", "backlog", "customers", "workorders", "service", "orgchart", "documents", "engineer", "comms"],
+    gad: ["today", "overview", "intelligence", "backlog", "customers", "gad", "projects", "approvals", "documents", "comms"],
+    accounts: ["today", "overview", "intelligence", "backlog", "customers", "offerManager", "marketing", "finance", "estimator", "approvals", "documents", "comms"],
+    commissioning: ["today", "overview", "intelligence", "backlog", "customers", "commissioning", "installations", "orgchart", "approvals", "documents", "engineer", "comms"],
+    tender: ["today", "overview", "intelligence", "backlog", "customers", "offerManager", "tender", "estimator", "approvals", "documents", "comms"],
+    factory: ["today", "overview", "intelligence", "backlog", "factory", "inventory", "installations", "approvals", "documents", "comms"],
+    "back office": ["today", "overview", "intelligence", "backlog", "customers", "backoffice", "accounts", "orgchart", "siteVisits", "approvals", "documents", "comms"],
+    "project office": ["today", "overview", "intelligence", "backlog", "tickets", "projects", "installations", "team", "orgchart", "approvals", "documents", "comms"],
+    staff: ["today", "overview", "intelligence", "backlog", "customers", "siteVisits", "orgchart", "documents", "engineer", "comms"],
+    "stores & procurement": ["today", "overview", "intelligence", "backlog", "inventory", "factory", "approvals", "documents", "comms"]
   };
   const key = String(user.department || "").toLowerCase();
   const allowed = [...(byDepartment[key] || ["today", "overview", "comms"])];
@@ -408,7 +422,7 @@ function accessForUser(user = {}) {
 
 const viewDataKeys = {
   today: ["customers", "sales_inquiries", "site_visits", "breakdowns", "inventory", "payments", "tenders", "install_jobs", "service_records", "renewals", "work_orders", "project_tickets", "dept_comms", "approvals", "documents", "org_chart", "attendance_today"],
-  intelligence: ["customers", "customer_users", "sales_inquiries", "site_visits", "breakdowns", "inventory", "payments", "tenders", "install_jobs", "install_team", "service_records", "renewals", "work_orders", "project_tickets", "dept_comms", "approvals", "documents", "org_chart", "attendance_today", "estimates", "escalation_rules", "conversations", "audit_logs", "customer_assignments", "warranty_records", "dispatch_records", "readiness_checklists", "skill_matrix", "handover_packs"],
+  intelligence: ["customers", "customer_users", "sales_inquiries", "site_visits", "breakdowns", "inventory", "payments", "tenders", "install_jobs", "install_team", "service_records", "renewals", "work_orders", "project_tickets", "dept_comms", "approvals", "documents", "org_chart", "attendance_today", "estimates", "escalation_rules", "conversations", "audit_logs", "customer_assignments", "warranty_records", "dispatch_records", "readiness_checklists", "skill_matrix", "handover_packs", "lift_assets", "parts_usage", "safety_incidents", "tender_checklists", "amc_contracts", "service_reports", "daily_briefs"],
   overview: ["customers", "customer_assignments", "department_assignments", "time_tracking", "department_history", "org_chart", "users"],
   modules: ["platform_modules"],
   customers: ["customers", "customer_assignments", "customer_users", "sales_inquiries", "estimates", "payments", "site_visits", "install_jobs", "service_records", "breakdowns", "renewals", "commissionings", "dept_comms", "documents", "org_chart", "users"],
@@ -447,7 +461,8 @@ const restrictedPayloadKeys = [
   "users", "customers", "customer_assignments", "department_assignments", "time_tracking", "department_history", "site_visits", "platform_modules", "inventory", "inventory_insights", "org_chart", "attendance_today",
   "leave_requests", "estimates", "payments", "customer_users", "sales_inquiries", "sales_admin_panel", "breakdowns", "service_records",
   "gad_records", "commissionings", "factory_jobs", "tenders", "international_vendors", "marketing_assets", "dept_comms",
-  "approvals", "documents", "escalation_rules", "conversations", "audit_logs", "warranty_records", "dispatch_records", "readiness_checklists", "skill_matrix", "handover_packs"
+  "approvals", "documents", "escalation_rules", "conversations", "audit_logs", "warranty_records", "dispatch_records", "readiness_checklists", "skill_matrix", "handover_packs",
+  "lift_assets", "parts_usage", "safety_incidents", "tender_checklists", "amc_contracts", "service_reports", "daily_briefs"
 ];
 
 function parseCostingWorkbooks() {
@@ -3948,10 +3963,10 @@ async function listCollection(routeName, res) {
   return res.json({ ok: true, [config.key]: publicRecords(config.key, Array.isArray(records) ? records : [records]), records });
 }
 
-async function linkedCrmCustomerPayload(body, res) {
+async function linkedCrmCustomerPayload(body, res, recordLabel = "service record") {
   const customerId = String(body?.customer_id || "").trim();
   if (!customerId) {
-    res.status(400).json({ ok: false, message: "Select a CRM customer before saving a service record." });
+    res.status(400).json({ ok: false, message: `Select a CRM customer before saving a ${recordLabel}.` });
     return null;
   }
   const customers = await readJson(listFiles.customers, []);
@@ -3971,6 +3986,29 @@ async function linkedCrmCustomerPayload(body, res) {
     site: String(body?.site || customer.site || customer.site_address || customer.address || "").trim(),
     crm_linked_at: new Date().toISOString(),
   };
+}
+
+async function syncCustomerServiceCounts(customerIds = []) {
+  const ids = Array.from(new Set(customerIds.map((id) => String(id || "").trim()).filter(Boolean)));
+  if (!ids.length) return;
+  const [customers, serviceRecords, breakdowns] = await Promise.all([
+    readJson(listFiles.customers, []),
+    readJson(listFiles.service_records, []),
+    readJson(listFiles.breakdowns, [])
+  ]);
+  let changed = false;
+  const now = new Date().toISOString();
+  const nextCustomers = customers.map((customer) => {
+    const id = String(customer.id || customer.customer_id || "").trim();
+    if (!ids.includes(id)) return customer;
+    const serviceCount = serviceRecords.filter((service) => String(service.customer_id || "").trim() === id).length;
+    const breakdownCount = breakdowns.filter((breakdown) => String(breakdown.customer_id || "").trim() === id).length;
+    const count = serviceCount + breakdownCount;
+    if (Number(customer.service_count || 0) === count && String(customer.last_service_counted_at || "")) return customer;
+    changed = true;
+    return { ...customer, service_count: count, services_done: count, last_service_counted_at: now, updated_at: now };
+  });
+  if (changed) await writeJson(listFiles.customers, nextCustomers);
 }
 
 async function siteVisitCrmCustomerPayload(body, res) {
@@ -4372,16 +4410,31 @@ async function createCollectionRecord(routeName, body, res) {
   }
   const records = await readJson(config.file, []);
   const now = new Date().toISOString();
-  const serviceLink = routeName === "service" ? await linkedCrmCustomerPayload(body, res) : {};
-  if (routeName === "service" && !serviceLink) return;
+  const crmLinkedRoute = ["service", "breakdown"].includes(routeName);
+  const serviceLink = crmLinkedRoute ? await linkedCrmCustomerPayload(body, res, routeName === "breakdown" ? "breakdown call" : "service record") : {};
+  if (crmLinkedRoute && !serviceLink) return;
   const offerPayload = routeName === "estimates" ? await normalizeOfferPayload(body, res) : null;
   if (routeName === "estimates" && !offerPayload) return;
   const paymentPayload = routeName === "payments" ? normalizePaymentPayload(body) : null;
   const tenderPayload = routeName === "tender" ? normalizeTenderPayload(body, {}, records) : null;
   const installationPayload = routeName === "install-jobs" ? normalizeInstallationPayload(body, {}, records) : null;
-  const record = { id: nextId(records, config.prefix), ...(offerPayload || paymentPayload || tenderPayload || installationPayload || cleanPayload(body)), ...serviceLink, created_at: now, updated_at: now };
+  const basePayload = offerPayload || paymentPayload || tenderPayload || installationPayload || cleanPayload(body);
+  const serviceGenerated = routeName === "service" ? {
+    service_number: String(basePayload.service_number || "").trim() || nextId(records, "SVC"),
+    breakdown_number: String(basePayload.breakdown_number || "").trim() || nextId(records, "BRK"),
+    service_date: String(basePayload.service_date || "").trim() || now,
+    date_time: String(basePayload.date_time || "").trim() || now,
+  } : {};
+  const recordId = nextId(records, config.prefix);
+  const breakdownGenerated = routeName === "breakdown" ? {
+    breakdown_number: String(basePayload.breakdown_number || "").trim() || recordId,
+    date_time: String(basePayload.date_time || "").trim() || now,
+    breakdown_date: String(basePayload.breakdown_date || "").trim() || now,
+  } : {};
+  const record = { id: recordId, ...basePayload, ...serviceGenerated, ...breakdownGenerated, ...serviceLink, created_at: now, updated_at: now };
   records.unshift(record);
   await writeJson(config.file, records);
+  if (["service", "breakdown"].includes(routeName)) await syncCustomerServiceCounts([record.customer_id]);
   await appendAuditLog({ user: res.req?.user || {}, collection: config.key, recordId: record.id, action: "create", before: null, after: record });
   if (routeName === "install-jobs") {
     await logInstallationNotifications(record, {}, res.req?.user || {});
@@ -4397,8 +4450,9 @@ async function updateCollectionRecord(routeName, id, body, res) {
   if (index < 0) return res.status(404).json({ ok: false, message: "Record not found." });
   const previousRecord = records[index];
   const actionStatus = defaultStatusForAction(body?.action);
-  const serviceLink = routeName === "service" && body?.customer_id ? await linkedCrmCustomerPayload(body, res) : {};
-  if (routeName === "service" && body?.customer_id && !serviceLink) return;
+  const crmLinkedRoute = ["service", "breakdown"].includes(routeName);
+  const serviceLink = crmLinkedRoute && body?.customer_id ? await linkedCrmCustomerPayload(body, res, routeName === "breakdown" ? "breakdown call" : "service record") : {};
+  if (crmLinkedRoute && body?.customer_id && !serviceLink) return;
   const offerPayload = routeName === "estimates" ? await normalizeOfferPayload({ ...records[index], ...body }, res) : null;
   if (routeName === "estimates" && !offerPayload) return;
   const paymentPayload = routeName === "payments" ? normalizePaymentPayload({ ...records[index], ...body }) : null;
@@ -4413,6 +4467,7 @@ async function updateCollectionRecord(routeName, id, body, res) {
   };
   records[index] = nextRecord;
   await writeJson(config.file, records);
+  if (["service", "breakdown"].includes(routeName)) await syncCustomerServiceCounts([previousRecord.customer_id, nextRecord.customer_id]);
   await appendAuditLog({ user: res.req?.user || {}, collection: config.key, recordId: recordIdentityForAudit(nextRecord), action: "update", before: previousRecord, after: nextRecord });
   if (routeName === "install-jobs") {
     await logInstallationNotifications(nextRecord, previousRecord || {}, res.req?.user || {});
@@ -4428,6 +4483,7 @@ async function deleteCollectionRecord(routeName, id, res) {
   const nextRecords = records.filter((record) => findRecordIndex([record], id) !== 0);
   if (nextRecords.length === records.length) return res.status(404).json({ ok: false, message: "Record not found." });
   await writeJson(config.file, nextRecords);
+  if (["service", "breakdown"].includes(routeName)) await syncCustomerServiceCounts([deletedRecord?.customer_id]);
   await appendAuditLog({ user: res.req?.user || {}, collection: config.key, recordId: id, action: "delete", before: deletedRecord || null, after: null });
   return res.json({ ok: true });
 }
@@ -4514,6 +4570,13 @@ function portalData(collections, user) {
     readiness_checklists: collections.readiness_checklists,
     skill_matrix: collections.skill_matrix,
     handover_packs: collections.handover_packs,
+    lift_assets: collections.lift_assets,
+    parts_usage: collections.parts_usage,
+    safety_incidents: collections.safety_incidents,
+    tender_checklists: collections.tender_checklists,
+    amc_contracts: collections.amc_contracts,
+    service_reports: collections.service_reports,
+    daily_briefs: collections.daily_briefs,
     synced_at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
   };
   return filterPortalPayload(payload, access);
@@ -5564,8 +5627,8 @@ app.post("/api/portal/breakdown", authRequired, async (req, res) => {
     customer_id: customerId,
     customer: customer.name || customer.customer || customer.lead_name || customer.contact_name || customerId,
     customer_phone: customer.phone || customer.whatsapp_no || "",
-    customer_address: customer.address || customer.site || "",
-    location: customer.address || customer.site || ""
+    customer_address: customer.address || customer.site_address || customer.site || "",
+    location: req.body?.location || customer.address || customer.site_address || customer.site || ""
   }, res);
 });
 

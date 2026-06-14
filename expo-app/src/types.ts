@@ -35,6 +35,9 @@ export type Customer = {
   assigned_staff_ids?: string[];
   assigned_team_summary?: string;
   primary_account_owner?: string;
+  service_count?: number;
+  services_done?: number;
+  last_service_counted_at?: string;
 };
 
 export type SiteVisit = {
@@ -198,6 +201,13 @@ export type PortalData = {
   readiness_checklists?: Array<Record<string, unknown>>;
   skill_matrix?: Array<Record<string, unknown>>;
   handover_packs?: Array<Record<string, unknown>>;
+  lift_assets?: Array<Record<string, unknown>>;
+  parts_usage?: Array<Record<string, unknown>>;
+  safety_incidents?: Array<Record<string, unknown>>;
+  tender_checklists?: Array<Record<string, unknown>>;
+  amc_contracts?: Array<Record<string, unknown>>;
+  service_reports?: Array<Record<string, unknown>>;
+  daily_briefs?: Array<Record<string, unknown>>;
   breakdowns?: Array<Record<string, unknown>>;
   service_records?: Array<Record<string, unknown>>;
   viewer?: { display_name?: string; username?: string; department?: string; role?: string; linked_org_node?: string; linked_team_member?: string };
