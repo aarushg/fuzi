@@ -1319,6 +1319,7 @@ export default function App() {
   const [offerPage, setOfferPage] = useState(1);
   const [offerCustomerPage, setOfferCustomerPage] = useState(1);
   const [accountDraft, setAccountDraft] = useState(emptyAccountDraft);
+  const [accountPasswordDrafts, setAccountPasswordDrafts] = useState<Record<string, string>>({});
   const [renewalDraft, setRenewalDraft] = useState(emptyRenewalDraft);
   const [inventoryDraft, setInventoryDraft] = useState(emptyInventoryDraft);
   const [inventorySearch, setInventorySearch] = useState("");
@@ -8853,7 +8854,7 @@ export default function App() {
         {isAdmin && (
           <View style={styles.formCard}>
             <Text style={styles.cardLabel}>{accountDraft.id ? "Edit account" : "Create account"}</Text>
-            <Text style={styles.muted}>Staff portal passwords are managed by the server secret file. Leave the password field blank to use the configured staff password.</Text>
+            <Text style={styles.muted}>Admins can change usernames, roles, access, and passwords here. Leave the password field blank to keep the current password when editing; new accounts without a password use the shared staff password.</Text>
             <View style={styles.inlineActions}>
               <Pressable style={styles.primaryButtonInline} onPress={syncStaffLogins} disabled={loading}>
                 <Text style={styles.primaryButtonText}>Sync all staff logins</Text>
@@ -8908,7 +8909,7 @@ export default function App() {
                 <View style={styles.inlineActions}>
                   {linked ? (
                     <Pressable style={styles.smallButton} onPress={() => editAccount(linked)} disabled={loading}>
-                      <Text style={styles.smallButtonText}>Edit login</Text>
+                      <Text style={styles.smallButtonText}>Edit username / password</Text>
                     </Pressable>
                   ) : (
                     <Pressable
@@ -8980,7 +8981,7 @@ export default function App() {
             {isAdmin && (
               <View style={styles.inlineActions}>
                 <Pressable style={styles.smallButton} onPress={() => editAccount(user)} disabled={loading}>
-                  <Text style={styles.smallButtonText}>Edit</Text>
+                  <Text style={styles.smallButtonText}>Edit username / password</Text>
                 </Pressable>
                 <Pressable style={styles.smallButton} onPress={() => updateAccount(String(user.id), { reset_shared_password: true })} disabled={loading}>
                   <Text style={styles.smallButtonText}>Reset staff password</Text>
@@ -8988,6 +8989,24 @@ export default function App() {
                 <Pressable style={styles.smallButton} onPress={() => updateAccount(String(user.id), { active: String(user.active) === "false" ? true : false })} disabled={loading}>
                   <Text style={styles.smallButtonText}>{String(user.active) === "false" ? "Activate" : "Deactivate"}</Text>
                 </Pressable>
+              </View>
+            )}
+            {isAdmin && (
+              <View style={styles.inlineNestedField}>
+                <Text style={styles.label}>Set new password</Text>
+                <View style={styles.inlineActions}>
+                  <TextInput
+                    style={[styles.input, styles.inlinePasswordInput]}
+                    value={accountPasswordDrafts[String(user.id)] || ""}
+                    onChangeText={(value) => setAccountPasswordDrafts((drafts) => ({ ...drafts, [String(user.id)]: value }))}
+                    secureTextEntry
+                    autoCapitalize="none"
+                    placeholder="New password for this account"
+                  />
+                  <Pressable style={styles.primaryButtonInline} onPress={() => setAccountPassword(String(user.id))} disabled={loading || !String(user.id)}>
+                    <Text style={styles.primaryButtonText}>Change password</Text>
+                  </Pressable>
+                </View>
               </View>
             )}
           </View>
@@ -11685,6 +11704,34 @@ export default function App() {
     }
   }
 
+  async function setAccountPassword(id: string) {
+    const nextPassword = String(accountPasswordDrafts[id] || "").trim();
+    if (!nextPassword) {
+      const text = "Enter the new password first.";
+      Platform.OS === "web" ? setMessage(text) : Alert.alert("Password required", text);
+      return;
+    }
+    setLoading(true);
+    try {
+      await apiFetch(`/api/portal/users/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({ password: nextPassword }),
+      });
+      setAccountPasswordDrafts((drafts) => {
+        const next = { ...drafts };
+        delete next[id];
+        return next;
+      });
+      await loadPortal();
+      setMessage("Team account password changed.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Team account password could not be changed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function syncStaffLogins() {
     setLoading(true);
     try {
@@ -12951,6 +12998,7 @@ const styles = StyleSheet.create({
   currentCustomerPill: { color: "#0f766e", backgroundColor: "#ecfdf5", borderColor: "rgba(15,118,110,0.24)" },
   field: { gap: 6 },
   inlineNestedField: { gap: 6, marginTop: 8 },
+  inlinePasswordInput: { flex: 1, minWidth: 220 },
   label: { color: "#11131b", fontWeight: "900", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 },
   input: { minHeight: 44, borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 10, backgroundColor: "#f3f5f8", paddingHorizontal: 12, color: "#11131b", fontWeight: "700" },
   textarea: { minHeight: 92, paddingTop: 10, textAlignVertical: "top" },
