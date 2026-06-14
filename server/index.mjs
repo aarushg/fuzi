@@ -426,7 +426,7 @@ const viewDataKeys = {
   overview: ["customers", "customer_assignments", "department_assignments", "time_tracking", "department_history", "org_chart", "users"],
   modules: ["platform_modules"],
   customers: ["customers", "customer_assignments", "customer_users", "sales_inquiries", "estimates", "payments", "site_visits", "install_jobs", "service_records", "breakdowns", "renewals", "commissionings", "dept_comms", "documents", "org_chart", "users"],
-  offerManager: ["customers", "sales_inquiries", "estimates"],
+  offerManager: ["customers", "sales_inquiries", "site_visits", "estimates"],
   marketing: ["marketing_assets", "customers", "estimates", "international_vendors"],
   tickets: ["project_tickets"],
   projects: ["projects", "install_jobs", "customers", "customer_assignments", "department_assignments", "time_tracking", "department_history", "org_chart", "users"],
@@ -438,10 +438,10 @@ const viewDataKeys = {
   inventory: ["inventory", "inventory_insights"],
   estimator: ["estimates", "payments", "customers"],
   orgchart: ["org_chart", "attendance_today", "leave_requests"],
-  sales: ["sales_inquiries", "sales_admin_panel", "customers"],
+  sales: ["sales_inquiries", "sales_admin_panel", "customers", "install_jobs"],
   installation_dept: ["install_jobs", "installations"],
   breakdown: ["breakdowns", "customers", "sales_inquiries", "install_team"],
-  service: ["service_records", "customers"],
+  service: ["service_records", "customers", "install_jobs", "install_team"],
   gad: ["gad_records", "customers"],
   finance: ["payments", "customers", "estimates"],
   commissioning: ["commissionings", "install_jobs", "dept_comms"],
@@ -2920,6 +2920,8 @@ function createDiscordBreakdownSyncService({
       customer: site || `Discord unit ${unit}`,
       fault,
       issue: fault,
+      issue_category: "Other",
+      custom_issue: fault,
       priority: values.priority || "High",
       engineer,
       assigned_to: engineer,
@@ -2955,6 +2957,7 @@ function createDiscordBreakdownSyncService({
       : (unit && site ? `Inbound Discord report for unit ${unit} at ${site}.` : (textWithoutPhone || text));
     const priority = String(body.priority || (temporaryOnRequest || /urgent|stuck|trapped|breakdown|emergency|not working|fault/i.test(text) ? "High" : "Normal")).trim();
     const status = String(body.status || body.breakdown_status || "").trim();
+    const fault = String(body.fault || body.issue || defaultFault).trim();
     return {
       source_discord_message_id: messageId,
       unit,
@@ -2963,8 +2966,10 @@ function createDiscordBreakdownSyncService({
       customer: site || (unit ? `Discord unit ${unit}` : "Discord breakdown"),
       phone,
       caller_mobile: phone,
-      fault: String(body.fault || body.issue || defaultFault).trim(),
-      issue: String(body.issue || body.fault || defaultFault).trim(),
+      fault,
+      issue: fault,
+      issue_category: "Other",
+      custom_issue: fault,
       priority,
       ...(status ? { status } : {}),
       source: "Discord",
@@ -3371,6 +3376,30 @@ function createDiscordBreakdownSyncService({
       .sort((left, right) => left.details.assignment_score - right.details.assignment_score || left.index - right.index);
   };
 
+  const breakdownCustomerLinkFromRecord = async (record = {}) => {
+    const customerId = String(record.customer_id || "").trim();
+    const phone = phoneDigits(record.phone || record.caller_mobile || record.caller_phone || record.customer_phone || "");
+    const [customers, inquiries] = await Promise.all([
+      readCollection("customers"),
+      readCollection("sales_inquiries")
+    ]);
+    const match = customers.find((item) => String(item.id || "") === customerId) ||
+      inquiries.find((item) => String(item.customer_id || item.id || item.enquiry_no || "") === customerId) ||
+      (phone ? customers.find((item) => phoneDigits(item.phone || item.mobile || item.whatsapp_no || "") === phone) : null) ||
+      (phone ? inquiries.find((item) => phoneDigits(item.phone || item.mobile || item.whatsapp_no || "") === phone) : null);
+    if (!match) return {};
+    const resolvedCustomerId = String(match.customer_id || match.id || match.enquiry_no || customerId).trim();
+    return {
+      customer_id: resolvedCustomerId,
+      source_inquiry_id: String(record.source_inquiry_id || match.source_inquiry_id || match.enquiry_no || "").trim(),
+      customer: String(match.name || match.customer || match.lead_name || record.customer || resolvedCustomerId).trim(),
+      customer_phone: String(record.customer_phone || match.phone || match.whatsapp_no || "").trim(),
+      phone: String(record.phone || match.phone || match.whatsapp_no || "").trim(),
+      customer_address: String(match.address || match.site_address || match.site || record.customer_address || "").trim(),
+      location: String(record.location || match.address || match.site_address || match.site || "").trim()
+    };
+  };
+
   const saveWaitingBreakdown = async (record, reason = "All Breakdown engineers are busy; waiting for the next available engineer.") => {
     const breakdowns = await readCollection("breakdowns");
     const existingIndex = breakdowns.findIndex((item) =>
@@ -3378,9 +3407,11 @@ function createDiscordBreakdownSyncService({
       String(item.source_discord_message_id || "") === String(record.source_discord_message_id || "")
     );
     const existing = existingIndex >= 0 ? breakdowns[existingIndex] : {};
+    const customerLink = await breakdownCustomerLinkFromRecord({ ...existing, ...record });
     const saved = {
       ...existing,
       ...record,
+      ...customerLink,
       scheduled_engineer: "",
       engineer: "",
       assigned_to: "",
@@ -3756,7 +3787,8 @@ function createDiscordBreakdownSyncService({
       } : {}),
       id: existing?.id || nextRecordId(breakdowns, "BRK")
     };
-    const result = await upsertBreakdown(record);
+    const customerLink = await breakdownCustomerLinkFromRecord({ ...existing, ...record });
+    const result = await upsertBreakdown({ ...record, ...customerLink });
     return {
       ok: true,
       record: result.record,
@@ -4145,6 +4177,11 @@ async function normalizeOfferPayload(body, res) {
     warranty_terms: String(payload.warranty_terms || "12 months from handover against manufacturing defects").trim(),
     offer_letter_status: String(payload.offer_letter_status || "Prepared").trim(),
     source: String(payload.source || "CRM Offer Manager").trim(),
+    offer_source: String(payload.offer_source || "CRM").trim(),
+    offer_number: String(payload.offer_number || payload.job_no || "").trim(),
+    source_snapshot: payload.source_snapshot && typeof payload.source_snapshot === "object" ? payload.source_snapshot : {},
+    expanded_costing_data: payload.expanded_costing_data && typeof payload.expanded_costing_data === "object" ? payload.expanded_costing_data : {},
+    costing_source_file: String(payload.costing_source_file || "").trim(),
     inventory_items: inventoryItems,
     inventory_material_total: inventoryMaterialTotal,
     inventory_pricing_source: String(payload.inventory_pricing_source || (inventoryItems.length ? "Inventory current prices" : "")).trim(),
@@ -4426,12 +4463,16 @@ async function createCollectionRecord(routeName, body, res) {
     date_time: String(basePayload.date_time || "").trim() || now,
   } : {};
   const recordId = nextId(records, config.prefix);
+  const offerGenerated = routeName === "estimates" ? {
+    job_no: String(basePayload.job_no || "").trim() || recordId,
+    offer_number: String(basePayload.offer_number || "").trim() || String(basePayload.job_no || "").trim() || recordId,
+  } : {};
   const breakdownGenerated = routeName === "breakdown" ? {
     breakdown_number: String(basePayload.breakdown_number || "").trim() || recordId,
     date_time: String(basePayload.date_time || "").trim() || now,
     breakdown_date: String(basePayload.breakdown_date || "").trim() || now,
   } : {};
-  const record = { id: recordId, ...basePayload, ...serviceGenerated, ...breakdownGenerated, ...serviceLink, created_at: now, updated_at: now };
+  const record = { id: recordId, ...basePayload, ...serviceGenerated, ...offerGenerated, ...breakdownGenerated, ...serviceLink, created_at: now, updated_at: now };
   records.unshift(record);
   await writeJson(config.file, records);
   if (["service", "breakdown"].includes(routeName)) await syncCustomerServiceCounts([record.customer_id]);

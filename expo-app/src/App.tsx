@@ -1,5 +1,5 @@
 ﻿import { StatusBar } from "expo-status-bar";
-import { useEffect, useMemo, useState } from "react";
+import { ComponentProps, createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -10,14 +10,232 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
+  Text as NativeText,
+  TextInput as NativeTextInput,
   useWindowDimensions,
   View,
 } from "react-native";
 import { apiBaseUrl, apiFetch } from "./api";
 import { PublicWebsite } from "./PublicWebsite";
 import type { Customer, PortalData, SiteVisit } from "./types";
+
+type PortalLanguage = "en" | "hi";
+type NativeTextProps = ComponentProps<typeof NativeText>;
+type NativeTextInputProps = ComponentProps<typeof NativeTextInput>;
+
+const LanguageContext = createContext<PortalLanguage>("en");
+
+const hindiTranslations: Record<string, string> = {
+  English: "अंग्रेजी",
+  Hindi: "हिन्दी",
+  Language: "भाषा",
+  Today: "आज",
+  "Command Intelligence": "कमांड इंटेलिजेंस",
+  "Operations Backlog": "ऑपरेशंस बैकलॉग",
+  Overview: "ओवरव्यू",
+  "Platform Modules": "प्लेटफॉर्म मॉड्यूल",
+  Customers: "ग्राहक",
+  "Offer Manager": "ऑफर मैनेजर",
+  "Marketing Platform": "मार्केटिंग प्लेटफॉर्म",
+  "Project Tickets": "प्रोजेक्ट टिकट",
+  Projects: "प्रोजेक्ट",
+  Installations: "इंस्टॉलेशन",
+  "Install Team": "इंस्टॉल टीम",
+  "Team Accounts": "टीम अकाउंट्स",
+  Renewals: "रिन्यूअल",
+  "Work Orders": "वर्क ऑर्डर",
+  Inventory: "इन्वेंटरी",
+  "Staff & Attendance": "स्टाफ और अटेंडेंस",
+  "Site Visits": "साइट विजिट",
+  "Installation Dept": "इंस्टॉलेशन विभाग",
+  "Breakdown Portal": "ब्रेकडाउन पोर्टल",
+  Service: "सर्विस",
+  "GAD Drawings": "GAD ड्रॉइंग",
+  Accounts: "अकाउंट्स",
+  Commissioning: "कमिशनिंग",
+  "Back Office": "बैक ऑफिस",
+  Tender: "टेंडर",
+  Factory: "फैक्टरी",
+  "International Vendor": "इंटरनेशनल वेंडर",
+  Approvals: "अप्रूवल",
+  Documents: "दस्तावेज",
+  "Engineer Jobs": "इंजीनियर जॉब्स",
+  "Dept Comms": "विभागीय कम्युनिकेशन",
+  Command: "कमांड",
+  "CRM & Sales": "CRM और सेल्स",
+  "Projects & Installation": "प्रोजेक्ट और इंस्टॉलेशन",
+  "Service Ops": "सर्विस ऑप्स",
+  "Admin & Finance": "एडमिन और फाइनेंस",
+  Login: "लॉगिन",
+  Logout: "लॉगआउट",
+  "Portal Login": "पोर्टल लॉगिन",
+  "Open Portal": "पोर्टल खोलें",
+  "Select department": "विभाग चुनें",
+  "Select user": "यूजर चुनें",
+  "Sign in": "साइन इन",
+  "Back to website": "वेबसाइट पर वापस",
+  "Search navigation": "नेविगेशन खोजें",
+  "Find module": "मॉड्यूल खोजें",
+  "Search CRM, service, jobs": "CRM, सर्विस, जॉब्स खोजें",
+  Refresh: "रिफ्रेश",
+  Inbox: "इनबॉक्स",
+  "Comfort view": "कंफर्ट व्यू",
+  "Compact view": "कॉम्पैक्ट व्यू",
+  "Global search": "ग्लोबल खोज",
+  "Notification center": "नोटिफिकेशन सेंटर",
+  Previous: "पिछला",
+  Next: "अगला",
+  Page: "पेज",
+  Showing: "दिखा रहा है",
+  Close: "बंद करें",
+  "Open Dept Comms": "विभागीय कम्युनिकेशन खोलें",
+  "Mark all read": "सब पढ़ा हुआ करें",
+  "No unread notifications.": "कोई अपठित नोटिफिकेशन नहीं।",
+  "Type at least 2 characters.": "कम से कम 2 अक्षर टाइप करें।",
+  "No matching records found.": "कोई मिलता रिकॉर्ड नहीं मिला।",
+  "Operations Command Center": "ऑपरेशंस कमांड सेंटर",
+  "Current workspace": "वर्तमान वर्कस्पेस",
+  "Live Operations Dashboard": "लाइव ऑपरेशंस डैशबोर्ड",
+  Operations: "ऑपरेशंस",
+  "Connectors online": "कनेक्टर ऑनलाइन",
+  "FSM, ERP, CRM, email, and portal APIs are connected through the Node backend.": "FSM, ERP, CRM, ईमेल और पोर्टल API Node backend से जुड़े हैं।",
+  "Search customer, phone, enquiry no": "ग्राहक, फोन, इंक्वायरी नंबर खोजें",
+  "Search customer number, name, phone, CRM ID": "ग्राहक नंबर, नाम, फोन, CRM ID खोजें",
+  "No CRM customers match that search.": "इस खोज से कोई CRM ग्राहक नहीं मिला।",
+  "CRM customer": "CRM ग्राहक",
+  "Select CRM customer": "CRM ग्राहक चुनें",
+  "Customer no.": "ग्राहक नंबर",
+  "Customer number": "ग्राहक नंबर",
+  "Customer / building": "ग्राहक / बिल्डिंग",
+  "Customer comments": "ग्राहक टिप्पणी",
+  "Customer required": "ग्राहक आवश्यक",
+  "Assigned engineer": "असाइन इंजीनियर",
+  Engineer: "इंजीनियर",
+  "Engineer name": "इंजीनियर नाम",
+  "Select engineer": "इंजीनियर चुनें",
+  "No engineer roster found.": "कोई इंजीनियर रोस्टर नहीं मिला।",
+  "Common elevator issue": "सामान्य लिफ्ट समस्या",
+  "Issue details": "समस्या विवरण",
+  "Other issue - type here": "अन्य समस्या - यहां लिखें",
+  "Type issue if not in list": "यदि सूची में नहीं है तो समस्या लिखें",
+  "Action taken": "की गई कार्रवाई",
+  "Parts used": "पार्ट्स उपयोग किए",
+  "Parts quantity": "पार्ट्स मात्रा",
+  Status: "स्थिति",
+  Open: "ओपन",
+  Closed: "बंद",
+  Completed: "पूरा",
+  Scheduled: "शेड्यूल",
+  "In Progress": "प्रगति में",
+  Priority: "प्राथमिकता",
+  High: "उच्च",
+  Medium: "मध्यम",
+  Low: "कम",
+  "Check in": "चेक इन",
+  "Check out": "चेक आउट",
+  "Check-in": "चेक-इन",
+  "Check-out": "चेक-आउट",
+  "Check-in location": "चेक-इन लोकेशन",
+  "Check-out location": "चेक-आउट लोकेशन",
+  "Date/time": "दिनांक/समय",
+  "Breakdown no": "ब्रेकडाउन नंबर",
+  "Breakdown number": "ब्रेकडाउन नंबर",
+  "Breakdown Calls": "ब्रेकडाउन कॉल",
+  "Breakdown view": "ब्रेकडाउन व्यू",
+  "Customer breakdown history": "ग्राहक ब्रेकडाउन इतिहास",
+  "Switch between current open calls, closed history, or all breakdowns.": "वर्तमान खुले कॉल, बंद इतिहास या सभी ब्रेकडाउन के बीच बदलें।",
+  "Search customer name, customer number, phone, unit, breakdown no": "ग्राहक नाम, ग्राहक नंबर, फोन, यूनिट, ब्रेकडाउन नंबर खोजें",
+  "Missing link": "लिंक गायब",
+  "No breakdown calls match this status/customer search.": "इस स्थिति/ग्राहक खोज से कोई ब्रेकडाउन कॉल नहीं मिला।",
+  "New breakdown call": "नई ब्रेकडाउन कॉल",
+  "Log a new CRM-linked breakdown": "नया CRM-लिंक्ड ब्रेकडाउन दर्ज करें",
+  "Customer selected": "ग्राहक चुना गया",
+  "Log breakdown": "ब्रेकडाउन दर्ज करें",
+  "Fault / issue": "फॉल्ट / समस्या",
+  "Lift / unit": "लिफ्ट / यूनिट",
+  "Caller mobile": "कॉलर मोबाइल",
+  Location: "लोकेशन",
+  "Trapped passenger Y/N": "यात्री फंसा है Y/N",
+  "Schedule engineer": "इंजीनियर शेड्यूल करें",
+  "Schedule time": "शेड्यूल समय",
+  Dispatch: "डिस्पैच",
+  "Reached site": "साइट पर पहुंचे",
+  "Sync Discord": "Discord सिंक करें",
+  "Active breakdowns": "एक्टिव ब्रेकडाउन",
+  "Trapped passenger": "फंसा यात्री",
+  "Breakdown staff": "ब्रेकडाउन स्टाफ",
+  "Schedule Engineer": "इंजीनियर शेड्यूल करें",
+  "New service visit": "नई सर्विस विजिट",
+  "Create service record": "सर्विस रिकॉर्ड बनाएं",
+  "Search service records": "सर्विस रिकॉर्ड खोजें",
+  "Save service record": "सर्विस रिकॉर्ड सेव करें",
+  "Open CRM customer": "CRM ग्राहक खोलें",
+  "Repair notes": "रिपेयर नोट्स",
+  "Save repair notes": "रिपेयर नोट्स सेव करें",
+  "Select issue": "समस्या चुनें",
+  "Engineer fills this after opening the assigned breakdown.": "इंजीनियर असाइन ब्रेकडाउन खोलने के बाद इसे भरेगा।",
+  "Select a common issue or type the issue before saving repair notes.": "रिपेयर नोट्स सेव करने से पहले सामान्य समस्या चुनें या समस्या लिखें।",
+  "Type the issue when Common elevator issue is Other.": "जब सामान्य लिफ्ट समस्या Other हो तो समस्या लिखें।",
+  Edit: "एडिट",
+  Cancel: "रद्द करें",
+  "Cancel edit": "एडिट रद्द करें",
+  Save: "सेव",
+  Update: "अपडेट",
+  Delete: "डिलीट",
+  Search: "खोजें",
+  Clear: "क्लियर",
+  "No records found": "कोई रिकॉर्ड नहीं मिला",
+  "No service records found": "कोई सर्विस रिकॉर्ड नहीं मिला",
+  "No active breakdown calls": "कोई एक्टिव ब्रेकडाउन कॉल नहीं",
+  "No breakdown calls found": "कोई ब्रेकडाउन कॉल नहीं मिला",
+  "Add a customer first": "पहले ग्राहक जोड़ें",
+  "Open Customer CRM": "Customer CRM खोलें",
+  "Door not opening / closing": "दरवाजा नहीं खुल रहा / बंद हो रहा",
+  "Door sensor or light curtain fault": "डोर सेंसर या लाइट कर्टन फॉल्ट",
+  "Lift not moving": "लिफ्ट नहीं चल रही",
+  "Stuck between floors": "फ्लोर के बीच फंसी",
+  "Misleveling / stops unevenly": "लेवल ठीक नहीं / असमान रुकना",
+  "Unusual noise or vibration": "असामान्य आवाज या वाइब्रेशन",
+  "Slow operation": "धीमा संचालन",
+  "Power failure / rescue mode": "पावर फेल / रेस्क्यू मोड",
+  "Controller or display fault": "कंट्रोलर या डिस्प्ले फॉल्ट",
+  "Brake / traction / drive fault": "ब्रेक / ट्रैक्शन / ड्राइव फॉल्ट",
+  "Overheating motor or machine room": "मोटर या मशीन रूम ओवरहीट",
+  "Safety circuit fault": "सेफ्टी सर्किट फॉल्ट",
+  "Button / COP / LOP fault": "बटन / COP / LOP फॉल्ट",
+  "Water ingress": "पानी घुसना",
+  Other: "अन्य",
+};
+
+function translateString(value: string, language: PortalLanguage) {
+  if (language === "en") return value;
+  const exact = hindiTranslations[value];
+  if (exact) return exact;
+  return Object.entries(hindiTranslations)
+    .sort((a, b) => b[0].length - a[0].length)
+    .reduce((text, [english, hindi]) => text.replaceAll(english, hindi), value);
+}
+
+function translateChildren(children: ReactNode, language: PortalLanguage): ReactNode {
+  if (typeof children === "string") return translateString(children, language);
+  if (Array.isArray(children)) return children.map((child, index) => <TextFragment key={index}>{translateChildren(child, language)}</TextFragment>);
+  return children;
+}
+
+function TextFragment({ children }: { children: ReactNode }) {
+  return <>{children}</>;
+}
+
+function Text(props: NativeTextProps) {
+  const language = useContext(LanguageContext);
+  return <NativeText {...props}>{translateChildren(props.children, language)}</NativeText>;
+}
+
+function TextInput(props: NativeTextInputProps) {
+  const language = useContext(LanguageContext);
+  const placeholder = typeof props.placeholder === "string" ? translateString(props.placeholder, language) : props.placeholder;
+  return <NativeTextInput {...props} placeholder={placeholder} />;
+}
 
 type TabKey =
   | "today"
@@ -257,6 +475,7 @@ const moduleConfigs: Partial<Record<TabKey, ModuleConfig>> = {
 
 const emptyModuleDraft = { title: "", customer: "", customer_id: "", status: "Open", notes: "" };
 const serviceIssueCategories = [
+  "Scheduled preventive service",
   "Door not opening / closing",
   "Door sensor or light curtain fault",
   "Lift not moving",
@@ -279,6 +498,8 @@ const emptyServiceDraft = {
   source_inquiry_id: "",
   site: "",
   phone: "",
+  install_job_id: "",
+  scheduled_date: "",
   assigned_engineer: "",
   issue_category: serviceIssueCategories[0],
   action_taken: "",
@@ -301,7 +522,7 @@ const emptyPartsUsageDraft = { job_id: "", customer: "", unit: "", engineer: "",
 const emptySafetyIncidentDraft = { job_id: "", customer: "", site: "", incident_type: "Near miss", severity: "Medium", trapped_passenger: "No", corrective_action: "", responsible_staff: "", status: "Open" };
 const emptyTenderChecklistDraft = { tender_id: "", tender_title: "", emd: "Pending", sd: "Pending", gst_docs: "Pending", pan: "Pending", certificates: "Pending", technical_sheets: "Pending", drawings: "Pending", annexures: "Pending", final_submission: "Pending" };
 const emptyAmcContractDraft = { customer: "", customer_id: "", lift_count: "1", service_frequency: "Monthly", parts_included: "No", warranty_status: "", annual_price: "", terms: "", status: "Draft" };
-const emptyServiceReportDraft = { job_id: "", customer: "", unit: "", engineer: "", checklist: "", parts_used: "", notes: "", next_visit_date: "", customer_signature: "", status: "Draft" };
+const emptyServiceReportDraft = { job_id: "", customer: "", unit: "", engineer: "", checklist: "", parts_used: "", notes: "", voice_note_url: "", voice_transcript: "", next_visit_date: "", customer_signature: "", status: "Draft" };
 const emptyDailyBriefDraft = { date: new Date().toISOString().slice(0, 10), audience: "Management", summary: "", status: "Draft" };
 const emptyPaymentDraft = {
   payment_type: "Contract",
@@ -444,12 +665,8 @@ const emptyBreakdownDraft = {
   unit: "",
   phone: "",
   location: "",
-  issue: serviceIssueCategories[0],
-  issue_category: serviceIssueCategories[0],
-  action_taken: "",
-  parts_used: "",
-  parts_quantity: "0",
-  customer_comments: "",
+  issue: "",
+  issue_category: "",
   priority: "High",
   engineer: "",
   assigned_engineer: "",
@@ -678,6 +895,7 @@ const emptySalesInquiryDraft = {
 };
 const emptyOfferDraft = {
   job_no: "",
+  offer_number: "",
   offer_date: new Date().toISOString().slice(0, 10),
   customer_name: "",
   offer_name: "",
@@ -706,6 +924,8 @@ const emptyOfferDraft = {
   notes: "",
   customer_id: "",
   source_inquiry_id: "",
+  offer_source: "CRM",
+  linked_customer_source: "",
   inventory_items: [],
   inventory_material_total: "",
   inventory_pricing_source: "",
@@ -1011,6 +1231,13 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
   const [data, setData] = useState<PortalData | null>(null);
+  const [portalLanguage, setPortalLanguage] = useState<PortalLanguage>(() => {
+    if (Platform.OS === "web" && typeof globalThis.localStorage !== "undefined") {
+      const saved = globalThis.localStorage.getItem("fuzi_portal_language");
+      return saved === "hi" ? "hi" : "en";
+    }
+    return "en";
+  });
   const [loginDirectory, setLoginDirectory] = useState<Array<Record<string, unknown>>>([]);
   const [loginDepartment, setLoginDepartment] = useState("");
   const [loginDepartmentOpen, setLoginDepartmentOpen] = useState(false);
@@ -1023,6 +1250,7 @@ export default function App() {
   const [overviewEndDate, setOverviewEndDate] = useState(currentFiscalYearRange().end);
   const [projectNow, setProjectNow] = useState(() => Date.now());
   const [customerDraft, setCustomerDraft] = useState<Partial<Customer>>(emptyCustomer);
+  const [customerInstalledDateDraft, setCustomerInstalledDateDraft] = useState("");
   const [customerEditorOpen, setCustomerEditorOpen] = useState(false);
   const [siteVisitDraft, setSiteVisitDraft] = useState<Partial<SiteVisit>>(emptySiteVisit);
   const [siteVisitEditorOpen, setSiteVisitEditorOpen] = useState(false);
@@ -1030,6 +1258,7 @@ export default function App() {
   const [moduleDraft, setModuleDraft] = useState(emptyModuleDraft);
   const [serviceDraft, setServiceDraft] = useState(emptyServiceDraft);
   const [serviceIssueDropdownOpen, setServiceIssueDropdownOpen] = useState(false);
+  const [serviceEngineerDropdownOpen, setServiceEngineerDropdownOpen] = useState(false);
   const [serviceEditDrafts, setServiceEditDrafts] = useState<Record<string, Record<string, string>>>({});
   const [serviceCustomerDropdownOpen, setServiceCustomerDropdownOpen] = useState(false);
   const [serviceCustomerSearch, setServiceCustomerSearch] = useState("");
@@ -1069,10 +1298,14 @@ export default function App() {
   const [hrSearch, setHrSearch] = useState("");
   const [hrDepartmentFilter, setHrDepartmentFilter] = useState("All");
   const [crmSearch, setCrmSearch] = useState("");
+  const [crmRecordView, setCrmRecordView] = useState<"Enquiries" | "Customers">("Enquiries");
   const [crmStageFilter, setCrmStageFilter] = useState("All");
   const [crmStaffFilter, setCrmStaffFilter] = useState("");
   const [crmDepartmentFilter, setCrmDepartmentFilter] = useState("All");
   const [crmTeamFilter, setCrmTeamFilter] = useState("All");
+  const [crmDepartmentDropdownOpen, setCrmDepartmentDropdownOpen] = useState(false);
+  const [crmTeamDropdownOpen, setCrmTeamDropdownOpen] = useState(false);
+  const [crmStageDropdownOpen, setCrmStageDropdownOpen] = useState(false);
   const [globalSearch, setGlobalSearch] = useState("");
   const [globalSearchResults, setGlobalSearchResults] = useState<Array<Record<string, unknown>>>([]);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
@@ -1084,6 +1317,7 @@ export default function App() {
   const [customerPage, setCustomerPage] = useState(1);
   const [enquiryPage, setEnquiryPage] = useState(1);
   const [offerPage, setOfferPage] = useState(1);
+  const [offerCustomerPage, setOfferCustomerPage] = useState(1);
   const [accountDraft, setAccountDraft] = useState(emptyAccountDraft);
   const [renewalDraft, setRenewalDraft] = useState(emptyRenewalDraft);
   const [inventoryDraft, setInventoryDraft] = useState(emptyInventoryDraft);
@@ -1096,9 +1330,12 @@ export default function App() {
   const [marketingDraft, setMarketingDraft] = useState(emptyMarketingDraft);
   const [marketingSearch, setMarketingSearch] = useState("");
   const [salesInquiryDraft, setSalesInquiryDraft] = useState(emptySalesInquiryDraft);
+  const [salesInquiryInstalledDateDraft, setSalesInquiryInstalledDateDraft] = useState("");
   const [salesInquiryEditorOpen, setSalesInquiryEditorOpen] = useState(false);
   const [offerDraft, setOfferDraft] = useState<Record<string, any>>(emptyOfferDraft);
   const [costingEditorOpen, setCostingEditorOpen] = useState(false);
+  const [offerCustomerSearch, setOfferCustomerSearch] = useState("");
+  const [offerCustomerOfferFilter, setOfferCustomerOfferFilter] = useState("All");
   const [costingSources, setCostingSources] = useState<CostingSource[]>([]);
   const [costingSourcesLoading, setCostingSourcesLoading] = useState(false);
   const [costingSourceIndex, setCostingSourceIndex] = useState(0);
@@ -1106,11 +1343,21 @@ export default function App() {
   const [breakdownScheduleDrafts, setBreakdownScheduleDrafts] = useState<Record<string, string>>({});
   const [breakdownEngineerTaskDrafts, setBreakdownEngineerTaskDrafts] = useState<Record<string, string>>({});
   const [breakdownCustomerDropdownOpen, setBreakdownCustomerDropdownOpen] = useState(false);
+  const [breakdownEngineerDropdownOpen, setBreakdownEngineerDropdownOpen] = useState(false);
   const [breakdownCustomerSearch, setBreakdownCustomerSearch] = useState("");
-  const [breakdownIssueDropdownOpen, setBreakdownIssueDropdownOpen] = useState(false);
+  const [breakdownRepairIssueDropdownOpen, setBreakdownRepairIssueDropdownOpen] = useState("");
+  const [breakdownRepairDrafts, setBreakdownRepairDrafts] = useState<Record<string, Record<string, string>>>({});
+  const [breakdownRepairOpen, setBreakdownRepairOpen] = useState<Record<string, boolean>>({});
+  const [breakdownScheduleRosterOpen, setBreakdownScheduleRosterOpen] = useState(false);
+  const [breakdownCallEngineerDropdownOpen, setBreakdownCallEngineerDropdownOpen] = useState("");
+  const [breakdownNewCallOpen, setBreakdownNewCallOpen] = useState(false);
+  const [breakdownPage, setBreakdownPage] = useState(1);
+  const [breakdownStatusFilter, setBreakdownStatusFilter] = useState("Open");
+  const [breakdownHistorySearch, setBreakdownHistorySearch] = useState("");
 
   const isSignedIn = Boolean(token);
   const isWide = width >= 920;
+  const t = (value: string) => translateString(value, portalLanguage);
   const asRecords = (value: unknown): Array<Record<string, unknown>> => (Array.isArray(value) ? (value as Array<Record<string, unknown>>) : []);
   const isAdmin = String(data?.viewer?.role || "").trim().toLowerCase() === "admin";
   const normalizedKey = (value: unknown) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
@@ -1151,10 +1398,10 @@ export default function App() {
     return ["Command", "CRM & Sales", "Projects & Installation", "Service Ops", "Admin & Finance"]
       .map((group) => ({
         group,
-        items: visibleNavItems.filter((item) => groupFor(item.key) === group && (!query || `${item.label} ${item.key}`.toLowerCase().includes(query)))
+        items: visibleNavItems.filter((item) => groupFor(item.key) === group && (!query || `${item.label} ${t(item.label)} ${item.key}`.toLowerCase().includes(query)))
       }))
       .filter((section) => section.items.length);
-  }, [navSearch, visibleNavItems]);
+  }, [navSearch, visibleNavItems, portalLanguage]);
   const activeNavItem = visibleNavItems.find((item) => item.key === activeTab) || navItems.find((item) => item.key === activeTab);
   const unreadNotifications = asRecords(data?.dept_comms).filter((item) => item.read !== true && String(item.status || "").toLowerCase() !== "read");
   const lowStock = useMemo(
@@ -1285,6 +1532,12 @@ export default function App() {
       loadCostingSourceData();
     }
   }, [costingEditorOpen, token, costingSources.length, costingSourcesLoading]);
+
+  useEffect(() => {
+    if (Platform.OS === "web" && typeof globalThis.localStorage !== "undefined") {
+      globalThis.localStorage.setItem("fuzi_portal_language", portalLanguage);
+    }
+  }, [portalLanguage]);
 
   useEffect(() => {
     setCostingCellStep(0);
@@ -1452,7 +1705,7 @@ export default function App() {
         const lintel = String(row.lintel_height_mm || "").trim();
         return `${floor}: FF ${ff || "-"} mm, lintel ${lintel || "-"} mm`;
       })
-      .filter(Boolean)
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
       .join("; ");
   }
 
@@ -1461,6 +1714,17 @@ export default function App() {
     if (!id) return [];
     return asRecords(data?.site_visits)
       .filter((visit) => String(visit.customer_id || "").trim() === id)
+      .sort((a, b) => String(b.updated_at || b.site_visit_date || b.created_at || "").localeCompare(String(a.updated_at || a.site_visit_date || a.created_at || "")));
+  }
+
+  function siteVisitsForOfferRecord(record: Record<string, unknown>) {
+    const customerId = String(record.customer_id || record.id || "").trim();
+    const enquiryNo = String(record.enquiry_no || record.source_enquiry_no || record.source_inquiry_id || "").trim();
+    return asRecords(data?.site_visits)
+      .filter((visit) => (
+        (customerId && String(visit.customer_id || "").trim() === customerId) ||
+        (enquiryNo && String(visit.site_enquiry_no || visit.enquiry_no || "").trim() === enquiryNo)
+      ))
       .sort((a, b) => String(b.updated_at || b.site_visit_date || b.created_at || "").localeCompare(String(a.updated_at || a.site_visit_date || a.created_at || "")));
   }
 
@@ -2631,12 +2895,55 @@ export default function App() {
   function renderServicePage() {
     const records = asRecords((data as Record<string, unknown> | null)?.service_records);
     const customerOptions = crmCustomerOptions();
+    const installJobs = asRecords((data as Record<string, unknown> | null)?.install_jobs);
     const selectedServiceCustomer = customerOptions.find((customer) => customer.id === serviceDraft.customer_id);
     const serviceCustomerQuery = serviceCustomerSearch.trim().toLowerCase();
     const visibleServiceCustomers = customerOptions
       .filter((customer) => !serviceCustomerQuery || `${customer.id} ${customer.name} ${customer.phone} ${customer.source_inquiry_id}`.toLowerCase().includes(serviceCustomerQuery))
       .slice(0, 80);
     const engineerOptions = serviceEngineerOptions();
+    const todayDate = new Date().toISOString().slice(0, 10);
+    const addMonthsIso = (dateValue: unknown, months: number) => {
+      const date = new Date(String(dateValue || ""));
+      if (Number.isNaN(date.getTime())) return "";
+      date.setMonth(date.getMonth() + months);
+      return date.toISOString().slice(0, 10);
+    };
+    const serviceDateFor = (record: Record<string, unknown>) => String(record.completed_date || record.service_date || record.scheduled_date || record.created_at || "").slice(0, 10);
+    type InstalledServiceScheduleItem = {
+      job: Record<string, unknown>;
+      jobId: string;
+      customerId: string;
+      customerName: string;
+      installDate: string;
+      lastServiceDate: string;
+      nextDue: string;
+      status: string;
+      serviceCount: number;
+    };
+    const installedServiceSchedule: InstalledServiceScheduleItem[] = installJobs
+      .map((job): InstalledServiceScheduleItem | null => {
+        const installDate = String(job.handed_over_date || job.handover_date || job.completion_date || job.installed_date || job.install_complete_date || job.start_date || "").slice(0, 10);
+        if (!installDate || Number.isNaN(new Date(installDate).getTime())) return null;
+        const jobId = recordIdentity(job) || String(job.job_id || job.id || "");
+        const customerId = String(job.customer_id || "").trim();
+        const customerName = String(job.customer || job.customer_name || "").trim();
+        const matchedRecords = records
+          .filter((record) => (
+            (jobId && String(record.install_job_id || record.job_id || "") === jobId) ||
+            (customerId && String(record.customer_id || "") === customerId) ||
+            (!!customerName && crmNameKey(record.customer) === crmNameKey(customerName))
+          ))
+          .filter((record) => serviceDateFor(record) >= installDate)
+          .sort((a, b) => serviceDateFor(b).localeCompare(serviceDateFor(a)));
+        const lastServiceDate = matchedRecords[0] ? serviceDateFor(matchedRecords[0]) : "";
+        const nextDue = addMonthsIso(lastServiceDate || installDate, 1);
+        const status = nextDue < todayDate ? "Overdue" : nextDue === todayDate ? "Due today" : nextDue <= datePlusDays(30) ? "Upcoming" : "Scheduled";
+        return { job, jobId, customerId, customerName, installDate, lastServiceDate, nextDue, status, serviceCount: matchedRecords.length };
+      })
+      .filter((item): item is InstalledServiceScheduleItem => item !== null)
+      .sort((a, b) => String(a?.nextDue || "").localeCompare(String(b?.nextDue || "")));
+    const dueInstalledServices = installedServiceSchedule.filter((item) => item.nextDue <= datePlusDays(30)).slice(0, 12);
     const query = serviceRecordSearch.trim().toLowerCase();
     const filteredRecords = records.filter((record) => {
       if (!query) return true;
@@ -2666,7 +2973,60 @@ export default function App() {
         <View style={styles.moduleHero}>
           <Text style={styles.eyebrow}>FUZI Ops Module</Text>
           <Text style={styles.moduleHeroTitle}>Service</Text>
-          <Text style={styles.moduleHeroText}>Service records, system generated breakdown numbers, engineer check-in/out, customer comments, parts usage, and linked CRM service counts.</Text>
+          <Text style={styles.moduleHeroText}>Service records scheduled from elevator installation dates, engineer check-in/out, customer comments, parts usage, and linked CRM service counts.</Text>
+        </View>
+        <View style={styles.formCard}>
+          <View style={styles.sectionHeaderRow}>
+            <View>
+              <Text style={styles.cardLabel}>Scheduled from installation date</Text>
+              <Text style={styles.muted}>Monthly service is calculated from each elevator handover/install date. Overdue and upcoming services appear here.</Text>
+            </View>
+            <Text style={styles.statusPill}>{dueInstalledServices.length} due / upcoming</Text>
+          </View>
+          {!!dueInstalledServices.length && (
+            <View style={styles.selectorList}>
+              {dueInstalledServices.map((item) => (
+                <View key={`install-service-due-${item.jobId || item.customerId || item.installDate}`} style={styles.scheduleServiceRow}>
+                  <View style={styles.scheduleServiceMain}>
+                    <View style={styles.dispatchRosterTitleRow}>
+                      <Text style={styles.dispatchRosterName}>{item.customerName || "Customer"}</Text>
+                      <Text style={[styles.dispatchStatusChip, item.status === "Overdue" ? styles.slaOverdue : item.status === "Due today" ? styles.slaWarning : styles.slaOnTrack]}>
+                        {item.status}
+                      </Text>
+                    </View>
+                    <Text style={styles.muted}>
+                      Job {item.jobId || "-"} - Unit {String(item.job.unit || item.job.lift_reference || item.job.site || "-")} - Installed {item.installDate} - Next service {item.nextDue}
+                    </Text>
+                    <Text style={styles.muted}>Previous services: {item.serviceCount} - Last service: {item.lastServiceDate || "None yet"}</Text>
+                  </View>
+                  <Pressable
+                    style={styles.smallButton}
+                    onPress={() => {
+                      setServiceDraft((draft) => ({
+                        ...draft,
+                        customer_id: item.customerId,
+                        customer: item.customerName,
+                        source_inquiry_id: String(item.job.source_inquiry_id || ""),
+                        site: String(item.job.site || item.job.site_address || ""),
+                        phone: String(item.job.phone || item.job.customer_phone || ""),
+                        install_job_id: item.jobId,
+                        scheduled_date: item.nextDue,
+                        assigned_engineer: String(item.job.service_engineer || item.job.engineer || item.job.assigned_engineer || draft.assigned_engineer || ""),
+                        issue_category: "Scheduled preventive service",
+                        status: "Scheduled",
+                      }));
+                    }}
+                    disabled={loading}
+                  >
+                    <Text style={styles.smallButtonText}>Create service</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          )}
+          {!dueInstalledServices.length && (
+            <Text style={styles.muted}>{installJobs.length ? "No installed elevators are due in the next 30 days." : "No installation jobs are available for service scheduling yet."}</Text>
+          )}
         </View>
         <View style={styles.formCard}>
           <Text style={styles.cardLabel}>New service visit</Text>
@@ -2718,16 +3078,47 @@ export default function App() {
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Assigned engineer</Text>
-              <TextInput style={styles.input} value={serviceDraft.assigned_engineer} onChangeText={(value) => setServiceDraft((draft) => ({ ...draft, assigned_engineer: value }))} placeholder="Engineer name" />
+              <Pressable
+                style={[styles.dropdownButton, serviceEngineerDropdownOpen && styles.selectorPillActive]}
+                onPress={() => setServiceEngineerDropdownOpen((open) => !open)}
+                disabled={loading || !engineerOptions.length}
+              >
+                <Text style={styles.selectorText}>{serviceDraft.assigned_engineer || "Engineer name"}</Text>
+                <Text style={styles.dropdownChevron}>{serviceEngineerDropdownOpen ? "▲" : "▼"}</Text>
+              </Pressable>
               {!!engineerOptions.length && (
-                <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
-                  {engineerOptions.slice(0, 12).map((engineer) => (
-                    <Pressable key={`svc-eng-${engineer.name}`} style={[styles.smallButton, serviceDraft.assigned_engineer === engineer.name && styles.selectorPillActive]} onPress={() => setServiceDraft((draft) => ({ ...draft, assigned_engineer: engineer.name }))}>
-                      <Text style={styles.smallButtonText}>{engineer.name}</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
+                serviceEngineerDropdownOpen && (
+                  <View style={styles.dropdownPanel}>
+                    <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                      {engineerOptions.map((engineer) => (
+                        <Pressable
+                          key={`svc-eng-${engineer.name}`}
+                          style={[styles.dropdownOption, serviceDraft.assigned_engineer === engineer.name && styles.selectorPillActive]}
+                          onPress={() => {
+                            setServiceDraft((draft) => ({ ...draft, assigned_engineer: engineer.name }));
+                            setServiceEngineerDropdownOpen(false);
+                          }}
+                        >
+                          <Text style={styles.selectorText}>{engineer.name}</Text>
+                          {!!engineer.department && <Text style={styles.muted}>{engineer.department}</Text>}
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )
               )}
+              {!engineerOptions.length && (
+                <Text style={styles.muted}>No engineer roster found.</Text>
+              )}
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Scheduled service date</Text>
+              <TextInput
+                style={styles.input}
+                value={serviceDraft.scheduled_date}
+                onChangeText={(value) => setServiceDraft((draft) => ({ ...draft, scheduled_date: value }))}
+                placeholder="YYYY-MM-DD"
+              />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Common elevator issue</Text>
@@ -3389,6 +3780,43 @@ export default function App() {
     const breakdownCustomerQuery = breakdownCustomerSearch.trim().toLowerCase();
     const visibleBreakdownCustomers = breakdownCustomerOptions
       .filter((customer) => !breakdownCustomerQuery || `${customer.id} ${customer.name} ${customer.phone} ${customer.address} ${customer.enquiryNo}`.toLowerCase().includes(breakdownCustomerQuery));
+    const breakdownIsClosed = (item: Record<string, unknown>) => ["closed", "resolved", "done", "cancelled", "completed"].includes(String(item.status || "").toLowerCase());
+    const linkedBreakdownCustomer = (item: Record<string, unknown>) => {
+      const customerId = String(item.customer_id || "").trim();
+      return breakdownCustomerOptions.find((customer) => customer.id === customerId);
+    };
+    const customerHistoryQuery = breakdownHistorySearch.trim().toLowerCase();
+    const filteredBreakdowns = breakdowns.filter((item) => {
+      const closed = breakdownIsClosed(item);
+      if (breakdownStatusFilter === "Open" && closed) return false;
+      if (breakdownStatusFilter === "Closed" && !closed) return false;
+      if (!customerHistoryQuery) return true;
+      const linkedCustomer = linkedBreakdownCustomer(item);
+      const haystack = [
+        item.id,
+        item.breakdown_number,
+        item.customer_id,
+        item.customer,
+        item.customer_name,
+        item.customer_phone,
+        item.phone,
+        item.location,
+        item.unit,
+        item.issue,
+        item.issue_category,
+        linkedCustomer?.id,
+        linkedCustomer?.name,
+        linkedCustomer?.phone,
+        linkedCustomer?.address,
+        linkedCustomer?.enquiryNo,
+      ].map((value) => String(value || "")).join(" ").toLowerCase();
+      return haystack.includes(customerHistoryQuery);
+    });
+    const breakdownPageSize = 10;
+    const breakdownPageCount = Math.max(1, Math.ceil(filteredBreakdowns.length / breakdownPageSize));
+    const safeBreakdownPage = Math.min(breakdownPage, breakdownPageCount);
+    const pagedBreakdowns = filteredBreakdowns.slice((safeBreakdownPage - 1) * breakdownPageSize, safeBreakdownPage * breakdownPageSize);
+    const unlinkedBreakdowns = breakdowns.filter((item) => !String(item.customer_id || "").trim());
     const activeBreakdowns = breakdowns.filter((item) => !["closed", "resolved", "done"].includes(String(item.status || "").toLowerCase()));
     const trappedCalls = breakdowns.filter((item) => ["y", "yes", "true"].includes(String(item.trapped_passenger || item.passenger_trapped || "").toLowerCase()));
     const availableEngineers = assignableStaff.filter((member) => staffAvailabilityInfo(member).availableNow);
@@ -3410,18 +3838,18 @@ export default function App() {
           </View>
         </View>
 
-        <View style={styles.metricGrid}>
-          <View style={styles.card}>
+        <View style={styles.breakdownMetricRow}>
+          <View style={[styles.card, styles.breakdownMetricTile]}>
             <Text style={styles.cardLabel}>Active breakdowns</Text>
             <Text style={styles.metricValue}>{activeBreakdowns.length}</Text>
             <Text style={styles.muted}>Open calls requiring dispatch or follow-up.</Text>
           </View>
-          <View style={styles.card}>
+          <View style={[styles.card, styles.breakdownMetricTile]}>
             <Text style={styles.cardLabel}>Trapped passenger</Text>
             <Text style={styles.metricValue}>{trappedCalls.length}</Text>
             <Text style={styles.muted}>Highest-priority rescue cases.</Text>
           </View>
-          <View style={styles.card}>
+          <View style={[styles.card, styles.breakdownMetricTile]}>
             <Text style={styles.cardLabel}>Breakdown staff</Text>
             <Text style={styles.metricValue}>{assignableStaff.length}</Text>
             <Text style={styles.muted}>{availableEngineers.length} available now under {fieldText(breakdownSupervisor || {}, ["name"]) || "Breakdown Supervisor"}.</Text>
@@ -3429,205 +3857,299 @@ export default function App() {
         </View>
 
         <View style={styles.formCard}>
-          <Text style={styles.cardLabel}>Schedule Engineer</Text>
-          <Text style={styles.muted}>
-            Breakdown dispatch availability is limited to the {assignableStaff.length} Breakdown staff managed by {fieldText(breakdownSupervisor || {}, ["name"]) || "the Breakdown Supervisor"}.
-            Select one while logging a new call, or use the schedule controls on an existing breakdown.
-          </Text>
-          <View style={styles.selectorList}>
-            {assignableStaff.map((member) => {
-              const availability = staffAvailabilityInfo(member);
-              const taskDraft = breakdownEngineerTaskDrafts[member.name] ?? String(member.current_job || "");
-              return (
-                <View key={`breakdown-availability-${member.id}`} style={styles.selectorPill}>
-                  <View style={styles.cardHeaderRow}>
-                    <Text style={styles.selectorText}>{member.name} - {member.role}</Text>
-                    <Text style={styles.statusPill}>{availability.availableNow ? "Available" : "Busy"}</Text>
-                  </View>
-                  <Text style={styles.muted}>{availability.summary}</Text>
-                  {!!member.phone && <Text style={styles.bodyText}>Phone: {member.phone}</Text>}
-                  <View style={styles.field}>
-                    <Text style={styles.label}>Current task</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={taskDraft}
-                      onChangeText={(value) => setBreakdownEngineerTaskDrafts((draft) => ({ ...draft, [member.name]: value }))}
-                      placeholder="Current breakdown/task"
-                    />
-                  </View>
-                  <View style={styles.inlineActions}>
-                    <Pressable style={styles.smallButton} onPress={() => updateBreakdownEngineerTask(member, taskDraft, member.name)} disabled={loading}>
-                      <Text style={styles.smallButtonText}>Save task</Text>
-                    </Pressable>
-                    <Pressable style={styles.smallButton} onPress={() => updateBreakdownEngineerTask(member, "", member.name)} disabled={loading}>
-                      <Text style={styles.smallButtonText}>Clear task</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              );
-            })}
-            {!assignableStaff.length && <Text style={styles.muted}>No engineer roster found. Add engineers in Install Team to schedule breakdown dispatch.</Text>}
-          </View>
+          <Pressable style={styles.repairNotesHeader} onPress={() => setBreakdownScheduleRosterOpen((open) => !open)}>
+            <View style={styles.cardTitleBlock}>
+              <Text style={styles.cardLabel}>Schedule Engineer</Text>
+              <Text style={styles.muted} numberOfLines={1}>{assignableStaff.length} breakdown staff, {availableEngineers.length} available now</Text>
+            </View>
+            <Text style={styles.dropdownChevron}>{breakdownScheduleRosterOpen ? "▲" : "▼"}</Text>
+          </Pressable>
+          {breakdownScheduleRosterOpen && (
+            <View style={styles.repairNotesBody}>
+              <Text style={styles.muted}>
+                Breakdown dispatch availability is limited to the {assignableStaff.length} Breakdown staff managed by {fieldText(breakdownSupervisor || {}, ["name"]) || "the Breakdown Supervisor"}.
+                Select one while logging a new call, or use the schedule controls on an existing breakdown.
+              </Text>
+              <View style={styles.selectorList}>
+                {assignableStaff.map((member) => {
+                  const availability = staffAvailabilityInfo(member);
+                  const taskDraft = breakdownEngineerTaskDrafts[member.name] ?? String(member.current_job || "");
+                  return (
+                    <View key={`breakdown-availability-${member.id}`} style={styles.dispatchRosterRow}>
+                      <View style={styles.dispatchRosterMain}>
+                        <View style={styles.dispatchRosterTitleRow}>
+                          <Text style={styles.dispatchRosterName}>{member.name}</Text>
+                          <Text style={[styles.dispatchStatusChip, availability.availableNow ? styles.dispatchStatusAvailable : styles.dispatchStatusBusy]}>
+                            {availability.availableNow ? "Available" : "Busy"}
+                          </Text>
+                        </View>
+                        <Text style={styles.dispatchRosterMeta} numberOfLines={2}>
+                          {availability.summary}{member.shift ? ` - ${member.shift}` : ""}{member.notes ? ` - ${member.notes}` : ""}
+                        </Text>
+                        {!!member.phone && <Text style={styles.dispatchRosterMeta}>Phone: {member.phone}</Text>}
+                      </View>
+                      <View style={styles.dispatchRosterAction}>
+                        <TextInput
+                          style={styles.dispatchTaskInput}
+                          value={taskDraft}
+                          onChangeText={(value) => setBreakdownEngineerTaskDrafts((draft) => ({ ...draft, [member.name]: value }))}
+                          placeholder="Current task"
+                        />
+                        <View style={styles.dispatchRosterButtons}>
+                          <Pressable style={styles.smallButton} onPress={() => updateBreakdownEngineerTask(member, taskDraft, member.name)} disabled={loading}>
+                          <Text style={styles.smallButtonText}>Save task</Text>
+                          </Pressable>
+                          <Pressable style={styles.smallButton} onPress={() => updateBreakdownEngineerTask(member, "", member.name)} disabled={loading}>
+                            <Text style={styles.smallButtonText}>Clear</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })}
+                {!assignableStaff.length && <Text style={styles.muted}>No engineer roster found. Add engineers in Install Team to schedule breakdown dispatch.</Text>}
+              </View>
+            </View>
+          )}
         </View>
 
         <View style={styles.formCard}>
-          <Text style={styles.cardLabel}>New breakdown call</Text>
-          {!breakdownCustomerOptions.length && (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Add a customer first</Text>
-              <Text style={styles.muted}>Breakdown calls must be linked to a saved customer ID before dispatch can begin.</Text>
-              <View style={styles.inlineActions}>
-                <Pressable style={styles.smallButton} onPress={() => setActiveTab("customers")}>
-                  <Text style={styles.smallButtonText}>Open Customer CRM</Text>
-                </Pressable>
-              </View>
+          <Pressable style={styles.repairNotesHeader} onPress={() => setBreakdownNewCallOpen((open) => !open)}>
+            <View style={styles.cardTitleBlock}>
+              <Text style={styles.cardLabel}>New breakdown call</Text>
+              <Text style={styles.muted} numberOfLines={1}>{breakdownDraft.customer_id ? `${breakdownDraft.customer_id} - ${breakdownDraft.customer || "Customer selected"}` : "Log a new CRM-linked breakdown"}</Text>
             </View>
-          )}
-          {!!breakdownCustomerOptions.length && (
-            <View style={styles.field}>
-              <Text style={styles.label}>CRM customer</Text>
-              <Text style={styles.muted}>{breakdownCustomerOptions.length} CRM customers available for breakdown linking.</Text>
-              <Pressable
-                style={[styles.dropdownButton, breakdownCustomerDropdownOpen && styles.selectorPillActive]}
-                onPress={() => setBreakdownCustomerDropdownOpen((open) => !open)}
-                disabled={loading}
-              >
-                <Text style={styles.selectorText}>
-                  {selectedBreakdownCustomer
-                    ? `${selectedBreakdownCustomer.id} - ${selectedBreakdownCustomer.name}${selectedBreakdownCustomer.phone ? ` - ${selectedBreakdownCustomer.phone}` : ""}`
-                    : "Select CRM customer"}
-                </Text>
-                <Text style={styles.dropdownChevron}>{breakdownCustomerDropdownOpen ? "▲" : "▼"}</Text>
-              </Pressable>
-              {breakdownCustomerDropdownOpen && (
-                <View style={styles.dropdownPanel}>
-                  <TextInput
-                    style={styles.input}
-                    value={breakdownCustomerSearch}
-                    onChangeText={setBreakdownCustomerSearch}
-                    placeholder="Search customer, phone, enquiry no"
-                  />
-                  <Text style={styles.muted}>Showing {visibleBreakdownCustomers.length} matching customers.</Text>
-                  <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                    {visibleBreakdownCustomers.map((customer, index) => (
-                      <Pressable
-                        key={`breakdown-customer-${customer.id}-${customer.enquiryNo}-${index}`}
-                        style={[styles.dropdownOption, breakdownDraft.customer_id === customer.id && styles.selectorPillActive]}
-                        onPress={() => {
-                          setBreakdownDraft((draft) => ({
-                            ...draft,
-                            customer_id: customer.id,
-                            customer: customer.name,
-                            source_inquiry_id: customer.enquiryNo,
-                            phone: draft.phone || customer.phone,
-                            location: customer.address,
-                          }));
-                          setBreakdownCustomerDropdownOpen(false);
-                        }}
-                      >
-                        <Text style={styles.selectorText}>{customer.id} - {customer.name}</Text>
-                        <Text style={styles.muted}>{customer.phone || "No phone"}{customer.address ? ` - ${customer.address}` : ""}{customer.enquiryNo ? ` - ${customer.enquiryNo}` : ""}</Text>
-                      </Pressable>
-                    ))}
-                    {!visibleBreakdownCustomers.length && <Text style={styles.muted}>No CRM customers match that search.</Text>}
-                  </ScrollView>
-                </View>
-              )}
-            </View>
-          )}
-          <Text style={styles.muted}>Breakdown number, date, and time are generated by the system when this record is saved.</Text>
-          <View style={styles.formGrid}>
-            {[
-              ["unit", "Lift / unit"],
-              ["phone", "Caller mobile"],
-              ["location", "Location"],
-              ["priority", "Priority"],
-              ["trapped_passenger", "Trapped passenger Y/N"],
-              ["scheduled_at", "Schedule engineer YYYY-MM-DD HH:mm"],
-            ].map(([key, label]) => (
-              <View key={key} style={styles.field}>
-                <Text style={styles.label}>{label}</Text>
-                <TextInput
-                  style={styles.input}
-                  value={String(breakdownDraft[key as keyof typeof breakdownDraft] || "")}
-                  onChangeText={(value) => setBreakdownDraft((draft) => ({ ...draft, [key]: value }))}
-                  editable={key !== "location"}
-                  placeholder={key === "location" ? "Taken from selected CRM customer" : undefined}
-                />
-              </View>
-            ))}
-            <View style={styles.field}>
-              <Text style={styles.label}>Assigned engineer</Text>
-              <TextInput style={styles.input} value={breakdownDraft.engineer} onChangeText={(value) => setBreakdownDraft((draft) => ({ ...draft, engineer: value, assigned_engineer: value }))} placeholder="Engineer name" />
-              {!!engineerOptions.length && (
-                <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
-                  {engineerOptions.slice(0, 12).map((engineer) => (
-                    <Pressable key={`brk-eng-${engineer.name}`} style={[styles.smallButton, breakdownDraft.engineer === engineer.name && styles.selectorPillActive]} onPress={() => setBreakdownDraft((draft) => ({ ...draft, engineer: engineer.name, assigned_engineer: engineer.name, scheduled_at: draft.scheduled_at || defaultBreakdownScheduleTime() }))}>
-                      <Text style={styles.smallButtonText}>{engineer.name}</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              )}
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Common elevator issue</Text>
-              <Pressable style={[styles.dropdownButton, breakdownIssueDropdownOpen && styles.selectorPillActive]} onPress={() => setBreakdownIssueDropdownOpen((open) => !open)}>
-                <Text style={styles.selectorText}>{breakdownDraft.issue_category}</Text>
-                <Text style={styles.dropdownChevron}>{breakdownIssueDropdownOpen ? "▲" : "▼"}</Text>
-              </Pressable>
-              {breakdownIssueDropdownOpen && (
-                <View style={styles.dropdownPanel}>
-                  {serviceIssueCategories.map((issue) => (
-                    <Pressable key={`breakdown-issue-${issue}`} style={[styles.dropdownOption, breakdownDraft.issue_category === issue && styles.selectorPillActive]} onPress={() => { setBreakdownDraft((draft) => ({ ...draft, issue: issue, issue_category: issue })); setBreakdownIssueDropdownOpen(false); }}>
-                      <Text style={styles.selectorText}>{issue}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              )}
-            </View>
-            <View style={styles.field}><Text style={styles.label}>Parts used</Text><TextInput style={styles.input} value={breakdownDraft.parts_used} onChangeText={(value) => setBreakdownDraft((draft) => ({ ...draft, parts_used: value }))} placeholder="Part names / item IDs" /></View>
-            <View style={styles.field}><Text style={styles.label}>Parts quantity</Text><TextInput style={styles.input} value={breakdownDraft.parts_quantity} onChangeText={(value) => setBreakdownDraft((draft) => ({ ...draft, parts_quantity: value.replace(/[^\d.]/g, "") }))} keyboardType="numeric" /></View>
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>Action taken</Text>
-            <TextInput
-              style={[styles.input, styles.textarea]}
-              value={breakdownDraft.action_taken}
-              onChangeText={(value) => setBreakdownDraft((draft) => ({ ...draft, action_taken: value }))}
-              multiline
-            />
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>Customer comments</Text>
-            <TextInput
-              style={[styles.input, styles.textarea]}
-              value={breakdownDraft.customer_comments}
-              onChangeText={(value) => setBreakdownDraft((draft) => ({ ...draft, customer_comments: value }))}
-              multiline
-            />
-          </View>
-          <Pressable style={styles.primaryButton} onPress={saveBreakdown} disabled={loading || !breakdownDraft.customer_id}>
-            <Text style={styles.primaryButtonText}>Log breakdown</Text>
+            <Text style={styles.dropdownChevron}>{breakdownNewCallOpen ? "▲" : "▼"}</Text>
           </Pressable>
+          {breakdownNewCallOpen && (
+            <View style={styles.repairNotesBody}>
+              <View style={styles.formSectionBlock}>
+                <Text style={styles.cardLabel}>1. Customer</Text>
+                {!breakdownCustomerOptions.length && (
+                  <View style={styles.card}>
+                    <Text style={styles.cardTitle}>Add a customer first</Text>
+                    <Text style={styles.muted}>Breakdown calls must be linked to a saved customer ID before dispatch can begin.</Text>
+                    <View style={styles.inlineActions}>
+                      <Pressable style={styles.smallButton} onPress={() => setActiveTab("customers")}>
+                        <Text style={styles.smallButtonText}>Open Customer CRM</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                )}
+                {!!breakdownCustomerOptions.length && (
+                  <View style={styles.field}>
+                    <Text style={styles.label}>CRM customer</Text>
+                    <Text style={styles.muted}>{breakdownCustomerOptions.length} CRM customers available for breakdown linking.</Text>
+                    <Pressable
+                      style={[styles.dropdownButton, breakdownCustomerDropdownOpen && styles.selectorPillActive]}
+                      onPress={() => setBreakdownCustomerDropdownOpen((open) => !open)}
+                      disabled={loading}
+                    >
+                      <Text style={styles.selectorText}>
+                        {selectedBreakdownCustomer
+                          ? `${selectedBreakdownCustomer.id} - ${selectedBreakdownCustomer.name}${selectedBreakdownCustomer.phone ? ` - ${selectedBreakdownCustomer.phone}` : ""}`
+                          : "Select CRM customer"}
+                      </Text>
+                      <Text style={styles.dropdownChevron}>{breakdownCustomerDropdownOpen ? "▲" : "▼"}</Text>
+                    </Pressable>
+                    {breakdownCustomerDropdownOpen && (
+                      <View style={styles.dropdownPanel}>
+                        <TextInput
+                          style={styles.input}
+                          value={breakdownCustomerSearch}
+                          onChangeText={setBreakdownCustomerSearch}
+                          placeholder="Search customer, phone, enquiry no"
+                        />
+                        <Text style={styles.muted}>Showing {visibleBreakdownCustomers.length} matching customers.</Text>
+                        <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                          {visibleBreakdownCustomers.map((customer, index) => (
+                            <Pressable
+                              key={`breakdown-customer-${customer.id}-${customer.enquiryNo}-${index}`}
+                              style={[styles.dropdownOption, breakdownDraft.customer_id === customer.id && styles.selectorPillActive]}
+                              onPress={() => {
+                                setBreakdownDraft((draft) => ({
+                                  ...draft,
+                                  customer_id: customer.id,
+                                  customer: customer.name,
+                                  source_inquiry_id: customer.enquiryNo,
+                                  phone: draft.phone || customer.phone,
+                                  location: customer.address,
+                                }));
+                                setBreakdownCustomerDropdownOpen(false);
+                              }}
+                            >
+                              <Text style={styles.selectorText}>{customer.id} - {customer.name}</Text>
+                              <Text style={styles.muted}>{customer.phone || "No phone"}{customer.address ? ` - ${customer.address}` : ""}{customer.enquiryNo ? ` - ${customer.enquiryNo}` : ""}</Text>
+                            </Pressable>
+                          ))}
+                          {!visibleBreakdownCustomers.length && <Text style={styles.muted}>No CRM customers match that search.</Text>}
+                        </ScrollView>
+                      </View>
+                    )}
+                  </View>
+                )}
+              </View>
+              <View style={styles.formSectionBlock}>
+                <Text style={styles.cardLabel}>2. Call details</Text>
+                <Text style={styles.muted}>Breakdown number, date, and time are generated by the system when this record is saved.</Text>
+                <View style={styles.formGrid}>
+                  {[
+                    ["unit", "Lift / unit"],
+                    ["phone", "Caller mobile"],
+                    ["location", "Location"],
+                    ["priority", "Priority"],
+                    ["trapped_passenger", "Trapped passenger Y/N"],
+                    ["scheduled_at", "Schedule engineer YYYY-MM-DD HH:mm"],
+                  ].map(([key, label]) => (
+                    <View key={key} style={styles.field}>
+                      <Text style={styles.label}>{label}</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={String(breakdownDraft[key as keyof typeof breakdownDraft] || "")}
+                        onChangeText={(value) => setBreakdownDraft((draft) => ({ ...draft, [key]: value }))}
+                        editable={key !== "location"}
+                        placeholder={key === "location" ? "Taken from selected CRM customer" : undefined}
+                      />
+                    </View>
+                  ))}
+                </View>
+              </View>
+              <View style={styles.formSectionBlock}>
+                <Text style={styles.cardLabel}>3. Engineer</Text>
+                <View style={styles.field}>
+                  <Text style={styles.label}>Assigned engineer</Text>
+                  <Pressable
+                    style={[styles.dropdownButton, breakdownEngineerDropdownOpen && styles.selectorPillActive]}
+                    onPress={() => setBreakdownEngineerDropdownOpen((open) => !open)}
+                    disabled={loading || !engineerOptions.length}
+                  >
+                    <Text style={styles.selectorText}>{breakdownDraft.engineer || "Select engineer"}</Text>
+                    <Text style={styles.dropdownChevron}>{breakdownEngineerDropdownOpen ? "▲" : "▼"}</Text>
+                  </Pressable>
+                  {!!engineerOptions.length && breakdownEngineerDropdownOpen && (
+                    <View style={styles.dropdownPanel}>
+                      <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                        {engineerOptions.map((engineer) => (
+                          <Pressable
+                            key={`brk-eng-${engineer.name}`}
+                            style={[styles.dropdownOption, breakdownDraft.engineer === engineer.name && styles.selectorPillActive]}
+                            onPress={() => {
+                              setBreakdownDraft((draft) => ({ ...draft, engineer: engineer.name, assigned_engineer: engineer.name, scheduled_at: draft.scheduled_at || defaultBreakdownScheduleTime() }));
+                              setBreakdownEngineerDropdownOpen(false);
+                            }}
+                          >
+                            <Text style={styles.selectorText}>{engineer.name}</Text>
+                            {!!engineer.department && <Text style={styles.muted}>{engineer.department}</Text>}
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                  {!engineerOptions.length && <Text style={styles.muted}>No engineer roster found.</Text>}
+                </View>
+              </View>
+              <Pressable style={styles.primaryButton} onPress={saveBreakdown} disabled={loading || !breakdownDraft.customer_id}>
+                <Text style={styles.primaryButtonText}>Log breakdown</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
 
         <Text style={styles.sectionTitle}>Breakdown Calls</Text>
-        {!breakdowns.length && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>No active breakdown calls</Text>
-            <Text style={styles.muted}>Use the form above to log the first breakdown call. Trapped-passenger cases should be marked Y and dispatched immediately.</Text>
+        <View style={styles.formCard}>
+          <View style={styles.cardHeaderRow}>
+            <View>
+              <Text style={styles.cardLabel}>Breakdown view</Text>
+              <Text style={styles.muted}>Switch between current open calls, closed history, or all breakdowns.</Text>
+            </View>
+            <View style={styles.inlineActions}>
+              {["Open", "Closed", "All"].map((status) => (
+                <Pressable
+                  key={`breakdown-filter-${status}`}
+                  style={[styles.smallButton, breakdownStatusFilter === status && styles.selectorPillActive]}
+                  onPress={() => {
+                    setBreakdownStatusFilter(status);
+                    setBreakdownPage(1);
+                  }}
+                  disabled={loading}
+                >
+                  <Text style={styles.smallButtonText}>{status}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Customer breakdown history</Text>
+            <TextInput
+              style={styles.input}
+              value={breakdownHistorySearch}
+              onChangeText={(value) => {
+                setBreakdownHistorySearch(value);
+                setBreakdownPage(1);
+              }}
+              placeholder="Search customer name, customer number, phone, unit, breakdown no"
+            />
+          </View>
+          {!!unlinkedBreakdowns.length && (
+            <View style={styles.emptyState}>
+              <Text style={styles.cardTitle}>{unlinkedBreakdowns.length} breakdown record{unlinkedBreakdowns.length === 1 ? "" : "s"} missing CRM customer link</Text>
+              <Text style={styles.muted}>New breakdown calls must be linked to CRM before saving. These are older/imported records and should be matched to a customer before reporting history.</Text>
+            </View>
+          )}
+        </View>
+        {!!filteredBreakdowns.length && (
+          <View style={styles.paginationBar}>
+            <Text style={styles.muted}>Showing {(safeBreakdownPage - 1) * breakdownPageSize + 1}-{Math.min(safeBreakdownPage * breakdownPageSize, filteredBreakdowns.length)} of {filteredBreakdowns.length}</Text>
+            <View style={styles.inlineActions}>
+              <Pressable style={styles.smallButton} onPress={() => setBreakdownPage((page) => Math.max(1, page - 1))} disabled={safeBreakdownPage <= 1}>
+                <Text style={styles.smallButtonText}>Previous</Text>
+              </Pressable>
+              <Text style={styles.muted}>Page {safeBreakdownPage} / {breakdownPageCount}</Text>
+              <Pressable style={styles.smallButton} onPress={() => setBreakdownPage((page) => Math.min(breakdownPageCount, page + 1))} disabled={safeBreakdownPage >= breakdownPageCount}>
+                <Text style={styles.smallButtonText}>Next</Text>
+              </Pressable>
+            </View>
           </View>
         )}
-        {breakdowns.map((item, index) => {
+        {!filteredBreakdowns.length && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>No breakdown calls found</Text>
+            <Text style={styles.muted}>{breakdowns.length ? "No breakdown calls match this status/customer search." : "Use the form above to log the first breakdown call. Trapped-passenger cases should be marked Y and dispatched immediately."}</Text>
+          </View>
+        )}
+        {pagedBreakdowns.map((item, index) => {
           const id = recordIdentity(item) || String(item.id || `BRK-${index + 1}`);
+          const customerId = String(item.customer_id || "").trim();
+          const linkedCustomer = linkedBreakdownCustomer(item);
+          const assignedEngineerName = String(item.engineer || item.assigned_engineer || item.assigned_to || "").trim();
+          const selectedEngineer = assignableStaff.find((member) => member.name.toLowerCase() === assignedEngineerName.toLowerCase());
+          const scheduleTime = breakdownScheduleDrafts[id] ?? String(item.scheduled_at || item.scheduled_time || item.dispatch_time || defaultBreakdownScheduleTime());
+          const repairDraft = breakdownRepairDraftFor(id, item);
+          const repairOpen = Boolean(breakdownRepairOpen[id]);
+          const repairNeedsCustomIssue = !String(repairDraft.issue_category || "").trim() || String(repairDraft.issue_category || "").trim().toLowerCase() === "other";
+          const repairSummary = [
+            repairDraft.issue_category || repairDraft.custom_issue,
+            repairDraft.parts_used ? `Parts: ${repairDraft.parts_used}` : "",
+            repairDraft.action_taken ? "Action noted" : "",
+          ].filter(Boolean).join(" - ") || "No repair notes saved yet.";
           return (
             <View key={id} style={styles.card}>
               <View style={styles.cardHeaderRow}>
-                <Text style={styles.cardTitle}>{fieldText(item, ["unit", "breakdown_number", "id"])}</Text>
+                <Text style={styles.cardTitle}>Breakdown no: {fieldText(item, ["breakdown_number", "id"])}</Text>
                 <Text style={styles.statusPill}>{fieldText(item, ["priority", "status"])}</Text>
               </View>
-              <Text style={styles.bodyText}>Breakdown no: {fieldText(item, ["breakdown_number", "id"])} - Date/time: {fieldText(item, ["date_time", "breakdown_date", "created_at"])}</Text>
+              <Text style={styles.bodyText}>Unit: {fieldText(item, ["unit"])} - Date/time: {fieldText(item, ["date_time", "breakdown_date", "created_at"])}</Text>
               <Text style={styles.muted}>{fieldText(item, ["customer"])} - {fieldText(item, ["location", "site"])} - {fieldText(item, ["status"])}</Text>
+              <View style={styles.inlineMeta}>
+                <Text style={styles.muted}>CRM customer</Text>
+                {customerId ? (
+                  <Pressable onPress={() => openCrmForCustomerNumber(customerId)} disabled={loading}>
+                    <Text style={styles.clickableUsername}>{customerId}{linkedCustomer?.name ? ` - ${linkedCustomer.name}` : ""}</Text>
+                  </Pressable>
+                ) : (
+                  <Text style={styles.statusPill}>Missing link</Text>
+                )}
+              </View>
               <Text style={styles.bodyText}>Issue: {fieldText(item, ["issue_category", "issue", "fault", "notes"])}</Text>
               <Text style={styles.bodyText}>Engineer: {fieldText(item, ["engineer", "assigned_engineer", "assigned_to"])} - Caller: {fieldText(item, ["phone", "caller_mobile", "customer_phone"])}</Text>
               <Text style={styles.bodyText}>Scheduled: {fieldText(item, ["scheduled_at", "scheduled_time", "dispatch_time"])}</Text>
@@ -3638,6 +4160,88 @@ export default function App() {
               {!!attendanceLocationText(item.check_out_location) && <Text style={styles.muted}>Check-out location: {attendanceLocationText(item.check_out_location)}</Text>}
               {!!fieldText(item, ["action_taken"]).replace("-", "").trim() && <Text style={styles.muted}>Action taken: {fieldText(item, ["action_taken"])}</Text>}
               {!!fieldText(item, ["customer_comments"]).replace("-", "").trim() && <Text style={styles.muted}>Customer comments: {fieldText(item, ["customer_comments"])}</Text>}
+              <View style={styles.repairNotesPanel}>
+                <Pressable
+                  style={styles.repairNotesHeader}
+                  onPress={() => setBreakdownRepairOpen((open) => ({ ...open, [id]: !open[id] }))}
+                >
+                  <View style={styles.cardTitleBlock}>
+                    <Text style={styles.cardLabel}>Repair notes</Text>
+                    <Text style={styles.muted} numberOfLines={1}>{repairSummary}</Text>
+                  </View>
+                  <Text style={styles.dropdownChevron}>{repairOpen ? "▲" : "▼"}</Text>
+                </Pressable>
+                {repairOpen && (
+                  <View style={styles.repairNotesBody}>
+                    <Text style={styles.muted}>Engineer fills this after opening the assigned breakdown.</Text>
+                    <View style={styles.formGrid}>
+                  <View style={styles.field}>
+                    <Text style={styles.label}>Common elevator issue</Text>
+                    <Pressable style={[styles.dropdownButton, breakdownRepairIssueDropdownOpen === id && styles.selectorPillActive]} onPress={() => setBreakdownRepairIssueDropdownOpen((openId) => openId === id ? "" : id)}>
+                      <Text style={styles.selectorText}>{repairDraft.issue_category || "Select issue"}</Text>
+                      <Text style={styles.dropdownChevron}>{breakdownRepairIssueDropdownOpen === id ? "▲" : "▼"}</Text>
+                    </Pressable>
+                    {breakdownRepairIssueDropdownOpen === id && (
+                      <View style={styles.dropdownPanel}>
+                        {serviceIssueCategories.map((issue) => (
+                          <Pressable
+                            key={`${id}-repair-issue-${issue}`}
+                            style={[styles.dropdownOption, repairDraft.issue_category === issue && styles.selectorPillActive]}
+                            onPress={() => {
+                              setBreakdownRepairDrafts((drafts) => ({
+                                ...drafts,
+                                [id]: {
+                                  ...breakdownRepairDraftFor(id, item),
+                                  issue_category: issue,
+                                  custom_issue: issue === "Other" ? breakdownRepairDraftFor(id, item).custom_issue : "",
+                                },
+                              }));
+                              setBreakdownRepairIssueDropdownOpen("");
+                            }}
+                          >
+                            <Text style={styles.selectorText}>{issue}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
+                    {repairNeedsCustomIssue && (
+                      <View style={styles.inlineNestedField}>
+                        <Text style={styles.label}>Other issue - type here</Text>
+                        <TextInput
+                          style={[styles.input, styles.textarea]}
+                          value={repairDraft.custom_issue}
+                          onChangeText={(value) => updateBreakdownRepairDraft(id, item, "custom_issue", value)}
+                          placeholder="Type issue if not in list"
+                          multiline
+                        />
+                      </View>
+                    )}
+                  </View>
+                  <View style={styles.field}>
+                    <Text style={styles.label}>Parts used</Text>
+                    <TextInput style={styles.input} value={repairDraft.parts_used} onChangeText={(value) => updateBreakdownRepairDraft(id, item, "parts_used", value)} placeholder="Part names / item IDs" />
+                  </View>
+                  <View style={styles.field}>
+                    <Text style={styles.label}>Parts quantity</Text>
+                    <TextInput style={styles.input} value={repairDraft.parts_quantity} onChangeText={(value) => updateBreakdownRepairDraft(id, item, "parts_quantity", value.replace(/[^\d.]/g, ""))} keyboardType="numeric" />
+                  </View>
+                </View>
+                <View style={styles.field}>
+                  <Text style={styles.label}>Action taken</Text>
+                  <TextInput style={[styles.input, styles.textarea]} value={repairDraft.action_taken} onChangeText={(value) => updateBreakdownRepairDraft(id, item, "action_taken", value)} multiline />
+                </View>
+                <View style={styles.field}>
+                  <Text style={styles.label}>Customer comments</Text>
+                  <TextInput style={[styles.input, styles.textarea]} value={repairDraft.customer_comments} onChangeText={(value) => updateBreakdownRepairDraft(id, item, "customer_comments", value)} multiline />
+                </View>
+                <View style={styles.inlineActions}>
+                  <Pressable style={styles.primaryButtonInline} onPress={() => saveBreakdownRepairDetails(id, item)} disabled={loading}>
+                    <Text style={styles.primaryButtonText}>Save repair notes</Text>
+                  </Pressable>
+                </View>
+                  </View>
+                )}
+              </View>
               <View style={styles.field}>
                 <Text style={styles.label}>Schedule time</Text>
                 <TextInput
@@ -3648,29 +4252,43 @@ export default function App() {
                 />
               </View>
               <Text style={styles.label}>Schedule Engineer</Text>
-              <View style={styles.inlineActions}>
-                {assignableStaff.map((member) => {
-                  const availability = staffAvailabilityInfo(member);
-                  const scheduleTime = breakdownScheduleDrafts[id] ?? String(item.scheduled_at || item.scheduled_time || item.dispatch_time || defaultBreakdownScheduleTime());
-                  const taskDraft = breakdownEngineerTaskDrafts[`${id}-${member.name}`] ?? String(member.current_job || "");
-                  return (
-                    <View key={`${id}-${member.id}`} style={styles.selectorPill}>
-                      <Pressable style={styles.smallButton} onPress={() => scheduleBreakdownEngineer(id, member, scheduleTime)} disabled={loading}>
-                        <Text style={styles.smallButtonText}>{member.name}</Text>
-                        <Text style={styles.smallButtonHint}>{availability.availableNow ? "Available now" : availability.summary}</Text>
+              <View style={styles.singleEngineerPanel}>
+                <Pressable
+                  style={[styles.dropdownButton, breakdownCallEngineerDropdownOpen === id && styles.selectorPillActive]}
+                  onPress={() => setBreakdownCallEngineerDropdownOpen((openId) => openId === id ? "" : id)}
+                  disabled={loading || !assignableStaff.length}
+                >
+                  <View style={styles.cardTitleBlock}>
+                    <Text style={styles.selectorText}>{assignedEngineerName || "Unassigned"}</Text>
+                    <Text style={styles.dispatchRosterMeta}>
+                      {assignedEngineerName ? "Assigned" : "Needs engineer"} - {assignedEngineerName ? "Only one engineer assigned" : "Select one engineer"}
+                    </Text>
+                  </View>
+                  <Text style={styles.dropdownChevron}>{breakdownCallEngineerDropdownOpen === id ? "▲" : "▼"}</Text>
+                </Pressable>
+                {breakdownCallEngineerDropdownOpen === id && (
+                  <View style={styles.dropdownPanel}>
+                  {assignableStaff.map((member) => {
+                    const isAssigned = member.name.toLowerCase() === assignedEngineerName.toLowerCase();
+                    const availability = staffAvailabilityInfo(member);
+                    return (
+                      <Pressable
+                        key={`${id}-${member.id}`}
+                        style={[styles.dropdownOption, isAssigned && styles.selectorPillActive]}
+                        onPress={() => {
+                          scheduleBreakdownEngineer(id, member, scheduleTime);
+                          setBreakdownCallEngineerDropdownOpen("");
+                        }}
+                        disabled={loading}
+                      >
+                        <Text style={styles.selectorText}>{member.name}</Text>
+                        <Text style={styles.muted}>{availability.availableNow ? "Available" : "Busy"}</Text>
                       </Pressable>
-                      <TextInput
-                        style={styles.compactInput}
-                        value={taskDraft}
-                        onChangeText={(value) => setBreakdownEngineerTaskDrafts((draft) => ({ ...draft, [`${id}-${member.name}`]: value }))}
-                        placeholder="Change current task"
-                      />
-                      <Pressable style={styles.smallButton} onPress={() => updateBreakdownEngineerTask(member, taskDraft || id, `${id}-${member.name}`)} disabled={loading}>
-                        <Text style={styles.smallButtonText}>Save task</Text>
-                      </Pressable>
-                    </View>
-                  );
-                })}
+                    );
+                  })}
+                  {!assignableStaff.length && <Text style={styles.muted}>No engineers are available in the breakdown roster.</Text>}
+                  </View>
+                )}
               </View>
               <View style={styles.inlineActions}>
                 <Pressable style={styles.smallButton} onPress={() => updateBreakdownVisitPoint(item, "check_in")} disabled={loading}>
@@ -4744,7 +5362,7 @@ export default function App() {
     const query = crmSearch.trim().toLowerCase();
     const staffQuery = crmStaffFilter.trim().toLowerCase();
     return (data?.customers || []).filter((customer) => {
-      const stage = customer.pipeline_stage || "Lead";
+      const stage = crmRelationshipStatus(customer as unknown as Record<string, unknown>);
       const assignments = customerAssignmentRecords(customer.id);
       const assignmentText = assignments.map((assignment) => [
         assignment.staff_name,
@@ -4758,6 +5376,91 @@ export default function App() {
       const queryOk = !query || `${JSON.stringify(customer)} ${assignmentText}`.toLowerCase().includes(query);
       return stageOk && staffOk && departmentOk && teamOk && queryOk;
     });
+  }
+
+  function crmInstalledDateForJob(job: Record<string, unknown>) {
+    return String(
+      job.installed_date ||
+      job.install_complete_date ||
+      job.completion_date ||
+      job.handed_over_date ||
+      job.handover_date ||
+      job.start_date ||
+      job.created_at ||
+      ""
+    ).slice(0, 10);
+  }
+
+  function crmInstallationJobsForRecord(record: Record<string, unknown>) {
+    const customerId = String(record.customer_id || record.id || "").trim();
+    const enquiryNo = String(record.enquiry_no || record.source_enquiry_no || record.source_inquiry_id || "").trim();
+    const nameKey = crmNameKey(record.name || record.customer || record.customer_name || record.lead_name);
+    const phone = String(record.phone || record.whatsapp_no || record.mobile || "").replace(/\D/g, "");
+    return asRecords(data?.install_jobs).filter((job) => {
+      const jobCustomerId = String(job.customer_id || "").trim();
+      const jobEnquiryNo = String(job.source_inquiry_id || job.enquiry_no || job.source_enquiry_no || "").trim();
+      const jobNameKey = crmNameKey(job.customer || job.customer_name || job.project_name);
+      const jobPhone = String(job.phone || job.customer_phone || job.mobile || "").replace(/\D/g, "");
+      return Boolean(
+        (customerId && jobCustomerId && customerId === jobCustomerId) ||
+        (enquiryNo && jobEnquiryNo && enquiryNo === jobEnquiryNo) ||
+        (nameKey && jobNameKey && nameKey === jobNameKey) ||
+        (phone && jobPhone && phone === jobPhone)
+      );
+    });
+  }
+
+  function crmLatestInstalledFromJobs(jobs: Array<Record<string, unknown>>) {
+    const job = [...jobs].sort((a, b) => crmInstalledDateForJob(b).localeCompare(crmInstalledDateForJob(a)))[0];
+    return { job, date: job ? crmInstalledDateForJob(job) : "" };
+  }
+
+  function crmRelationshipStatus(record: Record<string, unknown>) {
+    const { date } = crmLatestInstalledFromJobs(crmInstallationJobsForRecord(record));
+    if (date) return "Current Customer";
+    return String(record.pipeline_stage || record.lead_status || record.status || "Lead");
+  }
+
+  async function saveInstalledDateForCrmRecord(record: Record<string, unknown>, installedDateValue: string) {
+    const customerId = String(record.customer_id || record.id || "").trim();
+    if (!customerId) return;
+    const installedDate = installedDateValue.trim();
+    const installJobs = crmInstallationJobsForRecord(record);
+    const { job } = crmLatestInstalledFromJobs(installJobs);
+    if (!installedDate && !job) return;
+    if (job) {
+      const jobId = recordIdentity(job) || String(job.job_id || job.id || "");
+      if (!jobId) return;
+      await apiFetch(`/api/portal/install-jobs/${encodeURIComponent(jobId)}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({
+          installed_date: installedDate,
+          install_complete_date: installedDate,
+          completion_date: installedDate,
+          status: installedDate ? String(job.status || "Completed") : String(job.status || "Lead"),
+        }),
+      });
+      return;
+    }
+    await apiFetch("/api/portal/install-jobs", {
+      method: "POST",
+      token,
+      body: JSON.stringify({
+        customer_id: customerId,
+        customer: String(record.name || record.customer || record.customer_name || record.lead_name || ""),
+        site: String(record.address || record.site_address || record.site || ""),
+        source_inquiry_id: String(record.enquiry_no || record.source_enquiry_no || record.source_inquiry_id || ""),
+        installed_date: installedDate,
+        install_complete_date: installedDate,
+        completion_date: installedDate,
+        status: "Completed",
+      }),
+    });
+  }
+
+  async function saveCustomerInstalledDate(customer: Partial<Customer>) {
+    await saveInstalledDateForCrmRecord(customer as Record<string, unknown>, customerInstalledDateDraft);
   }
 
   function canManageCustomerAssignments() {
@@ -5312,18 +6015,21 @@ export default function App() {
       customer_id: customer.id,
       customer_name: customer.name,
       offer_name: customer.name,
+      linked_customer_source: "CRM customer",
       offer_type: siteMeasurements.offer_type || customer.segment || "Passenger",
       lead_status: "Offer Pending",
       elevator_type: customer.segment || "Passenger Elevator",
       createdbyname: data?.viewer?.display_name || username,
     });
+    setActiveTab("offerManager");
     setCostingEditorOpen(true);
+    setMessage(`Offer Manager opened for ${customer.name}. CRM and latest site visit data are filled into the offer draft.`);
   }
 
   function openCostingForInquiry(record: Record<string, unknown>) {
     const customerName = String(record.customer || record.lead_name || "");
     const customerId = String(record.customer_id || "");
-    const siteMeasurements = offerMeasurementPayloadFromSiteVisit(siteVisitsForCustomerId(customerId)[0]);
+    const siteMeasurements = offerMeasurementPayloadFromSiteVisit(siteVisitsForOfferRecord(record)[0]);
     setOfferDraft({
       ...emptyOfferDraft,
       ...siteMeasurements,
@@ -5335,9 +6041,35 @@ export default function App() {
       createdbyname: data?.viewer?.display_name || username,
       customer_id: customerId,
       source_inquiry_id: recordIdentity(record) || String(record.enquiry_no || ""),
+      linked_customer_source: "CRM enquiry",
       notes: String(record.enquiry_remark || record.requirement || ""),
     });
+    setActiveTab("offerManager");
     setCostingEditorOpen(true);
+    setMessage(`Offer Manager opened for ${customerName}. CRM enquiry and linked site visit data are filled into the offer draft.`);
+  }
+
+  function offerCustomerOptions() {
+    const savedCustomers = (data?.customers || []).map((customer) => ({
+      id: String(customer.id || ""),
+      name: String(customer.name || ""),
+      phone: String(customer.phone || ""),
+      address: String(customer.address || ""),
+      source: "CRM customer",
+      record: customer as unknown as Record<string, unknown>,
+    }));
+    const inquiryCustomers = asRecords(data?.sales_inquiries).map((inquiry) => ({
+      id: String(inquiry.customer_id || inquiry.id || inquiry.enquiry_no || ""),
+      name: String(inquiry.customer || inquiry.lead_name || inquiry.name || ""),
+      phone: String(inquiry.phone || inquiry.whatsapp_no || ""),
+      address: String(inquiry.address || inquiry.site_address || inquiry.site || ""),
+      source: "CRM enquiry",
+      record: inquiry,
+    }));
+    return [...savedCustomers, ...inquiryCustomers]
+      .filter((item) => item.id && item.name)
+      .filter((item, index, list) => list.findIndex((candidate) => candidate.id === item.id || (candidate.phone && candidate.phone === item.phone)) === index)
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   function applySiteVisitToOffer(visit: Record<string, unknown>) {
@@ -5557,10 +6289,16 @@ export default function App() {
               </Pressable>
             </View>
             <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+              <View style={styles.linkedSystemsPanel}>
+                <Text style={styles.cardLabel}>CRM linked offer</Text>
+                <Text style={styles.bodyText}>Customer {offerDraft.customer_id || "-"} - {offerDraft.customer_name || "-"}</Text>
+                <Text style={styles.muted}>Source: {offerDraft.linked_customer_source || "CRM"} - Enquiry {offerDraft.source_inquiry_id || "-"} - Site visit {offerDraft.site_visit_id || "none"} - Costing source {offerDraft.costing_source_file || "not selected"}</Text>
+                <Text style={styles.muted}>Offer/job number is generated when saved if left blank.</Text>
+              </View>
               <View style={styles.formGrid}>
                 {[
                   ["customer_id", "Customer ID"],
-                  ["job_no", "Offer / job no"],
+                  ["job_no", "Offer / job no (system generated if blank)"],
                   ["offer_date", "Offer date"],
                   ["customer_name", "Customer name"],
                   ["offer_type", "Offer type"],
@@ -5587,6 +6325,7 @@ export default function App() {
                       style={styles.input}
                       value={String(offerDraft[key] || "")}
                       editable={key !== "customer_id"}
+                      placeholder={key === "job_no" ? "Auto-generated on save" : undefined}
                       onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, [key]: key === "customer_name" ? value : value, ...(key === "customer_name" ? { offer_name: value } : {}) }))}
                       keyboardType={["material_cost", "install_cost", "overhead_cost", "margin_percent", "discount", "gst_percent", "total_cost"].includes(key) ? "numeric" : "default"}
                     />
@@ -5671,112 +6410,205 @@ export default function App() {
   function renderOfferManagerPage() {
     const offers = [...asRecords(data?.estimates)].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
     const customers = [...(data?.customers || [])].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+    const customerOptions = offerCustomerOptions();
+    const offersForCustomerOption = (customer: { id: string; name: string; record: Record<string, unknown> }) => {
+      const customerId = String(customer.id || "");
+      const sourceInquiryId = String(customer.record.source_inquiry_id || customer.record.enquiry_no || customer.record.id || "");
+      const nameKey = crmNameKey(customer.name);
+      return offers.filter((offer) => {
+        const offerCustomerId = String(offer.customer_id || "");
+        const offerInquiryId = String(offer.source_inquiry_id || offer.enquiry_no || offer.source_enquiry_no || "");
+        const offerNameKey = crmNameKey(offer.customer_name || offer.offer_name || offer.customer);
+        return Boolean(
+          (customerId && offerCustomerId && customerId === offerCustomerId) ||
+          (sourceInquiryId && offerInquiryId && sourceInquiryId === offerInquiryId) ||
+          (nameKey && offerNameKey && nameKey === offerNameKey)
+        );
+      });
+    };
     const activeOffers = offers.filter((offer) => !String(offer.status || offer.lead_status || "").toLowerCase().includes("lost"));
-    const customersWithMeasurements = customers.filter((customer) => siteVisitsForCustomerId(customer.id).length);
+    const measurementReadyRecords = customerOptions.filter((customer) => siteVisitsForOfferRecord(customer.record).length);
+    const offerCustomerQuery = offerCustomerSearch.trim().toLowerCase();
+    const offerCustomerPageSize = 10;
+    const filteredOfferCustomers = customerOptions
+      .filter((customer) => !offerCustomerQuery || `${customer.id || ""} ${customer.name || ""} ${customer.phone || ""} ${customer.address || ""} ${customer.source || ""}`.toLowerCase().includes(offerCustomerQuery))
+      .filter((customer) => {
+        const count = offersForCustomerOption(customer).length;
+        if (offerCustomerOfferFilter === "No offers") return count === 0;
+        if (offerCustomerOfferFilter === "Has offers") return count > 0;
+        return true;
+      });
+    const offerCustomerPageCount = Math.max(1, Math.ceil(filteredOfferCustomers.length / offerCustomerPageSize));
+    const safeOfferCustomerPage = Math.min(offerCustomerPage, offerCustomerPageCount);
+    const visibleOfferCustomers = filteredOfferCustomers.slice((safeOfferCustomerPage - 1) * offerCustomerPageSize, safeOfferCustomerPage * offerCustomerPageSize);
     return (
       <View>
         <View style={styles.moduleHero}>
           <Text style={styles.eyebrow}>Offer Manager</Text>
-          <Text style={styles.moduleHeroTitle}>Customer-Linked Elevator Offers</Text>
-          <Text style={styles.moduleHeroText}>Create FUZI offers from internal elevator costing, keep each offer tied to a CRM customer, and prepare the client offer letter from the same record.</Text>
+          <Text style={styles.moduleHeroTitle}>Offer Manager</Text>
+          <Text style={styles.moduleHeroText}>Start an offer from a CRM customer or enquiry, fill the costing form, then manage saved offer letters from the pipeline.</Text>
         </View>
-        <View style={styles.metricGrid}>
-          <View style={styles.card}>
+        <View style={styles.offerMetricGrid}>
+          <View style={[styles.card, styles.offerMetricTile]}>
             <Text style={styles.cardLabel}>Offers</Text>
             <Text style={styles.metricValue}>{offers.length}</Text>
             <Text style={styles.muted}>Saved offer and costing records.</Text>
           </View>
-          <View style={styles.card}>
+          <View style={[styles.card, styles.offerMetricTile]}>
             <Text style={styles.cardLabel}>Active offers</Text>
             <Text style={styles.metricValue}>{activeOffers.length}</Text>
             <Text style={styles.muted}>Not marked lost.</Text>
           </View>
-          <View style={styles.card}>
+          <View style={[styles.card, styles.offerMetricTile]}>
             <Text style={styles.cardLabel}>Sent</Text>
             <Text style={styles.metricValue}>{offers.filter((offer) => String(offer.status || "").toLowerCase() === "sent").length}</Text>
             <Text style={styles.muted}>Client offer letters sent.</Text>
           </View>
-          <View style={styles.card}>
+          <View style={[styles.card, styles.offerMetricTile]}>
             <Text style={styles.cardLabel}>Measurement ready</Text>
-            <Text style={styles.metricValue}>{customersWithMeasurements.length}</Text>
-            <Text style={styles.muted}>CRM customers with saved site visit dimensions.</Text>
+            <Text style={styles.metricValue}>{measurementReadyRecords.length}</Text>
+            <Text style={styles.muted}>CRM records with linked site visit dimensions.</Text>
           </View>
         </View>
 
         <View style={styles.formCard}>
-          <Text style={styles.cardLabel}>Create offer from CRM customer</Text>
-          <Text style={styles.muted}>Select a saved CRM customer first. Offer Manager will use that customer ID and pull the latest linked site visit measurements into the costing record and offer letter.</Text>
-          {!customers.length && <Text style={styles.muted}>No saved customer accounts are available yet.</Text>}
+          <View style={styles.sectionHeaderRow}>
+            <View style={styles.cardTitleBlock}>
+              <Text style={styles.cardLabel}>Start New Offer</Text>
+              <Text style={styles.cardTitle}>Choose the CRM record</Text>
+              <Text style={styles.muted}>The selected customer or enquiry opens the offer form with CRM details and the latest linked site visit measurements already filled where available.</Text>
+            </View>
+            <Text style={styles.statusPill}>{filteredOfferCustomers.length} matching records</Text>
+          </View>
+          {!customerOptions.length && <Text style={styles.muted}>No CRM customers or enquiries are available yet.</Text>}
+          {!!customerOptions.length && (
+            <View style={styles.field}>
+              <Text style={styles.label}>Find customer / enquiry</Text>
+              <TextInput
+                style={styles.input}
+                value={offerCustomerSearch}
+                onChangeText={setOfferCustomerSearch}
+                placeholder="Search name, customer ID, enquiry no, phone, address"
+              />
+            </View>
+          )}
+          {!!customerOptions.length && (
+            <View style={styles.inlineActions}>
+              {["All", "No offers", "Has offers"].map((filter) => (
+                <Pressable
+                  key={`offer-customer-filter-${filter}`}
+                  style={[styles.smallButton, offerCustomerOfferFilter === filter && styles.selectorPillActive]}
+                  onPress={() => {
+                    setOfferCustomerOfferFilter(filter);
+                    setOfferCustomerPage(1);
+                  }}
+                  disabled={loading}
+                >
+                  <Text style={styles.smallButtonText}>{filter === "All" ? "All CRM records" : filter}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+          {!!filteredOfferCustomers.length && (
+            <View style={styles.paginationBar}>
+              <Text style={styles.muted}>Showing {(safeOfferCustomerPage - 1) * offerCustomerPageSize + 1}-{Math.min(safeOfferCustomerPage * offerCustomerPageSize, filteredOfferCustomers.length)} of {filteredOfferCustomers.length} CRM records</Text>
+              <View style={styles.inlineActions}>
+                <Pressable style={styles.smallButton} onPress={() => setOfferCustomerPage((page) => Math.max(1, page - 1))} disabled={safeOfferCustomerPage <= 1}>
+                  <Text style={styles.smallButtonText}>Previous</Text>
+                </Pressable>
+                <Text style={styles.muted}>Page {safeOfferCustomerPage} / {offerCustomerPageCount}</Text>
+                <Pressable style={styles.smallButton} onPress={() => setOfferCustomerPage((page) => Math.min(offerCustomerPageCount, page + 1))} disabled={safeOfferCustomerPage >= offerCustomerPageCount}>
+                  <Text style={styles.smallButtonText}>Next</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
           <View style={styles.formGrid}>
-            {customers.slice(0, 16).map((customer) => {
-              const visits = siteVisitsForCustomerId(customer.id);
+            {visibleOfferCustomers.map((customer) => {
+              const visits = siteVisitsForOfferRecord(customer.record);
+              const linkedOffers = offersForCustomerOption(customer);
               const latestVisit = visits[0];
               const measurementText = latestVisit
                 ? `Site visit ${recordIdentity(latestVisit) || ""} - ${String(latestVisit.site_visit_date || "No date")} - Stops ${String(latestVisit.site_stops || "-")} - Pit ${String(latestVisit.pit_size_mm || "-")} mm - Shaft ${String(latestVisit.shaft_width_mm || "-")} x ${String(latestVisit.shaft_depth_mm || "-")} mm`
                 : "No linked site visit measurements yet";
               return (
-                <View key={`offer-customer-card-${customer.id}`} style={styles.card}>
+                <View key={`offer-customer-card-${customer.source}-${customer.id}`} style={styles.card}>
                   <View style={styles.cardHeaderRow}>
                     <View style={styles.cardTitleBlock}>
                       <Text style={styles.cardTitle}>{customer.name || customer.id}</Text>
-                      <Text style={styles.muted}>CRM {customer.id} - {customer.address || "No address"}</Text>
+                      <Text style={styles.muted}>{customer.source} {customer.id} - {customer.address || "No address"}{customer.phone ? ` - ${customer.phone}` : ""}</Text>
                     </View>
-                    <Text style={styles.statusPill}>{visits.length ? "Measurements ready" : "Needs site visit"}</Text>
+                    <View style={styles.inlineActions}>
+                      <Text style={styles.statusPill}>{visits.length ? "Measurements ready" : "Needs site visit"}</Text>
+                      <Text style={styles.statusPill}>{linkedOffers.length ? `${linkedOffers.length} offer${linkedOffers.length === 1 ? "" : "s"}` : "No offer"}</Text>
+                    </View>
                   </View>
                   <Text style={styles.bodyText}>{measurementText}</Text>
+                  {!!linkedOffers.length && (
+                    <View style={styles.linkedSystemsPanel}>
+                      <Text style={styles.cardLabel}>Saved offers for this CRM record</Text>
+                      {linkedOffers.slice(0, 3).map((offer, offerIndex) => {
+                        const id = recordIdentity(offer) || String(offer.job_no || offerIndex);
+                        const cost = offerCostSummary(offer);
+                        return (
+                          <View key={`linked-offer-${customer.id}-${id}`} style={styles.analyticsRow}>
+                            <View style={styles.analyticsRowHeader}>
+                              <View style={styles.cardTitleBlock}>
+                                <Text style={styles.cardTitle}>{id}</Text>
+                                <Text style={styles.muted}>{String(offer.offer_date || offer.created_at || "-")} - {String(offer.status || offer.lead_status || "Offer Pending")} - {formatMoney(cost.totalCost)}</Text>
+                              </View>
+                              <Text style={styles.statusPill}>{String(offer.offer_letter_status || "Prepared")}</Text>
+                            </View>
+                            <View style={styles.inlineActions}>
+                              <Pressable style={styles.smallButton} onPress={() => openEstimateArtifact(id, "report")} disabled={loading}>
+                                <Text style={styles.smallButtonText}>Open costing</Text>
+                              </Pressable>
+                              <Pressable style={styles.smallButton} onPress={() => openEstimateArtifact(id, "offer.pdf")} disabled={loading}>
+                                <Text style={styles.smallButtonText}>Open letter</Text>
+                              </Pressable>
+                              <Pressable style={styles.smallButton} onPress={() => estimateAction(id, "send")} disabled={loading}>
+                                <Text style={styles.smallButtonText}>Send</Text>
+                              </Pressable>
+                              <Pressable style={styles.smallButton} onPress={() => estimateAction(id, "approve-offer")} disabled={loading}>
+                                <Text style={styles.smallButtonText}>Approve</Text>
+                              </Pressable>
+                            </View>
+                          </View>
+                        );
+                      })}
+                      {linkedOffers.length > 3 && <Text style={styles.muted}>{linkedOffers.length - 3} more saved offers match this CRM record. Use search to narrow by offer/customer details.</Text>}
+                    </View>
+                  )}
                   <View style={styles.inlineActions}>
-                    <Pressable style={styles.smallButton} onPress={() => openCostingForCustomer(customer)} disabled={loading}>
-                      <Text style={styles.smallButtonText}>Create offer</Text>
+                    <Pressable
+                      style={styles.primaryButtonInline}
+                      onPress={() => {
+                        if (customer.source === "CRM customer") openCostingForCustomer(customer.record as unknown as Customer);
+                        else openCostingForInquiry(customer.record);
+                      }}
+                      disabled={loading}
+                    >
+                      <Text style={styles.primaryButtonText}>Start offer</Text>
                     </Pressable>
-                    <Pressable style={styles.smallButton} onPress={() => openSiteVisitForCustomer(customer)} disabled={loading}>
-                      <Text style={styles.smallButtonText}>New site visit</Text>
+                    <Pressable style={styles.smallButton} onPress={() => {
+                      if (customer.source === "CRM customer") openSiteVisitForCustomer(customer.record as unknown as Customer);
+                      else openSiteVisitForInquiry(customer.record);
+                    }} disabled={loading}>
+                      <Text style={styles.smallButtonText}>{visits.length ? "Update site visit" : "Add site visit"}</Text>
                     </Pressable>
                   </View>
                 </View>
               );
             })}
+            {!!customerOptions.length && !filteredOfferCustomers.length && (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>No CRM records match that search</Text>
+                <Text style={styles.muted}>Clear the search or add the customer/enquiry in CRM first.</Text>
+              </View>
+            )}
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Offer Pipeline</Text>
-        {!offers.length && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>No offers yet</Text>
-            <Text style={styles.muted}>Create an offer from a CRM customer to prepare internal costing and a client offer letter.</Text>
-          </View>
-        )}
-        {offers.slice(0, 40).map((offer, index) => {
-          const id = recordIdentity(offer) || String(offer.job_no || index);
-          const cost = offerCostSummary(offer);
-          return (
-            <View key={`standalone-offer-${id}`} style={styles.card}>
-              <View style={styles.cardHeaderRow}>
-                <View style={styles.cardTitleBlock}>
-                  <Text style={styles.cardTitle}>{String(offer.customer_name || offer.offer_name || "-")}</Text>
-                  <Text style={styles.muted}>{id} - Customer {String(offer.customer_id || "-")} - {String(offer.offer_date || offer.created_at || "-")}</Text>
-                </View>
-                <Text style={styles.statusPill}>{String(offer.status || offer.lead_status || "Offer Pending")}</Text>
-              </View>
-              <Text style={styles.bodyText}>{String(offer.elevator_type || offer.offer_type || "Elevator")} - Stops {String(offer.stops || "-")} - Capacity {String(offer.capacity || "-")} - {formatMoney(cost.totalCost)}</Text>
-              <Text style={styles.bodyText}>Measurements: {String(offer.site_measurements_source || offer.site_visit_id || "No site visit linked")} - Pit {String(offer.pit_size_mm || "-")} mm - Shaft {String(offer.shaft_width_mm || "-")} x {String(offer.shaft_depth_mm || "-")} mm</Text>
-              <Text style={styles.muted}>Internal base {formatMoney(cost.baseCost)} + margin {cost.marginPercent}% + GST {cost.gstPercent}%.</Text>
-              <View style={styles.inlineActions}>
-                <Pressable style={styles.smallButton} onPress={() => openEstimateArtifact(id, "report")} disabled={loading}>
-                  <Text style={styles.smallButtonText}>Costing report</Text>
-                </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => openEstimateArtifact(id, "offer.pdf")} disabled={loading}>
-                  <Text style={styles.smallButtonText}>Offer letter</Text>
-                </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => estimateAction(id, "send")} disabled={loading}>
-                  <Text style={styles.smallButtonText}>Send offer</Text>
-                </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => estimateAction(id, "approve-offer")} disabled={loading}>
-                  <Text style={styles.smallButtonText}>Approve offer</Text>
-                </Pressable>
-              </View>
-            </View>
-          );
-        })}
         {renderOfferEditorModal()}
       </View>
     );
@@ -5964,6 +6796,55 @@ export default function App() {
       const portalUser = asRecords(data?.customer_users).find((user) => fieldText(user, ["customer_id"]) === id);
       return { customer, portalUser, active: Boolean(portalUser) };
     });
+    const dueFollowUp = asRecords(data?.sales_inquiries).find((item) => {
+      const due = followupDate(item);
+      return due && due <= todayDate && !recordIsClosed(item);
+    });
+    const offerToFollow = asRecords(data?.estimates).find((item) => !recordIsClosed(item));
+    const breakdownToUpdate = openBreakdowns[0];
+    const amcToRenew = amcCalendar[0];
+    const whatsappTemplates = [
+      {
+        key: "followup",
+        label: "Enquiry follow-up",
+        customer: fieldText(dueFollowUp || {}, ["customer", "lead_name", "name"]),
+        message: `Hello ${fieldText(dueFollowUp || {}, ["customer", "lead_name", "name"]).replace("-", "there")}, this is FUZI Elevators following up on your elevator enquiry. Please share a suitable time for the next discussion or site visit.`,
+        linked_type: "Sales Inquiry",
+        linked_id: fieldText(dueFollowUp || {}, ["id", "enquiry_no"]),
+      },
+      {
+        key: "offer",
+        label: "Offer sent",
+        customer: fieldText(offerToFollow || {}, ["customer_name", "offer_name"]),
+        message: `Hello ${fieldText(offerToFollow || {}, ["customer_name", "offer_name"]).replace("-", "there")}, your FUZI elevator offer ${fieldText(offerToFollow || {}, ["job_no", "offer_number", "id"])} is ready. Please review it and tell us if any change is required.`,
+        linked_type: "Offer",
+        linked_id: fieldText(offerToFollow || {}, ["job_no", "offer_number", "id"]),
+      },
+      {
+        key: "payment",
+        label: "Payment reminder",
+        customer: fieldText(overduePayments[0] || {}, ["customer_name", "customer"]),
+        message: `Hello ${fieldText(overduePayments[0] || {}, ["customer_name", "customer"]).replace("-", "there")}, this is a reminder for the pending FUZI payment milestone ${fieldText(overduePayments[0] || {}, ["milestone", "payment_id"])}.`,
+        linked_type: "Payment",
+        linked_id: fieldText(overduePayments[0] || {}, ["payment_id", "id"]),
+      },
+      {
+        key: "breakdown",
+        label: "Breakdown update",
+        customer: fieldText(breakdownToUpdate || {}, ["customer", "customer_name"]),
+        message: `Hello ${fieldText(breakdownToUpdate || {}, ["customer", "customer_name"]).replace("-", "there")}, FUZI has logged your breakdown ${fieldText(breakdownToUpdate || {}, ["id", "breakdown_no"])}. Our engineer will update the repair status from site.`,
+        linked_type: "Breakdown",
+        linked_id: fieldText(breakdownToUpdate || {}, ["id", "breakdown_no"]),
+      },
+      {
+        key: "amc",
+        label: "AMC renewal",
+        customer: amcToRenew?.customer || "-",
+        message: `Hello ${(amcToRenew?.customer || "there").replace("-", "there")}, your FUZI AMC/renewal is due on ${amcToRenew?.date || "the upcoming date"}. Please confirm renewal so service coverage continues without interruption.`,
+        linked_type: "AMC",
+        linked_id: amcToRenew?.key || "",
+      },
+    ];
     const profitabilityRows = asRecords(data?.estimates).slice(0, 12).map((offer) => {
       const summary = offerCostSummary(offer);
       const collected = asRecords(data?.payments).filter((payment) => fieldText(payment, ["estimate_id", "offer_id"]) === fieldText(offer, ["id", "job_no"])).reduce((sum, payment) => sum + paymentAccountSummary(payment).receivedTotal, 0);
@@ -6018,6 +6899,56 @@ export default function App() {
         status: statusText(service) || "Open",
       })),
     ];
+    const spareForecastRows = [
+      ...asRecords(data?.parts_usage).map((item) => ({ part: fieldText(item, ["part_name", "item_id"]), qty: Number(item.quantity || 1), source: "Parts usage" })),
+      ...asRecords(data?.service_records).map((item) => ({ part: fieldText(item, ["parts_used", "part_name", "item_id"]), qty: Number(item.parts_quantity || item.quantity || 1), source: "Service" })),
+      ...asRecords(data?.breakdowns).map((item) => ({ part: fieldText(item, ["parts_used", "part_name", "item_id"]), qty: Number(item.parts_quantity || item.quantity || 1), source: "Breakdown" })),
+    ].filter((item) => item.part && item.part !== "-").reduce<Array<{ part: string; monthlyUse: number; recommendedStock: number; sourceCount: number }>>((rows, item) => {
+      const part = item.part.split(",")[0].trim();
+      const row = rows.find((entry) => entry.part.toLowerCase() === part.toLowerCase()) || { part, monthlyUse: 0, recommendedStock: 0, sourceCount: 0 };
+      if (!rows.includes(row)) rows.push(row);
+      row.monthlyUse += Number.isFinite(item.qty) && item.qty > 0 ? item.qty : 1;
+      row.sourceCount += 1;
+      row.recommendedStock = Math.max(row.recommendedStock, Math.ceil(row.monthlyUse * 1.5));
+      return rows;
+    }, []).sort((a, b) => b.monthlyUse - a.monthlyUse);
+    const installationMilestoneRows = asRecords(data?.install_jobs).slice(0, 12).map((job, index) => {
+      const status = statusText(job).toLowerCase();
+      const milestones = [
+        ["Site ready", /site ready|ready|civil/i],
+        ["Material dispatched", /dispatch|material|packed|delivered/i],
+        ["Installation started", /install|erection|progress/i],
+        ["Commissioning", /commission/i],
+        ["Handover", /handover|completed|done/i],
+      ] as const;
+      const completed = milestones.filter(([, pattern]) => pattern.test(status)).length || (recordIsClosed(job) ? milestones.length : 0);
+      return {
+        key: `install-ms-${recordIdentity(job) || index}`,
+        job,
+        completed,
+        total: milestones.length,
+        next: milestones[Math.min(completed, milestones.length - 1)]?.[0] || "Completed",
+      };
+    });
+    const customerPortalQueue = asRecords(data?.customers).map((customer) => {
+      const id = fieldText(customer, ["id"]);
+      const portalUser = asRecords(data?.customer_users).find((user) => fieldText(user, ["customer_id"]) === id);
+      const docs = asRecords(data?.documents).filter((doc) => customerMatchesRecord(customer, doc)).length;
+      const openItems = [
+        ...asRecords(data?.breakdowns).filter((item) => customerMatchesRecord(customer, item) && !recordIsClosed(item)),
+        ...asRecords(data?.service_records).filter((item) => customerMatchesRecord(customer, item) && !recordIsClosed(item)),
+        ...asRecords(data?.payments).filter((item) => customerMatchesRecord(customer, item) && !recordIsClosed(item)),
+      ].length;
+      return { customer, portalUser, docs, openItems, needsPortal: !portalUser };
+    }).filter((row) => row.needsPortal || row.openItems || row.docs).slice(0, 12);
+    const voiceNoteRows = serviceReportRows
+      .filter((item) => fieldText(item, ["voice_note_url", "voice_transcript", "voice_note", "transcript"]).replace("-", "").trim())
+      .map((item, index) => ({
+        key: `voice-${recordIdentity(item) || index}`,
+        item,
+        text: fieldText(item, ["voice_transcript", "transcript", "voice_note", "notes"]),
+        url: fieldText(item, ["voice_note_url", "audio_url"]),
+      }));
     const paymentForecastRows = asRecords(data?.payments)
       .filter((item) => !recordIsClosed(item))
       .map((item, index) => ({
@@ -6070,12 +7001,17 @@ export default function App() {
       repeatComplaints,
       amcCalendar,
       customerPortalRows,
+      whatsappTemplates,
       profitabilityRows,
       vendorRows,
       liftAssetRows,
       partsUsageRows,
       qrRows,
       serviceReportRows,
+      spareForecastRows,
+      installationMilestoneRows,
+      customerPortalQueue,
+      voiceNoteRows,
       paymentForecastRows,
       engineerPerformanceRows,
       safetyRows,
@@ -6171,6 +7107,33 @@ export default function App() {
           {!conversations.length && <Text style={styles.muted}>No linked customer conversations are saved yet.</Text>}
         </View>
 
+        <Text style={styles.sectionTitle}>5A. WhatsApp Follow-Up Templates</Text>
+        <View style={styles.analyticsPanel}>
+          {intel.whatsappTemplates.map((template) => (
+            <Pressable
+              key={`wa-template-${template.key}`}
+              style={styles.analyticsRow}
+              onPress={() => {
+                setConversationDraft({
+                  customer: template.customer.replace("-", ""),
+                  customer_id: "",
+                  channel: "WhatsApp",
+                  subject: template.label,
+                  message: template.message,
+                  linked_type: template.linked_type,
+                  linked_id: template.linked_id.replace("-", ""),
+                  status: "Draft",
+                });
+                setMessage(`${template.label} template loaded into the conversation composer.`);
+              }}
+            >
+              <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{template.label}</Text><Text style={styles.statusPill}>Load template</Text></View>
+              <Text style={styles.muted}>{template.customer || "No live matching record"} - {template.linked_type} {template.linked_id}</Text>
+              <Text style={styles.bodyText}>{template.message}</Text>
+            </Pressable>
+          ))}
+        </View>
+
         <Text style={styles.sectionTitle}>6. Smart Auto Assignment</Text>
         <View style={styles.analyticsPanel}>
           {intel.assignmentRows.map((row) => (
@@ -6199,9 +7162,20 @@ export default function App() {
           {!intel.installTimeline.length && <Text style={styles.muted}>No active installation jobs need timeline tracking.</Text>}
         </View>
 
+        <Text style={styles.sectionTitle}>9A. Installation Milestone Tracker</Text>
+        <View style={styles.analyticsPanel}>
+          {intel.installationMilestoneRows.map((row) => (
+            <Pressable key={row.key} style={styles.analyticsRow} onPress={() => setActiveTab("installations")}>
+              <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.job, ["job_id", "id"])} - {fieldText(row.job, ["customer"])}</Text><Text style={styles.statusPill}>{row.completed}/{row.total}</Text></View>
+              <Text style={styles.muted}>Next milestone: {row.next} - Status {statusText(row.job) || "Open"}</Text>
+            </Pressable>
+          ))}
+          {!intel.installationMilestoneRows.length && <Text style={styles.muted}>No installation milestones are available yet.</Text>}
+        </View>
+
         <Text style={styles.sectionTitle}>10. Audit Trail Everywhere</Text>
         <View style={styles.analyticsPanel}>
-          {auditLogs.slice(0, 14).map((item, index) => <View key={`audit-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["collection"])} - {fieldText(item, ["action"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["actor"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["record_id"])} - {fieldText(item, ["changed_at"])}</Text></View>)}
+          {auditLogs.slice(0, 14).map((item, index) => <View key={`audit-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["collection"])} - {fieldText(item, ["action"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["actor"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["record_id"])} - {fieldText(item, ["changed_at"])}</Text><Text style={styles.bodyText}>Before: {String(item.before || item.previous || "-").slice(0, 120)} | After: {String(item.after || item.changes || item.next || "-").slice(0, 120)}</Text></View>)}
           {!auditLogs.length && <Text style={styles.muted}>Audit entries will be recorded as portal records are created, updated, or deleted.</Text>}
         </View>
 
@@ -6283,6 +7257,17 @@ export default function App() {
           {!intel.customerPortalRows.length && <Text style={styles.muted}>No customers are loaded for portal access review.</Text>}
         </View>
 
+        <Text style={styles.sectionTitle}>17A. Customer Portal Action Queue</Text>
+        <View style={styles.analyticsPanel}>
+          {intel.customerPortalQueue.map((row) => (
+            <Pressable key={`portal-queue-${fieldText(row.customer, ["id"])}`} style={row.needsPortal ? [styles.analyticsRow, styles.alertCard] : styles.analyticsRow} onPress={() => { setCrmSearch(fieldText(row.customer, ["id", "name"])); setActiveTab("customers"); }}>
+              <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.customer, ["name"])}</Text><Text style={styles.statusPill}>{row.needsPortal ? "Create access" : "Review"}</Text></View>
+              <Text style={styles.muted}>{row.openItems} open service/payment items - {row.docs} vault documents - User {fieldText(row.portalUser || {}, ["username"])}</Text>
+            </Pressable>
+          ))}
+          {!intel.customerPortalQueue.length && <Text style={styles.muted}>No customer portal actions are waiting.</Text>}
+        </View>
+
         <Text style={styles.sectionTitle}>18. Profitability Dashboard</Text>
         <View style={styles.analyticsPanel}>
           {intel.profitabilityRows.slice(0, 12).map((row, index) => <Pressable key={`profit-${recordIdentity(row.offer) || index}`} style={styles.analyticsRow} onPress={() => setActiveTab("offerManager")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.offer, ["job_no", "customer_name", "id"])}</Text><Text style={styles.statusPill}>{formatMoney(row.margin)}</Text></View><Text style={styles.muted}>Revenue {formatMoney(row.revenue)} - Cost {formatMoney(row.cost)} - Collected {formatMoney(row.collected)}</Text></Pressable>)}
@@ -6340,6 +7325,17 @@ export default function App() {
           {!intel.partsUsageRows.length && <Text style={styles.muted}>No spare part usage entries are saved yet.</Text>}
         </View>
 
+        <Text style={styles.sectionTitle}>22A. Spare Parts Consumption Forecast</Text>
+        <View style={styles.analyticsPanel}>
+          {intel.spareForecastRows.slice(0, 12).map((row) => (
+            <Pressable key={`spare-forecast-${row.part}`} style={styles.analyticsRow} onPress={() => setActiveTab("inventory")}>
+              <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.part}</Text><Text style={styles.statusPill}>Stock {row.recommendedStock}</Text></View>
+              <Text style={styles.muted}>Estimated monthly use {row.monthlyUse} from {row.sourceCount} service, breakdown, and parts-usage records.</Text>
+            </Pressable>
+          ))}
+          {!intel.spareForecastRows.length && <Text style={styles.muted}>Forecast appears after engineers record parts used on service or breakdown jobs.</Text>}
+        </View>
+
         <Text style={styles.sectionTitle}>23. QR Code on Every Lift</Text>
         <View style={styles.analyticsPanel}>
           {intel.qrRows.slice(0, 12).map((row) => <Pressable key={row.key} style={styles.analyticsRow} onPress={() => { setServiceRecordSearch(fieldText(row.asset, ["unit", "customer"])); setActiveTab("service"); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.asset, ["unit"])} - {fieldText(row.asset, ["customer"])}</Text><Text style={styles.statusPill}>Service link</Text></View><Text style={styles.muted}>{row.qr}</Text></Pressable>)}
@@ -6356,11 +7352,25 @@ export default function App() {
           <TextInput style={[styles.input, styles.textarea]} value={serviceReportDraft.checklist} onChangeText={(value) => setServiceReportDraft((draft) => ({ ...draft, checklist: value }))} placeholder="Checklist completed" multiline />
           <TextInput style={[styles.input, styles.textarea]} value={serviceReportDraft.parts_used} onChangeText={(value) => setServiceReportDraft((draft) => ({ ...draft, parts_used: value }))} placeholder="Parts used" multiline />
           <TextInput style={[styles.input, styles.textarea]} value={serviceReportDraft.notes} onChangeText={(value) => setServiceReportDraft((draft) => ({ ...draft, notes: value }))} placeholder="Service notes" multiline />
+          <TextInput style={styles.input} value={serviceReportDraft.voice_note_url} onChangeText={(value) => setServiceReportDraft((draft) => ({ ...draft, voice_note_url: value }))} placeholder="Voice note URL / file reference" />
+          <TextInput style={[styles.input, styles.textarea]} value={serviceReportDraft.voice_transcript} onChangeText={(value) => setServiceReportDraft((draft) => ({ ...draft, voice_transcript: value }))} placeholder="Voice note transcript" multiline />
           <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("service-reports", serviceReportDraft, () => setServiceReportDraft(emptyServiceReportDraft), "Service report saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save service report</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
           {intel.serviceReportRows.slice(0, 10).map((item, index) => <View key={`service-report-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["engineer"])} - Next {fieldText(item, ["next_visit_date"])}</Text></View>)}
           {!intel.serviceReportRows.length && <Text style={styles.muted}>No service reports are saved yet.</Text>}
+        </View>
+
+        <Text style={styles.sectionTitle}>24A. Engineer Voice Notes</Text>
+        <View style={styles.analyticsPanel}>
+          {intel.voiceNoteRows.slice(0, 10).map((row) => (
+            <View key={row.key} style={styles.analyticsRow}>
+              <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.item, ["job_id", "customer"])}</Text><Text style={styles.statusPill}>{row.url !== "-" ? "Audio linked" : "Transcript"}</Text></View>
+              <Text style={styles.muted}>{fieldText(row.item, ["engineer"])} - {row.url}</Text>
+              <Text style={styles.bodyText}>{row.text}</Text>
+            </View>
+          ))}
+          {!intel.voiceNoteRows.length && <Text style={styles.muted}>Voice notes appear after a service report stores an audio reference or transcript.</Text>}
         </View>
 
         <Text style={styles.sectionTitle}>25. Payment Collection Forecast</Text>
@@ -6630,20 +7640,26 @@ export default function App() {
     const assignmentFiltersActive = Boolean(crmStaffFilter.trim() || crmDepartmentFilter !== "All" || crmTeamFilter !== "All");
     const visibleInquiries = assignmentFiltersActive ? [] : inquiries.filter((item) => {
       const query = crmSearch.trim().toLowerCase();
-      return !query || JSON.stringify(item).toLowerCase().includes(query);
+      const relationshipStatus = crmRelationshipStatus(item);
+      const stageOk = crmStageFilter === "All" || relationshipStatus === crmStageFilter || String(item.lead_status || item.status || "") === crmStageFilter;
+      const queryOk = !query || JSON.stringify(item).toLowerCase().includes(query);
+      return stageOk && queryOk;
     });
+    const leadInquiryRows = visibleInquiries.filter((item) => crmRelationshipStatus(item) !== "Current Customer");
+    const currentCustomerInquiryRows = visibleInquiries.filter((item) => crmRelationshipStatus(item) === "Current Customer");
     const openInquiries = inquiries.filter((item) => !String(item.status || item.lead_status || "").toLowerCase().includes("lost"));
     const reportImported = inquiries.filter((item) => item.source_enquiry_no || item.enquiry_no).length;
     const crmRows = [
-      ...visibleCustomers.map((customer) => ({ type: "customer" as const, customer })),
-      ...visibleInquiries.map((inquiry, index) => ({ type: "inquiry" as const, inquiry, index })),
+      ...(crmRecordView === "Customers" ? visibleCustomers.map((customer) => ({ type: "customer" as const, customer })) : []),
+      ...(crmRecordView === "Customers" ? currentCustomerInquiryRows.map((inquiry, index) => ({ type: "inquiry" as const, inquiry, index })) : []),
+      ...(crmRecordView === "Enquiries" ? leadInquiryRows.map((inquiry, index) => ({ type: "inquiry" as const, inquiry, index })) : []),
     ];
     const crmPageSize = 20;
     const crmPageCount = Math.max(1, Math.ceil(crmRows.length / crmPageSize));
     const safeCrmPage = Math.min(enquiryPage, crmPageCount);
     const pagedCrmRows = crmRows.slice((safeCrmPage - 1) * crmPageSize, safeCrmPage * crmPageSize);
     const inquiriesWithEstimates = inquiries.filter((item) => estimatesForInquiry(item, offers).length);
-    const stages = ["All", "Lead", "Qualified", "Site Visit", "Quoted", "Negotiation", "Won", "Lost", "AMC"];
+    const stages = ["All", "Lead", "Current Customer", "Qualified", "Site Visit", "Quoted", "Negotiation", "Won", "Lost", "AMC"];
     const today = new Date().toISOString().slice(0, 10);
     const dueInquiryFollowUps = inquiries.filter((item) => {
       const date = followupDate(item);
@@ -6681,28 +7697,28 @@ export default function App() {
             </View>
           )}
         </View>
-        <View style={styles.metricGrid}>
-          <View style={styles.card}>
+        <View style={styles.crmMetricGrid}>
+          <View style={[styles.card, styles.crmMetricTile]}>
             <Text style={styles.cardLabel}>Accounts</Text>
             <Text style={styles.metricValue}>{customers.length}</Text>
             <Text style={styles.muted}>Saved customer and building records.</Text>
           </View>
-          <View style={styles.card}>
+          <View style={[styles.card, styles.crmMetricTile]}>
             <Text style={styles.cardLabel}>Follow-ups due</Text>
             <Text style={styles.metricValue}>{dueFollowUps.length}</Text>
             <Text style={styles.muted}>Next follow-up today or overdue.</Text>
           </View>
-          <View style={styles.card}>
+          <View style={[styles.card, styles.crmMetricTile]}>
             <Text style={styles.cardLabel}>Consent missing</Text>
             <Text style={styles.metricValue}>{consentMissing.length}</Text>
             <Text style={styles.muted}>DPDP consent needs review.</Text>
           </View>
-          <View style={styles.card}>
+          <View style={[styles.card, styles.crmMetricTile]}>
             <Text style={styles.cardLabel}>Sales enquiries</Text>
             <Text style={styles.metricValue}>{inquiries.length}</Text>
             <Text style={styles.muted}>{openInquiries.length} active, {reportImported} from enquiry report.</Text>
           </View>
-          <View style={styles.card}>
+          <View style={[styles.card, styles.crmMetricTile]}>
             <Text style={styles.cardLabel}>Customers with costing</Text>
             <Text style={styles.metricValue}>{inquiriesWithEstimates.length}</Text>
             <Text style={styles.muted}>{offers.length} customer-linked offers tied into CRM.</Text>
@@ -6735,6 +7751,16 @@ export default function App() {
                   />
                 </View>
               ))}
+              <View style={styles.installDatePanel}>
+                <Text style={styles.cardLabel}>Elevator installed</Text>
+                <TextInput
+                  style={styles.input}
+                  value={customerInstalledDateDraft}
+                  onChangeText={setCustomerInstalledDateDraft}
+                  placeholder="YYYY-MM-DD or leave blank"
+                />
+                <Text style={styles.muted}>If this customer already has an installed elevator, enter the date here to classify the account as a current customer.</Text>
+              </View>
               {!!customerDraft.id && renderCustomerAssignmentManager(customerDraft as Customer)}
               {!!customerDraft.id && (
                 <View style={styles.inlineRecordEditor}>
@@ -6759,6 +7785,7 @@ export default function App() {
                   style={styles.secondaryButton}
                   onPress={() => {
                     setCustomerDraft(emptyCustomer);
+                    setCustomerInstalledDateDraft("");
                     setCustomerEditorOpen(false);
                     setSiteVisitEditorOpen(false);
                   }}
@@ -6863,6 +7890,18 @@ export default function App() {
             <Text style={styles.label}>Enquiry remark</Text>
             <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.enquiry_remark} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, enquiry_remark: value }))} multiline />
           </View>
+          {!!salesInquiryDraft.id && (
+            <View style={styles.installDatePanel}>
+              <Text style={styles.cardLabel}>Elevator installed</Text>
+              <TextInput
+                style={styles.input}
+                value={salesInquiryInstalledDateDraft}
+                onChangeText={setSalesInquiryInstalledDateDraft}
+                placeholder="YYYY-MM-DD or leave blank"
+              />
+              <Text style={styles.muted}>Saving an installed date converts this enquiry into a current customer and links the installation date.</Text>
+            </View>
+          )}
           <Pressable style={styles.primaryButton} onPress={() => saveSalesInquiry()} disabled={loading || !salesInquiryDraft.customer.trim()}>
             <Text style={styles.primaryButtonText}>{salesInquiryDraft.id ? "Update enquiry record" : "Save enquiry intake"}</Text>
           </Pressable>
@@ -6871,6 +7910,7 @@ export default function App() {
               style={styles.secondaryButton}
               onPress={() => {
                 setSalesInquiryDraft(emptySalesInquiryDraft);
+                setSalesInquiryInstalledDateDraft("");
                 setSalesInquiryEditorOpen(false);
               }}
               disabled={loading}
@@ -6884,14 +7924,35 @@ export default function App() {
 
         <Text style={styles.sectionTitle}>Pipeline & Search</Text>
         <View style={styles.formCard}>
+          <View style={styles.sectionHeaderRow}>
+            <View>
+              <Text style={styles.cardLabel}>CRM view</Text>
+              <Text style={styles.muted}>Enquiries are leads. Customers are saved accounts or enquiries with an installed elevator.</Text>
+            </View>
+            <View style={styles.inlineActions}>
+              {(["Enquiries", "Customers"] as const).map((view) => (
+                <Pressable
+                  key={`crm-view-${view}`}
+                  style={[styles.smallButton, crmRecordView === view && styles.selectorPillActive]}
+                  onPress={() => {
+                    setCrmRecordView(view);
+                    setEnquiryPage(1);
+                  }}
+                  disabled={loading}
+                >
+                  <Text style={styles.smallButtonText}>{view}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
           <TextInput
             style={styles.input}
             value={crmSearch}
             onChangeText={setCrmSearch}
             placeholder="Search name, phone, GSTIN, assigned staff, department, site, notes"
           />
-          <View style={styles.formGrid}>
-            <View style={styles.field}>
+          <View style={styles.crmFilterTiles}>
+            <View style={styles.crmFilterTile}>
               <Text style={styles.label}>Assigned staff search</Text>
               <TextInput
                 style={styles.input}
@@ -6900,33 +7961,103 @@ export default function App() {
                 placeholder="Employee name"
               />
             </View>
-            <View style={styles.field}>
+            <View style={styles.crmFilterTile}>
               <Text style={styles.label}>Department</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
-                {customerAssignmentOptions.departments.map((department) => (
-                  <Pressable key={`crm-dept-${department}`} style={[styles.smallButton, crmDepartmentFilter === department && styles.selectorPillActive]} onPress={() => setCrmDepartmentFilter(department)}>
-                    <Text style={styles.smallButtonText}>{department}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Team / position</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
-                {customerAssignmentOptions.teams.map((team) => (
-                  <Pressable key={`crm-team-${team}`} style={[styles.smallButton, crmTeamFilter === team && styles.selectorPillActive]} onPress={() => setCrmTeamFilter(team)}>
-                    <Text style={styles.smallButtonText}>{team}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </View>
-          </View>
-          <View style={styles.inlineActions}>
-            {stages.map((stage) => (
-              <Pressable key={stage} style={[styles.smallButton, crmStageFilter === stage && styles.selectorPillActive]} onPress={() => setCrmStageFilter(stage)}>
-                <Text style={styles.smallButtonText}>{stage}</Text>
+              <Pressable
+                style={[styles.dropdownButton, crmDepartmentDropdownOpen && styles.selectorPillActive]}
+                onPress={() => {
+                  setCrmDepartmentDropdownOpen((open) => !open);
+                  setCrmTeamDropdownOpen(false);
+                  setCrmStageDropdownOpen(false);
+                }}
+                disabled={loading}
+              >
+                <Text style={styles.selectorText}>{crmDepartmentFilter}</Text>
+                <Text style={styles.dropdownChevron}>{crmDepartmentDropdownOpen ? "▲" : "▼"}</Text>
               </Pressable>
-            ))}
+              {crmDepartmentDropdownOpen && (
+                <View style={styles.dropdownPanel}>
+                  <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                    {customerAssignmentOptions.departments.map((department) => (
+                      <Pressable
+                        key={`crm-dept-${department}`}
+                        style={[styles.dropdownOption, crmDepartmentFilter === department && styles.selectorPillActive]}
+                        onPress={() => {
+                          setCrmDepartmentFilter(department);
+                          setCrmDepartmentDropdownOpen(false);
+                        }}
+                      >
+                        <Text style={styles.selectorText}>{department}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+            </View>
+            <View style={styles.crmFilterTile}>
+              <Text style={styles.label}>Team / position</Text>
+              <Pressable
+                style={[styles.dropdownButton, crmTeamDropdownOpen && styles.selectorPillActive]}
+                onPress={() => {
+                  setCrmTeamDropdownOpen((open) => !open);
+                  setCrmDepartmentDropdownOpen(false);
+                  setCrmStageDropdownOpen(false);
+                }}
+                disabled={loading}
+              >
+                <Text style={styles.selectorText}>{crmTeamFilter}</Text>
+                <Text style={styles.dropdownChevron}>{crmTeamDropdownOpen ? "▲" : "▼"}</Text>
+              </Pressable>
+              {crmTeamDropdownOpen && (
+                <View style={styles.dropdownPanel}>
+                  <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                    {customerAssignmentOptions.teams.map((team) => (
+                      <Pressable
+                        key={`crm-team-${team}`}
+                        style={[styles.dropdownOption, crmTeamFilter === team && styles.selectorPillActive]}
+                        onPress={() => {
+                          setCrmTeamFilter(team);
+                          setCrmTeamDropdownOpen(false);
+                        }}
+                      >
+                        <Text style={styles.selectorText}>{team}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+            </View>
+            <View style={styles.crmFilterTile}>
+              <Text style={styles.label}>Pipeline stage</Text>
+              <Pressable
+                style={[styles.dropdownButton, crmStageDropdownOpen && styles.selectorPillActive]}
+                onPress={() => {
+                  setCrmStageDropdownOpen((open) => !open);
+                  setCrmDepartmentDropdownOpen(false);
+                  setCrmTeamDropdownOpen(false);
+                }}
+                disabled={loading}
+              >
+                <Text style={styles.selectorText}>{crmStageFilter}</Text>
+                <Text style={styles.dropdownChevron}>{crmStageDropdownOpen ? "▲" : "▼"}</Text>
+              </Pressable>
+              {crmStageDropdownOpen && (
+                <View style={styles.dropdownPanel}>
+                  {stages.map((stage) => (
+                    <Pressable
+                      key={`crm-stage-${stage}`}
+                      style={[styles.dropdownOption, crmStageFilter === stage && styles.selectorPillActive]}
+                      onPress={() => {
+                        setCrmStageFilter(stage);
+                        setCrmStageDropdownOpen(false);
+                      }}
+                    >
+                      <Text style={styles.selectorText}>{stage}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
           </View>
         </View>
 
@@ -6965,7 +8096,7 @@ export default function App() {
           })}
         </View>
 
-        <Text style={styles.sectionTitle}>CRM Customer Records</Text>
+        <Text style={styles.sectionTitle}>{crmRecordView === "Customers" ? "CRM Customer Records" : "CRM Enquiries"}</Text>
         <View style={styles.paginationBar}>
           <Text style={styles.muted}>Showing {crmRows.length ? (safeCrmPage - 1) * crmPageSize + 1 : 0}-{Math.min(safeCrmPage * crmPageSize, crmRows.length)} of {crmRows.length}</Text>
           <View style={styles.inlineActions}>
@@ -6978,6 +8109,12 @@ export default function App() {
             </Pressable>
           </View>
         </View>
+        {!crmRows.length && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>{crmRecordView === "Customers" ? "No CRM customers found" : "No enquiries found"}</Text>
+            <Text style={styles.muted}>{crmRecordView === "Customers" ? "Customers appear here after they are saved as accounts or an enquiry is converted/has an installed elevator." : "New sales enquiries stay here until they are converted to a CRM customer or linked to an installed elevator."}</Text>
+          </View>
+        )}
         {pagedCrmRows.map((row, index) => {
           if (row.type === "customer") {
             const customer = row.customer;
@@ -6990,14 +8127,19 @@ export default function App() {
             const liveServiceCount = asRecords(data?.service_records).filter((service) => String(service.customer_id || "") === String(customer.id || "") || crmNameKey(service.customer) === crmNameKey(customer.name)).length;
             const storedServiceCount = Number(customer.service_count ?? customer.services_done);
             const serviceCount = Number.isFinite(storedServiceCount) ? storedServiceCount : liveServiceCount;
-            const customerInstallations = asRecords(data?.install_jobs).filter((job) => String(job.customer_id || "") === String(customer.id || "") || crmNameKey(job.customer) === crmNameKey(customer.name));
+            const customerInstallations = crmInstallationJobsForRecord(customer as unknown as Record<string, unknown>);
+            const { job: latestInstalledJob, date: latestInstalledDate } = crmLatestInstalledFromJobs(customerInstallations);
+            const relationshipStatus = crmRelationshipStatus(customer as unknown as Record<string, unknown>);
             const assignedTeam = customerAssignmentRecords(customer.id);
             return (
               <View key={`customer-${customer.id}`} style={[styles.card, compactLists && styles.compactCard]}>
                 <View style={styles.cardHeaderRow}>
                   <Text style={styles.cardTitle}>{customer.name}</Text>
                   <View style={styles.cardTitleBlock}>
-                    <Text style={styles.statusPill}>{costingStatus}</Text>
+                    <View style={styles.inlineActions}>
+                      <Text style={[styles.statusPill, relationshipStatus === "Current Customer" && styles.currentCustomerPill]}>{relationshipStatus}</Text>
+                      <Text style={styles.statusPill}>{costingStatus}</Text>
+                    </View>
                     <Text style={styles.muted}>
                       Assigned: {assignedTeam.length ? assignedTeam.map((assignment) => `${String(assignment.staff_name || assignment.name || "-")} - ${String(assignment.department || "Unassigned")}${assignment.primary_owner ? " (Primary)" : ""}`).join("; ") : "No staff assigned"}
                     </Text>
@@ -7006,6 +8148,10 @@ export default function App() {
                 <Text style={styles.muted}>{customer.id} - {customer.address || "No address"} - Pipeline: {customer.pipeline_stage || "Lead"}</Text>
                 <Text style={styles.bodyText}>Offers: {customerEstimates.length}{latestEstimate ? ` - Latest ${String(latestEstimate.job_no || latestEstimate.id || "-")} - ${String(latestEstimate.offer_date || latestEstimate.created_at || "-")} - ${formatMoney(offerCostSummary(latestEstimate).totalCost)}` : ""}</Text>
                 <Text style={styles.bodyText}>Site visits: {customerSiteVisits.length}{customerSiteVisits[0] ? ` - Latest ${String(customerSiteVisits[0].id || "-")} ${String(customerSiteVisits[0].site_visit_date || "")}` : ""}</Text>
+                <View style={styles.installDatePanel}>
+                  <Text style={styles.cardLabel}>Elevator installed</Text>
+                  <Text style={styles.bodyText}>{latestInstalledDate || "Not installed yet"}{latestInstalledJob ? ` - Job ${String(latestInstalledJob.job_id || latestInstalledJob.id || "-")} - ${String(latestInstalledJob.status || "-")}` : ""}</Text>
+                </View>
                 <Text style={styles.bodyText}>Services done: {serviceCount}{liveServiceCount !== serviceCount ? ` - live linked ${liveServiceCount}` : ""}</Text>
                 {!!latestMotor && (
                   <Text style={styles.bodyText}>Motor: {fieldText(latestMotor, ["motor_serial_number", "motor_serial"])} - Nameplate: {fieldText(latestMotor, ["motor_nameplate_file", "motor_nameplate_url"])} - Commissioning {fieldText(latestMotor, ["id"])}</Text>
@@ -7015,7 +8161,7 @@ export default function App() {
                     <Text style={styles.cardLabel}>Installation History</Text>
                     {customerInstallations.slice(0, 4).map((job, jobIndex) => (
                       <Text key={`customer-install-${customer.id}-${String(job.id || jobIndex)}`} style={styles.muted}>
-                        {String(job.job_id || job.id || "-")} - {String(job.status || "-")} - Install {String(job.start_date || job.created_at || "-").slice(0, 10)} - Handover {String(job.handed_over_date || job.handover_date || "-").slice(0, 10)} - Warranty end {String(job.warranty_end_date || "-").slice(0, 10)} - Team {String(job.assigned_team || job.crew || "-")} - Contractor {String(job.contractor || job.contractor_name || "-")} - Engineer {String(job.engineer || job.assigned_engineer || "-")}
+                        {String(job.job_id || job.id || "-")} - {String(job.status || "-")} - Installed {crmInstalledDateForJob(job) || "-"} - Handover {String(job.handed_over_date || job.handover_date || "-").slice(0, 10)} - Warranty end {String(job.warranty_end_date || "-").slice(0, 10)} - Team {String(job.assigned_team || job.crew || "-")} - Contractor {String(job.contractor || job.contractor_name || "-")} - Engineer {String(job.engineer || job.assigned_engineer || "-")}
                       </Text>
                     ))}
                   </View>
@@ -7038,13 +8184,6 @@ export default function App() {
                   </Pressable>
                   <Pressable
                     style={styles.smallButton}
-                    onPress={() => openCostingForCustomer(customer)}
-                    disabled={loading}
-                  >
-                    <Text style={styles.smallButtonText}>Create offer</Text>
-                  </Pressable>
-                  <Pressable
-                    style={styles.smallButton}
                     onPress={() => openSiteVisitForCustomer(customer)}
                     disabled={loading}
                   >
@@ -7062,6 +8201,7 @@ export default function App() {
           const item = row.inquiry;
           const id = recordIdentity(item) || String(item.enquiry_no || `${safeCrmPage}-${index}`);
           const status = String(item.status || item.lead_status || "New");
+          const relationshipStatus = crmRelationshipStatus(item);
           const isEditing = salesInquiryDraft.id === id;
           const linkedEstimates = estimatesForInquiry(item, offers);
           const latestEstimate = linkedEstimates[0];
@@ -7073,6 +8213,8 @@ export default function App() {
             const sameEnquiry = inquiryEnquiryNo && String(visit.site_enquiry_no || "") === inquiryEnquiryNo;
             return sameCustomer && (!String(visit.site_enquiry_no || "") || sameEnquiry);
           });
+          const inquiryInstallations = crmInstallationJobsForRecord(item);
+          const { job: latestInquiryInstalledJob, date: latestInquiryInstalledDate } = crmLatestInstalledFromJobs(inquiryInstallations);
           return (
             <View key={`${id}-${index}`} style={[styles.card, compactLists && styles.compactCard]}>
               <View style={styles.cardHeaderRow}>
@@ -7080,7 +8222,10 @@ export default function App() {
                   <Text style={styles.cardTitle}>{String(item.customer || item.lead_name || item.name || "-")}</Text>
                   <Text style={styles.muted}>Customer ID: {String(item.customer_id || "-")} - {String(item.enquiry_no || item.source_enquiry_no || id)} - {String(item.lead_type || item.leadtype || "New")} - Qty {String(item.qty || 1)}</Text>
                 </View>
-                <Text style={[styles.statusPill, { color: salesInquiryStatusTone(status) }]}>{status}</Text>
+                <View style={styles.inlineActions}>
+                  <Text style={[styles.statusPill, relationshipStatus === "Current Customer" && styles.currentCustomerPill]}>{relationshipStatus}</Text>
+                  <Text style={[styles.statusPill, { color: salesInquiryStatusTone(status) }]}>{status}</Text>
+                </View>
               </View>
               {isEditing ? (
                 <View style={styles.inlineRecordEditor}>
@@ -7173,6 +8318,16 @@ export default function App() {
                     <Text style={styles.label}>Enquiry remark</Text>
                     <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.enquiry_remark} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, enquiry_remark: value }))} multiline />
                   </View>
+                  <View style={styles.installDatePanel}>
+                    <Text style={styles.cardLabel}>Elevator installed</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={salesInquiryInstalledDateDraft}
+                      onChangeText={setSalesInquiryInstalledDateDraft}
+                      placeholder="YYYY-MM-DD or leave blank"
+                    />
+                    <Text style={styles.muted}>Saving an installed date converts this enquiry into a current customer and links the installation date.</Text>
+                  </View>
                   <View style={styles.inlineActions}>
                     <Pressable
                       style={styles.smallButton}
@@ -7197,6 +8352,7 @@ export default function App() {
                       style={styles.secondaryButton}
                       onPress={() => {
                         setSalesInquiryDraft(emptySalesInquiryDraft);
+                        setSalesInquiryInstalledDateDraft("");
                         setSiteVisitEditorOpen(false);
                       }}
                       disabled={loading}
@@ -7211,22 +8367,36 @@ export default function App() {
                   <Text style={styles.bodyText}>Address: {String(item.address || item.site_address || item.site || "-")}</Text>
                   <Text style={styles.bodyText}>Referral: {String(item.referral_by || "-")} - Created by: {String(item.createdbyname || "-")} - Last modified by: {String(item.lastmodifiedbyname || "-")}</Text>
                   <Text style={styles.bodyText}>Follow-up: {followupDate(item) || "-"} - {String(item.followup_channel || "WhatsApp")} - Every {followupFrequency(item)}d - {String(item.followup_status || "Open")}</Text>
+                  <View style={styles.installDatePanel}>
+                    <Text style={styles.cardLabel}>Elevator installed</Text>
+                    <Text style={styles.bodyText}>{latestInquiryInstalledDate || "Not installed yet"}{latestInquiryInstalledJob ? ` - Job ${String(latestInquiryInstalledJob.job_id || latestInquiryInstalledJob.id || "-")} - ${String(latestInquiryInstalledJob.status || "-")}` : ""}</Text>
+                  </View>
                   <Text style={styles.bodyText}>Offer: {latestEstimate ? `${String(latestEstimate.job_no || latestEstimate.id || "-")} - ${String(latestEstimate.offer_type || latestEstimate.elevator_type || "-")} - ${String(latestEstimate.offer_date || latestEstimate.created_at || "-")} - ${formatMoney(offerCostSummary(latestEstimate).totalCost)}` : "No offer yet"}</Text>
                   <Text style={styles.bodyText}>Site visits: {inquirySiteVisits.length}{inquirySiteVisits[0] ? ` - Latest ${String(inquirySiteVisits[0].id || "-")} ${String(inquirySiteVisits[0].site_visit_date || "")}` : ""}</Text>
+                  {!!inquiryInstallations.length && (
+                    <View style={styles.linkedSystemsPanel}>
+                      <Text style={styles.cardLabel}>Installation History</Text>
+                      {inquiryInstallations.slice(0, 4).map((job, jobIndex) => (
+                        <Text key={`inquiry-install-${id}-${String(job.id || jobIndex)}`} style={styles.muted}>
+                          {String(job.job_id || job.id || "-")} - {String(job.status || "-")} - Installed {crmInstalledDateForJob(job) || "-"} - Handover {String(job.handed_over_date || job.handover_date || "-").slice(0, 10)}
+                        </Text>
+                      ))}
+                    </View>
+                  )}
                   {isLostInquiryStatus(status) && !!(item.lost_reason || item.status_lost_reason) ? <Text style={styles.muted}>Lost reason: {String(item.lost_reason || item.status_lost_reason)}</Text> : null}
                   {!!(item.requirement || item.enquiry_remark || item.notes) && <Text style={styles.muted}>{String(item.requirement || item.enquiry_remark || item.notes)}</Text>}
                   <View style={styles.inlineActions}>
                     <Pressable style={styles.smallButton} onPress={() => editSalesInquiry(item)} disabled={loading}>
                       <Text style={styles.smallButtonText}>Edit</Text>
                     </Pressable>
+                    <Pressable style={styles.primaryButtonInline} onPress={() => convertSalesInquiryToCustomer(item)} disabled={loading}>
+                      <Text style={styles.primaryButtonText}>Convert to customer</Text>
+                    </Pressable>
                     <Pressable style={styles.smallButton} onPress={() => markFollowedUp(item)} disabled={loading}>
                       <Text style={styles.smallButtonText}>Followed up</Text>
                     </Pressable>
                     <Pressable style={styles.smallButton} onPress={() => openSiteVisitForInquiry(item)} disabled={loading}>
                       <Text style={styles.smallButtonText}>New site visit</Text>
-                    </Pressable>
-                    <Pressable style={styles.smallButton} onPress={() => openCostingForInquiry(item)} disabled={loading}>
-                    <Text style={styles.smallButtonText}>Create offer</Text>
                     </Pressable>
                     {isAdmin && (
                       <Pressable style={styles.dangerButton} onPress={() => deleteSalesInquiry(item)} disabled={loading}>
@@ -7252,14 +8422,20 @@ export default function App() {
                 </Pressable>
               </View>
               <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+                <View style={styles.linkedSystemsPanel}>
+                  <Text style={styles.cardLabel}>CRM linked offer</Text>
+                  <Text style={styles.bodyText}>Customer {offerDraft.customer_id || "-"} - {offerDraft.customer_name || "-"}</Text>
+                  <Text style={styles.muted}>Source: {offerDraft.linked_customer_source || "CRM"} - Enquiry {offerDraft.source_inquiry_id || "-"} - Site visit {offerDraft.site_visit_id || "none"} - Costing source {offerDraft.costing_source_file || "not selected"}</Text>
+                  <Text style={styles.muted}>Offer/job number is generated when saved if left blank.</Text>
+                </View>
                 <View style={styles.formGrid}>
                   <View style={styles.field}>
                     <Text style={styles.label}>Customer ID</Text>
                     <TextInput style={styles.input} value={offerDraft.customer_id} editable={false} placeholder="Select from CRM row" />
                   </View>
                   <View style={styles.field}>
-                    <Text style={styles.label}>Offer / job no</Text>
-                    <TextInput style={styles.input} value={offerDraft.job_no} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, job_no: value }))} placeholder="Auto if blank" />
+                    <Text style={styles.label}>Offer / job no (system generated if blank)</Text>
+                    <TextInput style={styles.input} value={offerDraft.job_no} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, job_no: value }))} placeholder="Auto-generated on save" />
                   </View>
                   <View style={styles.field}>
                     <Text style={styles.label}>Offer date</Text>
@@ -9618,12 +10794,15 @@ export default function App() {
     }
     setLoading(true);
     try {
-      await apiFetch(id ? `/api/portal/customers/${encodeURIComponent(id)}` : "/api/portal/customers", {
+      const savedCustomerResponse = await apiFetch<{ record?: Record<string, unknown>; customer?: Record<string, unknown> }>(id ? `/api/portal/customers/${encodeURIComponent(id)}` : "/api/portal/customers", {
         method: id ? "PATCH" : "POST",
         token,
         body: JSON.stringify(customerDraft),
       });
+      const savedCustomer = savedCustomerResponse.record || savedCustomerResponse.customer || { ...customerDraft, id };
+      if (customerInstalledDateDraft.trim() || id) await saveCustomerInstalledDate(savedCustomer as Partial<Customer>);
       setCustomerDraft(emptyCustomer);
+      setCustomerInstalledDateDraft("");
       setCustomerEditorOpen(false);
       await loadPortal();
       setMessage(id ? "Customer CRM record updated." : "Customer CRM record saved. Select that customer before adding a site visit report.");
@@ -10006,17 +11185,31 @@ export default function App() {
         }),
       });
       const savedId = id || recordIdentity(saved.record || {}) || recordIdentity(saved.inquiry || {});
-      if (syncToCrm && savedId) {
-        await apiFetch(`/api/portal/sales/inquiries/${encodeURIComponent(savedId)}/convert-customer`, {
+      const savedInquiry = saved.record || saved.inquiry || { ...salesInquiryDraft, id: savedId };
+      const shouldConvertToCustomer = syncToCrm || Boolean(salesInquiryInstalledDateDraft.trim());
+      let convertedCustomer: Record<string, unknown> | null = null;
+      if (shouldConvertToCustomer && savedId) {
+        const converted = await apiFetch<{ customer?: Record<string, unknown> }>(`/api/portal/sales/inquiries/${encodeURIComponent(savedId)}/convert-customer`, {
           method: "POST",
           token,
           body: JSON.stringify({}),
         });
+        convertedCustomer = converted.customer || null;
+      }
+      if (salesInquiryInstalledDateDraft.trim() && convertedCustomer) {
+        await saveInstalledDateForCrmRecord({
+          ...savedInquiry,
+          ...convertedCustomer,
+          customer_id: String(convertedCustomer.id || savedInquiry.customer_id || ""),
+          source_inquiry_id: String(savedInquiry.enquiry_no || savedInquiry.source_enquiry_no || savedId || ""),
+        }, salesInquiryInstalledDateDraft);
       }
       setSalesInquiryDraft(emptySalesInquiryDraft);
+      setSalesInquiryInstalledDateDraft("");
       setSalesInquiryEditorOpen(false);
+      if (shouldConvertToCustomer) setCrmRecordView("Customers");
       await loadPortal();
-      setMessage(syncToCrm ? "Saved to system and CRM profile updated." : (id ? "Enquiry record updated." : "Sales enquiry intake saved."));
+      setMessage(shouldConvertToCustomer ? "Saved to CRM customer and installation date updated." : (id ? "Enquiry record updated." : "Sales enquiry intake saved."));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Sales enquiry could not be saved.");
     } finally {
@@ -10027,6 +11220,7 @@ export default function App() {
   function editSalesInquiry(record: Record<string, unknown>) {
     const customerId = String(record.customer_id || "");
     const enquiryNo = String(record.enquiry_no || record.source_enquiry_no || "");
+    const { date } = crmLatestInstalledFromJobs(crmInstallationJobsForRecord(record));
     setSalesInquiryDraft({
       id: recordIdentity(record) || String(record.enquiry_no || ""),
       customer_id: customerId,
@@ -10052,6 +11246,7 @@ export default function App() {
       lost_reason: String(record.lost_reason || record.status_lost_reason || ""),
       notes: String(record.notes || ""),
     });
+    setSalesInquiryInstalledDateDraft(date);
     setSiteVisitDraft((draft) => ({ ...draft, customer_id: customerId, site_enquiry_no: enquiryNo || draft.site_enquiry_no }));
     setSiteVisitEditorOpen(false);
     setSalesInquiryEditorOpen(true);
@@ -10090,6 +11285,7 @@ export default function App() {
       await loadPortal();
       setMessage(`${result.created ? "Created" : "Updated"} CRM customer ${result.customer?.id || ""} from enquiry.`);
       if (result.customer?.id) {
+        setCrmRecordView("Customers");
         setCrmSearch(String(result.customer.id));
         setActiveTab("customers");
       }
@@ -10113,7 +11309,10 @@ export default function App() {
         method: "DELETE",
         token,
       });
-      if (salesInquiryDraft.id === id) setSalesInquiryDraft(emptySalesInquiryDraft);
+      if (salesInquiryDraft.id === id) {
+        setSalesInquiryDraft(emptySalesInquiryDraft);
+        setSalesInquiryInstalledDateDraft("");
+      }
       await loadPortal();
       setMessage("Enquiry record removed.");
     } catch (error) {
@@ -10137,9 +11336,12 @@ export default function App() {
       createdbyname: data?.viewer?.display_name || username,
       customer_id: customerId,
       source_inquiry_id: recordIdentity(record) || String(record.enquiry_no || ""),
+      linked_customer_source: "CRM enquiry",
       notes: String(record.enquiry_remark || record.requirement || ""),
     });
-    setMessage(`Offer draft prepared for ${customerName}. Complete the Offer Manager form and save.`);
+    setActiveTab("offerManager");
+    setCostingEditorOpen(true);
+    setMessage(`Offer Manager opened for ${customerName}. CRM enquiry and linked site visit data are filled into the offer draft.`);
   }
 
   async function saveOffer() {
@@ -10158,10 +11360,21 @@ export default function App() {
       const payload = {
         ...offerDraft,
         offer_name: offerDraft.offer_name || offerDraft.customer_name,
+        offer_number: offerDraft.offer_number || offerDraft.job_no || "",
         status: offerDraft.lead_status || "Offer Pending",
         total_cost: offerCostSummary(offerDraft).totalCost,
         calculated_total_cost: offerCostSummary(offerDraft).totalCost,
         source: "CRM Offer Manager",
+        offer_source: offerDraft.offer_source || "CRM",
+        source_snapshot: {
+          customer_id: offerDraft.customer_id,
+          customer_name: offerDraft.customer_name,
+          source_inquiry_id: offerDraft.source_inquiry_id,
+          site_visit_id: offerDraft.site_visit_id,
+          site_measurements_source: offerDraft.site_measurements_source,
+          costing_source_file: offerDraft.costing_source_file,
+          linked_customer_source: offerDraft.linked_customer_source,
+        },
         offer_letter_status: "Prepared",
       };
       await apiFetch("/api/portal/estimates", {
@@ -10247,7 +11460,9 @@ export default function App() {
   }
 
   function editCustomer(customer: Customer) {
+    const { date } = crmLatestInstalledFromJobs(crmInstallationJobsForRecord(customer as unknown as Record<string, unknown>));
     setCustomerDraft({ ...emptyCustomer, ...customer });
+    setCustomerInstalledDateDraft(date);
     setCustomerEditorOpen(true);
     setSiteVisitDraft((draft) => ({ ...draft, customer_id: customer.id }));
     setSiteVisitEditorOpen(false);
@@ -10283,7 +11498,10 @@ export default function App() {
         method: "DELETE",
         token,
       });
-      if (customerDraft.id === customer.id) setCustomerDraft(emptyCustomer);
+      if (customerDraft.id === customer.id) {
+        setCustomerDraft(emptyCustomer);
+        setCustomerInstalledDateDraft("");
+      }
       await loadPortal();
       setMessage(`${customer.name} removed from CRM.`);
     } catch (error) {
@@ -10649,8 +11867,8 @@ export default function App() {
   }
 
   async function saveBreakdown() {
-    if (!breakdownDraft.customer_id.trim() || !breakdownDraft.issue.trim()) {
-      const text = "Select a customer and enter the fault issue.";
+    if (!breakdownDraft.customer_id.trim()) {
+      const text = "Select a customer before logging a breakdown call.";
       Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
       return;
     }
@@ -10664,8 +11882,6 @@ export default function App() {
           assigned_to: breakdownDraft.engineer,
           assigned_engineer: breakdownDraft.engineer,
           issue_category: breakdownDraft.issue_category || breakdownDraft.issue,
-          parts_quantity: String(Math.max(0, Number(breakdownDraft.parts_quantity || 0))),
-          notes: breakdownDraft.customer_comments,
           status: breakdownDraft.engineer && breakdownDraft.scheduled_at ? "Scheduled" : "Open",
         }),
       });
@@ -10715,6 +11931,71 @@ export default function App() {
       setMessage(point === "check_in" ? "Breakdown check-in captured." : "Breakdown check-out captured.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Breakdown location update could not be saved.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function breakdownRepairDraftFor(id: string, record: Record<string, unknown>) {
+    const inboundDiscordIssue = String(record.source_discord_message_id || record.channel || "").toLowerCase().includes("discord")
+      ? String(record.custom_issue || record.issue || record.fault || "").trim()
+      : "";
+    return breakdownRepairDrafts[id] || {
+      issue_category: String(record.issue_category || (inboundDiscordIssue ? "Other" : record.issue) || ""),
+      custom_issue: String(record.custom_issue || inboundDiscordIssue || ""),
+      parts_used: String(record.parts_used || ""),
+      parts_quantity: String(record.parts_quantity || "0"),
+      action_taken: String(record.action_taken || ""),
+      customer_comments: String(record.customer_comments || ""),
+    };
+  }
+
+  function updateBreakdownRepairDraft(id: string, record: Record<string, unknown>, key: string, value: string) {
+    setBreakdownRepairDrafts((drafts) => ({
+      ...drafts,
+      [id]: {
+        ...breakdownRepairDraftFor(id, record),
+        [key]: value,
+      },
+    }));
+  }
+
+  async function saveBreakdownRepairDetails(id: string, record: Record<string, unknown>) {
+    const draft = breakdownRepairDraftFor(id, record);
+    const selectedIssue = String(draft.issue_category || "").trim();
+    const customIssue = String(draft.custom_issue || "").trim();
+    if (!selectedIssue || (selectedIssue.toLowerCase() === "other" && !customIssue)) {
+      const text = selectedIssue.toLowerCase() === "other"
+        ? "Type the issue when Common elevator issue is Other."
+        : "Select a common issue or type the issue before saving repair notes.";
+      Platform.OS === "web" ? setMessage(text) : Alert.alert("Issue required", text);
+      return;
+    }
+    setLoading(true);
+    try {
+      await apiFetch(`/api/portal/breakdown/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({
+          issue: customIssue || selectedIssue,
+          issue_category: selectedIssue,
+          custom_issue: customIssue,
+          parts_used: draft.parts_used,
+          parts_quantity: String(Math.max(0, Number(draft.parts_quantity || 0))),
+          action_taken: draft.action_taken,
+          customer_comments: draft.customer_comments,
+          repair_notes_updated_at: new Date().toISOString(),
+        }),
+      });
+      setBreakdownRepairDrafts((drafts) => {
+        const next = { ...drafts };
+        delete next[id];
+        return next;
+      });
+      await loadPortal();
+      setMessage(`Repair notes saved for breakdown ${id}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Breakdown repair notes could not be saved.");
     } finally {
       setLoading(false);
     }
@@ -11202,11 +12483,26 @@ export default function App() {
     setCustomerPage(1);
     setEnquiryPage(1);
     setOfferPage(1);
-  }, [crmSearch, crmStageFilter, crmStaffFilter, crmDepartmentFilter, crmTeamFilter, data?.customers?.length]);
+  }, [crmSearch, crmRecordView, crmStageFilter, crmStaffFilter, crmDepartmentFilter, crmTeamFilter, data?.customers?.length]);
+
+  useEffect(() => {
+    setOfferCustomerPage(1);
+  }, [offerCustomerSearch, offerCustomerOfferFilter, data?.customers?.length, data?.sales_inquiries]);
+
+  useEffect(() => {
+    const pageCount = Math.max(1, Math.ceil(asRecords(data?.estimates).length / 10));
+    setOfferPage((page) => Math.min(page, pageCount));
+  }, [data?.estimates]);
 
   useEffect(() => {
     setInternationalVendorPage(1);
   }, [internationalVendorSearch, internationalVendorFilter, data?.international_vendors?.length]);
+
+  useEffect(() => {
+    const count = asRecords((data as Record<string, unknown> | null)?.breakdowns).length;
+    const pageCount = Math.max(1, Math.ceil(count / 10));
+    setBreakdownPage((page) => Math.min(page, pageCount));
+  }, [data?.breakdowns]);
 
   function renderWebsiteHome() {
     return <PublicWebsite onOpenPortal={() => setShowPortalLogin(true)} />;
@@ -11335,6 +12631,7 @@ export default function App() {
   }
 
   return (
+    <LanguageContext.Provider value={portalLanguage}>
     <SafeAreaView style={styles.safe}>
       <StatusBar style="dark" />
       <View style={[styles.appShell, isWide && styles.appShellWide]}>
@@ -11361,6 +12658,21 @@ export default function App() {
               <Text style={[styles.topTitle, !isWide && styles.topTitleMobile]}>{isWide ? "Live Operations Dashboard" : activeNavItem?.label || "Operations"}</Text>
             </View>
             <View style={[styles.topActions, !isWide && styles.topActionsMobile]}>
+              <View style={[styles.languageToggle, !isWide && styles.languageToggleMobile]}>
+                <Text style={styles.languageLabel}>Language</Text>
+                <Pressable
+                  style={[styles.languageButton, portalLanguage === "en" && styles.languageButtonActive]}
+                  onPress={() => setPortalLanguage("en")}
+                >
+                  <Text style={[styles.languageButtonText, portalLanguage === "en" && styles.languageButtonTextActive]}>English</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.languageButton, portalLanguage === "hi" && styles.languageButtonActive]}
+                  onPress={() => setPortalLanguage("hi")}
+                >
+                  <Text style={[styles.languageButtonText, portalLanguage === "hi" && styles.languageButtonTextActive]}>Hindi</Text>
+                </Pressable>
+              </View>
               <View style={[styles.globalSearchBox, !isWide && styles.globalSearchBoxMobile]}>
                 <TextInput
                   style={styles.globalSearchInput}
@@ -11451,7 +12763,7 @@ export default function App() {
           {loading && <ActivityIndicator style={styles.loader} />}
           {!!message && <Text style={styles.banner}>{message}</Text>}
 
-          <ScrollView contentContainerStyle={[styles.content, isWide && styles.contentWide]}>
+          <ScrollView style={styles.contentScroll} contentContainerStyle={[styles.content, isWide && styles.contentWide]}>
         {activeTab === "overview" && renderOverviewAnalytics()}
         {activeTab === "today" && renderTodayActionQueue()}
 
@@ -11466,6 +12778,7 @@ export default function App() {
         </View>
       </View>
     </SafeAreaView>
+    </LanguageContext.Provider>
   );
 }
 
@@ -11506,7 +12819,7 @@ const styles = StyleSheet.create({
   homeServiceCard: { width: 270, minHeight: 116, borderRadius: 8, backgroundColor: "#fff", padding: 16, gap: 8 },
   homeServiceTitle: { color: "#11131b", fontWeight: "900", fontSize: 16 },
   homeServiceText: { color: "#747b8d", fontSize: 13, lineHeight: 19 },
-  appShell: { flex: 1, backgroundColor: "#eef1f5" },
+  appShell: { flex: 1, minHeight: 0, backgroundColor: "#eef1f5" },
   appShellWide: { flexDirection: "row" },
   sidebar: { width: 280, backgroundColor: "#11131b", padding: 22, gap: 18 },
   sideBrand: { flexDirection: "row", alignItems: "center", gap: 12 },
@@ -11528,7 +12841,7 @@ const styles = StyleSheet.create({
   connectorCard: { borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(255,255,255,0.06)", padding: 14, gap: 8 },
   connectorStatus: { color: "#fff", fontWeight: "900", fontSize: 13 },
   connectorCopy: { color: "rgba(255,255,255,0.62)", fontSize: 12, lineHeight: 18 },
-  main: { flex: 1, minWidth: 0 },
+  main: { flex: 1, minWidth: 0, minHeight: 0 },
   topbar: { backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e4e7ee", paddingHorizontal: 24, paddingVertical: 18, gap: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" },
   topbarMobile: { paddingHorizontal: 14, paddingVertical: 12, alignItems: "stretch", gap: 10 },
   topTitleBlock: { gap: 3 },
@@ -11537,6 +12850,13 @@ const styles = StyleSheet.create({
   topTitleMobile: { fontSize: 20, lineHeight: 24 },
   topActions: { flexDirection: "row", gap: 10, alignItems: "center", flexWrap: "wrap" },
   topActionsMobile: { width: "100%", justifyContent: "flex-start", gap: 8 },
+  languageToggle: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: "#e4e7ee", backgroundColor: "#fff", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 6 },
+  languageToggleMobile: { flexBasis: "100%", justifyContent: "flex-start", borderRadius: 10 },
+  languageLabel: { color: "#5b6270", fontWeight: "900", fontSize: 11, textTransform: "uppercase" },
+  languageButton: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: "#f3f5f8" },
+  languageButtonActive: { backgroundColor: "#e02020" },
+  languageButtonText: { color: "#2d3240", fontWeight: "900", fontSize: 12 },
+  languageButtonTextActive: { color: "#fff" },
   globalSearchBox: { minWidth: 220, flex: 1, maxWidth: 360 },
   globalSearchBoxMobile: { minWidth: "100%", maxWidth: "100%", flexBasis: "100%" },
   globalSearchInput: { minHeight: 40, borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 10, backgroundColor: "#f3f5f8", paddingHorizontal: 12, color: "#11131b", fontWeight: "800" },
@@ -11557,6 +12877,7 @@ const styles = StyleSheet.create({
   tabIcon: { color: "#747b8d", fontSize: 14, lineHeight: 16, fontWeight: "900" },
   tabText: { fontWeight: "900", color: "#2d3240", fontSize: 11, textAlign: "center" },
   activeTabText: { color: "#fff" },
+  contentScroll: { flex: 1, minHeight: 0 },
   content: { padding: 14, gap: 12, paddingBottom: 36, maxWidth: 1240, width: "100%", alignSelf: "center" },
   contentWide: { padding: 24, gap: 16, paddingBottom: 46 },
   commandBand: { borderRadius: 10, backgroundColor: "#11131b", padding: 16, borderWidth: 1, borderColor: "rgba(224,32,32,0.24)", marginBottom: 6 },
@@ -11568,6 +12889,12 @@ const styles = StyleSheet.create({
   moduleHeroText: { color: "#747b8d", fontSize: 14, lineHeight: 22 },
   sectionTitle: { fontSize: 17, fontWeight: "900", color: "#11131b", marginTop: 8, marginBottom: 6 },
   metricGrid: { gap: 12 },
+  offerMetricGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 10 },
+  offerMetricTile: { flex: 1, minWidth: 170, marginBottom: 0 },
+  crmMetricGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 10 },
+  crmMetricTile: { flex: 1, minWidth: 175, marginBottom: 0 },
+  breakdownMetricRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 10 },
+  breakdownMetricTile: { flex: 1, minWidth: 155, marginBottom: 0, paddingVertical: 11 },
   card: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", padding: 13, marginBottom: 8, shadowColor: "#11131b", shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 6 } },
   compactCard: { padding: 11, marginBottom: 6, shadowOpacity: 0.03, shadowRadius: 8 },
   kanbanBoard: { gap: 12, paddingVertical: 4, paddingRight: 12 },
@@ -11588,6 +12915,7 @@ const styles = StyleSheet.create({
   analyticsBarTrack: { height: 10, borderRadius: 999, backgroundColor: "#eef1f5", overflow: "hidden" },
   analyticsBarFill: { height: "100%", borderRadius: 999, backgroundColor: "#e02020" },
   linkedSystemsPanel: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 10, marginTop: 8, gap: 4 },
+  installDatePanel: { borderWidth: 1, borderColor: "rgba(224,32,32,0.22)", borderRadius: 8, backgroundColor: "#fffafa", padding: 10, marginTop: 8, marginBottom: 2, gap: 3 },
   assignedTeamPanel: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 12, gap: 10, marginTop: 12 },
   assignmentRow: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", borderTopWidth: 1, borderTopColor: "#e4e7ee", paddingTop: 10 },
   assignmentAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#11131b", alignItems: "center", justifyContent: "center" },
@@ -11601,6 +12929,9 @@ const styles = StyleSheet.create({
   cardTitleBlock: { flex: 1, minWidth: 220 },
   formCard: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", padding: 13, gap: 10, marginBottom: 10 },
   formGrid: { gap: 10 },
+  crmFilterTiles: { flexDirection: "row", flexWrap: "wrap", gap: 10, alignItems: "flex-start" },
+  crmFilterTile: { flex: 1, minWidth: 220, borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 10, gap: 8 },
+  formSectionBlock: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 12, gap: 10 },
   sectionHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" },
   cardLabel: { color: "#e02020", fontSize: 11, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 },
   cardTitle: { color: "#11131b", fontSize: 16, fontWeight: "900", marginBottom: 5 },
@@ -11617,7 +12948,9 @@ const styles = StyleSheet.create({
   bodyText: { color: "#2d3240", fontSize: 14, marginTop: 4, lineHeight: 20 },
   muted: { color: "#747b8d", fontSize: 13, lineHeight: 19 },
   statusPill: { color: "#b91414", backgroundColor: "#fff5f5", borderWidth: 1, borderColor: "rgba(224,32,32,0.2)", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, overflow: "hidden", fontWeight: "900", fontSize: 11 },
+  currentCustomerPill: { color: "#0f766e", backgroundColor: "#ecfdf5", borderColor: "rgba(15,118,110,0.24)" },
   field: { gap: 6 },
+  inlineNestedField: { gap: 6, marginTop: 8 },
   label: { color: "#11131b", fontWeight: "900", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 },
   input: { minHeight: 44, borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 10, backgroundColor: "#f3f5f8", paddingHorizontal: 12, color: "#11131b", fontWeight: "700" },
   textarea: { minHeight: 92, paddingTop: 10, textAlignVertical: "top" },
@@ -11640,6 +12973,28 @@ const styles = StyleSheet.create({
   statusChoiceText: { color: "#2d3240", fontWeight: "900", fontSize: 11 },
   statusChoiceTextActive: { color: "#b91414" },
   selectorList: { gap: 8 },
+  dispatchRosterRow: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#fff", paddingHorizontal: 10, paddingVertical: 8, flexDirection: "row", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" },
+  dispatchRosterMain: { flex: 1, minWidth: 220 },
+  dispatchRosterTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  dispatchRosterName: { color: "#11131b", fontWeight: "900", fontSize: 13 },
+  dispatchRosterMeta: { color: "#747b8d", fontWeight: "700", fontSize: 11, marginTop: 2 },
+  dispatchStatusChip: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, fontWeight: "900", fontSize: 10, overflow: "hidden" },
+  dispatchStatusAvailable: { backgroundColor: "#e8f7ee", color: "#137a35" },
+  dispatchStatusBusy: { backgroundColor: "#fff2d8", color: "#8a5a00" },
+  scheduleServiceRow: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" },
+  scheduleServiceMain: { flex: 1, minWidth: 240, gap: 3 },
+  dispatchRosterAction: { minWidth: 220, flexGrow: 1, flexShrink: 1, gap: 6 },
+  dispatchTaskInput: { minHeight: 34, borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", paddingHorizontal: 10, color: "#11131b", fontWeight: "800", fontSize: 12 },
+  dispatchRosterButtons: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
+  singleEngineerPanel: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#fff", padding: 10, gap: 8 },
+  singleEngineerPicker: { gap: 8, paddingVertical: 2 },
+  engineerChoiceButton: { minHeight: 44, minWidth: 118, borderWidth: 1, borderColor: "#d5dae4", borderRadius: 8, backgroundColor: "#f3f5f8", paddingHorizontal: 10, paddingVertical: 7, alignItems: "center", justifyContent: "center" },
+  engineerChoiceButtonActive: { borderColor: "#e02020", backgroundColor: "#fff5f5" },
+  engineerChoiceName: { color: "#2d3240", fontWeight: "900", fontSize: 12 },
+  engineerChoiceNameActive: { color: "#b91414" },
+  repairNotesPanel: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 10, gap: 10, marginTop: 10 },
+  repairNotesHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  repairNotesBody: { gap: 10 },
   selectorPill: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: "#f3f5f8" },
   selectorPillActive: { backgroundColor: "rgba(224,32,32,0.1)", borderColor: "#e02020" },
   selectorText: { color: "#2d3240", fontWeight: "800" },

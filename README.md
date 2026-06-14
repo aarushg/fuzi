@@ -177,11 +177,13 @@ The `Command Intelligence` page is a data-backed operations cockpit. It combines
 - Customer 360 health scores calculated from open payments, breakdowns, service records, and renewals.
 - Engineer route planner from open breakdown, service, and site-visit records.
 - WhatsApp/Discord conversation inbox saved through `POST /api/portal/conversations` into `conversations`.
+- WhatsApp follow-up templates for enquiry follow-up, offer sent, payment reminder, breakdown update, and AMC renewal; selecting a template loads the saved conversation composer.
 - Smart assignment suggestions from engineer availability, current task, and open workload.
 - Offer versioning from `estimates` plus `audit_logs`.
 - Inventory purchase planning from stock, reserved quantity, reorder point, and target stock.
 - Install project Gantt view from active installation job status.
-- Audit trail in `audit_logs`, automatically written by generic portal create/update/delete routes and key custom CRM flows.
+- Installation milestone tracker calculated from active install job status, showing completed milestone count and next milestone.
+- Audit trail in `audit_logs`, automatically written by generic portal create/update/delete routes and key custom CRM flows, with before/after summaries shown in Command Intelligence.
 - Warranty tracker saved through `POST /api/portal/warranty-records` into `warranty_records`.
 - Material dispatch board saved through `POST /api/portal/dispatch-records` into `dispatch_records`.
 - Site readiness checklist saved through `POST /api/portal/readiness-checklists` into `readiness_checklists`.
@@ -189,13 +191,16 @@ The `Command Intelligence` page is a data-backed operations cockpit. It combines
 - Complaint repeat analysis calculated from breakdown history.
 - AMC visit calendar calculated from renewal records.
 - Customer portal access review from `customers` and `customer_users`.
+- Customer portal action queue for customers missing portal users, customers with open service/payment items, and customers with vault documents.
 - Profitability dashboard from estimates, offer costs, and payment collection.
 - Vendor performance scorecard from inventory vendor, value, and low-stock data.
 - Digital handover packs saved through `POST /api/portal/handover-packs` into `handover_packs`.
 - Lift asset registry saved through `POST /api/portal/lift-assets` into `lift_assets`, with controller, motor, door, warranty, AMC, and site details.
 - Spare parts usage ledger saved through `POST /api/portal/parts-usage` into `parts_usage`, linked to job, unit, engineer, and inventory item IDs.
+- Spare parts consumption forecast calculated from service records, breakdown repair notes, and saved parts usage entries.
 - QR service lookup values generated from registered lift assets, with optional stored QR overrides.
-- Service report generator saved through `POST /api/portal/service-reports` into `service_reports`, with checklist, parts used, next visit, notes, and customer signature fields.
+- Service report generator saved through `POST /api/portal/service-reports` into `service_reports`, with checklist, parts used, next visit, notes, voice note URL/transcript, and customer signature fields.
+- Engineer voice-note view showing saved audio references or transcripts from service reports.
 - Payment collection forecast calculated from open payment records, reminder dates, due dates, and outstanding totals.
 - Engineer performance dashboard calculated from engineer-linked breakdown, service, and installation records.
 - Safety incident register saved through `POST /api/portal/safety-incidents` into `safety_incidents`.
@@ -213,6 +218,7 @@ Generic collection routes also support `GET`, `PATCH`, and `DELETE` for these sa
 
 - Bearer-token login with migrated Werkzeug-compatible password hashes.
 - Roles: `admin`, `manager`, `staff`, `technician`.
+- Logged-in users can switch the portal language between English and Hindi; the choice is saved in the browser and applied to shared navigation, actions, labels, and placeholders.
 - Admins and Executive Office users see the full Expo module navigation.
 - Staff login accounts are synced from the org chart for every staff member, with department heads/supervisors created as managers and other staff created as staff users.
 - Department heads see only the portal views needed for their department.
@@ -297,14 +303,14 @@ The CRM roadmap is shaped for an Indian elevator sales, installation, AMC, warra
 41. Payment milestone ledger [Built]
 42. UPI/NEFT/cheque reference tracking [Built]
 43. Outstanding balance tracking [Built]
-44. Overdue payment alerts [Roadmap]
+44. Overdue payment alerts [Built]
 45. GST tax invoice export [Roadmap]
 46. E-invoice/IRN field tracking [Roadmap]
-47. AMC contract records [Roadmap]
+47. AMC contract records [Built]
 48. CAMC contract records [Roadmap]
-49. Warranty records [Roadmap]
-50. Contract renewal reminders [Roadmap]
-51. Preventive maintenance schedule [Roadmap]
+49. Warranty records [Built]
+50. Contract renewal reminders [Built]
+51. Preventive maintenance schedule [Built]
 52. Breakdown ticket logging [Built]
 53. Technician assignment [Built]
 54. Service report generation [Built]
@@ -325,7 +331,7 @@ The CRM roadmap is shaped for an Indian elevator sales, installation, AMC, warra
 69. Password reset and forced rotation [Built]
 70. Admin user management [Built]
 71. Inventory item master [Built]
-72. Inventory reorder alerts [Roadmap]
+72. Inventory reorder alerts [Built]
 73. Part warranty tracking [Roadmap]
 74. Vendor records [Roadmap]
 75. Purchase request workflow [Roadmap]
@@ -347,12 +353,12 @@ The CRM roadmap is shaped for an Indian elevator sales, installation, AMC, warra
 91. Email delivery configuration [Built]
 92. PDF/document export [Built]
 93. Internal activity feed [Built]
-94. Audit log per customer [Roadmap]
+94. Audit log per customer [Built]
 95. Data retention policy fields [Roadmap]
 96. Consent withdrawal workflow [Roadmap]
-97. Customer complaint/escalation SLA [Roadmap]
-98. WhatsApp/SMS template registry [Roadmap]
-99. CEO/MIS summary reports [Roadmap]
+97. Customer complaint/escalation SLA [Built]
+98. WhatsApp/SMS template registry [Built]
+99. CEO/MIS summary reports [Built]
 100. Backup and restore controls [Roadmap]
 
 **Operations platform backlog - next 100 feature ideas:**
@@ -401,32 +407,32 @@ These items are also available inside the staff portal under `Operations Backlog
 40. Project risk score [Backlog]
 41. Breakdown SLA timer [Backlog]
 42. Trapped passenger priority mode [Backlog]
-43. Auto escalation to manager [Backlog]
+43. Auto escalation to manager [Built]
 44. Engineer nearest-location assignment [Backlog]
-45. Breakdown repeat-fault detection [Backlog]
+45. Breakdown repeat-fault detection [Built]
 46. Breakdown root-cause tagging [Backlog]
-47. Breakdown customer notification log [Backlog]
-48. Breakdown spare-part suggestion [Backlog]
+47. Breakdown customer notification log [Built]
+48. Breakdown spare-part suggestion [Built]
 49. Breakdown closure approval [Backlog]
 50. Breakdown cost tracking [Backlog]
-51. Preventive maintenance calendar [Backlog]
-52. AMC renewal pipeline [Backlog]
-53. AMC visit auto-scheduler [Backlog]
+51. Preventive maintenance calendar [Built]
+52. AMC renewal pipeline [Built]
+53. AMC visit auto-scheduler [Built]
 54. Service checklist by lift type [Backlog]
-55. Service report PDF [Backlog]
-56. Customer digital signature for service [Backlog]
+55. Service report PDF [Built]
+56. Customer digital signature for service [Built]
 57. Service photo attachments [Backlog]
 58. Missed service alert [Backlog]
 59. AMC profitability dashboard [Backlog]
 60. Contract coverage rules [Backlog]
-61. Lift asset registry [Backlog]
-62. QR code per lift [Backlog]
+61. Lift asset registry [Built]
+62. QR code per lift [Built]
 63. Lift technical history [Backlog]
 64. Controller/password vault with restricted access [Backlog]
-65. Warranty expiry alerts [Backlog]
-66. Parts replacement history [Backlog]
+65. Warranty expiry alerts [Built]
+66. Parts replacement history [Built]
 67. Modernization opportunity alerts [Backlog]
-68. Lift health score [Backlog]
+68. Lift health score [Built]
 69. Lift downtime report [Backlog]
 70. Lift document pack [Backlog]
 71. Inventory reorder automation [Backlog]
@@ -435,16 +441,16 @@ These items are also available inside the staff portal under `Operations Backlog
 74. Stock reservation for jobs [Backlog]
 75. Bin/location scanner [Backlog]
 76. Inventory audit count mode [Backlog]
-77. Low-stock WhatsApp/email alert [Backlog]
-78. Spare consumption forecast [Backlog]
+77. Low-stock WhatsApp/email alert [Built]
+78. Spare consumption forecast [Built]
 79. Material dispatch challan [Backlog]
 80. Returned material tracking [Backlog]
 81. Staff attendance geofencing [Backlog]
 82. Engineer daily job app [Backlog]
 83. Leave approval workflow [Backlog]
 84. Department workload dashboard [Backlog]
-85. Skill matrix by engineer [Backlog]
-86. Performance scorecards [Backlog]
+85. Skill matrix by engineer [Built]
+86. Performance scorecards [Built]
 87. Training/certification tracker [Backlog]
 88. Staff document vault [Backlog]
 89. Overtime approval tracking [Backlog]
