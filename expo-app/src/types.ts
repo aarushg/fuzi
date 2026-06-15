@@ -38,6 +38,8 @@ export type Customer = {
   service_count?: number;
   services_done?: number;
   last_service_counted_at?: string;
+  service_end_date?: string;
+  service_contract_end_date?: string;
 };
 
 export type SiteVisit = {

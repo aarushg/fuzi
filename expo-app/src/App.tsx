@@ -500,6 +500,9 @@ const emptyServiceDraft = {
   phone: "",
   install_job_id: "",
   scheduled_date: "",
+  service_number: "",
+  next_service_number: "",
+  installation_date: "",
   assigned_engineer: "",
   issue_category: serviceIssueCategories[0],
   action_taken: "",
@@ -854,11 +857,12 @@ const emptyAccountDraft = {
   username: "",
   display_name: "",
   department: "",
-  role: "manager",
+  role: "staff",
   linked_org_node: "",
   password: "",
   active: "Y",
 };
+const accountRoleOptions = ["ceo", "manager", "staff"];
 const emptyRenewalDraft = {
   customer_id: "",
   customer: "",
@@ -975,6 +979,7 @@ const emptyCustomer: Partial<Customer> = {
   dpdp_consent_at: "",
   marketing_consent: "N",
   dlt_reference: "",
+  service_end_date: "",
   consent_notes: "",
   notes: "",
 };
@@ -1035,6 +1040,7 @@ const customerFields: Array<{ key: keyof Customer; label: string; keyboard?: "de
   { key: "dpdp_consent_at", label: "DPDP consent date" },
   { key: "marketing_consent", label: "Marketing/DLT consent Y/N" },
   { key: "dlt_reference", label: "DLT reference" },
+  { key: "service_end_date", label: "Service end date YYYY-MM-DD" },
   { key: "consent_notes", label: "Consent/compliance notes", multiline: true },
   { key: "notes", label: "Customer notes", multiline: true },
 ];
@@ -1251,18 +1257,27 @@ export default function App() {
   const [projectNow, setProjectNow] = useState(() => Date.now());
   const [customerDraft, setCustomerDraft] = useState<Partial<Customer>>(emptyCustomer);
   const [customerInstalledDateDraft, setCustomerInstalledDateDraft] = useState("");
+  const [customerInlineDrafts, setCustomerInlineDrafts] = useState<Record<string, Partial<Customer>>>({});
+  const [customerInlineInstalledDates, setCustomerInlineInstalledDates] = useState<Record<string, string>>({});
   const [customerEditorOpen, setCustomerEditorOpen] = useState(false);
   const [siteVisitDraft, setSiteVisitDraft] = useState<Partial<SiteVisit>>(emptySiteVisit);
   const [siteVisitEditorOpen, setSiteVisitEditorOpen] = useState(false);
   const [siteVisitCustomerSearch, setSiteVisitCustomerSearch] = useState("");
   const [moduleDraft, setModuleDraft] = useState(emptyModuleDraft);
   const [serviceDraft, setServiceDraft] = useState(emptyServiceDraft);
+  const [serviceNewVisitOpen, setServiceNewVisitOpen] = useState(false);
   const [serviceIssueDropdownOpen, setServiceIssueDropdownOpen] = useState(false);
   const [serviceEngineerDropdownOpen, setServiceEngineerDropdownOpen] = useState(false);
+  const [serviceEditEngineerDropdownOpen, setServiceEditEngineerDropdownOpen] = useState("");
   const [serviceEditDrafts, setServiceEditDrafts] = useState<Record<string, Record<string, string>>>({});
+  const [serviceSlotDropdownOpen, setServiceSlotDropdownOpen] = useState("");
+  const [serviceYearDropdownOpen, setServiceYearDropdownOpen] = useState("");
+  const [serviceSelectedYears, setServiceSelectedYears] = useState<Record<string, number>>({});
+  const [serviceSelectedSlots, setServiceSelectedSlots] = useState<Record<string, number>>({});
   const [serviceCustomerDropdownOpen, setServiceCustomerDropdownOpen] = useState(false);
   const [serviceCustomerSearch, setServiceCustomerSearch] = useState("");
   const [serviceRecordSearch, setServiceRecordSearch] = useState("");
+  const [servicePage, setServicePage] = useState(1);
   const [paymentDraft, setPaymentDraft] = useState(emptyPaymentDraft);
   const [approvalDraft, setApprovalDraft] = useState(emptyApprovalDraft);
   const [documentDraft, setDocumentDraft] = useState(emptyDocumentDraft);
@@ -1319,6 +1334,11 @@ export default function App() {
   const [offerPage, setOfferPage] = useState(1);
   const [offerCustomerPage, setOfferCustomerPage] = useState(1);
   const [accountDraft, setAccountDraft] = useState(emptyAccountDraft);
+  const [accountCreateOpen, setAccountCreateOpen] = useState(false);
+  const [accountCreateRoleOpen, setAccountCreateRoleOpen] = useState(false);
+  const [accountEditRoleOpen, setAccountEditRoleOpen] = useState("");
+  const [accountSearch, setAccountSearch] = useState("");
+  const [accountEditDrafts, setAccountEditDrafts] = useState<Record<string, typeof emptyAccountDraft>>({});
   const [accountPasswordDrafts, setAccountPasswordDrafts] = useState<Record<string, string>>({});
   const [renewalDraft, setRenewalDraft] = useState(emptyRenewalDraft);
   const [inventoryDraft, setInventoryDraft] = useState(emptyInventoryDraft);
@@ -1360,7 +1380,7 @@ export default function App() {
   const isWide = width >= 920;
   const t = (value: string) => translateString(value, portalLanguage);
   const asRecords = (value: unknown): Array<Record<string, unknown>> => (Array.isArray(value) ? (value as Array<Record<string, unknown>>) : []);
-  const isAdmin = String(data?.viewer?.role || "").trim().toLowerCase() === "admin";
+  const isAdmin = ["admin", "ceo"].includes(String(data?.viewer?.role || "").trim().toLowerCase());
   const normalizedKey = (value: unknown) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
   const adminLoginUsers = useMemo(
     () => loginDirectory.filter((user) => {
@@ -2791,6 +2811,9 @@ export default function App() {
         scheduled_date: String(record.scheduled_date || ""),
         completed_date: String(record.completed_date || ""),
         next_service_date: String(record.next_service_date || ""),
+        install_job_id: String(record.install_job_id || record.job_id || ""),
+        installation_date: String(record.installation_date || record.installed_date || ""),
+        service_number: String(record.service_number || record.next_service_number || ""),
         findings: String(record.findings || ""),
       },
     }));
@@ -2799,16 +2822,26 @@ export default function App() {
   function serviceEngineerOptions() {
     const rows = [...asRecords(data?.install_team), ...asRecords(data?.org_chart), ...asRecords(data?.users)];
     const seen = new Set<string>();
-    return rows.map((item) => ({
-      name: fieldText(item, ["name", "display_name", "username"]).replace("-", ""),
-      department: fieldText(item, ["department", "role", "title"]).replace("-", ""),
-    })).filter((item) => {
+    return rows.map((item) => {
+      const name = fieldText(item, ["name", "display_name", "username"]).replace("-", "");
+      const department = fieldText(item, ["department", "role", "title"]).replace("-", "");
+      const title = fieldText(item, ["title", "position", "role"]);
+      return {
+        name,
+        department,
+        searchText: `${name} ${department} ${title}`,
+      };
+    }).filter((item) => {
       if (!item.name) return false;
       const key = item.name.toLowerCase();
       if (seen.has(key)) return false;
       seen.add(key);
-      return /service|breakdown|installation|technician|engineer|field/i.test(`${item.name} ${item.department}`) || rows.length < 12;
-    }).slice(0, 80);
+      const searchText = item.searchText.toLowerCase();
+      const isServicePerson = /\bservice\b/.test(searchText);
+      const blockedRole = /\bbreakdown\b|\binstallation\b|\binstall\b|\bmanager\b|\badmin\b|\bceo\b|\bdirector\b|\bstaff\b/.test(searchText);
+      const isJitendraServiceManager = /jitendra/.test(searchText) && /choudh?ary|choudry/.test(searchText);
+      return isServicePerson && !blockedRole && !isJitendraServiceManager;
+    }).map(({ name, department }) => ({ name, department })).slice(0, 80);
   }
 
   async function saveNewServiceRecord() {
@@ -2825,7 +2858,7 @@ export default function App() {
         body: JSON.stringify({
           ...serviceDraft,
           technician: serviceDraft.assigned_engineer,
-          service_date: new Date().toISOString(),
+          service_date: serviceDraft.scheduled_date || new Date().toISOString().slice(0, 10),
           parts_quantity: String(Math.max(0, Number(serviceDraft.parts_quantity || 0))),
           findings: serviceDraft.action_taken,
           notes: serviceDraft.customer_comments,
@@ -2884,6 +2917,19 @@ export default function App() {
         delete next[id];
         return next;
       });
+      setServiceSlotDropdownOpen((openId) => openId === id ? "" : openId);
+      setServiceYearDropdownOpen((openId) => openId === id ? "" : openId);
+      setServiceEditEngineerDropdownOpen((openId) => openId === id ? "" : openId);
+      setServiceSelectedYears((years) => {
+        const next = { ...years };
+        delete next[id];
+        return next;
+      });
+      setServiceSelectedSlots((slots) => {
+        const next = { ...slots };
+        delete next[id];
+        return next;
+      });
       await loadPortal();
       setMessage(`Service record ${id} updated and linked to customer ${draft.customer_id}.`);
     } catch (error) {
@@ -2894,7 +2940,42 @@ export default function App() {
   }
 
   function renderServicePage() {
-    const records = asRecords((data as Record<string, unknown> | null)?.service_records);
+    const rawServiceRecords = asRecords((data as Record<string, unknown> | null)?.service_records);
+    const viewer = (data?.viewer || {}) as Record<string, unknown>;
+    const viewerStaff = viewerStaffRecord(asRecords(data?.org_chart));
+    const viewerRole = String(viewer.role || "").trim().toLowerCase();
+    const viewerDepartment = normalizedKey(viewer.department || fieldText(viewerStaff || {}, ["department"]));
+    const viewerTitle = normalizedKey(`${viewer.title || ""} ${viewer.position || ""} ${viewer.role || ""} ${fieldText(viewerStaff || {}, ["title", "position", "role"])}`);
+    const viewerNameText = normalizedKey(`${viewer.username || ""} ${viewer.display_name || ""} ${viewer.name || ""} ${fieldText(viewerStaff || {}, ["name"])}`);
+    const isViewerServiceManager = (/jitendra/.test(viewerNameText) && /choudh?ary|choudry/.test(viewerNameText)) || (viewerDepartment === "service" && /manager|supervisor|head/.test(viewerTitle));
+    const canViewAllService = isAdmin || isViewerServiceManager || viewerRole === "ceo" || viewerRole === "admin";
+    const viewerServiceKeys = new Set([
+      normalizedKey(viewer.display_name || viewer.name),
+      normalizedKey(String(viewer.username || "").replace(/\./g, " ")),
+      normalizedKey(viewer.username),
+      normalizedKey(viewer.linked_org_node),
+      normalizedKey(viewer.linked_team_member),
+      normalizedKey(fieldText(viewerStaff || {}, ["name"])),
+      normalizedKey(fieldText(viewerStaff || {}, ["id"])),
+    ].filter(Boolean));
+    const serviceRecordAssignedToViewer = (record: Record<string, unknown>) => {
+      if (canViewAllService) return true;
+      if (!viewerServiceKeys.size) return false;
+      return [
+        record.assigned_engineer,
+        record.technician,
+        record.engineer,
+        record.assigned_to,
+        record.service_engineer,
+        record.staff_id,
+        record.staff_name,
+        record.person_id,
+      ].some((value) => {
+        const key = normalizedKey(value);
+        return key && [...viewerServiceKeys].some((viewerKey) => key === viewerKey || key.includes(viewerKey) || viewerKey.includes(key));
+      });
+    };
+    const records = canViewAllService ? rawServiceRecords : rawServiceRecords.filter(serviceRecordAssignedToViewer);
     const customerOptions = crmCustomerOptions();
     const installJobs = asRecords((data as Record<string, unknown> | null)?.install_jobs);
     const selectedServiceCustomer = customerOptions.find((customer) => customer.id === serviceDraft.customer_id);
@@ -2904,47 +2985,296 @@ export default function App() {
       .slice(0, 80);
     const engineerOptions = serviceEngineerOptions();
     const todayDate = new Date().toISOString().slice(0, 10);
-    const addMonthsIso = (dateValue: unknown, months: number) => {
+    const serviceIntervalDays = Math.round(365 / 7);
+    const addServiceIntervalIso = (dateValue: unknown, serviceNumber: number) => {
       const date = new Date(String(dateValue || ""));
       if (Number.isNaN(date.getTime())) return "";
-      date.setMonth(date.getMonth() + months);
+      date.setDate(date.getDate() + (serviceIntervalDays * serviceNumber));
       return date.toISOString().slice(0, 10);
     };
-    const serviceDateFor = (record: Record<string, unknown>) => String(record.completed_date || record.service_date || record.scheduled_date || record.created_at || "").slice(0, 10);
+    const serviceEndDateForServiceSchedule = (record: Record<string, unknown>) => String(
+      record.service_end_date ||
+      record.service_contract_end_date ||
+      record.contract_end_date ||
+      record.amc_to_date ||
+      record.amc_end_date ||
+      ""
+    ).slice(0, 10);
+    const installedDateForServiceSchedule = (record: Record<string, unknown>) => String(
+      record.installed_date ||
+      record.install_complete_date ||
+      record.completion_date ||
+      record.handed_over_date ||
+      record.handover_date ||
+      record.elevator_installed_date ||
+      record.installation_date ||
+      ""
+    ).slice(0, 10);
+    const serviceDateFor = (record: Record<string, unknown>) => String(record.completed_date || record.scheduled_date || record.service_date || record.created_at || "").slice(0, 10);
+    type ServicePlanEntry = {
+      serviceNumber: number;
+      serviceYear: number;
+      slotInYear: number;
+      dueDate: string;
+      status: string;
+      record?: Record<string, unknown>;
+    };
     type InstalledServiceScheduleItem = {
       job: Record<string, unknown>;
       jobId: string;
       customerId: string;
       customerName: string;
       installDate: string;
+      serviceEndDate: string;
       lastServiceDate: string;
       nextDue: string;
       status: string;
       serviceCount: number;
+      nextServiceNumber: number;
+      annualPlan: ServicePlanEntry[];
     };
-    const installedServiceSchedule: InstalledServiceScheduleItem[] = installJobs
-      .map((job): InstalledServiceScheduleItem | null => {
-        const installDate = String(job.handed_over_date || job.handover_date || job.completion_date || job.installed_date || job.install_complete_date || job.start_date || "").slice(0, 10);
+    const servicePlanHorizon = datePlusDays(365);
+    const buildServicePlan = (installDate: string, serviceEndDate: string, matchedByServiceNumber: Map<string, Record<string, unknown>>) => {
+      const validInstallDate = /^\d{4}-\d{2}-\d{2}$/.test(installDate) ? installDate : "";
+      if (!validInstallDate) return [];
+      const endDate = serviceEndDate || servicePlanHorizon;
+      const plan: ServicePlanEntry[] = [];
+      for (let serviceNumber = 1; serviceNumber <= 70; serviceNumber += 1) {
+        const dueDate = addServiceIntervalIso(validInstallDate, serviceNumber);
+        if (!dueDate) break;
+        if (dueDate > endDate && serviceEndDate) break;
+        if (dueDate > endDate && serviceNumber > 7 && !serviceEndDate) break;
+        const record = matchedByServiceNumber.get(String(serviceNumber));
+        const status = serviceEndDate && dueDate > serviceEndDate ? "Ended" : record ? "Completed" : dueDate < todayDate ? "Overdue" : dueDate === todayDate ? "Due today" : dueDate <= datePlusDays(30) ? "Upcoming" : "Scheduled";
+        plan.push({
+          serviceNumber,
+          serviceYear: Math.floor((serviceNumber - 1) / 7) + 1,
+          slotInYear: ((serviceNumber - 1) % 7) + 1,
+          dueDate,
+          status,
+          record,
+        });
+      }
+      return plan;
+    };
+    const scheduleSourceRows = [
+      ...installJobs.map((job) => ({ source: job, sourceType: "install-job" })),
+      ...(data?.customers || []).map((customer) => ({ source: customer as unknown as Record<string, unknown>, sourceType: "crm-customer" })),
+      ...asRecords(data?.sales_inquiries).map((inquiry) => ({ source: inquiry, sourceType: "crm-inquiry" })),
+    ];
+    const installedServiceScheduleByKey = new Map<string, InstalledServiceScheduleItem>();
+    scheduleSourceRows.forEach(({ source, sourceType }) => {
+        const linkedInstallJobs = sourceType === "install-job" ? [source] : crmInstallationJobsForRecord(source);
+        const latestLinkedInstall = crmLatestInstalledFromJobs(linkedInstallJobs);
+        const installDate = installedDateForServiceSchedule(source) || latestLinkedInstall.date;
         if (!installDate || Number.isNaN(new Date(installDate).getTime())) return null;
-        const jobId = recordIdentity(job) || String(job.job_id || job.id || "");
-        const customerId = String(job.customer_id || "").trim();
-        const customerName = String(job.customer || job.customer_name || "").trim();
+        const job = sourceType === "install-job" ? source : (latestLinkedInstall.job || source);
+        const jobId = sourceType === "install-job" ? (recordIdentity(source) || String(source.job_id || source.id || "")) : (recordIdentity(latestLinkedInstall.job || {}) || String(latestLinkedInstall.job?.job_id || ""));
+        const customerId = String(source.customer_id || source.id || latestLinkedInstall.job?.customer_id || "").trim();
+        const customerName = String(source.customer || source.name || source.lead_name || source.customer_name || latestLinkedInstall.job?.customer || latestLinkedInstall.job?.customer_name || "").trim();
+        const sourceInquiryId = String(source.source_inquiry_id || source.enquiry_no || latestLinkedInstall.job?.source_inquiry_id || "").trim();
+        const crmCustomerRecord = ([...(data?.customers || []), ...asRecords(data?.sales_inquiries)] as Array<Record<string, unknown>>).find((item) => {
+          const itemCustomerId = String(item.id || item.customer_id || "").trim();
+          return Boolean(
+            (customerId && itemCustomerId === customerId) ||
+            (sourceInquiryId && String(item.id || item.enquiry_no || "").trim() === sourceInquiryId) ||
+            (customerName && crmNameKey(item.name || item.customer || item.lead_name) === crmNameKey(customerName))
+          );
+        });
+        const serviceEndDate = serviceEndDateForServiceSchedule(source) || serviceEndDateForServiceSchedule(crmCustomerRecord || {}) || serviceEndDateForServiceSchedule(latestLinkedInstall.job || {});
+        const scheduleKey = customerId ? `customer:${customerId}` : jobId ? `job:${jobId}` : `name:${crmNameKey(customerName)}`;
         const matchedRecords = records
           .filter((record) => (
             (jobId && String(record.install_job_id || record.job_id || "") === jobId) ||
             (customerId && String(record.customer_id || "") === customerId) ||
+            (sourceInquiryId && String(record.source_inquiry_id || "") === sourceInquiryId) ||
             (!!customerName && crmNameKey(record.customer) === crmNameKey(customerName))
           ))
           .filter((record) => serviceDateFor(record) >= installDate)
-          .sort((a, b) => serviceDateFor(b).localeCompare(serviceDateFor(a)));
-        const lastServiceDate = matchedRecords[0] ? serviceDateFor(matchedRecords[0]) : "";
-        const nextDue = addMonthsIso(lastServiceDate || installDate, 1);
-        const status = nextDue < todayDate ? "Overdue" : nextDue === todayDate ? "Due today" : nextDue <= datePlusDays(30) ? "Upcoming" : "Scheduled";
-        return { job, jobId, customerId, customerName, installDate, lastServiceDate, nextDue, status, serviceCount: matchedRecords.length };
-      })
-      .filter((item): item is InstalledServiceScheduleItem => item !== null)
+          .filter((record) => !/cancelled|canceled|rejected/i.test(statusText(record)))
+          .sort((a, b) => serviceDateFor(a).localeCompare(serviceDateFor(b)));
+        const matchedByServiceNumber = new Map<string, Record<string, unknown>>();
+        matchedRecords.forEach((record, index) => {
+          const serviceNumber = String(record.service_number || record.next_service_number || index + 1);
+          matchedByServiceNumber.set(serviceNumber, record);
+        });
+        const completedCount = matchedRecords.length;
+        const annualPlan = buildServicePlan(installDate, serviceEndDate, matchedByServiceNumber);
+        const lastServiceDate = matchedRecords[matchedRecords.length - 1] ? serviceDateFor(matchedRecords[matchedRecords.length - 1]) : "";
+        const nextPlan = annualPlan.find((entry) => entry.status !== "Completed" && entry.status !== "Ended");
+        const nextServiceNumber = nextPlan?.serviceNumber || completedCount + 1;
+        const nextDue = nextPlan?.dueDate || addServiceIntervalIso(installDate, nextServiceNumber);
+        const status = serviceEndDate && nextDue > serviceEndDate ? "Service ended" : nextDue < todayDate ? "Overdue" : nextDue === todayDate ? "Due today" : nextDue <= datePlusDays(30) ? "Upcoming" : "Scheduled";
+        if (!scheduleKey.replace(/^(customer|job|name):/, "")) return null;
+        const item = { job, jobId, customerId, customerName, installDate, serviceEndDate, lastServiceDate, nextDue, status, serviceCount: matchedRecords.length, nextServiceNumber, annualPlan };
+        const existing = installedServiceScheduleByKey.get(scheduleKey);
+        if (!existing || item.installDate > existing.installDate || (sourceType === "install-job" && !existing.jobId)) {
+          installedServiceScheduleByKey.set(scheduleKey, item);
+        }
+        return null;
+      });
+    const installedServiceSchedule: InstalledServiceScheduleItem[] = Array.from(installedServiceScheduleByKey.values())
       .sort((a, b) => String(a?.nextDue || "").localeCompare(String(b?.nextDue || "")));
-    const dueInstalledServices = installedServiceSchedule.filter((item) => item.nextDue <= datePlusDays(30)).slice(0, 12);
+    const visibleInstalledServiceSchedule = canViewAllService
+      ? installedServiceSchedule
+      : installedServiceSchedule.filter((item) => serviceRecordAssignedToViewer(item.job) || item.annualPlan.some((entry) => entry.record && serviceRecordAssignedToViewer(entry.record)));
+    const dueInstalledServices = visibleInstalledServiceSchedule.filter((item) => item.nextDue <= datePlusDays(30)).slice(0, 12);
+    const visibleInstalledServices = visibleInstalledServiceSchedule.slice(0, 30);
+    const defaultServiceScheduleForCustomer = (customer: { id: string; name: string; source_inquiry_id?: string }) => {
+      const customerId = String(customer.id || "").trim();
+      const sourceInquiryId = String(customer.source_inquiry_id || "").trim();
+      const customerName = crmNameKey(customer.name);
+      return installedServiceSchedule.find((item) => (
+        (customerId && item.customerId === customerId) ||
+        (sourceInquiryId && String(item.job.source_inquiry_id || item.job.enquiry_no || "") === sourceInquiryId) ||
+        (customerName && crmNameKey(item.customerName) === customerName)
+      ));
+    };
+    const selectedDefaultServiceSchedule = selectedServiceCustomer ? defaultServiceScheduleForCustomer(selectedServiceCustomer) : undefined;
+    const engineerMatchesAssignment = (engineerName: string, record: Record<string, unknown>, keys: string[]) => {
+      const engineerKey = normalizedKey(engineerName);
+      if (!engineerKey) return false;
+      const assignmentText = keys.map((key) => String(record[key] || "")).filter(Boolean).join(" ");
+      return normalizedKey(assignmentText).includes(engineerKey);
+    };
+    type ServiceEngineerAssignment = {
+      type: "Service" | "Breakdown" | "Install" | "Scheduled";
+      title: string;
+      detail: string;
+      date: string;
+      status: string;
+      tab: TabKey;
+      search?: string;
+    };
+    const serviceEngineerRoster = engineerOptions.map((engineer) => {
+      const serviceAssignments: ServiceEngineerAssignment[] = records
+        .filter((record) => !recordIsClosed(record))
+        .filter((record) => engineerMatchesAssignment(engineer.name, record, ["assigned_engineer", "technician", "engineer", "assigned_to"]))
+        .map((record) => ({
+          type: "Service" as const,
+          title: String(record.customer || record.customer_name || record.job_number || record.id || "Service job"),
+          detail: `Job ${String(record.job_number || record.job_no || record.id || "-")} - ${String(record.site || record.city || record.area || "-")}`,
+          date: String(record.scheduled_date || record.service_date || record.next_service_date || record.created_at || "").slice(0, 10),
+          status: String(record.status || "Open"),
+          tab: "service" as TabKey,
+          search: String(record.job_number || record.job_no || record.id || record.customer_id || record.customer || ""),
+        }));
+      const breakdownAssignments: ServiceEngineerAssignment[] = asRecords(data?.breakdowns)
+        .filter((record) => !recordIsClosed(record))
+        .filter((record) => engineerMatchesAssignment(engineer.name, record, ["assigned_engineer", "engineer", "assigned_to", "technician"]))
+        .map((record) => ({
+          type: "Breakdown" as const,
+          title: String(record.customer || record.customer_name || record.unit || record.breakdown_number || "Breakdown"),
+          detail: `${String(record.breakdown_number || record.id || "-")} - ${String(record.site || record.location || record.area || "-")}`,
+          date: String(record.scheduled_at || record.created_at || record.date || "").slice(0, 10),
+          status: String(record.status || "Open"),
+          tab: "breakdown" as TabKey,
+          search: String(record.breakdown_number || record.id || record.customer || record.unit || ""),
+        }));
+      const installAssignments: ServiceEngineerAssignment[] = installJobs
+        .filter((record) => !recordIsClosed(record))
+        .filter((record) => engineerMatchesAssignment(engineer.name, record, ["service_engineer", "assigned_engineer", "engineer", "assigned_to", "assigned_team", "crew"]))
+        .map((record) => ({
+          type: "Install" as const,
+          title: String(record.customer || record.customer_name || record.project_name || record.job_id || "Install job"),
+          detail: `Job ${String(record.job_id || record.id || "-")} - ${String(record.site || record.site_address || record.location || "-")}`,
+          date: String(record.handover_date || record.target_date || record.due_date || record.start_date || "").slice(0, 10),
+          status: String(record.status || "Open"),
+          tab: "installations" as TabKey,
+          search: String(record.job_id || record.id || record.customer || record.customer_name || ""),
+        }));
+      const scheduledAssignments: ServiceEngineerAssignment[] = installedServiceSchedule
+        .filter((item) => engineerMatchesAssignment(engineer.name, item.job, ["service_engineer", "assigned_engineer", "engineer", "assigned_to", "assigned_team", "crew"]))
+        .filter((item) => item.nextDue <= datePlusDays(30))
+        .map((item) => ({
+          type: "Scheduled" as const,
+          title: item.customerName || "Scheduled service",
+          detail: `Service #${item.nextServiceNumber} - Job ${item.jobId || "-"} - Installed ${item.installDate}`,
+          date: item.nextDue,
+          status: item.status,
+          tab: "service" as TabKey,
+          search: item.customerId || item.customerName || item.jobId,
+        }));
+      const assignments = [...serviceAssignments, ...breakdownAssignments, ...installAssignments, ...scheduledAssignments]
+        .sort((a, b) => (a.date || "9999-12-31").localeCompare(b.date || "9999-12-31"))
+        .slice(0, 8);
+      return { engineer, assignments };
+    });
+    const assignedServiceEngineers = serviceEngineerRoster.filter((row) => row.assignments.length).length;
+    const activeServiceAssignments = serviceEngineerRoster.reduce((sum, row) => sum + row.assignments.length, 0);
+    const installInfoForServiceRecord = (record: Record<string, unknown>) => {
+      const installJobId = String(record.install_job_id || record.job_id || "").trim();
+      const customerId = String(record.customer_id || "").trim();
+      const customerName = crmNameKey(record.customer || record.customer_name);
+      const sourceInquiryId = String(record.source_inquiry_id || "").trim();
+      const directLinkedJob = installJobs.find((job) => {
+        const jobId = recordIdentity(job) || String(job.job_id || job.id || "");
+        return Boolean(
+          (installJobId && jobId === installJobId) ||
+          (customerId && String(job.customer_id || "").trim() === customerId) ||
+          (sourceInquiryId && String(job.source_inquiry_id || job.enquiry_no || "").trim() === sourceInquiryId) ||
+          (customerName && crmNameKey(job.customer || job.customer_name || job.project_name) === customerName)
+        );
+      });
+      const crmLinkedInstall = crmLatestInstalledFromJobs(crmInstallationJobsForRecord({
+        ...record,
+        id: customerId,
+        name: record.customer || record.customer_name,
+        enquiry_no: sourceInquiryId,
+      }));
+      const linkedJob = directLinkedJob || crmLinkedInstall.job;
+      const crmRecord = ([...(data?.customers || []), ...asRecords(data?.sales_inquiries)] as Array<Record<string, unknown>>).find((item) => {
+        const itemCustomerId = String(item.id || item.customer_id || "").trim();
+        return Boolean(
+          (customerId && itemCustomerId === customerId) ||
+          (sourceInquiryId && String(item.id || item.enquiry_no || "").trim() === sourceInquiryId) ||
+          (customerName && crmNameKey(item.name || item.customer || item.lead_name) === customerName)
+        );
+      });
+      const installDate = String(record.installation_date || record.installed_date || installedDateForServiceSchedule(linkedJob || {}) || crmLinkedInstall.date || installedDateForServiceSchedule(crmRecord || {}) || "").slice(0, 10);
+      const serviceEndDate = serviceEndDateForServiceSchedule(record) || serviceEndDateForServiceSchedule(crmRecord || {}) || serviceEndDateForServiceSchedule(linkedJob || {});
+      const jobId = installJobId || (linkedJob ? recordIdentity(linkedJob) || String(linkedJob.job_id || linkedJob.id || "") : "");
+      const matchedRecords = installDate ? records
+        .filter((service) => (
+          (jobId && String(service.install_job_id || service.job_id || "") === jobId) ||
+          (customerId && String(service.customer_id || "") === customerId) ||
+          (sourceInquiryId && String(service.source_inquiry_id || "") === sourceInquiryId) ||
+          (customerName && crmNameKey(service.customer || service.customer_name) === customerName)
+        ))
+        .filter((service) => serviceDateFor(service) >= installDate)
+        .filter((service) => !/cancelled|canceled|rejected/i.test(statusText(service)))
+        .sort((a, b) => serviceDateFor(a).localeCompare(serviceDateFor(b))) : [];
+      const currentServiceNumber = Math.max(1, Number(record.service_number || record.next_service_number || matchedRecords.findIndex((service) => recordIdentity(service) === recordIdentity(record)) + 1 || 1));
+      const planStartNumber = Math.floor((currentServiceNumber - 1) / 7) * 7 + 1;
+      const matchedByServiceNumber = new Map<string, Record<string, unknown>>();
+      matchedRecords.forEach((service, index) => {
+        const serviceNumber = String(service.service_number || service.next_service_number || index + 1);
+        matchedByServiceNumber.set(serviceNumber, service);
+      });
+      const annualPlan = installDate
+        ? buildServicePlan(installDate, serviceEndDate, matchedByServiceNumber)
+        : Array.from({ length: 7 }, (_, offset) => ({
+          serviceNumber: planStartNumber + offset,
+          serviceYear: Math.floor((planStartNumber + offset - 1) / 7) + 1,
+          slotInYear: ((planStartNumber + offset - 1) % 7) + 1,
+          dueDate: "",
+          status: "Needs CRM install date",
+          record: undefined,
+        }));
+      return {
+        job: linkedJob,
+        customer: crmRecord,
+        jobId,
+        installDate,
+        serviceEndDate,
+        unit: String(record.unit || linkedJob?.unit || linkedJob?.lift_reference || linkedJob?.site || ""),
+        site: String(record.site || linkedJob?.site || linkedJob?.site_address || crmRecord?.address || crmRecord?.site || ""),
+        warrantyStart: String(linkedJob?.warranty_start_date || ""),
+        warrantyEnd: String(linkedJob?.warranty_end_date || ""),
+        handoverBy: String(linkedJob?.handed_over_by || linkedJob?.installed_by || ""),
+        annualPlan,
+      };
+    };
     const query = serviceRecordSearch.trim().toLowerCase();
     const filteredRecords = records.filter((record) => {
       if (!query) return true;
@@ -2966,9 +3296,17 @@ export default function App() {
         record.status,
         record.next_service_date,
         record.scheduled_date,
+        record.install_job_id,
+        record.installation_date,
+        record.installed_date,
+        record.service_number,
+        record.next_service_number,
       ].some((value) => String(value || "").toLowerCase().includes(query));
     });
-    const visibleRecords = filteredRecords.slice(0, 80);
+    const servicePageSize = 10;
+    const servicePageCount = Math.max(1, Math.ceil(filteredRecords.length / servicePageSize));
+    const safeServicePage = Math.min(servicePage, servicePageCount);
+    const visibleRecords = filteredRecords.slice((safeServicePage - 1) * servicePageSize, safeServicePage * servicePageSize);
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -2976,17 +3314,77 @@ export default function App() {
           <Text style={styles.moduleHeroTitle}>Service</Text>
           <Text style={styles.moduleHeroText}>Service records scheduled from elevator installation dates, engineer check-in/out, customer comments, parts usage, and linked CRM service counts.</Text>
         </View>
+        {!canViewAllService && (
+          <View style={styles.formCard}>
+            <Text style={styles.cardLabel}>My assigned services</Text>
+            <Text style={styles.muted}>You are seeing only service records assigned to {fieldText(viewer, ["display_name", "username"]) || "your account"}. Check in and check out from the assigned service card when working on site.</Text>
+          </View>
+        )}
+        {canViewAllService && <View style={styles.formCard}>
+          <View style={styles.sectionHeaderRow}>
+            <View>
+              <Text style={styles.cardLabel}>Service engineer assignments</Text>
+              <Text style={styles.muted}>All service engineers and their current service, breakdown, installation, and scheduled service assignments.</Text>
+            </View>
+            <Text style={styles.statusPill}>{assignedServiceEngineers}/{serviceEngineerRoster.length} assigned</Text>
+          </View>
+          <View style={styles.metricGrid}>
+            <View style={styles.card}>
+              <Text style={styles.cardLabel}>Service engineers</Text>
+              <Text style={styles.metricValue}>{serviceEngineerRoster.length}</Text>
+              <Text style={styles.muted}>Roster pulled from team, staff, and user records.</Text>
+            </View>
+            <View style={styles.card}>
+              <Text style={styles.cardLabel}>Active assignments</Text>
+              <Text style={styles.metricValue}>{activeServiceAssignments}</Text>
+              <Text style={styles.muted}>Open or upcoming assignments visible below.</Text>
+            </View>
+          </View>
+          <View style={styles.selectorList}>
+            {serviceEngineerRoster.map((row) => (
+              <View key={`service-engineer-roster-${row.engineer.name}`} style={styles.dispatchRosterRow}>
+                <View style={styles.dispatchRosterMain}>
+                  <View style={styles.dispatchRosterTitleRow}>
+                    <Text style={styles.dispatchRosterName}>{row.engineer.name}</Text>
+                    <Text style={[styles.dispatchStatusChip, row.assignments.length ? styles.dispatchStatusBusy : styles.dispatchStatusAvailable]}>
+                      {row.assignments.length ? `${row.assignments.length} assigned` : "Available"}
+                    </Text>
+                  </View>
+                  {!!row.engineer.department && <Text style={styles.dispatchRosterMeta}>{row.engineer.department}</Text>}
+                  {row.assignments.slice(0, 4).map((assignment, assignmentIndex) => (
+                    <Pressable
+                      key={`service-engineer-${row.engineer.name}-${assignment.type}-${assignmentIndex}`}
+                      onPress={() => {
+                        if (assignment.tab === "service" && assignment.search) setServiceRecordSearch(assignment.search);
+                        setActiveTab(assignment.tab);
+                      }}
+                      disabled={loading}
+                    >
+                      <Text style={styles.dispatchRosterMeta}>
+                        {assignment.type}: {assignment.title} - {assignment.status || "Open"}{assignment.date ? ` - ${assignment.date}` : ""}
+                      </Text>
+                      <Text style={styles.muted}>{assignment.detail}</Text>
+                    </Pressable>
+                  ))}
+                  {!row.assignments.length && <Text style={styles.dispatchRosterMeta}>No active assignment found.</Text>}
+                  {row.assignments.length > 4 && <Text style={styles.muted}>+{row.assignments.length - 4} more assignments</Text>}
+                </View>
+              </View>
+            ))}
+            {!serviceEngineerRoster.length && <Text style={styles.muted}>No service engineers were found in the team, staff, or user records.</Text>}
+          </View>
+        </View>}
         <View style={styles.formCard}>
           <View style={styles.sectionHeaderRow}>
             <View>
               <Text style={styles.cardLabel}>Scheduled from installation date</Text>
-              <Text style={styles.muted}>Monthly service is calculated from each elevator handover/install date. Overdue and upcoming services appear here.</Text>
+              <Text style={styles.muted}>Seven service visits per year are calculated from each elevator handover/install date. Overdue and upcoming services appear here.</Text>
             </View>
             <Text style={styles.statusPill}>{dueInstalledServices.length} due / upcoming</Text>
           </View>
-          {!!dueInstalledServices.length && (
+          {!!visibleInstalledServices.length && (
             <View style={styles.selectorList}>
-              {dueInstalledServices.map((item) => (
+              {visibleInstalledServices.map((item) => (
                 <View key={`install-service-due-${item.jobId || item.customerId || item.installDate}`} style={styles.scheduleServiceRow}>
                   <View style={styles.scheduleServiceMain}>
                     <View style={styles.dispatchRosterTitleRow}>
@@ -2996,9 +3394,14 @@ export default function App() {
                       </Text>
                     </View>
                     <Text style={styles.muted}>
-                      Job {item.jobId || "-"} - Unit {String(item.job.unit || item.job.lift_reference || item.job.site || "-")} - Installed {item.installDate} - Next service {item.nextDue}
+                      Job {item.jobId || "-"} - Unit {String(item.job.unit || item.job.lift_reference || item.job.site || "-")} - Installed {item.installDate} - Service #{item.nextServiceNumber} due {item.nextDue}
                     </Text>
-                    <Text style={styles.muted}>Previous services: {item.serviceCount} - Last service: {item.lastServiceDate || "None yet"}</Text>
+                    <Text style={styles.muted}>Previous services: {item.serviceCount} - Last service: {item.lastServiceDate || "None yet"} - Service end: {item.serviceEndDate || "Active / not set"}</Text>
+                    <Text style={styles.muted}>
+                      {item.annualPlan.length
+                        ? `${Array.from(new Set(item.annualPlan.map((entry) => entry.serviceYear))).length} service year${Array.from(new Set(item.annualPlan.map((entry) => entry.serviceYear))).length === 1 ? "" : "s"} available. Open the service record Edit panel to select year and slot.`
+                        : "No service slots available yet."}
+                    </Text>
                   </View>
                   <Pressable
                     style={styles.smallButton}
@@ -3012,10 +3415,14 @@ export default function App() {
                         phone: String(item.job.phone || item.job.customer_phone || ""),
                         install_job_id: item.jobId,
                         scheduled_date: item.nextDue,
+                        service_number: String(item.nextServiceNumber),
+                        next_service_number: String(item.nextServiceNumber),
+                        installation_date: item.installDate,
                         assigned_engineer: String(item.job.service_engineer || item.job.engineer || item.job.assigned_engineer || draft.assigned_engineer || ""),
                         issue_category: "Scheduled preventive service",
                         status: "Scheduled",
                       }));
+                      setServiceNewVisitOpen(true);
                     }}
                     disabled={loading}
                   >
@@ -3025,12 +3432,24 @@ export default function App() {
               ))}
             </View>
           )}
-          {!dueInstalledServices.length && (
+          {!visibleInstalledServices.length && (
             <Text style={styles.muted}>{installJobs.length ? "No installed elevators are due in the next 30 days." : "No installation jobs are available for service scheduling yet."}</Text>
           )}
         </View>
         <View style={styles.formCard}>
-          <Text style={styles.cardLabel}>New service visit</Text>
+          <Pressable
+            style={[styles.dropdownButton, serviceNewVisitOpen && styles.selectorPillActive]}
+            onPress={() => setServiceNewVisitOpen((open) => !open)}
+            disabled={loading}
+          >
+            <View>
+              <Text style={styles.cardLabel}>New service visit</Text>
+              <Text style={styles.muted}>{serviceDraft.customer ? `${serviceDraft.customer} - ${serviceDraft.scheduled_date || "No date selected"}` : "Open to create a service ticket"}</Text>
+            </View>
+            <Text style={styles.dropdownChevron}>{serviceNewVisitOpen ? "▲" : "▼"}</Text>
+          </Pressable>
+          {serviceNewVisitOpen && (
+            <>
           <Text style={styles.muted}>Breakdown/service number, date, and time are generated by the system when this record is saved.</Text>
           <View style={styles.formGrid}>
             <View style={styles.field}>
@@ -3056,6 +3475,7 @@ export default function App() {
                         key={`new-service-customer-${customer.id}-${customer.source_inquiry_id}-${index}`}
                         style={[styles.dropdownOption, serviceDraft.customer_id === customer.id && styles.selectorPillActive]}
                         onPress={() => {
+                          const defaultSchedule = defaultServiceScheduleForCustomer(customer);
                           setServiceDraft((draft) => ({
                             ...draft,
                             customer_id: customer.id,
@@ -3063,6 +3483,12 @@ export default function App() {
                             source_inquiry_id: customer.source_inquiry_id,
                             site: customer.address,
                             phone: customer.phone,
+                            install_job_id: defaultSchedule?.jobId || draft.install_job_id,
+                            scheduled_date: draft.customer_id === customer.id && draft.scheduled_date ? draft.scheduled_date : defaultSchedule?.nextDue || draft.scheduled_date,
+                            service_number: defaultSchedule ? String(defaultSchedule.nextServiceNumber) : draft.service_number,
+                            next_service_number: defaultSchedule ? String(defaultSchedule.nextServiceNumber) : draft.next_service_number,
+                            installation_date: defaultSchedule?.installDate || draft.installation_date,
+                            assigned_engineer: String(defaultSchedule?.job.service_engineer || defaultSchedule?.job.engineer || defaultSchedule?.job.assigned_engineer || draft.assigned_engineer || ""),
                           }));
                           setServiceCustomerDropdownOpen(false);
                           setServiceCustomerSearch("");
@@ -3120,6 +3546,26 @@ export default function App() {
                 onChangeText={(value) => setServiceDraft((draft) => ({ ...draft, scheduled_date: value }))}
                 placeholder="YYYY-MM-DD"
               />
+              <Text style={styles.muted}>Defaults from the CRM/install date service schedule. You can manually change it before saving.</Text>
+              {!!selectedDefaultServiceSchedule && (
+                <View style={styles.inlineActions}>
+                  <Pressable
+                    style={styles.smallButton}
+                    onPress={() => setServiceDraft((draft) => ({
+                      ...draft,
+                      scheduled_date: selectedDefaultServiceSchedule.nextDue,
+                      install_job_id: selectedDefaultServiceSchedule.jobId || draft.install_job_id,
+                      service_number: String(selectedDefaultServiceSchedule.nextServiceNumber),
+                      next_service_number: String(selectedDefaultServiceSchedule.nextServiceNumber),
+                      installation_date: selectedDefaultServiceSchedule.installDate,
+                    }))}
+                    disabled={loading}
+                  >
+                    <Text style={styles.smallButtonText}>Use install-date default</Text>
+                  </Pressable>
+                  <Text style={styles.muted}>Default: service #{selectedDefaultServiceSchedule.nextServiceNumber} on {selectedDefaultServiceSchedule.nextDue}</Text>
+                </View>
+              )}
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Common elevator issue</Text>
@@ -3146,6 +3592,8 @@ export default function App() {
           <Pressable style={styles.primaryButton} onPress={saveNewServiceRecord} disabled={loading || !serviceDraft.customer_id}>
             <Text style={styles.primaryButtonText}>Create service record</Text>
           </Pressable>
+            </>
+          )}
         </View>
         <View style={styles.formCard}>
           <View style={styles.sectionHeaderRow}>
@@ -3154,7 +3602,7 @@ export default function App() {
               <Text style={styles.muted}>{filteredRecords.length} matching records. Customer name and customer number are searchable.</Text>
             </View>
             {!!serviceRecordSearch && (
-              <Pressable style={styles.smallButton} onPress={() => setServiceRecordSearch("")} disabled={loading}>
+              <Pressable style={styles.smallButton} onPress={() => { setServiceRecordSearch(""); setServicePage(1); }} disabled={loading}>
                 <Text style={styles.smallButtonText}>Clear</Text>
               </Pressable>
             )}
@@ -3162,9 +3610,24 @@ export default function App() {
           <TextInput
             style={styles.input}
             value={serviceRecordSearch}
-            onChangeText={setServiceRecordSearch}
+            onChangeText={(value) => {
+              setServiceRecordSearch(value);
+              setServicePage(1);
+            }}
             placeholder="Search customer name, customer number, CRM ID, job no, phone, site, technician, status"
           />
+        </View>
+        <View style={styles.paginationBar}>
+          <Text style={styles.muted}>Showing {filteredRecords.length ? (safeServicePage - 1) * servicePageSize + 1 : 0}-{Math.min(safeServicePage * servicePageSize, filteredRecords.length)} of {filteredRecords.length}</Text>
+          <View style={styles.inlineActions}>
+            <Pressable style={styles.smallButton} onPress={() => setServicePage((page) => Math.max(1, page - 1))} disabled={safeServicePage <= 1}>
+              <Text style={styles.smallButtonText}>Previous</Text>
+            </Pressable>
+            <Text style={styles.muted}>Page {safeServicePage} / {servicePageCount}</Text>
+            <Pressable style={styles.smallButton} onPress={() => setServicePage((page) => Math.min(servicePageCount, page + 1))} disabled={safeServicePage >= servicePageCount}>
+              <Text style={styles.smallButtonText}>Next</Text>
+            </Pressable>
+          </View>
         </View>
         {!visibleRecords.length && (
           <View style={styles.card}>
@@ -3177,6 +3640,53 @@ export default function App() {
           const draft = serviceEditDrafts[id];
           const customerId = String((draft || record).customer_id || "");
           const historyCount = Array.isArray(record.service_history) ? record.service_history.length : 0;
+          const installInfo = installInfoForServiceRecord(draft || record);
+          const serviceYears = Array.from(new Set(installInfo.annualPlan.map((entry) => entry.serviceYear))).sort((a, b) => a - b);
+          const nextActionableSlot = installInfo.annualPlan.find((entry) => !["Completed", "Ended"].includes(entry.status)) || installInfo.annualPlan[0];
+          const draftServiceNumber = Number(draft?.service_number || draft?.next_service_number || record.service_number || record.next_service_number || nextActionableSlot?.serviceNumber || 1);
+          const defaultSelectedServiceYear = nextActionableSlot?.serviceYear || Math.max(1, Math.floor((draftServiceNumber - 1) / 7) + 1);
+          const selectedServiceYear = serviceSelectedYears[id] || (serviceYears.includes(defaultSelectedServiceYear) ? defaultSelectedServiceYear : serviceYears[0] || 1);
+          const selectedYearSlots = installInfo.annualPlan.filter((entry) => entry.serviceYear === selectedServiceYear);
+          const defaultSelectedSlot = selectedYearSlots.find((entry) => !["Completed", "Ended"].includes(entry.status)) || selectedYearSlots.find((entry) => entry.serviceNumber === draftServiceNumber) || selectedYearSlots[0];
+          const selectedServiceSlotNumber = serviceSelectedSlots[id] || defaultSelectedSlot?.serviceNumber || draftServiceNumber;
+          const selectedServiceSlot = selectedYearSlots.find((entry) => entry.serviceNumber === selectedServiceSlotNumber) || defaultSelectedSlot;
+          const defaultSlotEngineer = String(
+            selectedServiceSlot?.record?.assigned_engineer ||
+            selectedServiceSlot?.record?.technician ||
+            installInfo.job?.service_engineer ||
+            installInfo.job?.assigned_engineer ||
+            installInfo.job?.engineer ||
+            ""
+          );
+          const servicePlanPanel = (
+            <View style={styles.inlineRecordEditor}>
+              <Text style={styles.cardLabel}>Client service schedule</Text>
+              <Text style={styles.bodyText}>Source: CRM install date - Install job: {installInfo.jobId || "-"} - Installed: {installInfo.installDate || "Missing in CRM/install data"} - Service end: {installInfo.serviceEndDate || "Active / not set"}</Text>
+              <Text style={styles.bodyText}>Unit/site: {installInfo.unit || "-"} - {installInfo.site || "-"}</Text>
+              <Text style={styles.bodyText}>Service number: {String((draft || record).service_number || (draft || record).next_service_number || "-")} - Scheduled: {String((draft || record).scheduled_date || "-")}</Text>
+              <Text style={styles.muted}>
+                {serviceYears.length ? `${serviceYears.length} service year${serviceYears.length === 1 ? "" : "s"} available. Click Edit, choose a service year, then choose one of that year’s slots.` : "No service years available yet."}
+              </Text>
+              {!!draft && !!selectedServiceSlot && (
+                <View style={styles.serviceYearBlock}>
+                  <Text style={styles.serviceYearTitle}>Selected service slot</Text>
+                  <View style={styles.servicePlanChip}>
+                    <Text style={styles.servicePlanNumber}>Year {selectedServiceSlot.serviceYear} / Slot {selectedServiceSlot.slotInYear}</Text>
+                    <Text style={styles.servicePlanDate}>{selectedServiceSlot.dueDate || "CRM install date needed"}</Text>
+                    {!!draft?.scheduled_date && draft.scheduled_date !== selectedServiceSlot.dueDate && <Text style={styles.muted}>Manual scheduled date: {draft.scheduled_date}</Text>}
+                    <Text style={[
+                      styles.servicePlanStatus,
+                      selectedServiceSlot.status === "Completed" ? styles.servicePlanDone : selectedServiceSlot.status === "Overdue" ? styles.servicePlanOverdue : selectedServiceSlot.status === "Due today" ? styles.servicePlanDue : selectedServiceSlot.status === "Needs CRM install date" ? styles.servicePlanNeedsDate : styles.servicePlanScheduled
+                    ]}>{selectedServiceSlot.status}</Text>
+                    {!!selectedServiceSlot.record && <Text style={styles.muted}>Linked record: {String(selectedServiceSlot.record.job_number || selectedServiceSlot.record.job_no || selectedServiceSlot.record.id || "-")}</Text>}
+                  </View>
+                </View>
+              )}
+              {!installInfo.installDate && <Text style={styles.muted}>Add the elevator installed date in CRM, or link this ticket to the install job, to calculate the seven service due dates.</Text>}
+              {!!(installInfo.warrantyStart || installInfo.warrantyEnd) && <Text style={styles.muted}>Warranty: {installInfo.warrantyStart || "-"} to {installInfo.warrantyEnd || "-"}</Text>}
+              {!!installInfo.handoverBy && <Text style={styles.muted}>Installed/handover by: {installInfo.handoverBy}</Text>}
+            </View>
+          );
           return (
             <View key={id} style={styles.card}>
               <View style={styles.cardHeaderRow}>
@@ -3197,24 +3707,174 @@ export default function App() {
                 </View>
                 <Text style={styles.statusPill}>{String((draft || record).status || "Open")}</Text>
               </View>
+              {servicePlanPanel}
               {draft ? (
                 <View style={styles.inlineRecordEditor}>
+                  <View style={styles.field}>
+                    <Text style={styles.label}>Select service year</Text>
+                    <Pressable
+                      style={[styles.dropdownButton, serviceYearDropdownOpen === id && styles.selectorPillActive]}
+                      onPress={() => setServiceYearDropdownOpen((openId) => openId === id ? "" : id)}
+                      disabled={loading || !serviceYears.length}
+                    >
+                      <Text style={styles.selectorText}>Year {selectedServiceYear}</Text>
+                      <Text style={styles.dropdownChevron}>{serviceYearDropdownOpen === id ? "▲" : "▼"}</Text>
+                    </Pressable>
+                    {serviceYearDropdownOpen === id && (
+                      <View style={styles.dropdownPanel}>
+                        {serviceYears.map((year) => {
+                          const slots = installInfo.annualPlan.filter((entry) => entry.serviceYear === year);
+                          const completed = slots.filter((entry) => entry.status === "Completed").length;
+                          const overdue = slots.filter((entry) => entry.status === "Overdue").length;
+                          return (
+                            <Pressable
+                              key={`${id}-service-year-${year}`}
+                              style={[styles.dropdownOption, selectedServiceYear === year && styles.selectorPillActive]}
+                              onPress={() => {
+                                const defaultSlotForYear = slots.find((entry) => !["Completed", "Ended"].includes(entry.status)) || slots[0];
+                              setServiceSelectedYears((years) => ({ ...years, [id]: year }));
+                              if (defaultSlotForYear) {
+                                setServiceSelectedSlots((slotsByRecord) => ({ ...slotsByRecord, [id]: defaultSlotForYear.serviceNumber }));
+                                setServiceEditDrafts((drafts) => ({
+                                  ...drafts,
+                                  [id]: {
+                                    ...drafts[id],
+                                    scheduled_date: defaultSlotForYear.dueDate || drafts[id].scheduled_date || "",
+                                    service_number: String(defaultSlotForYear.serviceNumber),
+                                    next_service_number: String(defaultSlotForYear.serviceNumber),
+                                    installation_date: installInfo.installDate || drafts[id].installation_date || "",
+                                    install_job_id: installInfo.jobId || drafts[id].install_job_id || "",
+                                    assigned_engineer: drafts[id].assigned_engineer || String(defaultSlotForYear.record?.assigned_engineer || defaultSlotForYear.record?.technician || installInfo.job?.service_engineer || installInfo.job?.assigned_engineer || installInfo.job?.engineer || ""),
+                                  },
+                                }));
+                              }
+                              setServiceYearDropdownOpen("");
+                              setServiceSlotDropdownOpen("");
+                              }}
+                              disabled={loading}
+                            >
+                              <Text style={styles.selectorText}>Year {year}</Text>
+                              <Text style={styles.muted}>{slots.length} slots - {completed} completed - {overdue} overdue</Text>
+                            </Pressable>
+                          );
+                        })}
+                        {!serviceYears.length && <Text style={styles.muted}>No service years are available until the CRM install date is linked.</Text>}
+                      </View>
+                    )}
+                  </View>
+                  <View style={styles.field}>
+                    <Text style={styles.label}>Select service slot for year {selectedServiceYear}</Text>
+                    <Pressable
+                      style={[styles.dropdownButton, serviceSlotDropdownOpen === id && styles.selectorPillActive]}
+                      onPress={() => setServiceSlotDropdownOpen((openId) => openId === id ? "" : id)}
+                      disabled={loading || !selectedYearSlots.length}
+                    >
+                      <Text style={styles.selectorText}>
+                        {selectedServiceSlot ? `Year ${selectedServiceYear} / Slot ${selectedServiceSlot.slotInYear} - ${selectedServiceSlot.dueDate || draft.scheduled_date || "manual date"}` : "Choose slot from selected year"}
+                      </Text>
+                      <Text style={styles.dropdownChevron}>{serviceSlotDropdownOpen === id ? "▲" : "▼"}</Text>
+                    </Pressable>
+                    {serviceSlotDropdownOpen === id && (
+                      <View style={styles.dropdownPanel}>
+                        {selectedYearSlots.map((entry) => (
+                          <Pressable
+                            key={`${id}-slot-option-${entry.serviceNumber}`}
+                            style={[styles.dropdownOption, String(draft.service_number || draft.next_service_number || "") === String(entry.serviceNumber) && styles.selectorPillActive]}
+                            onPress={() => {
+                              setServiceSelectedSlots((slots) => ({ ...slots, [id]: entry.serviceNumber }));
+                              setServiceEditDrafts((drafts) => ({
+                                ...drafts,
+                                [id]: {
+                                  ...drafts[id],
+                                  scheduled_date: entry.dueDate || drafts[id].scheduled_date || "",
+                                  service_number: String(entry.serviceNumber),
+                                  next_service_number: String(entry.serviceNumber),
+                                  installation_date: installInfo.installDate || drafts[id].installation_date || "",
+                                  install_job_id: installInfo.jobId || drafts[id].install_job_id || "",
+                                  assigned_engineer: drafts[id].assigned_engineer || String(entry.record?.assigned_engineer || entry.record?.technician || installInfo.job?.service_engineer || installInfo.job?.assigned_engineer || installInfo.job?.engineer || ""),
+                                },
+                              }));
+                              setServiceSlotDropdownOpen("");
+                            }}
+                            disabled={loading}
+                          >
+                            <Text style={styles.selectorText}>Slot {entry.slotInYear} - {entry.dueDate || "CRM install date needed"}</Text>
+                            <Text style={styles.muted}>{entry.status}. Selecting this sets the default date, but you can manually edit it below.</Text>
+                          </Pressable>
+                        ))}
+                        {!selectedYearSlots.length && <Text style={styles.muted}>No service slots are available for this year.</Text>}
+                      </View>
+                    )}
+                    <Text style={styles.muted}>Select the year first, then choose one of that year’s slots. Scheduled date can still be manually changed below.</Text>
+                  </View>
+                  <View style={styles.formSectionBlock}>
+                    <Text style={styles.cardLabel}>Shared customer / install details</Text>
+                    <Text style={styles.bodyText}>Customer no: {String(draft.customer_id || "-")} - CRM: {String(draft.source_inquiry_id || "-")}</Text>
+                    <Text style={styles.bodyText}>Customer: {String(draft.customer || "-")} - Site: {String(draft.site || installInfo.site || "-")} - City: {String(draft.city || "-")}</Text>
+                    <Text style={styles.bodyText}>Phone: {String(draft.phone || "-")} - Install job: {String(draft.install_job_id || installInfo.jobId || "-")} - Installed: {String(draft.installation_date || installInfo.installDate || "-")}</Text>
+                  </View>
+                  {canViewAllService ? (
+                    <View style={styles.field}>
+                      <Text style={styles.label}>Assigned service engineer</Text>
+                      <Pressable
+                        style={[styles.dropdownButton, serviceEditEngineerDropdownOpen === id && styles.selectorPillActive]}
+                        onPress={() => setServiceEditEngineerDropdownOpen((openId) => openId === id ? "" : id)}
+                        disabled={loading || !engineerOptions.length}
+                      >
+                        <Text style={styles.selectorText}>{draft.assigned_engineer || defaultSlotEngineer || "Select service engineer"}</Text>
+                        <Text style={styles.dropdownChevron}>{serviceEditEngineerDropdownOpen === id ? "▲" : "▼"}</Text>
+                      </Pressable>
+                      {serviceEditEngineerDropdownOpen === id && (
+                        <View style={styles.dropdownPanel}>
+                          {!!defaultSlotEngineer && (
+                            <Pressable
+                              style={[styles.dropdownOption, draft.assigned_engineer === defaultSlotEngineer && styles.selectorPillActive]}
+                              onPress={() => {
+                                setServiceEditDrafts((drafts) => ({ ...drafts, [id]: { ...drafts[id], assigned_engineer: defaultSlotEngineer, technician: defaultSlotEngineer } }));
+                                setServiceEditEngineerDropdownOpen("");
+                              }}
+                              disabled={loading}
+                            >
+                              <Text style={styles.selectorText}>Use system engineer: {defaultSlotEngineer}</Text>
+                              <Text style={styles.muted}>From the selected service slot or linked install job.</Text>
+                            </Pressable>
+                          )}
+                          <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                            {engineerOptions.map((engineer) => (
+                              <Pressable
+                                key={`${id}-edit-service-engineer-${engineer.name}`}
+                                style={[styles.dropdownOption, draft.assigned_engineer === engineer.name && styles.selectorPillActive]}
+                                onPress={() => {
+                                  setServiceEditDrafts((drafts) => ({ ...drafts, [id]: { ...drafts[id], assigned_engineer: engineer.name, technician: engineer.name } }));
+                                  setServiceEditEngineerDropdownOpen("");
+                                }}
+                                disabled={loading}
+                              >
+                                <Text style={styles.selectorText}>{engineer.name}</Text>
+                                {!!engineer.department && <Text style={styles.muted}>{engineer.department}</Text>}
+                              </Pressable>
+                            ))}
+                          </ScrollView>
+                        </View>
+                      )}
+                      <Text style={styles.muted}>System can fill this from the slot/install job, but managers can manually change it when staff assignment changes.</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.formSectionBlock}>
+                      <Text style={styles.cardLabel}>Assigned service engineer</Text>
+                      <Text style={styles.bodyText}>{draft.assigned_engineer || defaultSlotEngineer || "Assigned to your service login"}</Text>
+                    </View>
+                  )}
                   <View style={styles.formGrid}>
                     {[
-                      ["customer_id", "Customer number"],
-                      ["source_inquiry_id", "CRM inquiry ID"],
-                      ["customer", "Customer / building"],
-                      ["site", "Site"],
-                      ["city", "City"],
-                      ["phone", "Phone"],
                       ["status", "Status"],
-                      ["assigned_engineer", "Assigned engineer"],
                       ["issue_category", "Common issue"],
                       ["parts_used", "Parts used"],
                       ["parts_quantity", "Parts quantity"],
                       ["scheduled_date", "Scheduled date"],
                       ["completed_date", "Completed date"],
                       ["next_service_date", "Next service date"],
+                      ["service_number", "Service number"],
                     ].map(([key, label]) => (
                       <View key={`${id}-${key}`} style={styles.field}>
                         <Text style={styles.label}>{label}</Text>
@@ -3250,11 +3910,26 @@ export default function App() {
                     </Pressable>
                     <Pressable
                       style={styles.secondaryButton}
-                      onPress={() => setServiceEditDrafts((drafts) => {
-                        const next = { ...drafts };
-                        delete next[id];
-                        return next;
-                      })}
+                      onPress={() => {
+                        setServiceEditDrafts((drafts) => {
+                          const next = { ...drafts };
+                          delete next[id];
+                          return next;
+                        });
+                        setServiceSlotDropdownOpen((openId) => openId === id ? "" : openId);
+                        setServiceYearDropdownOpen((openId) => openId === id ? "" : openId);
+                        setServiceEditEngineerDropdownOpen((openId) => openId === id ? "" : openId);
+                        setServiceSelectedYears((years) => {
+                          const next = { ...years };
+                          delete next[id];
+                          return next;
+                        });
+                        setServiceSelectedSlots((slots) => {
+                          const next = { ...slots };
+                          delete next[id];
+                          return next;
+                        });
+                      }}
                       disabled={loading}
                     >
                       <Text style={styles.secondaryButtonText}>Cancel</Text>
@@ -5042,7 +5717,7 @@ export default function App() {
     const viewerAttendance = viewerStaffId ? attendanceByPerson.get(viewerStaffId) : undefined;
     const viewerRole = String(viewer.role || "").toLowerCase();
     const viewerDepartment = fieldText(viewer, ["department"]);
-    const canManageAttendance = viewerRole === "admin" || String(viewerDepartment).toLowerCase() === "executive office";
+    const canManageAttendance = ["admin", "ceo"].includes(viewerRole) || String(viewerDepartment).toLowerCase() === "executive office";
     const canReviewLeave = canManageAttendance || ["manager", "team lead", "team_lead", "lead"].includes(viewerRole);
     const pendingLeaves = leaves.filter((item) => String(item.status || "").toLowerCase() === "pending");
     const visiblePendingLeaves = pendingLeaves.filter((item) => {
@@ -5072,23 +5747,23 @@ export default function App() {
           <Text style={styles.moduleHeroText}>A single workspace for staff records, daily attendance, leave requests, and manager approvals.</Text>
         </View>
 
-        <View style={styles.metricGrid}>
-          <View style={styles.card}>
+        <View style={styles.staffMetricGrid}>
+          <View style={[styles.card, styles.staffMetricTile]}>
             <Text style={styles.cardLabel}>Staff</Text>
             <Text style={styles.metricValue}>{staff.length}</Text>
             <Text style={styles.muted}>{departments.length - 1} departments in the org chart.</Text>
           </View>
-          <View style={styles.card}>
+          <View style={[styles.card, styles.staffMetricTile]}>
             <Text style={styles.cardLabel}>Present today</Text>
             <Text style={styles.metricValue}>{presentToday.length}</Text>
             <Text style={styles.muted}>{todayAttendance.length} records for {today}.</Text>
           </View>
-          <View style={styles.card}>
+          <View style={[styles.card, styles.staffMetricTile]}>
             <Text style={styles.cardLabel}>Unavailable</Text>
             <Text style={styles.metricValue}>{unavailableToday.length + approvedLeaves.length}</Text>
             <Text style={styles.muted}>Absent, half-day, or approved leave today.</Text>
           </View>
-          <View style={styles.card}>
+          <View style={[styles.card, styles.staffMetricTile]}>
             <Text style={styles.cardLabel}>Pending leave</Text>
             <Text style={styles.metricValue}>{visiblePendingLeaves.length}</Text>
             <Text style={styles.muted}>Manager action required.</Text>
@@ -7727,18 +8402,16 @@ export default function App() {
         </View>
 
         <View style={styles.formCard}>
-          <Text style={styles.cardLabel}>{customerDraft.id ? "Edit customer account" : "New account / lead"}</Text>
+          <Text style={styles.cardLabel}>New account / lead</Text>
           <Pressable
-            style={[styles.dropdownButton, (customerEditorOpen || !!customerDraft.id) && styles.selectorPillActive]}
+            style={[styles.dropdownButton, customerEditorOpen && styles.selectorPillActive]}
             onPress={() => setCustomerEditorOpen((open) => !open)}
-            disabled={loading || !!customerDraft.id}
+            disabled={loading}
           >
-            <Text style={styles.selectorText}>
-              {customerDraft.id ? `Editing ${customerDraft.name || customerDraft.id}` : "Add new CRM account / lead"}
-            </Text>
-            <Text style={styles.dropdownChevron}>{customerEditorOpen || customerDraft.id ? "▲" : "▼"}</Text>
+            <Text style={styles.selectorText}>Add new CRM account / lead</Text>
+            <Text style={styles.dropdownChevron}>{customerEditorOpen ? "▲" : "▼"}</Text>
           </Pressable>
-          {(customerEditorOpen || !!customerDraft.id) && (
+          {customerEditorOpen && (
             <>
               {customerFields.map((field) => (
                 <View key={field.key} style={styles.field}>
@@ -7762,39 +8435,9 @@ export default function App() {
                 />
                 <Text style={styles.muted}>If this customer already has an installed elevator, enter the date here to classify the account as a current customer.</Text>
               </View>
-              {!!customerDraft.id && renderCustomerAssignmentManager(customerDraft as Customer)}
-              {!!customerDraft.id && (
-                <View style={styles.inlineRecordEditor}>
-                  <View style={styles.inlineActions}>
-                    <Pressable
-                      style={styles.smallButton}
-                      onPress={() => {
-                        openSiteVisitForCustomer(customerDraft as Customer);
-                      }}
-                      disabled={loading}
-                    >
-                      <Text style={styles.smallButtonText}>Add site report</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              )}
               <Pressable style={styles.primaryButton} onPress={() => saveCustomer()} disabled={loading}>
-                <Text style={styles.primaryButtonText}>{customerDraft.id ? "Update customer" : "Save customer"}</Text>
+                <Text style={styles.primaryButtonText}>Save customer</Text>
               </Pressable>
-              {!!customerDraft.id && (
-                <Pressable
-                  style={styles.secondaryButton}
-                  onPress={() => {
-                    setCustomerDraft(emptyCustomer);
-                    setCustomerInstalledDateDraft("");
-                    setCustomerEditorOpen(false);
-                    setSiteVisitEditorOpen(false);
-                  }}
-                  disabled={loading}
-                >
-                  <Text style={styles.secondaryButtonText}>Cancel edit</Text>
-                </Pressable>
-              )}
             </>
           )}
         </View>
@@ -8119,6 +8762,9 @@ export default function App() {
         {pagedCrmRows.map((row, index) => {
           if (row.type === "customer") {
             const customer = row.customer;
+            const customerId = String(customer.id || "");
+            const inlineDraft = customerInlineDrafts[customerId];
+            const inlineInstalledDate = customerInlineInstalledDates[customerId] || "";
             const customerEstimates = estimatesForCustomer(customer, offers);
             const latestEstimate = customerEstimates[0];
             const latestMotor = latestMotorForCustomer(customer);
@@ -8152,6 +8798,7 @@ export default function App() {
                 <View style={styles.installDatePanel}>
                   <Text style={styles.cardLabel}>Elevator installed</Text>
                   <Text style={styles.bodyText}>{latestInstalledDate || "Not installed yet"}{latestInstalledJob ? ` - Job ${String(latestInstalledJob.job_id || latestInstalledJob.id || "-")} - ${String(latestInstalledJob.status || "-")}` : ""}</Text>
+                  <Text style={styles.muted}>Service end date: {String(customer.service_end_date || customer.service_contract_end_date || "Active / not set")}</Text>
                 </View>
                 <Text style={styles.bodyText}>Services done: {serviceCount}{liveServiceCount !== serviceCount ? ` - live linked ${liveServiceCount}` : ""}</Text>
                 {!!latestMotor && (
@@ -8196,6 +8843,54 @@ export default function App() {
                     </Pressable>
                   )}
                 </View>
+                {!!inlineDraft && (
+                  <View style={styles.inlineRecordEditor}>
+                    <Text style={styles.cardLabel}>Edit customer inline</Text>
+                    <View style={styles.formGrid}>
+                      {customerFields.map((field) => (
+                        <View key={`inline-${customerId}-${field.key}`} style={styles.field}>
+                          <Text style={styles.label}>{field.label}</Text>
+                          <TextInput
+                            style={[styles.input, field.multiline && styles.textarea]}
+                            value={String(inlineDraft[field.key] || "")}
+                            onChangeText={(value) => setCustomerInlineDrafts((drafts) => ({
+                              ...drafts,
+                              [customerId]: { ...drafts[customerId], [field.key]: value },
+                            }))}
+                            keyboardType={field.keyboard || "default"}
+                            multiline={field.multiline}
+                          />
+                        </View>
+                      ))}
+                    </View>
+                    <View style={styles.installDatePanel}>
+                      <Text style={styles.cardLabel}>Elevator installed</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={inlineInstalledDate}
+                        onChangeText={(value) => setCustomerInlineInstalledDates((dates) => ({ ...dates, [customerId]: value }))}
+                        placeholder="YYYY-MM-DD or leave blank"
+                      />
+                      <Text style={styles.muted}>Changing this updates the customer-linked installation date used by CRM and service schedules.</Text>
+                    </View>
+                    {renderCustomerAssignmentManager(inlineDraft as Customer)}
+                    <View style={styles.inlineActions}>
+                      <Pressable style={styles.primaryButtonInline} onPress={() => saveInlineCustomer(customerId)} disabled={loading}>
+                        <Text style={styles.primaryButtonText}>Save customer</Text>
+                      </Pressable>
+                      <Pressable
+                        style={styles.smallButton}
+                        onPress={() => openSiteVisitForCustomer({ ...customer, ...inlineDraft, id: customerId } as Customer)}
+                        disabled={loading}
+                      >
+                        <Text style={styles.smallButtonText}>Add site report</Text>
+                      </Pressable>
+                      <Pressable style={styles.secondaryButton} onPress={() => cancelInlineCustomerEdit(customerId)} disabled={loading}>
+                        <Text style={styles.secondaryButtonText}>Cancel edit</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                )}
               </View>
             );
           }
@@ -8828,14 +9523,153 @@ export default function App() {
     const org = asRecords(data?.org_chart);
     const managerIds = new Set(org.map((person) => fieldText(person, ["reports_to"])).filter(Boolean));
     const heads = org.filter((person) => /head|supervisor|manager|director|ceo/i.test(`${person.title || ""} ${person.name || ""}`));
-    const isAdmin = data?.viewer?.role === "admin";
+    const isAdmin = ["admin", "ceo"].includes(String(data?.viewer?.role || "").toLowerCase());
     const loginForPerson = (person: Record<string, unknown>) => users.find((user) =>
       String(user.linked_org_node || "") === String(person.id || "") ||
       String(user.display_name || "").toLowerCase() === String(person.name || "").toLowerCase()
     );
-    const roleForPerson = (person: Record<string, unknown>) => String(person.department || "").toLowerCase() === "executive office"
-      ? "admin"
-      : (/head|supervisor|manager|director|ceo/i.test(`${person.title || ""} ${person.name || ""}`) || managerIds.has(fieldText(person, ["id"])) ? "manager" : "staff");
+    const orgByUserKey = new Map<string, Record<string, unknown>>();
+    const orgById = new Map<string, Record<string, unknown>>();
+    org.forEach((person) => {
+      const id = String(person.id || "").trim();
+      const name = String(person.name || "").trim().toLowerCase();
+      if (id) orgById.set(id, person);
+      if (id) orgByUserKey.set(id, person);
+      if (name) orgByUserKey.set(name, person);
+    });
+    const isJitendraServiceManager = (person: Record<string, unknown>) => {
+      const nameText = String(person.name || person.display_name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      const department = String(person.department || "").toLowerCase().trim();
+      const title = String(person.title || person.position || "").toLowerCase();
+      return /jitendra choudhary|jitendra choudry/.test(nameText) || (department === "service" && /supervisor|manager|head/.test(title));
+    };
+    const roleForPerson = (person: Record<string, unknown>) => {
+      const title = String(person.title || "").toLowerCase();
+      const department = String(person.department || "").toLowerCase();
+      if (department === "executive office" || title.includes("ceo") || title.includes("director")) return "ceo";
+      if (isJitendraServiceManager(person) || /head|supervisor|manager/i.test(`${person.title || ""} ${person.name || ""}`) || managerIds.has(fieldText(person, ["id"]))) return "manager";
+      return "staff";
+    };
+    const supervisorForPerson = (person: Record<string, unknown>) => {
+      const supervisorId = fieldText(person, ["reports_to", "manager"]);
+      const supervisor = orgById.get(supervisorId) || org.find((item) => fieldText(item, ["name"]) === supervisorId);
+      return supervisor ? `${fieldText(supervisor, ["name"])}${fieldText(supervisor, ["title"]) ? ` - ${fieldText(supervisor, ["title"])}` : ""}` : "Not set";
+    };
+    const linkedPersonForDraft = accountDraft.linked_org_node
+      ? orgById.get(String(accountDraft.linked_org_node))
+      : org.find((person) => fieldText(person, ["name"]).toLowerCase() === accountDraft.display_name.toLowerCase());
+    const preparedSupervisor = linkedPersonForDraft ? supervisorForPerson(linkedPersonForDraft) : "Select or prepare a staff profile to show supervisor";
+    const accountDraftForPerson = (person: Record<string, unknown>) => ({
+      id: "",
+      username: String(person.name || "").toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.+|\.+$/g, ""),
+      display_name: String(person.name || ""),
+      department: String(person.department || ""),
+      role: roleForPerson(person),
+      linked_org_node: String(person.id || ""),
+      password: "",
+      active: "Y",
+    });
+    const accountQuery = accountSearch.trim().toLowerCase();
+    const roleLabel = (role: string) => role === "ceo" ? "CEO" : role.charAt(0).toUpperCase() + role.slice(1);
+    const renderRoleDropdown = (value: string, onChange: (role: string) => void, open: boolean, setOpen: (open: boolean) => void) => (
+      <View style={styles.field}>
+        <Text style={styles.label}>Role</Text>
+        <Pressable style={[styles.dropdownButton, open && styles.selectorPillActive]} onPress={() => setOpen(!open)} disabled={loading}>
+          <Text style={styles.cardTitle}>{roleLabel(value || "staff")}</Text>
+          <Text style={styles.dropdownChevron}>{open ? "▲" : "▼"}</Text>
+        </Pressable>
+        {open && (
+          <View style={styles.dropdownPanel}>
+            {accountRoleOptions.map((role) => (
+              <Pressable key={role} style={[styles.dropdownOption, value === role && styles.selectorPillActive]} onPress={() => { onChange(role); setOpen(false); }} disabled={loading}>
+                <Text style={styles.cardTitle}>{roleLabel(role)}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+      </View>
+    );
+    const personRank = (person: Record<string, unknown>) => {
+      const title = String(person.title || "").toLowerCase();
+      const name = String(person.name || person.display_name || "").toLowerCase();
+      const role = roleForPerson(person);
+      if (title.includes("ceo") || title.includes("director") || name.includes("ceo")) return 0;
+      if (role === "manager") return 1;
+      return 2;
+    };
+    const userRank = (user: Record<string, unknown>) => {
+      const linkedPerson = orgByUserKey.get(String(user.linked_org_node || "").trim()) || orgByUserKey.get(String(user.display_name || user.username || "").trim().toLowerCase());
+      const title = String(linkedPerson?.title || user.title || "").toLowerCase();
+      const name = String(user.display_name || user.username || "").toLowerCase();
+      const role = String(user.role || "").toLowerCase();
+      if (title.includes("ceo") || title.includes("director") || name.includes("ceo")) return 0;
+      if (role === "ceo" || role === "admin") return 0;
+      if (role.includes("manager")) return 1;
+      return 2;
+    };
+    const matchesAccountSearch = (record: Record<string, unknown>) => !accountQuery || JSON.stringify(record).toLowerCase().includes(accountQuery);
+    const sortedOrg = [...org]
+      .filter(matchesAccountSearch)
+      .sort((a, b) => personRank(a) - personRank(b) || fieldText(a, ["name"]).localeCompare(fieldText(b, ["name"])));
+    const sortedHeads = [...heads]
+      .filter(matchesAccountSearch)
+      .sort((a, b) => personRank(a) - personRank(b) || fieldText(a, ["name"]).localeCompare(fieldText(b, ["name"])));
+    const sortedUsers = [...users]
+      .filter(matchesAccountSearch)
+      .sort((a, b) => userRank(a) - userRank(b) || fieldText(a, ["display_name", "username"]).localeCompare(fieldText(b, ["display_name", "username"])));
+    const renderInlineAccountEditor = (user: Record<string, unknown>) => {
+      const id = String(user.id || "");
+      const draft = accountEditDrafts[id];
+      if (!isAdmin || !draft) return null;
+      const updateDraft = (key: keyof typeof emptyAccountDraft, value: string) => setAccountEditDrafts((drafts) => ({
+        ...drafts,
+        [id]: { ...(drafts[id] || draft), [key]: value },
+      }));
+      return (
+        <View style={styles.inlineNestedField}>
+          {[
+            ["username", "Username"],
+            ["display_name", "Display name"],
+            ["department", "Department"],
+            ["linked_org_node", "Linked staff profile ID"],
+            ["password", "New password"],
+            ["active", "Active Y/N"],
+          ].map(([key, label]) => (
+            <View key={`${id}-${key}`} style={styles.field}>
+              <Text style={styles.label}>{label}</Text>
+              <TextInput
+                style={styles.input}
+                value={String(draft[key as keyof typeof emptyAccountDraft] || "")}
+                onChangeText={(value) => updateDraft(key as keyof typeof emptyAccountDraft, value)}
+                secureTextEntry={key === "password"}
+                autoCapitalize="none"
+              />
+            </View>
+          ))}
+          <View style={styles.inlineActions}>
+            <Pressable style={styles.smallButton} onPress={() => generateInlineAccountPassword(id)} disabled={loading}>
+              <Text style={styles.smallButtonText}>Generate password</Text>
+            </Pressable>
+            <Pressable style={styles.smallButton} onPress={() => copyTextToClipboard(String(draft.password || ""))} disabled={loading || !draft.password}>
+              <Text style={styles.smallButtonText}>Copy password</Text>
+            </Pressable>
+          </View>
+          {renderRoleDropdown(String(draft.role || "staff"), (role) => updateDraft("role", role), accountEditRoleOpen === id, (open) => setAccountEditRoleOpen(open ? id : ""))}
+          <View style={styles.inlineActions}>
+            <Pressable style={styles.primaryButtonInline} onPress={() => saveAccountEdit(id)} disabled={loading || !draft.username}>
+              <Text style={styles.primaryButtonText}>Save account</Text>
+            </Pressable>
+            <Pressable style={styles.smallButton} onPress={() => setAccountEditDrafts((drafts) => {
+              const next = { ...drafts };
+              delete next[id];
+              return next;
+            })} disabled={loading}>
+              <Text style={styles.smallButtonText}>Cancel edit</Text>
+            </Pressable>
+          </View>
+        </View>
+      );
+    };
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -8853,46 +9687,91 @@ export default function App() {
 
         {isAdmin && (
           <View style={styles.formCard}>
-            <Text style={styles.cardLabel}>{accountDraft.id ? "Edit account" : "Create account"}</Text>
-            <Text style={styles.muted}>Admins can change usernames, roles, access, and passwords here. Leave the password field blank to keep the current password when editing; new accounts without a password use the shared staff password.</Text>
+            <View style={styles.cardHeaderRow}>
+              <View>
+                <Text style={styles.cardLabel}>Create new team account</Text>
+                <Text style={styles.muted}>Use this dropdown for new logins. Existing usernames and passwords are edited inside each account card below.</Text>
+              </View>
+              <Pressable
+                style={styles.smallButton}
+                onPress={() => {
+                  if (!accountCreateOpen) setAccountDraft(emptyAccountDraft);
+                  setAccountCreateOpen(!accountCreateOpen);
+                }}
+                disabled={loading}
+              >
+                <Text style={styles.smallButtonText}>{accountCreateOpen ? "Hide form" : "New account"}</Text>
+              </Pressable>
+            </View>
             <View style={styles.inlineActions}>
               <Pressable style={styles.primaryButtonInline} onPress={syncStaffLogins} disabled={loading}>
                 <Text style={styles.primaryButtonText}>Sync all staff logins</Text>
               </Pressable>
             </View>
-            {[
-              ["username", "Username"],
-              ["display_name", "Display name"],
-              ["department", "Department"],
-              ["role", "Role"],
-              ["linked_org_node", "Linked staff profile ID"],
-              ["password", "New password"],
-              ["active", "Active Y/N"],
-            ].map(([key, label]) => (
-              <View key={key} style={styles.field}>
-                <Text style={styles.label}>{label}</Text>
-                <TextInput
-                  style={styles.input}
-                  value={String(accountDraft[key as keyof typeof accountDraft] || "")}
-                  onChangeText={(value) => setAccountDraft((draft) => ({ ...draft, [key]: value }))}
-                  secureTextEntry={key === "password"}
-                  autoCapitalize="none"
-                />
+            {accountCreateOpen && (
+              <View style={styles.inlineNestedField}>
+                <Text style={styles.bodyText}>Supervisor: {preparedSupervisor}</Text>
+                {[
+                  ["username", "Username"],
+                  ["display_name", "Display name"],
+                  ["department", "Department"],
+                  ["linked_org_node", "Linked staff profile ID"],
+                  ["password", "New password"],
+                  ["active", "Active Y/N"],
+                ].map(([key, label]) => (
+                  <View key={key} style={styles.field}>
+                    <Text style={styles.label}>{label}</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={String(accountDraft[key as keyof typeof accountDraft] || "")}
+                      onChangeText={(value) => setAccountDraft((draft) => ({ ...draft, [key]: value }))}
+                      secureTextEntry={key === "password"}
+                      autoCapitalize="none"
+                    />
+                  </View>
+                ))}
+                <View style={styles.inlineActions}>
+                  <Pressable style={styles.smallButton} onPress={generateAccountDraftPassword} disabled={loading}>
+                    <Text style={styles.smallButtonText}>Generate password</Text>
+                  </Pressable>
+                  <Pressable style={styles.smallButton} onPress={() => copyTextToClipboard(accountDraft.password)} disabled={loading || !accountDraft.password}>
+                    <Text style={styles.smallButtonText}>Copy password</Text>
+                  </Pressable>
+                </View>
+                {renderRoleDropdown(accountDraft.role, (role) => setAccountDraft((draft) => ({ ...draft, role })), accountCreateRoleOpen, setAccountCreateRoleOpen)}
+                <View style={styles.inlineActions}>
+                  <Pressable style={styles.primaryButton} onPress={saveAccount} disabled={loading || !accountDraft.username}>
+                    <Text style={styles.primaryButtonText}>Create account</Text>
+                  </Pressable>
+                  <Pressable style={styles.smallButton} onPress={() => setAccountDraft(emptyAccountDraft)} disabled={loading}>
+                    <Text style={styles.smallButtonText}>Clear</Text>
+                  </Pressable>
+                </View>
               </View>
-            ))}
-            <View style={styles.inlineActions}>
-              <Pressable style={styles.primaryButton} onPress={saveAccount} disabled={loading || !accountDraft.username}>
-                <Text style={styles.primaryButtonText}>{accountDraft.id ? "Update account" : "Create account"}</Text>
-              </Pressable>
-              <Pressable style={styles.smallButton} onPress={() => setAccountDraft(emptyAccountDraft)} disabled={loading}>
-                <Text style={styles.smallButtonText}>Clear</Text>
-              </Pressable>
-            </View>
+            )}
           </View>
         )}
 
+        <View style={styles.formCard}>
+          <Text style={styles.cardLabel}>Search team accounts</Text>
+          <TextInput
+            style={styles.input}
+            value={accountSearch}
+            onChangeText={setAccountSearch}
+            placeholder="Search name, username, department, role"
+            autoCapitalize="none"
+          />
+          {!!accountSearch && (
+            <View style={styles.inlineActions}>
+              <Pressable style={styles.smallButton} onPress={() => setAccountSearch("")}>
+                <Text style={styles.smallButtonText}>Clear</Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
+
         <Text style={styles.sectionTitle}>Staff Login Coverage</Text>
-        {org.map((person) => {
+        {sortedOrg.map((person) => {
           const linked = loginForPerson(person);
           return (
             <View key={`staff-login-${String(person.id || person.name)}`} style={styles.card}>
@@ -8905,6 +9784,7 @@ export default function App() {
               </View>
               <Text style={styles.bodyText}>Username: {linked ? fieldText(linked, ["username"]) : "-"}</Text>
               <Text style={styles.bodyText}>Linked staff profile ID: {fieldText(person, ["id"]) || "-"}</Text>
+              <Text style={styles.bodyText}>Supervisor: {supervisorForPerson(person)}</Text>
               {isAdmin && (
                 <View style={styles.inlineActions}>
                   {linked ? (
@@ -8914,47 +9794,37 @@ export default function App() {
                   ) : (
                     <Pressable
                       style={styles.smallButton}
-                      onPress={() => setAccountDraft({
-                        id: "",
-                        username: String(person.name || "").toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.+|\.+$/g, ""),
-                        display_name: String(person.name || ""),
-                        department: String(person.department || ""),
-                        role: roleForPerson(person),
-                        linked_org_node: String(person.id || ""),
-                        password: "",
-                        active: "Y",
-                      })}
+                      onPress={() => {
+                        setAccountDraft(accountDraftForPerson(person));
+                        setAccountCreateOpen(true);
+                      }}
                     >
                       <Text style={styles.smallButtonText}>Prepare login</Text>
                     </Pressable>
                   )}
                 </View>
               )}
+              {linked ? renderInlineAccountEditor(linked) : null}
             </View>
           );
         })}
 
         <Text style={styles.sectionTitle}>Org Supervisors</Text>
-        {heads.map((person) => {
+        {sortedHeads.map((person) => {
           const linked = loginForPerson(person);
           return (
             <View key={String(person.id)} style={styles.card}>
               <Text style={styles.cardTitle}>{fieldText(person, ["name"])}</Text>
               <Text style={styles.muted}>{fieldText(person, ["title"])} - {fieldText(person, ["department"])}</Text>
-              <Text style={styles.bodyText}>Login: {linked ? `${fieldText(linked, ["username"])} (${fieldText(linked, ["role"])})` : "Missing"}</Text>
+              <Text style={styles.bodyText}>Supervisor: {supervisorForPerson(person)}</Text>
+              <Text style={styles.bodyText}>Login: {linked ? `${fieldText(linked, ["username"])} (${roleLabel(fieldText(linked, ["role"]) || "staff")})` : "Missing"}</Text>
               {isAdmin && !linked && (
                 <Pressable
                   style={styles.smallButton}
-                  onPress={() => setAccountDraft({
-                    id: "",
-                    username: String(person.name || "").toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.+|\.+$/g, ""),
-                    display_name: String(person.name || ""),
-                    department: String(person.department || ""),
-                    role: String(person.department || "").toLowerCase() === "executive office" ? "admin" : "manager",
-                    linked_org_node: String(person.id || ""),
-                    password: "",
-                    active: "Y",
-                  })}
+                  onPress={() => {
+                    setAccountDraft(accountDraftForPerson(person));
+                    setAccountCreateOpen(true);
+                  }}
                 >
                   <Text style={styles.smallButtonText}>Prepare login</Text>
                 </Pressable>
@@ -8964,7 +9834,7 @@ export default function App() {
         })}
 
         <Text style={styles.sectionTitle}>User Accounts</Text>
-        {users.map((user) => (
+        {sortedUsers.map((user) => (
           <View key={String(user.id || user.username)} style={styles.card}>
             <View style={styles.cardHeaderRow}>
               <Text style={styles.cardTitle}>{fieldText(user, ["display_name", "username"])}</Text>
@@ -8974,7 +9844,7 @@ export default function App() {
               <Pressable onPress={() => isAdmin && editAccount(user)} disabled={!isAdmin || loading}>
                 <Text style={styles.clickableUsername}>{fieldText(user, ["username"])}</Text>
               </Pressable>
-              <Text style={styles.muted}>- {fieldText(user, ["department"])} - {fieldText(user, ["role"])}</Text>
+              <Text style={styles.muted}>- {fieldText(user, ["department"])} - {roleLabel(fieldText(user, ["role"]) || "staff")}</Text>
             </View>
             <Text style={styles.bodyText}>Linked org node: {fieldText(user, ["linked_org_node", "linked_team_member"])}</Text>
             <Text style={styles.bodyText}>Password change required: {String(user.must_change_password || false)}</Text>
@@ -9006,11 +9876,24 @@ export default function App() {
                   <Pressable style={styles.primaryButtonInline} onPress={() => setAccountPassword(String(user.id))} disabled={loading || !String(user.id)}>
                     <Text style={styles.primaryButtonText}>Change password</Text>
                   </Pressable>
+                  <Pressable style={styles.smallButton} onPress={() => generateQuickAccountPassword(String(user.id))} disabled={loading || !String(user.id)}>
+                    <Text style={styles.smallButtonText}>Generate</Text>
+                  </Pressable>
+                  <Pressable style={styles.smallButton} onPress={() => copyTextToClipboard(accountPasswordDrafts[String(user.id)] || "")} disabled={loading || !accountPasswordDrafts[String(user.id)]}>
+                    <Text style={styles.smallButtonText}>Copy</Text>
+                  </Pressable>
                 </View>
               </View>
             )}
+            {renderInlineAccountEditor(user)}
           </View>
         ))}
+        {!sortedUsers.length && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>No team accounts match that search.</Text>
+            <Text style={styles.muted}>Clear the search to see all logins.</Text>
+          </View>
+        )}
       </View>
     );
   }
@@ -10813,13 +11696,14 @@ export default function App() {
     }
     setLoading(true);
     try {
+      const installedDateValue = customerInstalledDateDraft;
       const savedCustomerResponse = await apiFetch<{ record?: Record<string, unknown>; customer?: Record<string, unknown> }>(id ? `/api/portal/customers/${encodeURIComponent(id)}` : "/api/portal/customers", {
         method: id ? "PATCH" : "POST",
         token,
         body: JSON.stringify(customerDraft),
       });
       const savedCustomer = savedCustomerResponse.record || savedCustomerResponse.customer || { ...customerDraft, id };
-      if (customerInstalledDateDraft.trim() || id) await saveCustomerInstalledDate(savedCustomer as Partial<Customer>);
+      if (installedDateValue.trim() || id) await saveInstalledDateForCrmRecord(savedCustomer, installedDateValue);
       setCustomerDraft(emptyCustomer);
       setCustomerInstalledDateDraft("");
       setCustomerEditorOpen(false);
@@ -10830,6 +11714,57 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function saveInlineCustomer(customerId: string) {
+    const draft = customerInlineDrafts[customerId];
+    if (!draft?.name?.trim()) {
+      const text = "Customer name is required.";
+      Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
+      return;
+    }
+    const installedDateValue = customerInlineInstalledDates[customerId] || "";
+    setLoading(true);
+    try {
+      const savedCustomerResponse = await apiFetch<{ record?: Record<string, unknown>; customer?: Record<string, unknown> }>(`/api/portal/customers/${encodeURIComponent(customerId)}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify(draft),
+      });
+      const savedCustomer = savedCustomerResponse.record || savedCustomerResponse.customer || { ...draft, id: customerId };
+      if (installedDateValue.trim() || customerId) {
+        await saveInstalledDateForCrmRecord({ ...savedCustomer, id: customerId }, installedDateValue);
+      }
+      setCustomerInlineDrafts((drafts) => {
+        const next = { ...drafts };
+        delete next[customerId];
+        return next;
+      });
+      setCustomerInlineInstalledDates((dates) => {
+        const next = { ...dates };
+        delete next[customerId];
+        return next;
+      });
+      await loadPortal();
+      setMessage("Customer CRM record updated.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Customer could not be updated.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function cancelInlineCustomerEdit(customerId: string) {
+    setCustomerInlineDrafts((drafts) => {
+      const next = { ...drafts };
+      delete next[customerId];
+      return next;
+    });
+    setCustomerInlineInstalledDates((dates) => {
+      const next = { ...dates };
+      delete next[customerId];
+      return next;
+    });
   }
 
   async function saveSiteVisit() {
@@ -11479,14 +12414,21 @@ export default function App() {
   }
 
   function editCustomer(customer: Customer) {
+    const customerId = String(customer.id || "");
+    if (!customerId) {
+      setMessage("Customer ID is required before editing.");
+      return;
+    }
     const { date } = crmLatestInstalledFromJobs(crmInstallationJobsForRecord(customer as unknown as Record<string, unknown>));
-    setCustomerDraft({ ...emptyCustomer, ...customer });
-    setCustomerInstalledDateDraft(date);
-    setCustomerEditorOpen(true);
+    setCustomerInlineDrafts((drafts) => ({ ...drafts, [customerId]: { ...emptyCustomer, ...customer } }));
+    setCustomerInlineInstalledDates((dates) => ({ ...dates, [customerId]: date }));
+    setCustomerDraft(emptyCustomer);
+    setCustomerInstalledDateDraft("");
+    setCustomerEditorOpen(false);
     setSiteVisitDraft((draft) => ({ ...draft, customer_id: customer.id }));
     setSiteVisitEditorOpen(false);
     setActiveTab("customers");
-    setMessage(`Editing ${customer.name}. Site visit entry is ready for customer ${customer.id}.`);
+    setMessage(`Editing ${customer.name} inline. Site visit entry is ready for customer ${customer.id}.`);
   }
 
   async function updateCustomer(id: string, payload: Record<string, string>) {
@@ -11521,6 +12463,7 @@ export default function App() {
         setCustomerDraft(emptyCustomer);
         setCustomerInstalledDateDraft("");
       }
+      cancelInlineCustomerEdit(String(customer.id || ""));
       await loadPortal();
       setMessage(`${customer.name} removed from CRM.`);
     } catch (error) {
@@ -11639,17 +12582,66 @@ export default function App() {
     setMessage(`Opened ${String(result.title || id || collection)}.`);
   }
 
+  function generateRandomPassword() {
+    const letters = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    const numbers = "23456789";
+    const symbols = "!@#$%";
+    const all = `${letters}${numbers}${symbols}`;
+    const pick = (chars: string) => chars[Math.floor(Math.random() * chars.length)];
+    const raw = [
+      pick(letters),
+      pick(letters.toLowerCase()),
+      pick(numbers),
+      pick(symbols),
+      ...Array.from({ length: 8 }, () => pick(all)),
+    ];
+    return raw.sort(() => Math.random() - 0.5).join("");
+  }
+
+  async function copyTextToClipboard(text: string) {
+    if (!text) return;
+    try {
+      if (Platform.OS === "web" && typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        setMessage("Password copied to clipboard.");
+      } else {
+        setMessage("Password generated. Copy is only available in the web portal.");
+      }
+    } catch {
+      setMessage("Password generated. Browser blocked clipboard copy.");
+    }
+  }
+
+  async function generateAccountDraftPassword() {
+    const password = generateRandomPassword();
+    setAccountDraft((draft) => ({ ...draft, password }));
+    await copyTextToClipboard(password);
+  }
+
+  async function generateInlineAccountPassword(id: string) {
+    const password = generateRandomPassword();
+    setAccountEditDrafts((drafts) => ({ ...drafts, [id]: { ...(drafts[id] || emptyAccountDraft), password } }));
+    await copyTextToClipboard(password);
+  }
+
+  async function generateQuickAccountPassword(id: string) {
+    const password = generateRandomPassword();
+    setAccountPasswordDrafts((drafts) => ({ ...drafts, [id]: password }));
+    await copyTextToClipboard(password);
+  }
+
   function editAccount(user: Record<string, unknown>) {
-    setAccountDraft({
+    const draft = {
       id: String(user.id || ""),
       username: String(user.username || ""),
       display_name: String(user.display_name || ""),
       department: String(user.department || ""),
-      role: String(user.role || "manager"),
+      role: String(user.role || "staff"),
       linked_org_node: String(user.linked_org_node || ""),
       password: "",
       active: String(user.active) === "false" ? "N" : "Y",
-    });
+    };
+    setAccountEditDrafts((drafts) => ({ ...drafts, [draft.id]: draft }));
   }
 
   async function saveAccount() {
@@ -11678,6 +12670,7 @@ export default function App() {
         });
       }
       setAccountDraft(emptyAccountDraft);
+      setAccountCreateOpen(false);
       await loadPortal();
       setMessage("Team account saved.");
     } catch (error) {
@@ -11695,6 +12688,43 @@ export default function App() {
         token,
         body: JSON.stringify(payload),
       });
+      await loadPortal();
+      setMessage("Team account updated.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Team account could not be updated.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveAccountEdit(id: string) {
+    const draft = accountEditDrafts[id];
+    if (!draft?.username) {
+      setMessage("Username is required.");
+      return;
+    }
+    const payload = {
+      username: draft.username,
+      display_name: draft.display_name,
+      department: draft.department,
+      role: draft.role,
+      linked_org_node: draft.linked_org_node,
+      active: String(draft.active || "Y").toUpperCase() !== "N",
+      ...(draft.password ? { password: draft.password } : {}),
+    };
+    setLoading(true);
+    try {
+      await apiFetch(`/api/portal/users/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify(payload),
+      });
+      setAccountEditDrafts((drafts) => {
+        const next = { ...drafts };
+        delete next[id];
+        return next;
+      });
+      setAccountDraft(emptyAccountDraft);
       await loadPortal();
       setMessage("Team account updated.");
     } catch (error) {
@@ -12551,6 +13581,12 @@ export default function App() {
     setBreakdownPage((page) => Math.min(page, pageCount));
   }, [data?.breakdowns]);
 
+  useEffect(() => {
+    const count = asRecords((data as Record<string, unknown> | null)?.service_records).length;
+    const pageCount = Math.max(1, Math.ceil(count / 10));
+    setServicePage((page) => Math.min(page, pageCount));
+  }, [data?.service_records]);
+
   function renderWebsiteHome() {
     return <PublicWebsite onOpenPortal={() => setShowPortalLogin(true)} />;
   }
@@ -12940,6 +13976,8 @@ const styles = StyleSheet.create({
   offerMetricTile: { flex: 1, minWidth: 170, marginBottom: 0 },
   crmMetricGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 10 },
   crmMetricTile: { flex: 1, minWidth: 175, marginBottom: 0 },
+  staffMetricGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 10 },
+  staffMetricTile: { flex: 1, minWidth: 175, marginBottom: 0 },
   breakdownMetricRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 10 },
   breakdownMetricTile: { flex: 1, minWidth: 155, marginBottom: 0, paddingVertical: 11 },
   card: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", padding: 13, marginBottom: 8, shadowColor: "#11131b", shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 6 } },
@@ -13031,6 +14069,18 @@ const styles = StyleSheet.create({
   dispatchStatusBusy: { backgroundColor: "#fff2d8", color: "#8a5a00" },
   scheduleServiceRow: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" },
   scheduleServiceMain: { flex: 1, minWidth: 240, gap: 3 },
+  serviceYearBlock: { borderTopWidth: 1, borderTopColor: "#e4e7ee", paddingTop: 8, marginTop: 8, gap: 4 },
+  serviceYearTitle: { color: "#11131b", fontWeight: "900", fontSize: 12 },
+  servicePlanGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
+  servicePlanChip: { minWidth: 112, borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#fff", paddingHorizontal: 8, paddingVertical: 6, gap: 2 },
+  servicePlanNumber: { color: "#11131b", fontWeight: "900", fontSize: 12 },
+  servicePlanDate: { color: "#5b6270", fontWeight: "800", fontSize: 11 },
+  servicePlanStatus: { fontWeight: "900", fontSize: 10, textTransform: "uppercase" },
+  servicePlanDone: { color: "#14804a" },
+  servicePlanOverdue: { color: "#b91414" },
+  servicePlanDue: { color: "#9a5b00" },
+  servicePlanNeedsDate: { color: "#7a2630" },
+  servicePlanScheduled: { color: "#5b6270" },
   dispatchRosterAction: { minWidth: 220, flexGrow: 1, flexShrink: 1, gap: 6 },
   dispatchTaskInput: { minHeight: 34, borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", paddingHorizontal: 10, color: "#11131b", fontWeight: "800", fontSize: 12 },
   dispatchRosterButtons: { flexDirection: "row", gap: 6, flexWrap: "wrap" },

@@ -290,17 +290,77 @@ async function writeJson(fileName, value) {
 
 function publicUser(user) {
   const { password_hash, ...safe } = user;
+  if (isAtulSinghal(safe)) safe.role = "ceo";
+  else safe.role = normalizePortalRole(safe.role || "staff");
   return safe;
 }
 
+function isAtulSinghal(user = {}) {
+  const text = staffLookupKey(`${user.username || ""} ${user.display_name || ""} ${user.name || ""}`);
+  return text.includes("atul singhal") || text.includes("atulsinghal");
+}
+
+function isJitendraServiceManager(user = {}) {
+  const nameText = staffLookupKey(`${user.username || ""} ${user.display_name || ""} ${user.name || ""}`);
+  const department = staffLookupKey(user.department || "");
+  const title = staffLookupKey(`${user.title || ""} ${user.position || ""} ${user.role || ""}`);
+  const isJitendra = nameText.includes("jitendra choudhary") ||
+    nameText.includes("jitendrachoudhary") ||
+    nameText.includes("jitendra choudry") ||
+    nameText.includes("jitendrachoudry");
+  return isJitendra || (department === "service" && /supervisor|manager|head/.test(title));
+}
+
+function isRetiredGenericServiceManager(user = {}) {
+  const username = staffLookupKey(user.username || "");
+  const displayName = staffLookupKey(user.display_name || user.name || "");
+  const department = staffLookupKey(user.department || "");
+  return username === "service manager" || (displayName === "service manager" && department === "service");
+}
+
 function isAdminUser(user = {}) {
-  return String(user.role || "").trim().toLowerCase() === "admin";
+  const role = String(user.role || "").trim().toLowerCase();
+  return role === "admin" || role === "ceo" || isAtulSinghal(user);
 }
 
 function canManageCustomerAssignments(user = {}) {
   const role = String(user.role || "").trim().toLowerCase();
   const title = String(user.title || user.position || "").trim().toLowerCase();
-  return isAdminUser(user) || role.includes("manager") || role.includes("lead") || title.includes("manager") || title.includes("lead");
+  return isAdminUser(user) || isJitendraServiceManager(user) || role.includes("manager") || role.includes("lead") || title.includes("manager") || title.includes("lead");
+}
+
+function canManageServiceRecords(user = {}) {
+  return isAdminUser(user) || isJitendraServiceManager(user);
+}
+
+function serviceAssignmentKeysForUser(user = {}) {
+  return new Set([
+    staffLookupKey(user.display_name || user.name || ""),
+    staffLookupKey(String(user.username || "").replace(/\./g, " ")),
+    staffLookupKey(user.username || ""),
+    staffLookupKey(user.linked_org_node || ""),
+    staffLookupKey(user.linked_team_member || "")
+  ].filter(Boolean));
+}
+
+function serviceRecordAssignedToUser(record = {}, user = {}) {
+  if (canManageServiceRecords(user)) return true;
+  const keys = serviceAssignmentKeysForUser(user);
+  if (!keys.size) return false;
+  const assignmentFields = [
+    record.assigned_engineer,
+    record.technician,
+    record.engineer,
+    record.assigned_to,
+    record.service_engineer,
+    record.staff_id,
+    record.staff_name,
+    record.person_id
+  ];
+  return assignmentFields.some((value) => {
+    const text = staffLookupKey(value || "");
+    return text && [...keys].some((key) => text === key || text.includes(key) || key.includes(text));
+  });
 }
 
 function makeWerkzeugScryptHash(password) {
@@ -387,6 +447,21 @@ function isDepartmentHead(person) {
   return /head|supervisor|manager|director|ceo/i.test(`${person.title || ""} ${person.name || ""}`);
 }
 
+function portalRoleForStaff(person = {}, managers = new Set()) {
+  const title = staffLookupKey(`${person.title || ""} ${person.position || ""} ${person.role || ""}`);
+  const department = staffLookupKey(person.department || "");
+  if (isAtulSinghal(person) || department === "executive office" || title.includes("ceo") || title.includes("director")) return "ceo";
+  if (isJitendraServiceManager(person) || isDepartmentHead(person) || managers.has(person.id)) return "manager";
+  return "staff";
+}
+
+function normalizePortalRole(value = "staff") {
+  const role = staffLookupKey(value);
+  if (role === "admin" || role === "ceo" || role === "director" || role === "executive office") return "ceo";
+  if (role === "manager" || role === "supervisor" || role === "head" || role === "team lead" || role === "teamlead") return "manager";
+  return "staff";
+}
+
 function accessForUser(user = {}) {
   const allViews = [
     "today", "overview", "modules", "backlog", "customers", "offerManager", "marketing", "tickets", "projects", "installations", "team", "accounts",
@@ -394,7 +469,7 @@ function accessForUser(user = {}) {
     "gad", "finance", "commissioning", "backoffice", "tender", "factory", "internationalVendor", "comms", "siteVisits", "intelligence",
     "approvals", "documents", "engineer"
   ];
-  if (user.role === "admin" || String(user.department || "").toLowerCase() === "executive office") {
+  if (isAdminUser(user) || String(user.department || "").toLowerCase() === "executive office") {
     return { allowed_views: allViews, selected_view: "overview", default_view: "overview", is_restricted: false };
   }
   const byDepartment = {
@@ -402,7 +477,7 @@ function accessForUser(user = {}) {
     installation: ["today", "overview", "intelligence", "backlog", "customers", "installations", "team", "installation_dept", "commissioning", "siteVisits", "orgchart", "approvals", "documents", "engineer", "comms"],
     "install operations": ["today", "overview", "intelligence", "backlog", "customers", "installations", "team", "installation_dept", "commissioning", "siteVisits", "orgchart", "approvals", "documents", "engineer", "comms"],
     breakdown: ["today", "overview", "intelligence", "backlog", "customers", "breakdown", "workorders", "orgchart", "documents", "engineer", "comms"],
-    service: ["today", "overview", "intelligence", "backlog", "customers", "workorders", "service", "orgchart", "documents", "engineer", "comms"],
+    service: ["today", "overview", "intelligence", "backlog", "customers", "workorders", "service", "orgchart", "approvals", "documents", "engineer", "comms"],
     gad: ["today", "overview", "intelligence", "backlog", "customers", "gad", "projects", "approvals", "documents", "comms"],
     accounts: ["today", "overview", "intelligence", "backlog", "customers", "offerManager", "marketing", "finance", "estimator", "approvals", "documents", "comms"],
     commissioning: ["today", "overview", "intelligence", "backlog", "customers", "commissioning", "installations", "orgchart", "approvals", "documents", "engineer", "comms"],
@@ -413,6 +488,9 @@ function accessForUser(user = {}) {
     staff: ["today", "overview", "intelligence", "backlog", "customers", "siteVisits", "orgchart", "documents", "engineer", "comms"],
     "stores & procurement": ["today", "overview", "intelligence", "backlog", "inventory", "factory", "approvals", "documents", "comms"]
   };
+  if (isJitendraServiceManager(user)) {
+    return { allowed_views: byDepartment.service, selected_view: "service", default_view: "service", is_restricted: true };
+  }
   const key = String(user.department || "").toLowerCase();
   const allowed = [...(byDepartment[key] || ["today", "overview", "comms"])];
   if (!allowed.includes("orgchart")) allowed.push("orgchart");
@@ -597,6 +675,14 @@ async function ensureStaffPortalUsers() {
   let changed = false;
   let created = 0;
   let linked = 0;
+  for (const user of users) {
+    if (isRetiredGenericServiceManager(user) && user.active !== false) {
+      user.active = false;
+      user.merged_into = user.merged_into || "jitendra.choudhary";
+      user.updated_at = new Date().toISOString();
+      changed = true;
+    }
+  }
   for (const person of orgChart) {
     const baseUsername = slugName(person.name);
     if (!baseUsername) continue;
@@ -605,9 +691,7 @@ async function ensureStaffPortalUsers() {
       staffLookupKey(user.display_name || user.username) === staffLookupKey(person.name)
     );
     if (linkedUser) {
-      const nextRole = String(person.department || "").toLowerCase() === "executive office"
-        ? "admin"
-        : (isDepartmentHead(person) || managers.has(person.id) ? "manager" : (linkedUser.role || "staff"));
+      const nextRole = portalRoleForStaff(person, managers);
       const nextLinkedOrgNode = linkedUser.linked_org_node || person.id || "";
       const nextDepartment = person.department || linkedUser.department || "";
       const nextDisplayName = person.name || linkedUser.display_name || linkedUser.username;
@@ -616,12 +700,14 @@ async function ensureStaffPortalUsers() {
         linkedUser.department !== nextDepartment ||
         linkedUser.display_name !== nextDisplayName ||
         !linkedUser.role ||
+        (nextRole === "ceo" && !["ceo", "admin"].includes(String(linkedUser.role || "").toLowerCase())) ||
+        (nextRole === "manager" && !["manager", "ceo", "admin"].includes(String(linkedUser.role || "").toLowerCase())) ||
         linkedUser.active === false
       ) {
         linkedUser.linked_org_node = nextLinkedOrgNode;
         linkedUser.department = nextDepartment;
         linkedUser.display_name = nextDisplayName;
-        linkedUser.role = linkedUser.role || nextRole;
+        linkedUser.role = nextRole === "ceo" ? "ceo" : (nextRole === "manager" && !["ceo", "admin"].includes(String(linkedUser.role || "").toLowerCase()) ? "manager" : (linkedUser.role || nextRole));
         linkedUser.active = true;
         linkedUser.updated_at = new Date().toISOString();
         changed = true;
@@ -639,7 +725,7 @@ async function ensureStaffPortalUsers() {
       id: nextId(users, "USR"),
       username,
       display_name: person.name,
-      role: String(person.department || "").toLowerCase() === "executive office" ? "admin" : (isDepartmentHead(person) || managers.has(person.id) ? "manager" : "staff"),
+      role: portalRoleForStaff(person, managers),
       department: person.department || "",
       linked_org_node: person.id || "",
       active: true,
@@ -675,10 +761,14 @@ async function ensureSharedStaffPortalPassword() {
   const sharedPasswordHash = sharedStaffPortalPasswordHash();
   let changed = false;
   for (const user of users) {
-    if (String(user.password_hash || "") !== sharedPasswordHash || user.must_change_password) {
+    if (!String(user.password_hash || "")) {
       user.password_hash = sharedPasswordHash;
       user.must_change_password = false;
       user.password_policy = "shared-staff-portal";
+      user.password_synced_at = new Date().toISOString();
+      changed = true;
+    } else if (user.must_change_password) {
+      user.must_change_password = false;
       user.password_synced_at = new Date().toISOString();
       changed = true;
     }
@@ -3988,11 +4078,14 @@ async function updateOperationsRecord(listKey, id, body, res) {
   res.json({ ok: true, record: nextRecord });
 }
 
-async function listCollection(routeName, res) {
+async function listCollection(routeName, res, user = res.req?.user || {}) {
   const config = resolveCollection(routeName);
   if (!config) return res.status(404).json({ ok: false, message: "Unknown portal module." });
   const records = await readJson(config.file, config.singleton ? {} : []);
-  return res.json({ ok: true, [config.key]: publicRecords(config.key, Array.isArray(records) ? records : [records]), records });
+  const visibleRecords = routeName === "service" && Array.isArray(records) && !canManageServiceRecords(user)
+    ? records.filter((record) => serviceRecordAssignedToUser(record, user))
+    : records;
+  return res.json({ ok: true, [config.key]: publicRecords(config.key, Array.isArray(visibleRecords) ? visibleRecords : [visibleRecords]), records: visibleRecords });
 }
 
 async function linkedCrmCustomerPayload(body, res, recordLabel = "service record") {
@@ -4490,6 +4583,15 @@ async function updateCollectionRecord(routeName, id, body, res) {
   const index = findRecordIndex(records, id);
   if (index < 0) return res.status(404).json({ ok: false, message: "Record not found." });
   const previousRecord = records[index];
+  if (routeName === "service" && !serviceRecordAssignedToUser(previousRecord, res.req?.user || {})) {
+    return res.status(403).json({ ok: false, message: "Service engineers can update only service records assigned to them." });
+  }
+  if (routeName === "service" && !canManageServiceRecords(res.req?.user || {})) {
+    delete body.assigned_engineer;
+    delete body.technician;
+    delete body.engineer;
+    delete body.assigned_to;
+  }
   const actionStatus = defaultStatusForAction(body?.action);
   const crmLinkedRoute = ["service", "breakdown"].includes(routeName);
   const serviceLink = crmLinkedRoute && body?.customer_id ? await linkedCrmCustomerPayload(body, res, routeName === "breakdown" ? "breakdown call" : "service record") : {};
@@ -4519,6 +4621,9 @@ async function updateCollectionRecord(routeName, id, body, res) {
 async function deleteCollectionRecord(routeName, id, res) {
   const config = resolveCollection(routeName);
   if (!config) return res.status(404).json({ ok: false, message: "Unknown portal module." });
+  if (routeName === "service" && !canManageServiceRecords(res.req?.user || {})) {
+    return res.status(403).json({ ok: false, message: "Only Service Manager, CEO, or Admin can remove service records." });
+  }
   const records = await readJson(config.file, []);
   const deletedRecord = records.find((record) => findRecordIndex([record], id) === 0);
   const nextRecords = records.filter((record) => findRecordIndex([record], id) !== 0);
@@ -4620,6 +4725,9 @@ function portalData(collections, user) {
     daily_briefs: collections.daily_briefs,
     synced_at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
   };
+  if (!canManageServiceRecords(user)) {
+    payload.service_records = payload.service_records.filter((record) => serviceRecordAssignedToUser(record, user));
+  }
   return filterPortalPayload(payload, access);
 }
 
@@ -4827,12 +4935,15 @@ app.get("/api/portal/global-search", authRequired, async (req, res) => {
   const query = String(req.query.q || "").trim();
   if (query.length < 2) return res.json({ ok: true, query, results: [] });
   const collections = await loadPortalCollections();
+  const serviceSearchRecords = canManageServiceRecords(req.user)
+    ? collections.service_records
+    : collections.service_records.filter((record) => serviceRecordAssignedToUser(record, req.user));
   const results = [
     ...globalSearchItems("customers", collections.customers, ["name", "contact_person"], query),
     ...globalSearchItems("sales_inquiries", collections.sales_inquiries, ["customer", "enquiry_no"], query),
     ...globalSearchItems("install_jobs", collections.install_jobs, ["job_id", "customer", "project_name"], query),
     ...globalSearchItems("breakdowns", collections.breakdowns, ["id", "customer", "unit"], query),
-    ...globalSearchItems("service_records", collections.service_records, ["job_number", "customer"], query),
+    ...globalSearchItems("service_records", serviceSearchRecords, ["job_number", "customer"], query),
     ...globalSearchItems("payments", collections.payments, ["customer_name", "milestone"], query),
     ...globalSearchItems("tenders", collections.tenders, ["tender_no", "tender_invited_by", "party_name"], query),
     ...globalSearchItems("dept_comms", collections.dept_comms, ["subject", "message"], query)
@@ -5561,7 +5672,7 @@ app.post("/api/portal/projects/time-tracking", authRequired, async (req, res) =>
 });
 
 app.post("/api/portal/users", authRequired, async (req, res) => {
-  if (req.user.role !== "admin") return res.status(403).json({ ok: false, message: "Admin access required." });
+  if (!isAdminUser(req.user)) return res.status(403).json({ ok: false, message: "Admin access required." });
   const users = await readJson(listFiles.users, []);
   const username = String(req.body?.username || "").trim().toLowerCase();
   if (!username) return res.status(400).json({ ok: false, message: "Username is required." });
@@ -5572,7 +5683,7 @@ app.post("/api/portal/users", authRequired, async (req, res) => {
     id: nextId(users, "USR"),
     username,
     display_name: String(req.body?.display_name || username).trim(),
-    role: String(req.body?.role || "manager").trim(),
+    role: normalizePortalRole(req.body?.role || "staff"),
     department: String(req.body?.department || "").trim(),
     linked_org_node: String(req.body?.linked_org_node || "").trim(),
     active: req.body?.active !== false,
@@ -5600,7 +5711,7 @@ app.post("/api/portal/users/sync-staff", authRequired, async (_req, res) => {
 });
 
 app.patch("/api/portal/users/:id", authRequired, async (req, res) => {
-  if (req.user.role !== "admin") return res.status(403).json({ ok: false, message: "Admin access required." });
+  if (!isAdminUser(req.user)) return res.status(403).json({ ok: false, message: "Admin access required." });
   const users = await readJson(listFiles.users, []);
   const index = findRecordIndex(users, req.params.id);
   if (index < 0) return res.status(404).json({ ok: false, message: "User not found." });
@@ -5611,6 +5722,8 @@ app.patch("/api/portal/users/:id", authRequired, async (req, res) => {
   const patch = cleanPayload(req.body);
   delete patch.password;
   delete patch.temporary_password;
+  delete patch.reset_shared_password;
+  if (patch.role) patch.role = normalizePortalRole(patch.role);
   const nextUser = {
     ...users[index],
     ...patch,
@@ -6464,7 +6577,7 @@ app.patch("/api/portal/leave-requests/:id", authRequired, async (req, res) => {
 
 for (const routeName of Object.keys(routeCollections).filter((route) => !route.includes("/"))) {
   app.get(`/api/portal/${routeName}`, authRequired, async (_req, res) => {
-    await listCollection(routeName, res);
+    await listCollection(routeName, res, _req.user);
   });
   if (!["customers", "breakdown", "install-jobs", "users"].includes(routeName)) {
     app.post(`/api/portal/${routeName}`, authRequired, async (req, res) => {
@@ -6485,7 +6598,11 @@ for (const routeName of Object.keys(routeCollections).filter((route) => !route.i
 app.get("/api/portal/:collection", authRequired, async (req, res) => {
   const file = listFiles[req.params.collection];
   if (!file) return res.status(404).json({ ok: false, message: "Unknown collection." });
-  res.json({ ok: true, [req.params.collection]: await readJson(file, []) });
+  const records = await readJson(file, []);
+  const visibleRecords = req.params.collection === "service_records" && Array.isArray(records) && !canManageServiceRecords(req.user)
+    ? records.filter((record) => serviceRecordAssignedToUser(record, req.user))
+    : records;
+  res.json({ ok: true, [req.params.collection]: visibleRecords });
 });
 
 app.get("/", (_req, res) => {
