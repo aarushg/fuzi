@@ -40,6 +40,7 @@ export type Customer = {
   last_service_counted_at?: string;
   service_end_date?: string;
   service_contract_end_date?: string;
+  service_years_purchased?: string;
 };
 
 export type SiteVisit = {

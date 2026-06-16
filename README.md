@@ -754,7 +754,9 @@ Rolls up all department data into a single leadership view:
 - Customer-linked service records with job number, building, owner, and notes.
 - Service records must be linked to an existing CRM customer before they can be created.
 - New service visits capture a system-generated `service_number` and `breakdown_number`, date/time, CRM customer, assigned engineer, common elevator issue category, action taken, parts used, parts quantity, and customer comments.
+- The top of the Service module shows the latest engineer check-ins and check-outs, including who is currently on site and the captured location when browser geolocation is granted.
 - Service engineers can check in and check out from the Service module; each action stores timestamp and browser geolocation when permission is granted.
+- Service managers can extend a customer's service contract by 1, 2, 3, or 5 years from the install/service end date; the new `service_end_date`, `service_contract_end_date`, and purchased service years are written back to Customer CRM.
 - Linked CRM customer records store `service_count` / `services_done`, recalculated whenever service records or breakdown calls are created, edited, or deleted.
 - Work order status tracking.
 - Breakdown Portal dispatch assigns install/service staff from the saved team roster and supports dispatch, reached-site, and close statuses.

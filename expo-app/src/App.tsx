@@ -1641,6 +1641,14 @@ export default function App() {
     return "-";
   }
 
+  function displayDateTime(value: unknown) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    const date = new Date(text);
+    if (Number.isNaN(date.getTime())) return text;
+    return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  }
+
   function viewerStaffRecord(staff: Array<Record<string, unknown>>) {
     const viewer = (data?.viewer || {}) as Record<string, unknown>;
     const linkedId = String(viewer.linked_org_node || viewer.linked_team_member || "").trim();
@@ -2939,6 +2947,50 @@ export default function App() {
     }
   }
 
+  async function extendCustomerServiceYears(schedule: {
+    customerId: string;
+    customerName: string;
+    installDate: string;
+    serviceEndDate: string;
+  }, yearsToAdd: number) {
+    const customerId = String(schedule.customerId || "").trim();
+    if (!customerId) {
+      setMessage("CRM customer number is required before extending service years.");
+      return;
+    }
+    const baseDateText = schedule.serviceEndDate || schedule.installDate || new Date().toISOString().slice(0, 10);
+    const baseDate = new Date(baseDateText);
+    if (Number.isNaN(baseDate.getTime())) {
+      setMessage("Add a valid CRM install date or service end date before extending service years.");
+      return;
+    }
+    const nextDate = new Date(baseDate);
+    nextDate.setFullYear(nextDate.getFullYear() + yearsToAdd);
+    const serviceEndDate = nextDate.toISOString().slice(0, 10);
+    const installedDate = new Date(schedule.installDate || baseDateText);
+    const serviceYearsPurchased = Number.isNaN(installedDate.getTime())
+      ? yearsToAdd
+      : Math.max(yearsToAdd, Math.ceil((nextDate.getTime() - installedDate.getTime()) / (365 * 24 * 60 * 60 * 1000)));
+    setLoading(true);
+    try {
+      await apiFetch(`/api/portal/customers/${encodeURIComponent(customerId)}`, {
+        method: "PATCH",
+        token,
+        body: JSON.stringify({
+          service_end_date: serviceEndDate,
+          service_contract_end_date: serviceEndDate,
+          service_years_purchased: String(serviceYearsPurchased),
+        }),
+      });
+      await loadPortal();
+      setMessage(`${schedule.customerName || customerId} service contract extended to ${serviceEndDate}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Service years could not be extended in CRM.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function renderServicePage() {
     const rawServiceRecords = asRecords((data as Record<string, unknown> | null)?.service_records);
     const viewer = (data?.viewer || {}) as Record<string, unknown>;
@@ -3307,12 +3359,56 @@ export default function App() {
     const servicePageCount = Math.max(1, Math.ceil(filteredRecords.length / servicePageSize));
     const safeServicePage = Math.min(servicePage, servicePageCount);
     const visibleRecords = filteredRecords.slice((safeServicePage - 1) * servicePageSize, safeServicePage * servicePageSize);
+    const checkedInServiceRecords = records
+      .filter((record) => String(record.check_in_at || "").trim())
+      .sort((a, b) => String(b.check_in_at || "").localeCompare(String(a.check_in_at || "")))
+      .slice(0, 12);
+    const activeCheckedInCount = checkedInServiceRecords.filter((record) => !String(record.check_out_at || "").trim()).length;
     return (
       <View>
         <View style={styles.moduleHero}>
           <Text style={styles.eyebrow}>FUZI Ops Module</Text>
           <Text style={styles.moduleHeroTitle}>Service</Text>
           <Text style={styles.moduleHeroText}>Service records scheduled from elevator installation dates, engineer check-in/out, customer comments, parts usage, and linked CRM service counts.</Text>
+        </View>
+        <View style={styles.formCard}>
+          <View style={styles.sectionHeaderRow}>
+            <View>
+              <Text style={styles.cardLabel}>Engineer site check-in / check-out</Text>
+              <Text style={styles.muted}>Latest service visit attendance captured from engineer service cards.</Text>
+            </View>
+            <Text style={styles.statusPill}>{activeCheckedInCount} currently checked in</Text>
+          </View>
+          {!!checkedInServiceRecords.length && (
+            <View style={styles.selectorList}>
+              {checkedInServiceRecords.map((record, index) => {
+                const recordId = recordIdentity(record) || String(record.id || `check-${index}`);
+                const isOnSite = !String(record.check_out_at || "").trim();
+                return (
+                  <Pressable
+                    key={`service-check-${recordId}`}
+                    style={styles.scheduleServiceRow}
+                    onPress={() => setServiceRecordSearch(String(record.job_number || record.job_no || record.id || record.customer_id || record.customer || ""))}
+                    disabled={loading}
+                  >
+                    <View style={styles.scheduleServiceMain}>
+                      <View style={styles.dispatchRosterTitleRow}>
+                        <Text style={styles.dispatchRosterName}>{String(record.assigned_engineer || record.technician || record.engineer || "Engineer")}</Text>
+                        <Text style={[styles.dispatchStatusChip, isOnSite ? styles.dispatchStatusBusy : styles.dispatchStatusAvailable]}>
+                          {isOnSite ? "On site" : "Checked out"}
+                        </Text>
+                      </View>
+                      <Text style={styles.bodyText}>{String(record.customer || record.customer_name || "-")} - {String(record.site || record.city || "-")}</Text>
+                      <Text style={styles.muted}>Check-in: {displayDateTime(record.check_in_at) || "-"} - Check-out: {displayDateTime(record.check_out_at) || "Not checked out"}</Text>
+                      {!!attendanceLocationText(record.check_in_location) && <Text style={styles.muted}>In location: {attendanceLocationText(record.check_in_location)}</Text>}
+                      {!!attendanceLocationText(record.check_out_location) && <Text style={styles.muted}>Out location: {attendanceLocationText(record.check_out_location)}</Text>}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+          {!checkedInServiceRecords.length && <Text style={styles.muted}>No service engineer check-ins have been captured yet.</Text>}
         </View>
         {!canViewAllService && (
           <View style={styles.formCard}>
@@ -3397,6 +3493,19 @@ export default function App() {
                       Job {item.jobId || "-"} - Unit {String(item.job.unit || item.job.lift_reference || item.job.site || "-")} - Installed {item.installDate} - Service #{item.nextServiceNumber} due {item.nextDue}
                     </Text>
                     <Text style={styles.muted}>Previous services: {item.serviceCount} - Last service: {item.lastServiceDate || "None yet"} - Service end: {item.serviceEndDate || "Active / not set"}</Text>
+                    <View style={styles.inlineActions}>
+                      {[1, 2, 3, 5].map((years) => (
+                        <Pressable
+                          key={`extend-service-${item.customerId || item.jobId}-${years}`}
+                          style={styles.smallButton}
+                          onPress={() => extendCustomerServiceYears(item, years)}
+                          disabled={loading || !item.customerId}
+                        >
+                          <Text style={styles.smallButtonText}>+{years} yr{years === 1 ? "" : "s"}</Text>
+                        </Pressable>
+                      ))}
+                      {!item.customerId && <Text style={styles.muted}>Link this schedule to a CRM customer before extending service years.</Text>}
+                    </View>
                     <Text style={styles.muted}>
                       {item.annualPlan.length
                         ? `${Array.from(new Set(item.annualPlan.map((entry) => entry.serviceYear))).length} service year${Array.from(new Set(item.annualPlan.map((entry) => entry.serviceYear))).length === 1 ? "" : "s"} available. Open the service record Edit panel to select year and slot.`
@@ -8798,7 +8907,7 @@ export default function App() {
                 <View style={styles.installDatePanel}>
                   <Text style={styles.cardLabel}>Elevator installed</Text>
                   <Text style={styles.bodyText}>{latestInstalledDate || "Not installed yet"}{latestInstalledJob ? ` - Job ${String(latestInstalledJob.job_id || latestInstalledJob.id || "-")} - ${String(latestInstalledJob.status || "-")}` : ""}</Text>
-                  <Text style={styles.muted}>Service end date: {String(customer.service_end_date || customer.service_contract_end_date || "Active / not set")}</Text>
+                  <Text style={styles.muted}>Service end date: {String(customer.service_end_date || customer.service_contract_end_date || "Active / not set")} - Years purchased: {String((customer as Record<string, unknown>).service_years_purchased || "Not set")}</Text>
                 </View>
                 <Text style={styles.bodyText}>Services done: {serviceCount}{liveServiceCount !== serviceCount ? ` - live linked ${liveServiceCount}` : ""}</Text>
                 {!!latestMotor && (
