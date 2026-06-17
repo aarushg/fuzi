@@ -14467,6 +14467,41 @@ export default function App() {
     setServicePage((page) => Math.min(page, pageCount));
   }, [data?.service_records]);
 
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    const root = document.getElementById("root");
+    const previous = {
+      htmlHeight: document.documentElement.style.height,
+      htmlOverflowY: document.documentElement.style.overflowY,
+      bodyHeight: document.body.style.height,
+      bodyOverflowY: document.body.style.overflowY,
+      rootHeight: root?.style.height || "",
+      rootMinHeight: root?.style.minHeight || "",
+    };
+
+    if (isSignedIn && data) {
+      document.documentElement.style.height = "auto";
+      document.documentElement.style.overflowY = "auto";
+      document.body.style.height = "auto";
+      document.body.style.overflowY = "auto";
+      if (root) {
+        root.style.height = "auto";
+        root.style.minHeight = "100vh";
+      }
+    }
+
+    return () => {
+      document.documentElement.style.height = previous.htmlHeight;
+      document.documentElement.style.overflowY = previous.htmlOverflowY;
+      document.body.style.height = previous.bodyHeight;
+      document.body.style.overflowY = previous.bodyOverflowY;
+      if (root) {
+        root.style.height = previous.rootHeight;
+        root.style.minHeight = previous.rootMinHeight;
+      }
+    };
+  }, [isSignedIn, data]);
+
   function renderWebsiteHome() {
     return <PublicWebsite onOpenPortal={() => setShowPortalLogin(true)} />;
   }
@@ -14693,7 +14728,7 @@ export default function App() {
 
   return (
     <LanguageContext.Provider value={portalLanguage}>
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, styles.portalSafe]}>
       <StatusBar style="dark" />
       <View style={[styles.appShell, isWide && styles.appShellWide]}>
         {isWide && (
@@ -14824,18 +14859,33 @@ export default function App() {
           {loading && <ActivityIndicator style={styles.loader} />}
           {!!message && <Text style={styles.banner}>{message}</Text>}
 
-          <ScrollView style={styles.contentScroll} contentContainerStyle={[styles.content, isWide && styles.contentWide, isPhone && styles.contentPhone]}>
-        {activeTab === "overview" && renderOverviewAnalytics()}
-        {activeTab === "today" && renderTodayActionQueue()}
+          {Platform.OS === "web" ? (
+            <View style={[styles.content, isWide && styles.contentWide, isPhone && styles.contentPhone]}>
+              {activeTab === "overview" && renderOverviewAnalytics()}
+              {activeTab === "today" && renderTodayActionQueue()}
 
-        {activeTab === "customers" && (
-          renderCustomerCrmPage()
-        )}
+              {activeTab === "customers" && (
+                renderCustomerCrmPage()
+              )}
 
-        {renderActiveFeaturePage()}
+              {renderActiveFeaturePage()}
 
-        {activeTab === "estimator" && renderEstimatorPage()}
-          </ScrollView>
+              {activeTab === "estimator" && renderEstimatorPage()}
+            </View>
+          ) : (
+            <ScrollView style={styles.contentScroll} contentContainerStyle={[styles.content, isWide && styles.contentWide, isPhone && styles.contentPhone]}>
+              {activeTab === "overview" && renderOverviewAnalytics()}
+              {activeTab === "today" && renderTodayActionQueue()}
+
+              {activeTab === "customers" && (
+                renderCustomerCrmPage()
+              )}
+
+              {renderActiveFeaturePage()}
+
+              {activeTab === "estimator" && renderEstimatorPage()}
+            </ScrollView>
+          )}
         </View>
       </View>
     </SafeAreaView>
@@ -14845,6 +14895,7 @@ export default function App() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#eef1f5" },
+  portalSafe: Platform.OS === "web" ? { minHeight: "100vh" as never } : {},
   homeSafe: { flex: 1, backgroundColor: "#0f1117" },
   homeScroll: { flex: 1, backgroundColor: "#0f1117" },
   homeContent: { minHeight: "100%", paddingBottom: 40 },
@@ -14880,9 +14931,9 @@ const styles = StyleSheet.create({
   homeServiceCard: { width: 270, minHeight: 116, borderRadius: 8, backgroundColor: "#fff", padding: 16, gap: 8 },
   homeServiceTitle: { color: "#11131b", fontWeight: "900", fontSize: 16 },
   homeServiceText: { color: "#747b8d", fontSize: 13, lineHeight: 19 },
-  appShell: { flex: 1, minHeight: 0, backgroundColor: "#eef1f5" },
+  appShell: { ...(Platform.OS === "web" ? { minHeight: "100vh" as never } : { flex: 1, minHeight: 0 }), backgroundColor: "#eef1f5" },
   appShellWide: { flexDirection: "row" },
-  sidebar: { width: 280, backgroundColor: "#11131b", padding: 22, gap: 18 },
+  sidebar: { width: 280, backgroundColor: "#11131b", padding: 22, gap: 18, ...(Platform.OS === "web" ? { position: "sticky" as "relative", top: 0, maxHeight: "100vh" as never } : {}) },
   sideBrand: { flexDirection: "row", alignItems: "center", gap: 12 },
   brandMark: { width: 42, height: 42, borderRadius: 8, backgroundColor: "#e02020", alignItems: "center", justifyContent: "center" },
   brandMarkText: { color: "#fff", fontWeight: "900", fontSize: 15 },
@@ -14902,7 +14953,7 @@ const styles = StyleSheet.create({
   connectorCard: { borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(255,255,255,0.06)", padding: 14, gap: 8 },
   connectorStatus: { color: "#fff", fontWeight: "900", fontSize: 13 },
   connectorCopy: { color: "rgba(255,255,255,0.62)", fontSize: 12, lineHeight: 18 },
-  main: { flex: 1, minWidth: 0, minHeight: 0 },
+  main: { flex: 1, minWidth: 0, ...(Platform.OS === "web" ? {} : { minHeight: 0 }) },
   topbar: { backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e4e7ee", paddingHorizontal: 24, paddingVertical: 18, gap: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" },
   topbarMobile: { paddingHorizontal: 14, paddingVertical: 12, alignItems: "stretch", gap: 10 },
   topbarPhone: { paddingHorizontal: 10, paddingVertical: 8, gap: 8 },
