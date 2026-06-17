@@ -35,7 +35,7 @@ ENV NODE_ENV=production
 ENV EXPO_NO_TELEMETRY=1
 ENV CI=1
 ENV FUZI_API_PORT=5000
-ENV FUZI_DB_PATH=/app/fuzi.sqlite3
+ENV FUZI_DB_PATH=/data/fuzi.sqlite3
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 ca-certificates \
@@ -47,7 +47,6 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=web-build /app/server ./server
 COPY --from=web-build /app/expo-app/dist ./expo-app/dist
 COPY --from=web-build /app/docs ./docs
-COPY --from=web-build /app/fuzi.sqlite3 ./fuzi.sqlite3
 COPY --from=web-build /app/costing_reference_data.py ./costing_reference_data.py
 
 EXPOSE 5000

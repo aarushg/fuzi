@@ -58,7 +58,7 @@ FUZI production runs as one Node service. The production image builds the Expo w
 |---|---|---|---|---|
 | API + production web | Node 22 | `npm ci` | `npm run api` | `5000`, `8082` |
 
-The API uses SQLite. In Docker production, `fuzi.sqlite3` is copied into the image and Compose sets `FUZI_DB_PATH=/app/fuzi.sqlite3`. Rebuilding the image refreshes the bundled database from the repository copy.
+The API uses SQLite. In Docker production, SQLite files live in the named Docker volume `fuzi-sqlite-data`, mounted into the container at `/data`; the image does not bundle `fuzi.sqlite3`.
 
 Common environment variables:
 
@@ -67,7 +67,7 @@ Common environment variables:
 | `FUZI_API_PORT` | `5000` | API |
 | `FUZI_API_PUBLISHED_PORT` | `5000` | Docker host port for API |
 | `FUZI_WEB_PUBLISHED_PORT` | `8082` | Docker host port for production web, served by the API container |
-| `FUZI_DB_PATH` | `/app/fuzi.sqlite3` in Compose | API |
+| `FUZI_DB_PATH` | `/data/fuzi.sqlite3` in Compose | API |
 | `EXPO_PUBLIC_FUZI_API_URL` | `http://127.0.0.1:5000` | Web |
 | `EXPO_PUBLIC_FUZI_API_PROTOCOL` | `http` | Web |
 | `EXPO_PUBLIC_FUZI_API_HOST` | `127.0.0.1` | Web |
@@ -92,7 +92,7 @@ npm run docker:up
 npm run docker:down
 ```
 
-Staff portal and OpenClaw password values are not stored in the app or Compose defaults. Keep them in the SQLite `app_secrets` table inside `fuzi.sqlite3`; the production Docker image bundles that database at `/app/fuzi.sqlite3`.
+Staff portal and OpenClaw password values are not stored in the app or Compose defaults. Keep them in the SQLite `app_secrets` table inside the `fuzi.sqlite3` file stored in the `fuzi-sqlite-data` volume.
 
 Stop the services:
 
@@ -111,6 +111,7 @@ After startup, verify:
 
 - Production app/API: `http://127.0.0.1:5000`
 - Production web alias: `http://127.0.0.1:8082`
+- SQLite volume: `fuzi-sqlite-data`, mounted at `/data`
 - Health checks: `docker compose ps`
 
 Secrets and local database files are excluded by `.dockerignore`; provide production secrets through environment variables or a local `.env` file used by Docker Compose.

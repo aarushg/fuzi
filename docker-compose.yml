@@ -7,7 +7,7 @@ services:
     command: npm run prod
     environment:
       FUZI_API_PORT: "5000"
-      FUZI_DB_PATH: /app/fuzi.sqlite3
+      FUZI_DB_PATH: /data/fuzi.sqlite3
       FUZI_PORTAL_TOKEN_TTL_MINUTES: ${FUZI_PORTAL_TOKEN_TTL_MINUTES:-480}
       FUZI_LOGIN_WINDOW_MINUTES: ${FUZI_LOGIN_WINDOW_MINUTES:-10}
       FUZI_LOGIN_MAX_ATTEMPTS: ${FUZI_LOGIN_MAX_ATTEMPTS:-8}
@@ -21,9 +21,15 @@ services:
     ports:
       - "${FUZI_API_PUBLISHED_PORT:-5000}:5000"
       - "${FUZI_WEB_PUBLISHED_PORT:-8082}:5000"
+    volumes:
+      - fuzi-data:/data
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
       timeout: 5s
       retries: 10
       start_period: 20s
+
+volumes:
+  fuzi-data:
+    name: fuzi-sqlite-data
