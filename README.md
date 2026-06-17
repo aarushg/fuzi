@@ -81,7 +81,6 @@ Common environment variables:
 Build and run the production service:
 
 ```bash
-docker compose build --no-cache
 docker compose up -d --force-recreate --remove-orphans
 ```
 

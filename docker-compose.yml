@@ -1,6 +1,9 @@
 services:
   api:
-    build: .
+    build:
+      context: .
+      no_cache: true
+    pull_policy: build
     command: npm run prod
     environment:
       FUZI_API_PORT: "5000"

@@ -12,8 +12,8 @@
     "android": "npm --prefix expo-app run android",
     "typecheck": "npm --prefix expo-app run typecheck",
     "check": "npm --prefix expo-app run typecheck && npm --prefix expo-app exec expo install --check",
-    "docker:build": "docker compose build --no-cache",
-    "docker:up": "docker compose build --no-cache && docker compose up -d --force-recreate --remove-orphans",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up -d --force-recreate --remove-orphans",
     "docker:down": "docker compose down"
   },
   "dependencies": {

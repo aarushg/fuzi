@@ -13,7 +13,7 @@ RUN npm ci && npm --prefix expo-app ci
 
 COPY . .
 
-RUN npm --prefix expo-app run export:web
+RUN rm -rf expo-app/dist expo-app/.expo && npm --prefix expo-app run export:web
 
 EXPOSE 5000
 
