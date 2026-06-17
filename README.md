@@ -52,12 +52,12 @@ Seeded staff accounts are stored in `fuzi.sqlite3`. Staff portal accounts use th
 
 ## Docker
 
-FUZI runs as two Node services:
+FUZI production runs as one Node service. The production image builds the Expo web bundle and serves it from the API container, so only the API port is published by default. The separate Expo web service is for development and is enabled with the `dev` Compose profile.
 
 | Service | Runtime | Install | Start | Port |
 |---|---|---|---|---|
 | API | Node 22 | `npm ci` | `npm run api` | `5000` |
-| Web | Node 22 / Expo | `npm --prefix expo-app ci` | `npm --prefix expo-app run web -- --host lan --port 8082` | `8082` |
+| Web dev server | Node 22 / Expo | `npm --prefix expo-app ci` | `npm --prefix expo-app run web -- --host lan --port 8082` | `8082` |
 
 The API uses SQLite. In Docker, `FUZI_DB_PATH=/data/fuzi.sqlite3` stores `fuzi.sqlite3`, the `app_secrets` password-hash table, and WAL/SHM sidecar files inside the `/data` volume. The app creates the volume directory on startup, and Compose maps it to the named volume `fuzi-sqlite-data` so operational data persists outside the image.
 
@@ -67,7 +67,7 @@ Common environment variables:
 |---|---|---|
 | `FUZI_API_PORT` | `5000` | API |
 | `FUZI_API_PUBLISHED_PORT` | `5000` | Docker host port for API |
-| `FUZI_WEB_PUBLISHED_PORT` | `8082` | Docker host port for Web |
+| `FUZI_WEB_PUBLISHED_PORT` | `8082` | Docker host port for the optional dev Web service |
 | `FUZI_DB_PATH` | `/data/fuzi.sqlite3` in Compose | API |
 | `EXPO_PUBLIC_FUZI_API_URL` | `http://127.0.0.1:5000` | Web |
 | `EXPO_PUBLIC_FUZI_API_PROTOCOL` | `http` | Web |
@@ -79,10 +79,16 @@ Common environment variables:
 | `FUZI_OPENCLAW_PORT` | `18789` | OpenClaw relay port |
 | `FUZI_DOCKER_INSTANCE` | auto-detected | Force Docker-aware OpenClaw defaults with `true` / `false` |
 
-Build and run both services:
+Build and run the production service:
 
 ```bash
 docker compose up --build
+```
+
+Run the optional Expo web dev service alongside the API:
+
+```bash
+docker compose --profile dev up --build
 ```
 
 Equivalent npm scripts are available:
@@ -110,8 +116,8 @@ stopondocker.bat
 
 After startup, verify:
 
-- API: `http://127.0.0.1:5000`
-- Web portal: `http://127.0.0.1:8082`
+- Production app/API: `http://127.0.0.1:5000`
+- Optional Expo dev web portal: `http://127.0.0.1:8082`
 - Data volume: `fuzi-sqlite-data`, mounted at `/data`
 - Health checks: `docker compose ps`
 
