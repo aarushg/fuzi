@@ -12402,18 +12402,27 @@ export default function App() {
   }
 
   const portalCacheKey = "fuzi_portal_data_cache_v1";
+  const portalCacheSchemaVersion = 2;
   const portalCacheMaxAgeMs = 10 * 60 * 1000;
 
   function portalCacheTokenKey(nextToken = token) {
     return nextToken ? nextToken.slice(-16) : "";
   }
 
+  function isUsablePortalData(value: unknown): value is PortalData {
+    if (!value || typeof value !== "object") return false;
+    const candidate = value as PortalData;
+    return Array.isArray(candidate.metrics) && !!candidate.viewer && !!candidate.access;
+  }
+
   function readCachedPortal(nextToken = token) {
     if (Platform.OS !== "web" || typeof globalThis.localStorage === "undefined") return null;
     try {
       const cached = JSON.parse(globalThis.localStorage.getItem(portalCacheKey) || "null");
+      if (!cached || cached.schemaVersion !== portalCacheSchemaVersion) return null;
       if (!cached || cached.tokenKey !== portalCacheTokenKey(nextToken)) return null;
       if (Date.now() - Number(cached.savedAt || 0) > portalCacheMaxAgeMs) return null;
+      if (!isUsablePortalData(cached.data)) return null;
       return cached.data as PortalData;
     } catch {
       return null;
@@ -12424,6 +12433,7 @@ export default function App() {
     if (Platform.OS !== "web" || typeof globalThis.localStorage === "undefined") return;
     try {
       globalThis.localStorage.setItem(portalCacheKey, JSON.stringify({
+        schemaVersion: portalCacheSchemaVersion,
         tokenKey: portalCacheTokenKey(nextToken),
         savedAt: Date.now(),
         data: portalData,
@@ -12435,12 +12445,24 @@ export default function App() {
 
   async function loadPortal(nextToken = token) {
     const cachedPortalData = readCachedPortal(nextToken);
-    if (!data && cachedPortalData) setData(stripRawTransportPayloads(cachedPortalData));
-    const portalData = await apiFetch<PortalData>("/api/portal/data", { token: nextToken });
-    // WARNING: Frontend state stores FUZI domain records only. Never store raw Discord/OpenClaw message history or transport payloads here.
-    const sanitizedPortalData = stripRawTransportPayloads(portalData);
-    setData(sanitizedPortalData);
-    writeCachedPortal(nextToken, sanitizedPortalData);
+    if (!data && cachedPortalData) {
+      setData(stripRawTransportPayloads(cachedPortalData));
+      setMessage("Showing cached data while refreshing live records.");
+    }
+    try {
+      const portalData = await apiFetch<PortalData>("/api/portal/data", { token: nextToken });
+      // WARNING: Frontend state stores FUZI domain records only. Never store raw Discord/OpenClaw message history or transport payloads here.
+      const sanitizedPortalData = stripRawTransportPayloads(portalData);
+      setData(sanitizedPortalData);
+      writeCachedPortal(nextToken, sanitizedPortalData);
+      if (cachedPortalData) setMessage("");
+    } catch (error) {
+      if (cachedPortalData) {
+        setMessage(error instanceof Error ? `Showing cached data. Live refresh failed: ${error.message}` : "Showing cached data. Live refresh failed.");
+        return;
+      }
+      throw error;
+    }
   }
 
   async function syncDiscordBreakdowns() {
@@ -14554,6 +14576,28 @@ export default function App() {
           {!!message && <Text style={styles.error}>{message}</Text>}
         </View>
       </SafeAreaView>
+    );
+  }
+
+  if (!data) {
+    return (
+      <LanguageContext.Provider value={portalLanguage}>
+        <SafeAreaView style={styles.safe}>
+          <StatusBar style="dark" />
+          <View style={styles.loginShell}>
+            <Text style={styles.logo}>FUZI</Text>
+            <Text style={styles.title}>Loading portal data</Text>
+            <Text style={styles.muted}>Fetching the latest records from {apiBaseUrl}.</Text>
+            {!!message && <Text style={styles.error}>{message}</Text>}
+            <Pressable style={styles.primaryButton} onPress={() => loadPortal().catch((error) => setMessage(error.message))} disabled={loading}>
+              <Text style={styles.primaryButtonText}>{loading ? "Loading..." : "Retry"}</Text>
+            </Pressable>
+            <Pressable style={styles.ghostButton} onPress={signOut}>
+              <Text style={styles.ghostButtonText}>Logout</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </LanguageContext.Provider>
     );
   }
 
