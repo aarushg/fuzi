@@ -1,7 +1,6 @@
 services:
   api:
     build: .
-    image: fuzi-ops-api:local
     command: npm run prod
     environment:
       FUZI_API_PORT: "5000"

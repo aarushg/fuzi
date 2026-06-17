@@ -81,7 +81,8 @@ Common environment variables:
 Build and run the production service:
 
 ```bash
-docker compose up --build -d
+docker compose build --no-cache
+docker compose up -d --force-recreate --remove-orphans
 ```
 
 Equivalent npm scripts are available:

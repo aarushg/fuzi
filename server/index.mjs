@@ -5025,11 +5025,15 @@ function compressionMiddleware(req, res, next) {
 
 function staticCacheControl(res, filePath) {
   const normalized = filePath.replace(/\\/g, "/");
+  if (/\/index\.html$/i.test(normalized) || /\.html?$/i.test(normalized)) {
+    res.setHeader("Cache-Control", "no-store");
+    return;
+  }
   if (/\.(?:js|css|png|jpe?g|webp|gif|svg|ico|woff2?)$/i.test(normalized)) {
     res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
     return;
   }
-  res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=86400");
+  res.setHeader("Cache-Control", "no-store");
 }
 
 async function loadPortalCollections() {
@@ -7050,7 +7054,7 @@ app.get("/api/portal/:collection", authRequired, async (req, res) => {
 
 app.get("/", (_req, res) => {
   if (fsSync.existsSync(webDistIndex)) {
-    res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    res.setHeader("Cache-Control", "no-store");
     return res.sendFile(webDistIndex);
   }
   res.json({
@@ -7062,7 +7066,7 @@ app.get("/", (_req, res) => {
 
 if (fsSync.existsSync(webDistIndex)) {
   app.get(/^\/(?!api\/).*/, (_req, res) => {
-    res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    res.setHeader("Cache-Control", "no-store");
     res.sendFile(webDistIndex);
   });
 }
