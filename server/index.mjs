@@ -390,6 +390,144 @@ function serviceRecordIsActivelyCheckedIn(record = {}) {
   return Boolean(String(record.check_in_at || "").trim() && !String(record.check_out_at || "").trim());
 }
 
+function serviceRecordIsClosed(record = {}) {
+  return /closed|resolved|done|completed|cancelled|canceled|rejected/i.test(String(record.status || record.state || record.lead_status || "").trim());
+}
+
+function serviceAssignmentName(record = {}) {
+  return String(record.assigned_engineer || record.technician || record.engineer || record.assigned_to || record.service_engineer || "").trim();
+}
+
+function serviceAssignableName(record = {}) {
+  return String(record.name || record.display_name || record.username || "").replace("-", "").trim();
+}
+
+function serviceAssignableDepartment(record = {}) {
+  return String(record.department || record.team || record.role || record.title || "").replace("-", "").trim();
+}
+
+function serviceAssignableBlocked(record = {}) {
+  const text = staffLookupKey(`${record.name || ""} ${record.display_name || ""} ${record.username || ""} ${record.department || ""} ${record.team || ""} ${record.title || ""} ${record.position || ""} ${record.role || ""}`);
+  const role = staffLookupKey(record.role || "");
+  const isManager = /manager|admin|ceo|director|supervisor|head/.test(text) || ["admin", "ceo", "manager"].includes(role);
+  const isJitendra = text.includes("jitendra") && /choudh?ary|choudry/.test(text);
+  return isManager || isJitendra || /\bbreakdown\b|\binstallation\b|\binstall\b/.test(text);
+}
+
+async function readAssignableServiceStaff() {
+  const [users, installTeam, orgChart] = await Promise.all([
+    readJson(listFiles.users, []),
+    readJson(listFiles.install_team, []),
+    readJson(listFiles.org_chart, [])
+  ]);
+  const activeServiceUsers = users
+    .filter((item) => item.active !== false && String(item.active || "true") !== "false")
+    .filter((item) => isServiceTeamMember(item) && !serviceAssignableBlocked(item));
+  const rows = activeServiceUsers.length ? activeServiceUsers : [...installTeam, ...orgChart, ...users]
+    .filter((item) => isServiceTeamMember(item) && !serviceAssignableBlocked(item));
+  const seen = new Set();
+  return rows.map((item) => {
+    const name = serviceAssignableName(item);
+    return {
+      id: String(item.id || item.linked_org_node || name),
+      name,
+      department: serviceAssignableDepartment(item) || "Service",
+      availability: String(item.availability || (item.current_job ? "Scheduled" : "Available")).trim(),
+      current_job: String(item.current_job || item.current_task || "").trim(),
+      shift: String(item.shift || "").trim()
+    };
+  }).filter((item) => {
+    const key = staffLookupKey(item.name);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function serviceLoadForEngineer(engineerName, serviceRecords = [], breakdowns = []) {
+  const engineerKey = staffLookupKey(engineerName);
+  if (!engineerKey) return 0;
+  const activeServices = serviceRecords.filter((record) =>
+    !serviceRecordIsClosed(record) &&
+    staffLookupKey(serviceAssignmentName(record)) === engineerKey
+  ).length;
+  const activeBreakdowns = breakdowns.filter((record) =>
+    !serviceRecordIsClosed(record) &&
+    staffLookupKey(serviceAssignmentName(record) || record.scheduled_engineer) === engineerKey
+  ).length;
+  return activeServices + activeBreakdowns;
+}
+
+async function autoAssignServicePayload(payload = {}, existingRecords = []) {
+  const requestedEngineer = serviceAssignmentName(payload);
+  if (requestedEngineer) {
+    return {
+      assigned_engineer: requestedEngineer,
+      technician: requestedEngineer,
+      assignment_source: String(payload.assignment_source || "manual").trim()
+    };
+  }
+
+  const installJobId = String(payload.install_job_id || payload.job_id || "").trim();
+  const customerId = String(payload.customer_id || "").trim();
+  const customerName = staffLookupKey(payload.customer || payload.customer_name || "");
+  const installJobs = await readJson(listFiles.install_jobs, []);
+  const linkedInstallJob = installJobs.find((job) => {
+    const jobId = String(job.id || job.job_id || "").trim();
+    const jobCustomerId = String(job.customer_id || "").trim();
+    return Boolean(
+      (installJobId && jobId === installJobId) ||
+      (customerId && jobCustomerId === customerId) ||
+      (customerName && staffLookupKey(job.customer || job.customer_name || job.project_name || "") === customerName)
+    );
+  });
+  const linkedEngineer = serviceAssignmentName({
+    assigned_engineer: linkedInstallJob?.service_engineer || linkedInstallJob?.assigned_engineer,
+    technician: linkedInstallJob?.technician,
+    engineer: linkedInstallJob?.engineer,
+    assigned_to: linkedInstallJob?.assigned_to
+  });
+  if (linkedEngineer) {
+    return {
+      assigned_engineer: linkedEngineer,
+      technician: linkedEngineer,
+      assignment_source: "system-linked-install-job",
+      assignment_reason: "Automatically assigned from the linked installation job engineer."
+    };
+  }
+
+  const serviceStaff = await readAssignableServiceStaff();
+  if (!serviceStaff.length) {
+    return {
+      assignment_source: "system-unassigned",
+      assignment_reason: "No active service engineer roster was found; assign manually."
+    };
+  }
+  const breakdowns = await readJson(listFiles.breakdowns, []);
+  const selected = serviceStaff
+    .map((member, index) => {
+      const availability = staffLookupKey(member.availability || "Available");
+      const busy = Boolean(member.current_job) || /inactive|off|leave|holiday|unavailable|busy|scheduled|on site|onsite/.test(availability);
+      const load = serviceLoadForEngineer(member.name, existingRecords, breakdowns);
+      const score = (busy ? 1000 : 0) + (load * 10) + index;
+      return { member, load, score };
+    })
+    .sort((left, right) => left.score - right.score)[0];
+  const engineer = selected?.member?.name || "";
+  if (!engineer) {
+    return {
+      assignment_source: "system-unassigned",
+      assignment_reason: "No active service engineer could be selected; assign manually."
+    };
+  }
+  return {
+    assigned_engineer: engineer,
+    technician: engineer,
+    assignment_source: "system-auto-least-loaded",
+    assignment_reason: `Automatically assigned to the least-loaded service engineer (${selected.load} active job${selected.load === 1 ? "" : "s"}).`
+  };
+}
+
 function canManageStaffAttendance(user = {}) {
   const role = staffLookupKey(user.role || "");
   const title = staffLookupKey(`${user.title || ""} ${user.position || ""}`);
@@ -4698,6 +4836,7 @@ async function createCollectionRecord(routeName, body, res) {
   const tenderPayload = routeName === "tender" ? normalizeTenderPayload(body, {}, records) : null;
   const installationPayload = routeName === "install-jobs" ? normalizeInstallationPayload(body, {}, records) : null;
   const basePayload = offerPayload || paymentPayload || tenderPayload || installationPayload || cleanPayload(body);
+  const serviceAssignmentPayload = routeName === "service" ? await autoAssignServicePayload({ ...basePayload, ...serviceLink }, records) : {};
   const serviceScope = routeName === "attendance" ? await serviceTeamScopeForUser(res.req?.user || {}) : null;
   if (serviceScope && !recordMatchesServiceTeamScope(basePayload, serviceScope) && !attendanceRecordIsSelf(basePayload, res.req?.user || {})) {
     return res.status(403).json({ ok: false, message: "Service Manager can mark attendance only for Service team staff." });
@@ -4721,7 +4860,7 @@ async function createCollectionRecord(routeName, body, res) {
     date_time: String(basePayload.date_time || "").trim() || now,
     breakdown_date: String(basePayload.breakdown_date || "").trim() || now,
   } : {};
-  const record = { id: recordId, ...basePayload, ...serviceGenerated, ...offerGenerated, ...breakdownGenerated, ...serviceLink, created_at: now, updated_at: now };
+  const record = { id: recordId, ...basePayload, ...serviceGenerated, ...offerGenerated, ...breakdownGenerated, ...serviceLink, ...serviceAssignmentPayload, created_at: now, updated_at: now };
   records.unshift(record);
   await writeJson(config.file, records);
   if (["service", "breakdown"].includes(routeName)) await syncCustomerServiceCounts([record.customer_id]);
@@ -4779,6 +4918,15 @@ async function updateCollectionRecord(routeName, id, body, res) {
     delete body.technician;
     delete body.engineer;
     delete body.assigned_to;
+  }
+  if (routeName === "service" && canManageServiceRecords(res.req?.user || {})) {
+    const assignmentTouched = ["assigned_engineer", "technician", "engineer", "assigned_to"].some((key) => Object.prototype.hasOwnProperty.call(body || {}, key));
+    const nextEngineer = serviceAssignmentName({ ...previousRecord, ...body });
+    const previousEngineer = serviceAssignmentName(previousRecord);
+    if (assignmentTouched && nextEngineer !== previousEngineer && !String(body.assignment_source || "").trim()) {
+      body.assignment_source = nextEngineer ? "manager-direct" : "manager-unassigned";
+      body.assignment_reset_at = new Date().toISOString();
+    }
   }
   const actionStatus = defaultStatusForAction(body?.action);
   const crmLinkedRoute = ["service", "breakdown"].includes(routeName);

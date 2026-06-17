@@ -233,8 +233,57 @@ function Text(props: NativeTextProps) {
 
 function TextInput(props: NativeTextInputProps) {
   const language = useContext(LanguageContext);
-  const placeholder = typeof props.placeholder === "string" ? translateString(props.placeholder, language) : props.placeholder;
-  return <NativeTextInput {...props} placeholder={placeholder} />;
+  const { onBlur, onChangeText, onFocus, placeholder, value, ...rest } = props;
+  const translatedPlaceholder = typeof placeholder === "string" ? translateString(placeholder, language) : placeholder;
+  const externalValue = typeof value === "string" ? value : value == null ? "" : String(value);
+  const [localValue, setLocalValue] = useState(externalValue);
+  const focusedRef = useRef(false);
+  const pendingValueRef = useRef(externalValue);
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function clearSyncTimer() {
+    if (!syncTimerRef.current) return;
+    clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = null;
+  }
+
+  function flushValue(nextValue = pendingValueRef.current) {
+    clearSyncTimer();
+    if (onChangeText && nextValue !== externalValue) onChangeText(nextValue);
+  }
+
+  useEffect(() => {
+    if (!focusedRef.current) {
+      pendingValueRef.current = externalValue;
+      setLocalValue(externalValue);
+    }
+  }, [externalValue]);
+
+  useEffect(() => clearSyncTimer, []);
+
+  return (
+    <NativeTextInput
+      {...rest}
+      value={localValue}
+      placeholder={translatedPlaceholder}
+      onFocus={(event) => {
+        focusedRef.current = true;
+        onFocus?.(event);
+      }}
+      onBlur={(event) => {
+        focusedRef.current = false;
+        flushValue();
+        onBlur?.(event);
+      }}
+      onChangeText={(text) => {
+        pendingValueRef.current = text;
+        setLocalValue(text);
+        if (!onChangeText) return;
+        clearSyncTimer();
+        syncTimerRef.current = setTimeout(() => flushValue(text), 80);
+      }}
+    />
+  );
 }
 
 type TabKey =
@@ -2909,7 +2958,7 @@ export default function App() {
     }
     setLoading(true);
     try {
-      await apiFetch("/api/portal/service", {
+      const response = await apiFetch<{ record?: Record<string, unknown> }>("/api/portal/service", {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -2923,7 +2972,8 @@ export default function App() {
       });
       setServiceDraft(emptyServiceDraft);
       await loadPortal();
-      setMessage("Service record created with a system generated breakdown number.");
+      const assignedEngineer = String(response.record?.assigned_engineer || response.record?.technician || "").trim();
+      setMessage(assignedEngineer ? `Service record created and assigned to ${assignedEngineer}.` : "Service record created. No service engineer was available, so assign it manually.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Service record could not be created.");
     } finally {
@@ -4114,7 +4164,7 @@ export default function App() {
                             service_number: defaultSchedule ? String(defaultSchedule.nextServiceNumber) : draft.service_number,
                             next_service_number: defaultSchedule ? String(defaultSchedule.nextServiceNumber) : draft.next_service_number,
                             installation_date: defaultSchedule?.installDate || draft.installation_date,
-                            assigned_engineer: String(defaultSchedule?.job.service_engineer || defaultSchedule?.job.engineer || defaultSchedule?.job.assigned_engineer || draft.assigned_engineer || ""),
+                            assigned_engineer: draft.assigned_engineer || "",
                           }));
                           setServiceCustomerDropdownOpen(false);
                           setServiceCustomerSearch("");
@@ -4130,13 +4180,13 @@ export default function App() {
               )}
             </View>
             <View style={styles.field}>
-              <Text style={styles.label}>Assigned engineer</Text>
+              <Text style={styles.label}>Engineer assignment</Text>
               <Pressable
                 style={[styles.dropdownButton, serviceEngineerDropdownOpen && styles.selectorPillActive]}
                 onPress={() => setServiceEngineerDropdownOpen((open) => !open)}
                 disabled={loading || !engineerOptions.length}
               >
-                <Text style={styles.selectorText}>{serviceDraft.assigned_engineer || "Engineer name"}</Text>
+                <Text style={styles.selectorText}>{serviceDraft.assigned_engineer || "System will auto-assign"}</Text>
                 <Text style={styles.dropdownChevron}>{serviceEngineerDropdownOpen ? "▲" : "▼"}</Text>
               </Pressable>
               {!!engineerOptions.length && (
@@ -4163,6 +4213,7 @@ export default function App() {
               {!engineerOptions.length && (
                 <Text style={styles.muted}>No engineer roster found.</Text>
               )}
+              <Text style={styles.muted}>Leave this empty for automatic assignment. Choose a name only when you want to override the system.</Text>
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Scheduled service date</Text>
