@@ -1,5 +1,5 @@
 ﻿import { StatusBar } from "expo-status-bar";
-import { ComponentProps, createContext, ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { ComponentProps, createContext, memo, ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -22,6 +22,7 @@ import type { Customer, PortalData, SiteVisit } from "./types";
 type PortalLanguage = "en" | "hi";
 type NativeTextProps = ComponentProps<typeof NativeText>;
 type NativeTextInputProps = ComponentProps<typeof NativeTextInput>;
+type BufferedTextInputProps = NativeTextInputProps & { commitDelayMs?: number; commitOnBlur?: boolean };
 
 const LanguageContext = createContext<PortalLanguage>("en");
 
@@ -226,16 +227,17 @@ function TextFragment({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-function Text(props: NativeTextProps) {
+const Text = memo(function Text(props: NativeTextProps) {
   const language = useContext(LanguageContext);
   return <NativeText {...props}>{translateChildren(props.children, language)}</NativeText>;
-}
+});
 
-function TextInput(props: NativeTextInputProps) {
+const TextInput = memo(function TextInput(props: BufferedTextInputProps) {
   const language = useContext(LanguageContext);
-  const { onBlur, onChangeText, onFocus, placeholder, value, ...rest } = props;
+  const { commitDelayMs, commitOnBlur, onBlur, onChangeText, onFocus, placeholder, value, ...rest } = props;
   const translatedPlaceholder = typeof placeholder === "string" ? translateString(placeholder, language) : placeholder;
   const externalValue = typeof value === "string" ? value : value == null ? "" : String(value);
+  const syncDelayMs = Number.isFinite(commitDelayMs) ? Math.max(0, Number(commitDelayMs)) : 250;
   const [localValue, setLocalValue] = useState(externalValue);
   const focusedRef = useRef(false);
   const pendingValueRef = useRef(externalValue);
@@ -279,12 +281,13 @@ function TextInput(props: NativeTextInputProps) {
         pendingValueRef.current = text;
         setLocalValue(text);
         if (!onChangeText) return;
+        if (commitOnBlur) return;
         clearSyncTimer();
-        syncTimerRef.current = setTimeout(() => flushValue(text), 80);
+        syncTimerRef.current = setTimeout(() => flushValue(text), syncDelayMs);
       }}
     />
   );
-}
+});
 
 type TabKey =
   | "today"
@@ -1282,6 +1285,7 @@ function currentFiscalYearRange() {
 
 export default function App() {
   const { width } = useWindowDimensions();
+  const isPhone = width < 560;
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
@@ -9226,6 +9230,7 @@ export default function App() {
                     style={[styles.input, field.multiline && styles.textarea]}
                     value={String(customerDraft[field.key] || "")}
                     onChangeText={(value) => setCustomerDraft((draft) => ({ ...draft, [field.key]: value }))}
+                    commitOnBlur
                     keyboardType={field.keyboard || "default"}
                     multiline={field.multiline}
                   />
@@ -9237,6 +9242,7 @@ export default function App() {
                   style={styles.input}
                   value={customerInstalledDateDraft}
                   onChangeText={setCustomerInstalledDateDraft}
+                  commitOnBlur
                   placeholder="YYYY-MM-DD or leave blank"
                 />
                 <Text style={styles.muted}>If this customer already has an installed elevator, enter the date here to classify the account as a current customer.</Text>
@@ -9270,63 +9276,63 @@ export default function App() {
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Enquiry no</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.enquiry_no} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, enquiry_no: value }))} placeholder="Auto if blank" />
+              <TextInput style={styles.input} value={salesInquiryDraft.enquiry_no} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, enquiry_no: value }))} commitOnBlur placeholder="Auto if blank" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Lead / customer name</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.customer} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, customer: value }))} />
+              <TextInput style={styles.input} value={salesInquiryDraft.customer} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, customer: value }))} commitOnBlur />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Lead status</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.lead_status} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, lead_status: value }))} />
+              <TextInput style={styles.input} value={salesInquiryDraft.lead_status} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, lead_status: value }))} commitOnBlur />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Lead type</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.lead_type} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, lead_type: value }))} />
+              <TextInput style={styles.input} value={salesInquiryDraft.lead_type} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, lead_type: value }))} commitOnBlur />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Phone</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.phone} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, phone: value }))} keyboardType="phone-pad" />
+              <TextInput style={styles.input} value={salesInquiryDraft.phone} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, phone: value }))} commitOnBlur keyboardType="phone-pad" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Full address</Text>
-              <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.address} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, address: value }))} multiline />
+              <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.address} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, address: value }))} commitOnBlur multiline />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>WhatsApp</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.whatsapp_no} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, whatsapp_no: value }))} keyboardType="phone-pad" />
+              <TextInput style={styles.input} value={salesInquiryDraft.whatsapp_no} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, whatsapp_no: value }))} commitOnBlur keyboardType="phone-pad" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Quantity</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.qty} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, qty: value }))} keyboardType="numeric" />
+              <TextInput style={styles.input} value={salesInquiryDraft.qty} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, qty: value }))} commitOnBlur keyboardType="numeric" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Created date</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.received_date} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, received_date: value }))} placeholder="YYYY-MM-DD" />
+              <TextInput style={styles.input} value={salesInquiryDraft.received_date} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, received_date: value }))} commitOnBlur placeholder="YYYY-MM-DD" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Referral by</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.referral_by} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, referral_by: value }))} />
+              <TextInput style={styles.input} value={salesInquiryDraft.referral_by} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, referral_by: value }))} commitOnBlur />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Assigned to</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.assigned_to} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, assigned_to: value }))} />
+              <TextInput style={styles.input} value={salesInquiryDraft.assigned_to} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, assigned_to: value }))} commitOnBlur />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Follow-up channel</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.followup_channel} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, followup_channel: value }))} placeholder="WhatsApp / Call / Email" />
+              <TextInput style={styles.input} value={salesInquiryDraft.followup_channel} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, followup_channel: value }))} commitOnBlur placeholder="WhatsApp / Call / Email" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Auto follow-up every days</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.followup_frequency_days} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, followup_frequency_days: value }))} keyboardType="numeric" />
+              <TextInput style={styles.input} value={salesInquiryDraft.followup_frequency_days} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, followup_frequency_days: value }))} commitOnBlur keyboardType="numeric" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Next follow-up</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.next_followup} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, next_followup: value }))} placeholder="YYYY-MM-DD" />
+              <TextInput style={styles.input} value={salesInquiryDraft.next_followup} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, next_followup: value }))} commitOnBlur placeholder="YYYY-MM-DD" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Follow-up status</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.followup_status} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, followup_status: value }))} placeholder="Open / Scheduled / Closed" />
+              <TextInput style={styles.input} value={salesInquiryDraft.followup_status} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, followup_status: value }))} commitOnBlur placeholder="Open / Scheduled / Closed" />
             </View>
           </View>
           <View style={styles.inlineActions}>
@@ -9338,7 +9344,7 @@ export default function App() {
           </View>
           <View style={styles.field}>
             <Text style={styles.label}>Enquiry remark</Text>
-            <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.enquiry_remark} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, enquiry_remark: value }))} multiline />
+            <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.enquiry_remark} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, enquiry_remark: value }))} commitOnBlur multiline />
           </View>
           {!!salesInquiryDraft.id && (
             <View style={styles.installDatePanel}>
@@ -9347,6 +9353,7 @@ export default function App() {
                 style={styles.input}
                 value={salesInquiryInstalledDateDraft}
                 onChangeText={setSalesInquiryInstalledDateDraft}
+                commitOnBlur
                 placeholder="YYYY-MM-DD or leave blank"
               />
               <Text style={styles.muted}>Saving an installed date converts this enquiry into a current customer and links the installation date.</Text>
@@ -9399,6 +9406,7 @@ export default function App() {
             style={styles.input}
             value={crmSearch}
             onChangeText={setCrmSearch}
+            commitDelayMs={900}
             placeholder="Search name, phone, GSTIN, assigned staff, department, site, notes"
           />
           <View style={styles.crmFilterTiles}>
@@ -9408,6 +9416,7 @@ export default function App() {
                 style={styles.input}
                 value={crmStaffFilter}
                 onChangeText={setCrmStaffFilter}
+                commitDelayMs={900}
                 placeholder="Employee name"
               />
             </View>
@@ -9663,6 +9672,7 @@ export default function App() {
                               ...drafts,
                               [customerId]: { ...drafts[customerId], [field.key]: value },
                             }))}
+                            commitOnBlur
                             keyboardType={field.keyboard || "default"}
                             multiline={field.multiline}
                           />
@@ -9675,6 +9685,7 @@ export default function App() {
                         style={styles.input}
                         value={inlineInstalledDate}
                         onChangeText={(value) => setCustomerInlineInstalledDates((dates) => ({ ...dates, [customerId]: value }))}
+                        commitOnBlur
                         placeholder="YYYY-MM-DD or leave blank"
                       />
                       <Text style={styles.muted}>Changing this updates the customer-linked installation date used by CRM and service schedules.</Text>
@@ -9738,7 +9749,7 @@ export default function App() {
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>Lead / customer name</Text>
-                      <TextInput style={styles.input} value={salesInquiryDraft.customer} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, customer: value }))} />
+                      <TextInput style={styles.input} value={salesInquiryDraft.customer} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, customer: value }))} commitOnBlur />
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>Lead status</Text>
@@ -9771,6 +9782,7 @@ export default function App() {
                           style={[styles.input, styles.textarea]}
                           value={salesInquiryDraft.lost_reason}
                           onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, lost_reason: value }))}
+                          commitOnBlur
                           multiline
                           placeholder="Why was this enquiry/order/site visit/offer lost?"
                         />
@@ -9778,35 +9790,35 @@ export default function App() {
                     ) : null}
                     <View style={styles.field}>
                       <Text style={styles.label}>Lead type</Text>
-                      <TextInput style={styles.input} value={salesInquiryDraft.lead_type} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, lead_type: value }))} />
+                      <TextInput style={styles.input} value={salesInquiryDraft.lead_type} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, lead_type: value }))} commitOnBlur />
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>Phone</Text>
-                      <TextInput style={styles.input} value={salesInquiryDraft.phone} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, phone: value }))} keyboardType="phone-pad" />
+                      <TextInput style={styles.input} value={salesInquiryDraft.phone} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, phone: value }))} commitOnBlur keyboardType="phone-pad" />
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>Full address</Text>
-                      <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.address} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, address: value }))} multiline />
+                      <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.address} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, address: value }))} commitOnBlur multiline />
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>WhatsApp</Text>
-                      <TextInput style={styles.input} value={salesInquiryDraft.whatsapp_no} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, whatsapp_no: value }))} keyboardType="phone-pad" />
+                      <TextInput style={styles.input} value={salesInquiryDraft.whatsapp_no} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, whatsapp_no: value }))} commitOnBlur keyboardType="phone-pad" />
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>Next follow-up</Text>
-                      <TextInput style={styles.input} value={salesInquiryDraft.next_followup} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, next_followup: value }))} placeholder="YYYY-MM-DD" />
+                      <TextInput style={styles.input} value={salesInquiryDraft.next_followup} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, next_followup: value }))} commitOnBlur placeholder="YYYY-MM-DD" />
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>Follow-up channel</Text>
-                      <TextInput style={styles.input} value={salesInquiryDraft.followup_channel} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, followup_channel: value }))} />
+                      <TextInput style={styles.input} value={salesInquiryDraft.followup_channel} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, followup_channel: value }))} commitOnBlur />
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>Auto follow-up every days</Text>
-                      <TextInput style={styles.input} value={salesInquiryDraft.followup_frequency_days} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, followup_frequency_days: value }))} keyboardType="numeric" />
+                      <TextInput style={styles.input} value={salesInquiryDraft.followup_frequency_days} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, followup_frequency_days: value }))} commitOnBlur keyboardType="numeric" />
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>Follow-up status</Text>
-                      <TextInput style={styles.input} value={salesInquiryDraft.followup_status} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, followup_status: value }))} />
+                      <TextInput style={styles.input} value={salesInquiryDraft.followup_status} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, followup_status: value }))} commitOnBlur />
                     </View>
                   </View>
                   <View style={styles.inlineActions}>
@@ -9818,7 +9830,7 @@ export default function App() {
                   </View>
                   <View style={styles.field}>
                     <Text style={styles.label}>Enquiry remark</Text>
-                    <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.enquiry_remark} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, enquiry_remark: value }))} multiline />
+                    <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.enquiry_remark} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, enquiry_remark: value }))} commitOnBlur multiline />
                   </View>
                   <View style={styles.installDatePanel}>
                     <Text style={styles.cardLabel}>Elevator installed</Text>
@@ -9826,6 +9838,7 @@ export default function App() {
                       style={styles.input}
                       value={salesInquiryInstalledDateDraft}
                       onChangeText={setSalesInquiryInstalledDateDraft}
+                      commitOnBlur
                       placeholder="YYYY-MM-DD or leave blank"
                     />
                     <Text style={styles.muted}>Saving an installed date converts this enquiry into a current customer and links the installation date.</Text>
@@ -14481,17 +14494,17 @@ export default function App() {
       horizontal
       showsHorizontalScrollIndicator={false}
       showsVerticalScrollIndicator={false}
-      style={styles.tabs}
-      contentContainerStyle={styles.mobileNavRail}
+      style={[styles.tabs, isPhone && styles.tabsPhone]}
+      contentContainerStyle={[styles.mobileNavRail, isPhone && styles.mobileNavRailPhone]}
     >
       {navGroups.flatMap((section) => section.items).map((item) => (
         <Pressable
           key={item.key}
-          style={[styles.tab, activeTab === item.key && styles.activeTab]}
+          style={[styles.tab, isPhone && styles.tabPhone, activeTab === item.key && styles.activeTab]}
           onPress={() => setActiveTab(item.key)}
         >
-          <Text style={[styles.tabIcon, activeTab === item.key && styles.activeTabText]}>{item.icon}</Text>
-          <Text style={[styles.tabText, activeTab === item.key && styles.activeTabText]}>{item.label}</Text>
+          <Text style={[styles.tabIcon, isPhone && styles.tabIconPhone, activeTab === item.key && styles.activeTabText]}>{item.icon}</Text>
+          <Text style={[styles.tabText, isPhone && styles.tabTextPhone, activeTab === item.key && styles.activeTabText]} numberOfLines={1}>{item.label}</Text>
         </Pressable>
       ))}
     </ScrollView>
@@ -14623,13 +14636,13 @@ export default function App() {
         )}
 
         <View style={styles.main}>
-          <View style={[styles.topbar, !isWide && styles.topbarMobile]}>
-            <View style={styles.topTitleBlock}>
+          <View style={[styles.topbar, !isWide && styles.topbarMobile, isPhone && styles.topbarPhone]}>
+            <View style={[styles.topTitleBlock, isPhone && styles.topTitleBlockPhone]}>
               <Text style={styles.eyebrow}>{isWide ? "Operations Command Center" : "Current workspace"}</Text>
               <Text style={[styles.topTitle, !isWide && styles.topTitleMobile]}>{isWide ? "Live Operations Dashboard" : activeNavItem?.label || "Operations"}</Text>
             </View>
-            <View style={[styles.topActions, !isWide && styles.topActionsMobile]}>
-              <View style={[styles.languageToggle, !isWide && styles.languageToggleMobile]}>
+            <View style={[styles.topActions, !isWide && styles.topActionsMobile, isPhone && styles.topActionsPhone]}>
+              <View style={[styles.languageToggle, !isWide && styles.languageToggleMobile, isPhone && styles.languageTogglePhone]}>
                 <Text style={styles.languageLabel}>Language</Text>
                 <Pressable
                   style={[styles.languageButton, portalLanguage === "en" && styles.languageButtonActive]}
@@ -14656,22 +14669,22 @@ export default function App() {
                   placeholder="Search CRM, service, jobs"
                 />
               </View>
-              <Pressable style={[styles.ghostButton, !isWide && styles.mobileActionButton]} onPress={() => setCompactLists((value) => !value)}>
+              <Pressable style={[styles.ghostButton, !isWide && styles.mobileActionButton, isPhone && styles.mobileActionButtonPhone]} onPress={() => setCompactLists((value) => !value)}>
                 <Text style={styles.ghostButtonText}>{compactLists ? "Comfort view" : "Compact view"}</Text>
               </Pressable>
-              <Pressable style={[styles.ghostButton, !isWide && styles.mobileActionButton]} onPress={() => setNotificationPanelOpen((open) => !open)}>
+              <Pressable style={[styles.ghostButton, !isWide && styles.mobileActionButton, isPhone && styles.mobileActionButtonPhone]} onPress={() => setNotificationPanelOpen((open) => !open)}>
                 <Text style={styles.ghostButtonText}>Inbox {unreadNotifications.length ? `(${unreadNotifications.length})` : ""}</Text>
               </Pressable>
-              <View style={[styles.syncPill, !isWide && styles.mobileMetaPill]}>
+              <View style={[styles.syncPill, !isWide && styles.mobileMetaPill, isPhone && styles.phoneHidden]}>
                 <Text style={styles.syncPillText}>Synced {data?.synced_at || "now"}</Text>
               </View>
-              <View style={[styles.userPill, !isWide && styles.mobileMetaPill]}>
+              <View style={[styles.userPill, !isWide && styles.mobileMetaPill, isPhone && styles.phoneHidden]}>
                 <Text style={styles.userPillText}>{data?.viewer?.display_name || username}</Text>
               </View>
-              <Pressable style={[styles.ghostButton, !isWide && styles.mobileActionButton]} onPress={() => loadPortal().catch((error) => setMessage(error.message))}>
+              <Pressable style={[styles.ghostButton, !isWide && styles.mobileActionButton, isPhone && styles.mobileActionButtonPhone]} onPress={() => loadPortal().catch((error) => setMessage(error.message))}>
                 <Text style={styles.ghostButtonText}>Refresh</Text>
               </Pressable>
-              <Pressable style={[styles.ghostButton, !isWide && styles.mobileActionButton]} onPress={signOut}>
+              <Pressable style={[styles.ghostButton, !isWide && styles.mobileActionButton, isPhone && styles.mobileActionButtonPhone]} onPress={signOut}>
                 <Text style={styles.ghostButtonText}>Logout</Text>
               </Pressable>
             </View>
@@ -14718,7 +14731,7 @@ export default function App() {
           )}
 
           {!isWide && (
-            <View style={styles.mobileBrandRow}>
+            <View style={[styles.mobileBrandRow, isPhone && styles.mobileBrandRowPhone]}>
               <View style={styles.sideBrand}>
                 <View style={styles.brandMark}>
                   <Text style={styles.brandMarkText}>FE</Text>
@@ -14734,7 +14747,7 @@ export default function App() {
           {loading && <ActivityIndicator style={styles.loader} />}
           {!!message && <Text style={styles.banner}>{message}</Text>}
 
-          <ScrollView style={styles.contentScroll} contentContainerStyle={[styles.content, isWide && styles.contentWide]}>
+          <ScrollView style={styles.contentScroll} contentContainerStyle={[styles.content, isWide && styles.contentWide, isPhone && styles.contentPhone]}>
         {activeTab === "overview" && renderOverviewAnalytics()}
         {activeTab === "today" && renderTodayActionQueue()}
 
@@ -14815,14 +14828,18 @@ const styles = StyleSheet.create({
   main: { flex: 1, minWidth: 0, minHeight: 0 },
   topbar: { backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e4e7ee", paddingHorizontal: 24, paddingVertical: 18, gap: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" },
   topbarMobile: { paddingHorizontal: 14, paddingVertical: 12, alignItems: "stretch", gap: 10 },
+  topbarPhone: { paddingHorizontal: 10, paddingVertical: 8, gap: 8 },
   topTitleBlock: { gap: 3 },
+  topTitleBlockPhone: { gap: 2 },
   eyebrow: { color: "#e02020", fontSize: 11, fontWeight: "900", textTransform: "uppercase", letterSpacing: 1.6 },
   topTitle: { color: "#11131b", fontSize: 26, fontWeight: "900" },
   topTitleMobile: { fontSize: 20, lineHeight: 24 },
   topActions: { flexDirection: "row", gap: 10, alignItems: "center", flexWrap: "wrap" },
   topActionsMobile: { width: "100%", justifyContent: "flex-start", gap: 8 },
+  topActionsPhone: { gap: 6 },
   languageToggle: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: "#e4e7ee", backgroundColor: "#fff", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 6 },
   languageToggleMobile: { flexBasis: "100%", justifyContent: "flex-start", borderRadius: 10 },
+  languageTogglePhone: { minHeight: 38, paddingHorizontal: 8, paddingVertical: 4 },
   languageLabel: { color: "#5b6270", fontWeight: "900", fontSize: 11, textTransform: "uppercase" },
   languageButton: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: "#f3f5f8" },
   languageButtonActive: { backgroundColor: "#e02020" },
@@ -14838,19 +14855,28 @@ const styles = StyleSheet.create({
   userPill: { borderWidth: 1, borderColor: "#e4e7ee", backgroundColor: "#fff", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 9 },
   userPillText: { color: "#2d3240", fontWeight: "800", fontSize: 12 },
   mobileActionButton: { minHeight: 38, paddingHorizontal: 10, paddingVertical: 8 },
+  mobileActionButtonPhone: { flexGrow: 1, flexBasis: "23%", minHeight: 36, paddingHorizontal: 8, paddingVertical: 7, alignItems: "center" },
   mobileMetaPill: { minHeight: 38, paddingHorizontal: 10, paddingVertical: 8 },
+  phoneHidden: { display: "none" },
   mobileBrandRow: { paddingHorizontal: 14, paddingVertical: 10, backgroundColor: "#11131b", flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  mobileBrandRowPhone: { paddingHorizontal: 10, paddingVertical: 8 },
   mobileDepartment: { color: "rgba(255,255,255,0.7)", fontWeight: "800", fontSize: 12 },
   tabs: { backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e4e7ee" },
+  tabsPhone: { maxHeight: 58 },
   mobileNavRail: { gap: 8, paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row" },
+  mobileNavRailPhone: { gap: 6, paddingHorizontal: 8, paddingVertical: 8 },
   tab: { minWidth: 112, maxWidth: 148, minHeight: 42, borderRadius: 10, borderWidth: 1, borderColor: "#e4e7ee", backgroundColor: "#fff", alignItems: "center", justifyContent: "center", paddingHorizontal: 10, flexDirection: "row", gap: 7 },
+  tabPhone: { minWidth: 86, maxWidth: 108, minHeight: 38, borderRadius: 8, paddingHorizontal: 8, gap: 5 },
   activeTab: { backgroundColor: "#e02020", borderColor: "#e02020" },
   tabIcon: { color: "#747b8d", fontSize: 14, lineHeight: 16, fontWeight: "900" },
+  tabIconPhone: { fontSize: 12, lineHeight: 14 },
   tabText: { fontWeight: "900", color: "#2d3240", fontSize: 11, textAlign: "center" },
+  tabTextPhone: { fontSize: 10, maxWidth: 72 },
   activeTabText: { color: "#fff" },
   contentScroll: { flex: 1, minHeight: 0 },
   content: { padding: 14, gap: 12, paddingBottom: 36, maxWidth: 1240, width: "100%", alignSelf: "center" },
   contentWide: { padding: 24, gap: 16, paddingBottom: 46 },
+  contentPhone: { padding: 8, gap: 8, paddingBottom: 28 },
   commandBand: { borderRadius: 10, backgroundColor: "#11131b", padding: 16, borderWidth: 1, borderColor: "rgba(224,32,32,0.24)", marginBottom: 6 },
   commandCopy: { gap: 8 },
   commandTitle: { color: "#fff", fontSize: 20, lineHeight: 26, fontWeight: "900" },
