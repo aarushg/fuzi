@@ -363,6 +363,124 @@ function serviceRecordAssignedToUser(record = {}, user = {}) {
   });
 }
 
+function serviceUpdateCapturesVisitPoint(body = {}) {
+  return ["check_in_at", "check_out_at", "check_in_location", "check_out_location"].some((key) => Object.prototype.hasOwnProperty.call(body, key));
+}
+
+function serviceRecordIsActivelyCheckedIn(record = {}) {
+  return Boolean(String(record.check_in_at || "").trim() && !String(record.check_out_at || "").trim());
+}
+
+function canManageStaffAttendance(user = {}) {
+  const role = staffLookupKey(user.role || "");
+  const title = staffLookupKey(`${user.title || ""} ${user.position || ""}`);
+  const department = staffLookupKey(user.department || "");
+  return isAdminUser(user) ||
+    isJitendraServiceManager(user) ||
+    department === "executive office" ||
+    /manager|lead|supervisor|hr|admin/.test(`${role} ${title}`);
+}
+
+function isServiceTeamMember(record = {}) {
+  const department = staffLookupKey(record.department || "");
+  const team = staffLookupKey(record.team || record.department_name || record.group || "");
+  const text = staffLookupKey(`${record.name || ""} ${record.display_name || ""} ${record.username || ""} ${record.title || ""} ${record.position || ""}`);
+  return department === "service" || team === "service" || /\bservice\b/.test(text);
+}
+
+function isServiceManagerScopedUser(user = {}) {
+  return isJitendraServiceManager(user) && !isAdminUser(user);
+}
+
+function serviceTeamScopeFromOrgChart(orgChart = []) {
+  const serviceOrgChart = Array.isArray(orgChart) ? orgChart.filter(isServiceTeamMember) : [];
+  return {
+    orgChart: serviceOrgChart,
+    ids: new Set(serviceOrgChart.map((person) => String(person.id || "").trim()).filter(Boolean)),
+    names: new Set(serviceOrgChart.map((person) => staffLookupKey(person.name || person.display_name || "")).filter(Boolean))
+  };
+}
+
+function recordMatchesServiceTeamScope(record = {}, scope = serviceTeamScopeFromOrgChart([])) {
+  return isServiceTeamMember(record) ||
+    scope.ids.has(String(record.linked_org_node || record.person_id || record.staff_id || record.id || "").trim()) ||
+    scope.names.has(staffLookupKey(record.display_name || record.person_name || record.staff_name || record.name || record.username || ""));
+}
+
+async function serviceTeamScopeForUser(user = {}) {
+  if (!isServiceManagerScopedUser(user)) return null;
+  const orgChart = await readJson(listFiles.org_chart, []);
+  return serviceTeamScopeFromOrgChart(orgChart);
+}
+
+function applyServiceManagerCollectionScope(collectionKey, records, scope) {
+  if (!scope || !Array.isArray(records)) return records;
+  if (collectionKey === "org_chart") return scope.orgChart;
+  if (["users", "attendance", "leave_requests"].includes(collectionKey)) {
+    return records.filter((record) => recordMatchesServiceTeamScope(record, scope));
+  }
+  return records;
+}
+
+function attendanceKeysForUser(user = {}) {
+  return new Set([
+    staffLookupKey(user.display_name || user.name || ""),
+    staffLookupKey(String(user.username || "").replace(/\./g, " ")),
+    staffLookupKey(user.username || ""),
+    staffLookupKey(user.linked_org_node || ""),
+    staffLookupKey(user.linked_team_member || "")
+  ].filter(Boolean));
+}
+
+function attendanceRecordBelongsToUser(record = {}, user = {}) {
+  if (canManageStaffAttendance(user)) return true;
+  return attendanceRecordIsSelf(record, user);
+}
+
+function attendanceRecordIsSelf(record = {}, user = {}) {
+  const keys = attendanceKeysForUser(user);
+  if (!keys.size) return false;
+  const fields = [
+    record.person_id,
+    record.staff_id,
+    record.id,
+    record.person_name,
+    record.staff_name,
+    record.name,
+    record.display_name,
+    record.username
+  ];
+  return fields.some((value) => {
+    const text = staffLookupKey(value || "");
+    return text && [...keys].some((key) => text === key || (key.length >= 4 && text.includes(key)) || (text.length >= 4 && key.includes(text)));
+  });
+}
+
+function attendanceEntryFromPayload(payload = {}, existing = {}, now = new Date().toISOString()) {
+  const explicitAction = String(payload.attendance_action || payload.action_type || "").trim();
+  const checkIn = String(payload.check_in || "").trim();
+  const checkOut = String(payload.check_out || "").trim();
+  const existingCheckIn = String(existing.check_in || existing.time_in || "").trim();
+  const existingCheckOut = String(existing.check_out || existing.time_out || "").trim();
+  const action = explicitAction ||
+    (checkOut && checkOut !== existingCheckOut ? "check_out" : "") ||
+    (checkIn && checkIn !== existingCheckIn ? "check_in" : "");
+  if (!["check_in", "check_out"].includes(action)) return null;
+  const time = action === "check_out" ? checkOut : checkIn;
+  const location = action === "check_out" ? payload.check_out_location : payload.check_in_location;
+  return {
+    id: `${action}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    action,
+    label: action === "check_out" ? "Check out" : "Check in",
+    date: String(payload.date || existing.date || now.slice(0, 10)).trim(),
+    time,
+    timestamp: String(payload.marked_at || now),
+    location: location || null,
+    marked_by: String(payload.marked_by || "").trim(),
+    notes: String(payload.notes || "").trim()
+  };
+}
+
 function makeWerkzeugScryptHash(password) {
   const salt = crypto.randomBytes(16).toString("base64url");
   const N = 32768;
@@ -459,6 +577,7 @@ function normalizePortalRole(value = "staff") {
   const role = staffLookupKey(value);
   if (role === "admin" || role === "ceo" || role === "director" || role === "executive office") return "ceo";
   if (role === "manager" || role === "supervisor" || role === "head" || role === "team lead" || role === "teamlead") return "manager";
+  if (role === "technician" || role === "engineer") return "technician";
   return "staff";
 }
 
@@ -489,9 +608,14 @@ function accessForUser(user = {}) {
     "stores & procurement": ["today", "overview", "intelligence", "backlog", "inventory", "factory", "approvals", "documents", "comms"]
   };
   if (isJitendraServiceManager(user)) {
-    return { allowed_views: byDepartment.service, selected_view: "service", default_view: "service", is_restricted: true };
+    return { allowed_views: ["customers", "service", "orgchart"], selected_view: "service", default_view: "service", is_restricted: true };
   }
   const key = String(user.department || "").toLowerCase();
+  const role = String(user.role || "").toLowerCase();
+  if (key === "service" && role !== "manager") {
+    const engineerServiceViews = ["service"];
+    return { allowed_views: engineerServiceViews, selected_view: "service", default_view: "service", is_restricted: true };
+  }
   const allowed = [...(byDepartment[key] || ["today", "overview", "comms"])];
   if (!allowed.includes("orgchart")) allowed.push("orgchart");
   if (!allowed.includes("siteVisits")) allowed.push("siteVisits");
@@ -4082,9 +4206,15 @@ async function listCollection(routeName, res, user = res.req?.user || {}) {
   const config = resolveCollection(routeName);
   if (!config) return res.status(404).json({ ok: false, message: "Unknown portal module." });
   const records = await readJson(config.file, config.singleton ? {} : []);
-  const visibleRecords = routeName === "service" && Array.isArray(records) && !canManageServiceRecords(user)
-    ? records.filter((record) => serviceRecordAssignedToUser(record, user))
-    : records;
+  const serviceScope = await serviceTeamScopeForUser(user);
+  const scopedRecords = applyServiceManagerCollectionScope(config.key, records, serviceScope);
+  const visibleRecords = Array.isArray(scopedRecords)
+    ? scopedRecords.filter((record) => {
+      if (routeName === "service" && !canManageServiceRecords(user)) return serviceRecordAssignedToUser(record, user);
+      if (routeName === "attendance" && !canManageStaffAttendance(user)) return attendanceRecordBelongsToUser(record, user);
+      return true;
+    })
+    : scopedRecords;
   return res.json({ ok: true, [config.key]: publicRecords(config.key, Array.isArray(visibleRecords) ? visibleRecords : [visibleRecords]), records: visibleRecords });
 }
 
@@ -4549,6 +4679,13 @@ async function createCollectionRecord(routeName, body, res) {
   const tenderPayload = routeName === "tender" ? normalizeTenderPayload(body, {}, records) : null;
   const installationPayload = routeName === "install-jobs" ? normalizeInstallationPayload(body, {}, records) : null;
   const basePayload = offerPayload || paymentPayload || tenderPayload || installationPayload || cleanPayload(body);
+  const serviceScope = routeName === "attendance" ? await serviceTeamScopeForUser(res.req?.user || {}) : null;
+  if (serviceScope && !recordMatchesServiceTeamScope(basePayload, serviceScope) && !attendanceRecordIsSelf(basePayload, res.req?.user || {})) {
+    return res.status(403).json({ ok: false, message: "Service Manager can mark attendance only for Service team staff." });
+  }
+  if (routeName === "attendance" && !attendanceRecordBelongsToUser(basePayload, res.req?.user || {})) {
+    return res.status(403).json({ ok: false, message: "Staff can create attendance only for themselves." });
+  }
   const serviceGenerated = routeName === "service" ? {
     service_number: String(basePayload.service_number || "").trim() || nextId(records, "SVC"),
     breakdown_number: String(basePayload.breakdown_number || "").trim() || nextId(records, "BRK"),
@@ -4583,6 +4720,38 @@ async function updateCollectionRecord(routeName, id, body, res) {
   const index = findRecordIndex(records, id);
   if (index < 0) return res.status(404).json({ ok: false, message: "Record not found." });
   const previousRecord = records[index];
+  const serviceScope = routeName === "attendance" ? await serviceTeamScopeForUser(res.req?.user || {}) : null;
+  if (serviceScope && !attendanceRecordIsSelf(previousRecord, res.req?.user || {}) && (!recordMatchesServiceTeamScope(previousRecord, serviceScope) || !recordMatchesServiceTeamScope({ ...previousRecord, ...body }, serviceScope))) {
+    return res.status(403).json({ ok: false, message: "Service Manager can update attendance only for Service team staff." });
+  }
+  if (routeName === "attendance" && !attendanceRecordBelongsToUser(previousRecord, res.req?.user || {})) {
+    return res.status(403).json({ ok: false, message: "Staff can update only their own attendance." });
+  }
+  if (routeName === "attendance" && !canManageStaffAttendance(res.req?.user || {}) && !attendanceRecordBelongsToUser({ ...previousRecord, ...body }, res.req?.user || {})) {
+    return res.status(403).json({ ok: false, message: "Staff cannot move attendance to another team member." });
+  }
+  if (routeName === "service" && serviceUpdateCapturesVisitPoint(body) && isJitendraServiceManager(res.req?.user || {}) && !isAdminUser(res.req?.user || {})) {
+    return res.status(403).json({ ok: false, message: "Service managers can assign service jobs, but job-site check-in and check-out must be captured by the assigned engineer." });
+  }
+  if (routeName === "service" && Object.prototype.hasOwnProperty.call(body || {}, "check_in_at") && String(previousRecord.check_in_at || "").trim()) {
+    return res.status(409).json({ ok: false, message: "Service check-in is already captured for this record." });
+  }
+  if (routeName === "service" && Object.prototype.hasOwnProperty.call(body || {}, "check_out_at") && !String(previousRecord.check_in_at || "").trim()) {
+    return res.status(409).json({ ok: false, message: "Service check-in is required before check-out." });
+  }
+  if (routeName === "service" && Object.prototype.hasOwnProperty.call(body || {}, "check_out_at") && String(previousRecord.check_out_at || "").trim()) {
+    return res.status(409).json({ ok: false, message: "Service check-out is already captured for this record." });
+  }
+  if (routeName === "service" && Object.prototype.hasOwnProperty.call(body || {}, "check_in_at") && !canManageServiceRecords(res.req?.user || {})) {
+    const activeServiceRecord = records.find((record, recordIndex) => (
+      recordIndex !== index &&
+      serviceRecordIsActivelyCheckedIn(record) &&
+      serviceRecordAssignedToUser(record, res.req?.user || {})
+    ));
+    if (activeServiceRecord) {
+      return res.status(409).json({ ok: false, message: "Check out from your current service before checking in to another service." });
+    }
+  }
   if (routeName === "service" && !serviceRecordAssignedToUser(previousRecord, res.req?.user || {})) {
     return res.status(403).json({ ok: false, message: "Service engineers can update only service records assigned to them." });
   }
@@ -4624,8 +4793,15 @@ async function deleteCollectionRecord(routeName, id, res) {
   if (routeName === "service" && !canManageServiceRecords(res.req?.user || {})) {
     return res.status(403).json({ ok: false, message: "Only Service Manager, CEO, or Admin can remove service records." });
   }
+  if (routeName === "attendance" && !canManageStaffAttendance(res.req?.user || {})) {
+    return res.status(403).json({ ok: false, message: "Only managers can remove attendance records." });
+  }
   const records = await readJson(config.file, []);
   const deletedRecord = records.find((record) => findRecordIndex([record], id) === 0);
+  const serviceScope = routeName === "attendance" ? await serviceTeamScopeForUser(res.req?.user || {}) : null;
+  if (serviceScope && !recordMatchesServiceTeamScope(deletedRecord || {}, serviceScope) && !attendanceRecordIsSelf(deletedRecord || {}, res.req?.user || {})) {
+    return res.status(403).json({ ok: false, message: "Service Manager can remove attendance only for Service team staff." });
+  }
   const nextRecords = records.filter((record) => findRecordIndex([record], id) !== 0);
   if (nextRecords.length === records.length) return res.status(404).json({ ok: false, message: "Record not found." });
   await writeJson(config.file, nextRecords);
@@ -4664,6 +4840,20 @@ async function loadPortalCollections() {
 
 function portalData(collections, user) {
   const access = accessForUser(user);
+  const serviceScope = isServiceManagerScopedUser(user) ? serviceTeamScopeFromOrgChart(collections.org_chart) : null;
+  const scopedUsers = serviceScope
+    ? collections.users.filter((record) => recordMatchesServiceTeamScope(record, serviceScope) || attendanceRecordIsSelf(record, user))
+    : collections.users;
+  const scopedOrgChart = serviceScope
+    ? collections.org_chart.filter((record) => recordMatchesServiceTeamScope(record, serviceScope) || attendanceRecordIsSelf(record, user))
+    : collections.org_chart;
+  const managerScopedAttendance = serviceScope
+    ? collections.attendance.filter((record) => recordMatchesServiceTeamScope(record, serviceScope) || attendanceRecordIsSelf(record, user))
+    : collections.attendance;
+  const scopedAttendance = canManageStaffAttendance(user)
+    ? managerScopedAttendance
+    : collections.attendance.filter((record) => attendanceRecordBelongsToUser(record, user));
+  const scopedLeaveRequests = applyServiceManagerCollectionScope("leave_requests", collections.leave_requests, serviceScope);
   const payload = {
     metrics: buildMetrics(collections),
     dashboard_overview: {},
@@ -4676,7 +4866,7 @@ function portalData(collections, user) {
     install_jobs: collections.install_jobs,
     install_team: collections.install_team,
     installation_contractors: collections.installation_contractors,
-    users: collections.users.map(publicUser),
+    users: scopedUsers.map(publicUser),
     customers: collections.customers,
     customer_assignments: collections.customer_assignments,
     department_assignments: collections.department_assignments,
@@ -4689,9 +4879,9 @@ function portalData(collections, user) {
     viewer: publicUser(user),
     access,
     department_options: [],
-    org_chart: collections.org_chart,
-    attendance_today: collections.attendance,
-    leave_requests: collections.leave_requests,
+    org_chart: scopedOrgChart,
+    attendance_today: scopedAttendance,
+    leave_requests: scopedLeaveRequests,
     estimates: collections.estimates,
     payments: collections.payments,
     customer_users: collections.customer_users,
@@ -6456,23 +6646,38 @@ app.post("/api/portal/attendance", authRequired, async (req, res) => {
   if (!personId || !personName) {
     return res.status(400).json({ ok: false, message: "Attendance requires a staff ID and staff name." });
   }
+  const serviceScope = await serviceTeamScopeForUser(req.user);
+  const attendanceSubject = { ...payload, person_id: personId, person_name: personName };
+  if (serviceScope && !recordMatchesServiceTeamScope(attendanceSubject, serviceScope) && !attendanceRecordIsSelf(attendanceSubject, req.user)) {
+    return res.status(403).json({ ok: false, message: "Service Manager can mark attendance only for Service team staff." });
+  }
+  if (!attendanceRecordBelongsToUser(attendanceSubject, req.user)) {
+    return res.status(403).json({ ok: false, message: "Staff can check in or check out only for their own attendance." });
+  }
 
   const records = await readJson(listFiles.attendance, []);
   const existingIndex = records.findIndex((item) => String(item.person_id || item.staff_id || "") === personId && String(item.date || "") === date);
   const now = new Date().toISOString();
+  const existingRecord = existingIndex >= 0 ? records[existingIndex] : {};
+  const historyEntry = attendanceEntryFromPayload(payload, existingRecord, now);
+  const historyEntries = [
+    ...(Array.isArray(existingRecord.entries) ? existingRecord.entries.filter((entry) => String(entry?.date || date).slice(0, 10) === date) : []),
+    ...(historyEntry ? [historyEntry] : [])
+  ];
   const record = {
-    ...(existingIndex >= 0 ? records[existingIndex] : {}),
+    ...existingRecord,
     ...payload,
-    id: existingIndex >= 0 ? records[existingIndex].id : nextId(records, "ATT"),
+    id: existingIndex >= 0 ? existingRecord.id : nextId(records, "ATT"),
     date,
     person_id: personId,
     person_name: personName,
     department: String(payload.department || "").trim(),
     status: String(payload.status || "present").trim(),
-    check_in: String(payload.check_in || "").trim(),
+    check_in: String(existingRecord.check_in || existingRecord.time_in || payload.check_in || "").trim(),
     check_out: String(payload.check_out || "").trim(),
-    check_in_location: payload.check_in_location || (existingIndex >= 0 ? records[existingIndex].check_in_location : null) || null,
-    check_out_location: payload.check_out_location || (existingIndex >= 0 ? records[existingIndex].check_out_location : null) || null,
+    check_in_location: existingRecord.check_in_location || payload.check_in_location || null,
+    check_out_location: payload.check_out_location || existingRecord.check_out_location || null,
+    entries: historyEntries,
     notes: String(payload.notes || "").trim(),
     marked_by: payload.marked_by || req.user?.username || "",
     marked_at: payload.marked_at || now,
@@ -6599,9 +6804,15 @@ app.get("/api/portal/:collection", authRequired, async (req, res) => {
   const file = listFiles[req.params.collection];
   if (!file) return res.status(404).json({ ok: false, message: "Unknown collection." });
   const records = await readJson(file, []);
-  const visibleRecords = req.params.collection === "service_records" && Array.isArray(records) && !canManageServiceRecords(req.user)
-    ? records.filter((record) => serviceRecordAssignedToUser(record, req.user))
-    : records;
+  const serviceScope = await serviceTeamScopeForUser(req.user);
+  const scopedRecords = applyServiceManagerCollectionScope(req.params.collection, records, serviceScope);
+  const visibleRecords = Array.isArray(scopedRecords)
+    ? scopedRecords.filter((record) => {
+      if (req.params.collection === "service_records" && !canManageServiceRecords(req.user)) return serviceRecordAssignedToUser(record, req.user);
+      if (req.params.collection === "attendance" && !canManageStaffAttendance(req.user)) return attendanceRecordBelongsToUser(record, req.user);
+      return true;
+    })
+    : scopedRecords;
   res.json({ ok: true, [req.params.collection]: visibleRecords });
 });
 

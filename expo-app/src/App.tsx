@@ -1,5 +1,5 @@
 ﻿import { StatusBar } from "expo-status-bar";
-import { ComponentProps, createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { ComponentProps, createContext, ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -862,7 +862,7 @@ const emptyAccountDraft = {
   password: "",
   active: "Y",
 };
-const accountRoleOptions = ["ceo", "manager", "staff"];
+const accountRoleOptions = ["ceo", "manager", "staff", "technician"];
 const emptyRenewalDraft = {
   customer_id: "",
   customer: "",
@@ -1272,12 +1272,14 @@ export default function App() {
   const [serviceEditDrafts, setServiceEditDrafts] = useState<Record<string, Record<string, string>>>({});
   const [serviceSlotDropdownOpen, setServiceSlotDropdownOpen] = useState("");
   const [serviceYearDropdownOpen, setServiceYearDropdownOpen] = useState("");
+  const [serviceQuickAssignOpen, setServiceQuickAssignOpen] = useState("");
   const [serviceSelectedYears, setServiceSelectedYears] = useState<Record<string, number>>({});
   const [serviceSelectedSlots, setServiceSelectedSlots] = useState<Record<string, number>>({});
   const [serviceCustomerDropdownOpen, setServiceCustomerDropdownOpen] = useState(false);
   const [serviceCustomerSearch, setServiceCustomerSearch] = useState("");
   const [serviceRecordSearch, setServiceRecordSearch] = useState("");
   const [servicePage, setServicePage] = useState(1);
+  const activeServiceCheckInRecordRef = useRef<Record<string, unknown> | null>(null);
   const [paymentDraft, setPaymentDraft] = useState(emptyPaymentDraft);
   const [approvalDraft, setApprovalDraft] = useState(emptyApprovalDraft);
   const [documentDraft, setDocumentDraft] = useState(emptyDocumentDraft);
@@ -1649,6 +1651,12 @@ export default function App() {
     return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   }
 
+  function cleanDisplayValue(value: unknown, fallback = "Not set") {
+    const text = String(value || "").trim();
+    if (!text || text === "-") return fallback;
+    return text;
+  }
+
   function viewerStaffRecord(staff: Array<Record<string, unknown>>) {
     const viewer = (data?.viewer || {}) as Record<string, unknown>;
     const linkedId = String(viewer.linked_org_node || viewer.linked_team_member || "").trim();
@@ -1668,6 +1676,37 @@ export default function App() {
     const accuracy = Number(item.accuracy_m ?? item.accuracy);
     const accuracyText = Number.isFinite(accuracy) ? ` +/- ${Math.round(accuracy)} m` : "";
     return `${latitude.toFixed(5)}, ${longitude.toFixed(5)}${accuracyText}`;
+  }
+
+  function geoPointFromRecord(record: Record<string, unknown>) {
+    const locationObjects = [
+      record.live_location,
+      record.current_location,
+      record.check_in_location,
+      record.check_out_location,
+      record.site_location,
+      record.customer_location,
+    ];
+    for (const location of locationObjects) {
+      if (!location || typeof location !== "object") continue;
+      const item = location as Record<string, unknown>;
+      const latitude = Number(item.latitude ?? item.lat);
+      const longitude = Number(item.longitude ?? item.lng);
+      if (Number.isFinite(latitude) && Number.isFinite(longitude)) return { latitude, longitude };
+    }
+    const latitude = Number(record.latitude ?? record.lat ?? record.site_latitude ?? record.customer_latitude);
+    const longitude = Number(record.longitude ?? record.lng ?? record.site_longitude ?? record.customer_longitude);
+    if (Number.isFinite(latitude) && Number.isFinite(longitude)) return { latitude, longitude };
+    return null;
+  }
+
+  function distanceKmBetween(from: { latitude: number; longitude: number }, to: { latitude: number; longitude: number }) {
+    const toRad = (value: number) => value * Math.PI / 180;
+    const earthKm = 6371;
+    const dLat = toRad(to.latitude - from.latitude);
+    const dLng = toRad(to.longitude - from.longitude);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(from.latitude)) * Math.cos(toRad(to.latitude)) * Math.sin(dLng / 2) ** 2;
+    return earthKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
   async function captureAttendanceLocation() {
@@ -2828,7 +2867,16 @@ export default function App() {
   }
 
   function serviceEngineerOptions() {
-    const rows = [...asRecords(data?.install_team), ...asRecords(data?.org_chart), ...asRecords(data?.users)];
+    const teamAccounts = asRecords(data?.users)
+      .filter((item) => item.active !== false && String(item.active || "true") !== "false")
+      .filter((item) => {
+        const department = normalizedKey(item.department);
+        const role = normalizedKey(item.role);
+        const text = normalizedKey(`${item.display_name || ""} ${item.username || ""} ${item.department || ""} ${item.team || ""}`);
+        if (role === "admin" || role === "ceo" || role === "manager") return false;
+        return department === "service" || /\bservice\b/.test(text);
+      });
+    const rows = teamAccounts.length ? teamAccounts : [...asRecords(data?.install_team), ...asRecords(data?.org_chart), ...asRecords(data?.users)];
     const seen = new Set<string>();
     return rows.map((item) => {
       const name = fieldText(item, ["name", "display_name", "username"]).replace("-", "");
@@ -2845,6 +2893,7 @@ export default function App() {
       if (seen.has(key)) return false;
       seen.add(key);
       const searchText = item.searchText.toLowerCase();
+      if (teamAccounts.length) return true;
       const isServicePerson = /\bservice\b/.test(searchText);
       const blockedRole = /\bbreakdown\b|\binstallation\b|\binstall\b|\bmanager\b|\badmin\b|\bceo\b|\bdirector\b|\bstaff\b/.test(searchText);
       const isJitendraServiceManager = /jitendra/.test(searchText) && /choudh?ary|choudry/.test(searchText);
@@ -2885,6 +2934,22 @@ export default function App() {
   async function updateServiceVisitPoint(record: Record<string, unknown>, point: "check_in" | "check_out") {
     const id = recordIdentity(record);
     if (!id) return;
+    if (point === "check_in" && String(record.check_in_at || "").trim()) {
+      setMessage("Service check-in is already captured for this record.");
+      return;
+    }
+    if (point === "check_in" && activeServiceCheckInRecordRef.current && recordIdentity(activeServiceCheckInRecordRef.current) !== id) {
+      setMessage("Check out from your current service before checking in to another service.");
+      return;
+    }
+    if (point === "check_out" && !String(record.check_in_at || "").trim()) {
+      setMessage("Service check-in is required before check-out.");
+      return;
+    }
+    if (point === "check_out" && String(record.check_out_at || "").trim()) {
+      setMessage("Service check-out is already captured for this record.");
+      return;
+    }
     const location = await captureAttendanceLocation();
     if (!location) return;
     const now = new Date().toISOString();
@@ -3028,6 +3093,41 @@ export default function App() {
       });
     };
     const records = canViewAllService ? rawServiceRecords : rawServiceRecords.filter(serviceRecordAssignedToViewer);
+    const activeServiceCheckInRecords = records
+      .filter((record) => String(record.check_in_at || "").trim() && !String(record.check_out_at || "").trim())
+      .sort((a, b) => String(b.check_in_at || "").localeCompare(String(a.check_in_at || "")));
+    const activeServiceCheckInRecord = activeServiceCheckInRecords[0] || null;
+    activeServiceCheckInRecordRef.current = activeServiceCheckInRecord;
+    const canViewerCaptureServiceVisitPoint = (record: Record<string, unknown>) => !canViewAllService && serviceRecordAssignedToViewer(record);
+    const serviceRecordHasCheckIn = (record: Record<string, unknown>) => String(record.check_in_at || "").trim().length > 0;
+    const renderServiceVisitActions = (record: Record<string, unknown>) => {
+      const alreadyCheckedIn = serviceRecordHasCheckIn(record);
+      const activeRecordId = activeServiceCheckInRecord ? recordIdentity(activeServiceCheckInRecord) : "";
+      const currentRecordId = recordIdentity(record);
+      const isCurrentActiveService = Boolean(activeRecordId && currentRecordId && activeRecordId === currentRecordId && !String(record.check_out_at || "").trim());
+      const anotherServiceIsActive = Boolean(activeRecordId && currentRecordId && activeRecordId !== currentRecordId && !alreadyCheckedIn);
+      const canCheckOut = alreadyCheckedIn && !String(record.check_out_at || "").trim();
+      return (
+        <View style={styles.inlineActions}>
+          {isCurrentActiveService ? (
+            <Text style={styles.statusPill}>Checked in</Text>
+          ) : alreadyCheckedIn ? (
+            <Text style={styles.statusPill}>Previous check-in</Text>
+          ) : anotherServiceIsActive ? (
+            <Text style={styles.statusPill}>Check out current service first</Text>
+          ) : (
+            <Pressable style={styles.smallButton} onPress={() => updateServiceVisitPoint(record, "check_in")} disabled={loading}>
+              <Text style={styles.smallButtonText}>Check in</Text>
+            </Pressable>
+          )}
+          {canCheckOut && (
+            <Pressable style={styles.smallButton} onPress={() => updateServiceVisitPoint(record, "check_out")} disabled={loading}>
+              <Text style={styles.smallButtonText}>Check out</Text>
+            </Pressable>
+          )}
+        </View>
+      );
+    };
     const customerOptions = crmCustomerOptions();
     const installJobs = asRecords((data as Record<string, unknown> | null)?.install_jobs);
     const selectedServiceCustomer = customerOptions.find((customer) => customer.id === serviceDraft.customer_id);
@@ -3037,6 +3137,21 @@ export default function App() {
       .slice(0, 80);
     const engineerOptions = serviceEngineerOptions();
     const todayDate = new Date().toISOString().slice(0, 10);
+    const viewerStaffId = fieldText(viewerStaff || {}, ["id"]);
+    const viewerAttendance = viewerStaffId ? asRecords(data?.attendance_today).find((item) => (
+      fieldText(item, ["date"]) === todayDate && fieldText(item, ["person_id", "staff_id"]) === viewerStaffId
+    )) : undefined;
+    const officeAttendanceEntries = Array.isArray(viewerAttendance?.entries)
+      ? [...viewerAttendance.entries as Array<Record<string, unknown>>]
+        .filter((entry) => String(entry.date || todayDate).slice(0, 10) === todayDate)
+        .sort((a, b) => String(b.timestamp || b.marked_at || "").localeCompare(String(a.timestamp || a.marked_at || "")))
+        .slice(0, 6)
+      : [];
+    const officeAttendanceHistoryRows = viewerStaffId
+      ? asRecords(data?.attendance_today)
+        .filter((item) => fieldText(item, ["person_id", "staff_id"]) === viewerStaffId)
+        .sort((a, b) => fieldText(b, ["date"]).localeCompare(fieldText(a, ["date"])))
+      : [];
     const serviceIntervalDays = Math.round(365 / 7);
     const addServiceIntervalIso = (dateValue: unknown, serviceNumber: number) => {
       const date = new Date(String(dateValue || ""));
@@ -3167,11 +3282,6 @@ export default function App() {
       });
     const installedServiceSchedule: InstalledServiceScheduleItem[] = Array.from(installedServiceScheduleByKey.values())
       .sort((a, b) => String(a?.nextDue || "").localeCompare(String(b?.nextDue || "")));
-    const visibleInstalledServiceSchedule = canViewAllService
-      ? installedServiceSchedule
-      : installedServiceSchedule.filter((item) => serviceRecordAssignedToViewer(item.job) || item.annualPlan.some((entry) => entry.record && serviceRecordAssignedToViewer(entry.record)));
-    const dueInstalledServices = visibleInstalledServiceSchedule.filter((item) => item.nextDue <= datePlusDays(30)).slice(0, 12);
-    const visibleInstalledServices = visibleInstalledServiceSchedule.slice(0, 30);
     const defaultServiceScheduleForCustomer = (customer: { id: string; name: string; source_inquiry_id?: string }) => {
       const customerId = String(customer.id || "").trim();
       const sourceInquiryId = String(customer.source_inquiry_id || "").trim();
@@ -3193,11 +3303,113 @@ export default function App() {
       type: "Service" | "Breakdown" | "Install" | "Scheduled";
       title: string;
       detail: string;
+      jobLabel: string;
+      site: string;
       date: string;
       status: string;
       tab: TabKey;
       search?: string;
+      record?: Record<string, unknown>;
     };
+    type ServiceEngineerLocation = {
+      customer: string;
+      site: string;
+      status: string;
+      checkInAt: string;
+      checkOutAt: string;
+      locationText: string;
+      point: { latitude: number; longitude: number } | null;
+      isOnSite: boolean;
+    };
+    type NearbyServiceSuggestion = {
+      id: string;
+      title: string;
+      site: string;
+      date: string;
+      distanceKm: number | null;
+      needsGps: boolean;
+    };
+    const nearbyServiceCandidates = records
+      .filter((record) => !recordIsClosed(record))
+      .map((record) => ({
+        record,
+        id: recordIdentity(record),
+        title: String(record.customer || record.customer_name || record.job_number || record.id || "Service job"),
+        site: String(record.site || record.city || record.area || "Site not set"),
+        date: String(record.scheduled_date || record.service_date || record.next_service_date || record.created_at || "").slice(0, 10),
+        point: geoPointFromRecord(record),
+      }))
+      .filter((item) => item.id);
+    async function assignNearbyServiceToEngineer(serviceId: string, engineerName: string) {
+      if (!serviceId || !engineerName) return;
+      setLoading(true);
+      try {
+        await apiFetch(`/api/portal/service/${encodeURIComponent(serviceId)}`, {
+          method: "PATCH",
+          token,
+          body: JSON.stringify({
+            assigned_engineer: engineerName,
+            technician: engineerName,
+            assignment_source: "nearest-live-location",
+            assignment_reset_at: new Date().toISOString(),
+          }),
+        });
+        await loadPortal();
+        setMessage(`Assigned nearest service to ${engineerName}.`);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Nearest service could not be assigned.");
+      } finally {
+        setLoading(false);
+      }
+    }
+    async function assignServiceToEngineer(serviceId: string, engineerName: string) {
+      if (!serviceId || !engineerName) return;
+      setLoading(true);
+      try {
+        await apiFetch(`/api/portal/service/${encodeURIComponent(serviceId)}`, {
+          method: "PATCH",
+          token,
+          body: JSON.stringify({
+            assigned_engineer: engineerName,
+            technician: engineerName,
+            assignment_source: "manager-direct",
+            assignment_reset_at: new Date().toISOString(),
+          }),
+        });
+        setServiceQuickAssignOpen("");
+        await loadPortal();
+        setMessage(`Assigned service to ${engineerName}.`);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Service could not be assigned.");
+      } finally {
+        setLoading(false);
+      }
+    }
+    async function unassignServiceEngineer(serviceId: string) {
+      if (!serviceId) return;
+      setLoading(true);
+      try {
+        await apiFetch(`/api/portal/service/${encodeURIComponent(serviceId)}`, {
+          method: "PATCH",
+          token,
+          body: JSON.stringify({
+            assigned_engineer: "",
+            technician: "",
+            engineer: "",
+            assigned_to: "",
+            assignment_source: "manager-unassigned",
+            assignment_reset_at: new Date().toISOString(),
+          }),
+        });
+        setServiceQuickAssignOpen("");
+        await loadPortal();
+        setMessage("Service engineer unassigned.");
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Service engineer could not be unassigned.");
+      } finally {
+        setLoading(false);
+      }
+    }
     const serviceEngineerRoster = engineerOptions.map((engineer) => {
       const serviceAssignments: ServiceEngineerAssignment[] = records
         .filter((record) => !recordIsClosed(record))
@@ -3206,10 +3418,13 @@ export default function App() {
           type: "Service" as const,
           title: String(record.customer || record.customer_name || record.job_number || record.id || "Service job"),
           detail: `Job ${String(record.job_number || record.job_no || record.id || "-")} - ${String(record.site || record.city || record.area || "-")}`,
+          jobLabel: String(record.job_number || record.job_no || record.id || "-"),
+          site: String(record.site || record.city || record.area || "-"),
           date: String(record.scheduled_date || record.service_date || record.next_service_date || record.created_at || "").slice(0, 10),
           status: String(record.status || "Open"),
           tab: "service" as TabKey,
           search: String(record.job_number || record.job_no || record.id || record.customer_id || record.customer || ""),
+          record,
         }));
       const breakdownAssignments: ServiceEngineerAssignment[] = asRecords(data?.breakdowns)
         .filter((record) => !recordIsClosed(record))
@@ -3218,10 +3433,13 @@ export default function App() {
           type: "Breakdown" as const,
           title: String(record.customer || record.customer_name || record.unit || record.breakdown_number || "Breakdown"),
           detail: `${String(record.breakdown_number || record.id || "-")} - ${String(record.site || record.location || record.area || "-")}`,
+          jobLabel: String(record.breakdown_number || record.id || "-"),
+          site: String(record.site || record.location || record.area || "-"),
           date: String(record.scheduled_at || record.created_at || record.date || "").slice(0, 10),
           status: String(record.status || "Open"),
           tab: "breakdown" as TabKey,
           search: String(record.breakdown_number || record.id || record.customer || record.unit || ""),
+          record,
         }));
       const installAssignments: ServiceEngineerAssignment[] = installJobs
         .filter((record) => !recordIsClosed(record))
@@ -3230,10 +3448,13 @@ export default function App() {
           type: "Install" as const,
           title: String(record.customer || record.customer_name || record.project_name || record.job_id || "Install job"),
           detail: `Job ${String(record.job_id || record.id || "-")} - ${String(record.site || record.site_address || record.location || "-")}`,
+          jobLabel: String(record.job_id || record.id || "-"),
+          site: String(record.site || record.site_address || record.location || "-"),
           date: String(record.handover_date || record.target_date || record.due_date || record.start_date || "").slice(0, 10),
           status: String(record.status || "Open"),
           tab: "installations" as TabKey,
           search: String(record.job_id || record.id || record.customer || record.customer_name || ""),
+          record,
         }));
       const scheduledAssignments: ServiceEngineerAssignment[] = installedServiceSchedule
         .filter((item) => engineerMatchesAssignment(engineer.name, item.job, ["service_engineer", "assigned_engineer", "engineer", "assigned_to", "assigned_team", "crew"]))
@@ -3242,18 +3463,147 @@ export default function App() {
           type: "Scheduled" as const,
           title: item.customerName || "Scheduled service",
           detail: `Service #${item.nextServiceNumber} - Job ${item.jobId || "-"} - Installed ${item.installDate}`,
+          jobLabel: `Service #${item.nextServiceNumber}`,
+          site: String(item.job.site || item.job.site_address || item.customerName || "-"),
           date: item.nextDue,
           status: item.status,
           tab: "service" as TabKey,
           search: item.customerId || item.customerName || item.jobId,
+          record: item.job,
         }));
       const assignments = [...serviceAssignments, ...breakdownAssignments, ...installAssignments, ...scheduledAssignments]
-        .sort((a, b) => (a.date || "9999-12-31").localeCompare(b.date || "9999-12-31"))
-        .slice(0, 8);
-      return { engineer, assignments };
+        .sort((a, b) => (a.date || "9999-12-31").localeCompare(b.date || "9999-12-31"));
+      const jobLocationRecords = [...records, ...asRecords(data?.breakdowns)]
+        .filter((record) => engineerMatchesAssignment(engineer.name, record, ["assigned_engineer", "technician", "engineer", "assigned_to", "scheduled_engineer"]))
+        .filter((record) => String(record.check_in_at || record.check_out_at || "").trim())
+        .map((record) => ({
+          customer: String(record.customer || record.customer_name || record.unit || "-"),
+          site: String(record.site || record.location || record.city || "-"),
+          status: String(record.status || "Open"),
+          checkInAt: String(record.check_in_at || ""),
+          checkOutAt: String(record.check_out_at || ""),
+          checkInLocation: record.check_in_location,
+          checkOutLocation: record.check_out_location,
+        }));
+      const attendanceLocationRecords = asRecords(data?.attendance_today)
+        .filter((record) => engineerMatchesAssignment(engineer.name, record, ["person_name", "name", "staff_name"]))
+        .filter((record) => String(record.check_in || record.time_in || record.check_out || record.time_out || "").replace("-", "").trim())
+        .map((record) => {
+          const attendanceDate = String(record.date || todayDate).slice(0, 10);
+          const checkInTime = String(record.check_in || record.time_in || "").replace("-", "").trim();
+          const checkOutTime = String(record.check_out || record.time_out || "").replace("-", "").trim();
+          return {
+            customer: "Staff attendance",
+            site: String(record.department || fieldText(record, ["person_name", "name", "staff_name"]) || "Daily check-in"),
+            status: String(record.status || "Present"),
+            checkInAt: checkInTime ? `${attendanceDate}T${checkInTime.length === 5 ? `${checkInTime}:00` : checkInTime}` : "",
+            checkOutAt: checkOutTime ? `${attendanceDate}T${checkOutTime.length === 5 ? `${checkOutTime}:00` : checkOutTime}` : "",
+            checkInLocation: record.check_in_location,
+            checkOutLocation: record.check_out_location,
+          };
+        });
+      const locationRecords = [...jobLocationRecords, ...attendanceLocationRecords]
+        .sort((a, b) => String(b.checkOutAt || b.checkInAt || "").localeCompare(String(a.checkOutAt || a.checkInAt || "")));
+      const latestLocationRecord = locationRecords[0];
+      const lastLocation: ServiceEngineerLocation | null = latestLocationRecord ? {
+        customer: latestLocationRecord.customer,
+        site: latestLocationRecord.site,
+        status: latestLocationRecord.status,
+        checkInAt: latestLocationRecord.checkInAt,
+        checkOutAt: latestLocationRecord.checkOutAt,
+        locationText: attendanceLocationText(latestLocationRecord.checkOutLocation || latestLocationRecord.checkInLocation),
+        point: geoPointFromRecord({
+          check_in_location: latestLocationRecord.checkInLocation,
+          check_out_location: latestLocationRecord.checkOutLocation,
+        }),
+        isOnSite: Boolean(String(latestLocationRecord.checkInAt || "").trim() && !String(latestLocationRecord.checkOutAt || "").trim()),
+      } : null;
+      const nearbyWithDistance = lastLocation?.point
+        ? nearbyServiceCandidates
+          .filter((candidate) => !engineerMatchesAssignment(engineer.name, candidate.record, ["assigned_engineer", "technician", "engineer", "assigned_to"]))
+          .map((candidate) => ({
+            ...candidate,
+            distanceKm: candidate.point ? distanceKmBetween(lastLocation.point as { latitude: number; longitude: number }, candidate.point) : null,
+          }))
+          .sort((a, b) => (a.distanceKm ?? Number.POSITIVE_INFINITY) - (b.distanceKm ?? Number.POSITIVE_INFINITY))
+        : [];
+      const nearestCandidate = nearbyWithDistance[0] || nearbyServiceCandidates.find((candidate) => !engineerMatchesAssignment(engineer.name, candidate.record, ["assigned_engineer", "technician", "engineer", "assigned_to"]));
+      const nearestService: NearbyServiceSuggestion | null = nearestCandidate ? {
+        id: nearestCandidate.id || "",
+        title: nearestCandidate.title,
+        site: nearestCandidate.site,
+        date: nearestCandidate.date,
+        distanceKm: typeof nearestCandidate.distanceKm === "number" ? nearestCandidate.distanceKm : null,
+        needsGps: !lastLocation?.point || !nearestCandidate.point,
+      } : null;
+      return { engineer, assignments, lastLocation, nearestService };
     });
     const assignedServiceEngineers = serviceEngineerRoster.filter((row) => row.assignments.length).length;
     const activeServiceAssignments = serviceEngineerRoster.reduce((sum, row) => sum + row.assignments.length, 0);
+    const viewerEngineerName = cleanDisplayValue(fieldText(viewer, ["display_name", "name", "username"]), "My service login");
+    const viewerRosterRow = serviceEngineerRoster.find((row) => {
+      const rowKey = normalizedKey(row.engineer.name);
+      return rowKey && [...viewerServiceKeys].some((viewerKey) => rowKey === viewerKey || rowKey.includes(viewerKey) || viewerKey.includes(rowKey));
+    }) || {
+      engineer: { name: viewerEngineerName, department: cleanDisplayValue(viewer.department || viewerDepartment, "Service") },
+      assignments: records
+        .filter((record) => !recordIsClosed(record))
+        .map((record) => ({
+          type: "Service" as const,
+          title: String(record.customer || record.customer_name || record.job_number || record.id || "Service job"),
+          detail: `Job ${String(record.job_number || record.job_no || record.id || "-")} - ${String(record.site || record.city || record.area || "-")}`,
+          jobLabel: String(record.job_number || record.job_no || record.id || "-"),
+          site: String(record.site || record.city || record.area || "-"),
+          date: String(record.scheduled_date || record.service_date || record.next_service_date || record.created_at || "").slice(0, 10),
+          status: String(record.status || "Open"),
+          tab: "service" as TabKey,
+          search: String(record.job_number || record.job_no || record.id || record.customer_id || record.customer || ""),
+          record,
+        })),
+      lastLocation: null,
+      nearestService: null,
+    };
+    const resetServiceAssignmentsFromTeam = async () => {
+      if (!canViewAllService) {
+        setMessage("Only Service Manager, CEO, or Admin can reset service assignments.");
+        return;
+      }
+      if (!engineerOptions.length) {
+        setMessage("Add active Service staff in Team Accounts before resetting service assignments.");
+        return;
+      }
+      const openRecords = records
+        .filter((record) => !recordIsClosed(record))
+        .sort((a, b) => String(a.scheduled_date || a.service_date || a.next_service_date || a.created_at || "").localeCompare(String(b.scheduled_date || b.service_date || b.next_service_date || b.created_at || "")));
+      if (!openRecords.length) {
+        setMessage("No open service records need reassignment.");
+        return;
+      }
+      setLoading(true);
+      try {
+        await Promise.all(openRecords.map((record, index) => {
+          const id = recordIdentity(record);
+          const engineer = engineerOptions[index % engineerOptions.length];
+          if (!id || !engineer?.name) return Promise.resolve();
+          return apiFetch(`/api/portal/service/${encodeURIComponent(id)}`, {
+            method: "PATCH",
+            token,
+            body: JSON.stringify({
+              assigned_engineer: engineer.name,
+              technician: engineer.name,
+              assignment_source: "team-account-reset",
+              assignment_reset_at: new Date().toISOString(),
+            }),
+          });
+        }));
+        await loadPortal();
+        setMessage(`Reset ${openRecords.length} open service assignments across ${engineerOptions.length} active service staff.`);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Service assignments could not be reset.");
+      } finally {
+        setLoading(false);
+      }
+    };
     const installInfoForServiceRecord = (record: Record<string, unknown>) => {
       const installJobId = String(record.install_job_id || record.job_id || "").trim();
       const customerId = String(record.customer_id || "").trim();
@@ -3329,6 +3679,7 @@ export default function App() {
     };
     const query = serviceRecordSearch.trim().toLowerCase();
     const filteredRecords = records.filter((record) => {
+      if (!canViewAllService && recordIsClosed(record)) return false;
       if (!query) return true;
       return [
         record.id,
@@ -3359,11 +3710,16 @@ export default function App() {
     const servicePageCount = Math.max(1, Math.ceil(filteredRecords.length / servicePageSize));
     const safeServicePage = Math.min(servicePage, servicePageCount);
     const visibleRecords = filteredRecords.slice((safeServicePage - 1) * servicePageSize, safeServicePage * servicePageSize);
-    const checkedInServiceRecords = records
+    const checkedOutServiceVisitRecords = records
       .filter((record) => String(record.check_in_at || "").trim())
+      .filter((record) => String(record.check_out_at || "").trim())
       .sort((a, b) => String(b.check_in_at || "").localeCompare(String(a.check_in_at || "")))
-      .slice(0, 12);
-    const activeCheckedInCount = checkedInServiceRecords.filter((record) => !String(record.check_out_at || "").trim()).length;
+      .slice(0, 11);
+    const checkedInServiceRecords = [
+      ...(activeServiceCheckInRecord ? [activeServiceCheckInRecord] : []),
+      ...checkedOutServiceVisitRecords,
+    ].slice(0, 12);
+    const activeCheckedInCount = activeServiceCheckInRecord ? 1 : 0;
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -3410,25 +3766,171 @@ export default function App() {
           )}
           {!checkedInServiceRecords.length && <Text style={styles.muted}>No service engineer check-ins have been captured yet.</Text>}
         </View>
+        {isViewerServiceManager && (
+          <View style={styles.formCard}>
+            <View style={styles.cardHeaderRow}>
+              <View>
+                <Text style={styles.cardLabel}>My office attendance</Text>
+                <Text style={styles.cardTitle}>{viewerStaff ? fieldText(viewerStaff, ["name"]) : "Staff profile not linked"}</Text>
+              </View>
+              <Text style={styles.statusPill}>{fieldText(viewerAttendance || {}, ["status"]) || "Not marked"}</Text>
+            </View>
+            <Text style={styles.bodyText}>Today: {todayDate} - In {fieldText(viewerAttendance || {}, ["check_in", "time_in"]) || "Not set"} - Out {fieldText(viewerAttendance || {}, ["check_out", "time_out"]) || "Not set"}</Text>
+            {!!attendanceLocationText(viewerAttendance?.check_in_location) && (
+              <Text style={styles.muted}>Check-in location: {attendanceLocationText(viewerAttendance?.check_in_location)}</Text>
+            )}
+            {!!attendanceLocationText(viewerAttendance?.check_out_location) && (
+              <Text style={styles.muted}>Check-out location: {attendanceLocationText(viewerAttendance?.check_out_location)}</Text>
+            )}
+            {!!officeAttendanceEntries.length && (
+              <View style={styles.serviceJobList}>
+                <Text style={styles.label}>Office check-in history</Text>
+                {officeAttendanceEntries.map((entry, index) => (
+                  <View key={`office-attendance-entry-${String(entry.id || index)}`} style={styles.serviceJobRow}>
+                    <View style={styles.serviceJobTopLine}>
+                      <Text style={styles.serviceJobType}>{String(entry.label || entry.action || "Entry").replace("_", " ")}</Text>
+                      <Text style={styles.serviceJobDate}>{String(entry.time || "").replace("-", "") || displayDateTime(entry.timestamp) || "-"}</Text>
+                    </View>
+                    <Text style={styles.serviceJobMeta}>{String(entry.date || todayDate)}{attendanceLocationText(entry.location) ? ` - ${attendanceLocationText(entry.location)}` : ""}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+            <View style={styles.inlineActions}>
+              <Pressable style={styles.primaryButton} onPress={() => markSelfAttendance("check_in")} disabled={loading || !viewerStaff}>
+                <Text style={styles.primaryButtonText}>Check in to office</Text>
+              </Pressable>
+              <Pressable style={styles.secondaryButton} onPress={() => markSelfAttendance("check_out")} disabled={loading || !viewerStaff}>
+                <Text style={styles.secondaryButtonText}>Check out</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.muted}>Use this for Jitendra's own attendance. Use service job cards below to assign engineers and capture job-site locations.</Text>
+          </View>
+        )}
+        {isViewerServiceManager && (
+          <View style={styles.formCard}>
+            <View style={styles.cardHeaderRow}>
+              <View>
+                <Text style={styles.cardLabel}>Office attendance history</Text>
+                <Text style={styles.cardTitle}>{viewerStaff ? fieldText(viewerStaff, ["name"]) : "Staff profile not linked"}</Text>
+              </View>
+              <Text style={styles.statusPill}>{officeAttendanceHistoryRows.length} days</Text>
+            </View>
+            <View style={styles.serviceJobList}>
+              {officeAttendanceHistoryRows.map((row, index) => {
+                const rowDate = fieldText(row, ["date"]) || todayDate;
+                const rowEntries = Array.isArray(row.entries)
+                  ? (row.entries as Array<Record<string, unknown>>)
+                    .filter((entry) => String(entry.date || rowDate).slice(0, 10) === rowDate)
+                    .sort((a, b) => String(a.timestamp || a.marked_at || "").localeCompare(String(b.timestamp || b.marked_at || "")))
+                  : [];
+                return (
+                  <View key={`office-attendance-history-${String(row.id || rowDate || index)}`} style={styles.serviceJobRow}>
+                    <View style={styles.serviceJobTopLine}>
+                      <Text style={styles.serviceJobType}>{rowDate}</Text>
+                      <Text style={styles.serviceJobDate}>{fieldText(row, ["status"]) || "Not marked"}</Text>
+                    </View>
+                    <Text style={styles.serviceJobTitle}>In {fieldText(row, ["check_in", "time_in"]) || "Not set"} - Out {fieldText(row, ["check_out", "time_out"]) || "Not set"}</Text>
+                    {!!rowEntries.length && (
+                      <Text style={styles.serviceJobMeta}>
+                        {rowEntries.map((entry) => `${String(entry.label || entry.action || "Entry").replace("_", " ")} ${String(entry.time || "").replace("-", "") || displayDateTime(entry.timestamp) || "-"}`).join(" | ")}
+                      </Text>
+                    )}
+                    {!!attendanceLocationText(row.check_in_location) && <Text style={styles.serviceJobMeta}>First location: {attendanceLocationText(row.check_in_location)}</Text>}
+                    {!!attendanceLocationText(row.check_out_location) && <Text style={styles.serviceJobMeta}>Last location: {attendanceLocationText(row.check_out_location)}</Text>}
+                  </View>
+                );
+              })}
+              {!officeAttendanceHistoryRows.length && <Text style={styles.muted}>No office attendance history has been recorded yet.</Text>}
+            </View>
+          </View>
+        )}
         {!canViewAllService && (
           <View style={styles.formCard}>
             <Text style={styles.cardLabel}>My assigned services</Text>
-            <Text style={styles.muted}>You are seeing only service records assigned to {fieldText(viewer, ["display_name", "username"]) || "your account"}. Check in and check out from the assigned service card when working on site.</Text>
+            <Text style={styles.muted}>You are seeing only open service work assigned to {fieldText(viewer, ["display_name", "username"]) || "your account"}. Completed or done services are hidden from engineer login.</Text>
+            <View style={styles.serviceEngineerGrid}>
+              <View style={styles.serviceEngineerTile}>
+                <View style={styles.serviceEngineerTileHeader}>
+                  <View style={styles.serviceEngineerTitleBlock}>
+                    <Text style={styles.dispatchRosterName}>{viewerRosterRow.engineer.name}</Text>
+                    <Text style={[styles.dispatchStatusChip, viewerRosterRow.assignments.length ? styles.dispatchStatusBusy : styles.dispatchStatusAvailable]}>
+                      {viewerRosterRow.assignments.length ? `${viewerRosterRow.assignments.length} assigned` : "Available"}
+                    </Text>
+                  </View>
+                  {!!viewerRosterRow.engineer.department && <Text style={styles.dispatchRosterMeta}>{viewerRosterRow.engineer.department}</Text>}
+                </View>
+                <View style={viewerRosterRow.lastLocation?.isOnSite ? styles.engineerLocationLive : styles.engineerLocationPanel}>
+                  <View style={styles.dispatchRosterTitleRow}>
+                    <Text style={styles.serviceJobType}>{viewerRosterRow.lastLocation?.isOnSite ? "Live site" : "Last location"}</Text>
+                    <Text style={[styles.dispatchStatusChip, viewerRosterRow.lastLocation?.isOnSite ? styles.dispatchStatusBusy : styles.dispatchStatusAvailable]}>
+                      {viewerRosterRow.lastLocation?.isOnSite ? "Checked in" : viewerRosterRow.lastLocation ? "Checked out" : "No check-in"}
+                    </Text>
+                  </View>
+                  {viewerRosterRow.lastLocation ? (
+                    <>
+                      <Text style={styles.serviceJobTitle} numberOfLines={1}>{viewerRosterRow.lastLocation.customer}</Text>
+                      <Text style={styles.serviceJobMeta} numberOfLines={2}>{viewerRosterRow.lastLocation.site}</Text>
+                      <Text style={styles.serviceJobMeta}>In {displayDateTime(viewerRosterRow.lastLocation.checkInAt) || "-"}</Text>
+                      <Text style={styles.serviceJobMeta}>Out {displayDateTime(viewerRosterRow.lastLocation.checkOutAt) || "On site now"}</Text>
+                      {!!viewerRosterRow.lastLocation.locationText && <Text style={styles.serviceJobMeta}>GPS {viewerRosterRow.lastLocation.locationText}</Text>}
+                    </>
+                  ) : (
+                    <Text style={styles.serviceJobMeta}>No GPS check-in captured yet.</Text>
+                  )}
+                </View>
+                <View style={styles.serviceJobList}>
+                  {viewerRosterRow.assignments.map((assignment, assignmentIndex) => (
+                    <Pressable
+                      key={`my-service-assignment-${assignment.type}-${assignmentIndex}`}
+                      style={styles.serviceJobRow}
+                      onPress={() => {
+                        if (assignment.tab === "service" && assignment.search) setServiceRecordSearch(assignment.search);
+                        setActiveTab(assignment.tab);
+                      }}
+                      disabled={loading}
+                    >
+                      <View style={styles.serviceJobTopLine}>
+                        <Text style={styles.serviceJobType}>{assignment.type}</Text>
+                        <Text style={styles.serviceJobDate}>{assignment.date || "No date"}</Text>
+                      </View>
+                      <Text style={styles.serviceJobTitle} numberOfLines={1}>{assignment.title}</Text>
+                      <Text style={styles.serviceJobMeta} numberOfLines={2}>{assignment.jobLabel} - {assignment.site}</Text>
+                      <Text style={styles.serviceJobMeta}>{assignment.status || "Open"}</Text>
+                      {assignment.tab === "service" && assignment.record && canViewerCaptureServiceVisitPoint(assignment.record as Record<string, unknown>) && (
+                        renderServiceVisitActions(assignment.record as Record<string, unknown>)
+                      )}
+                    </Pressable>
+                  ))}
+                  {!viewerRosterRow.assignments.length && <Text style={styles.serviceJobMeta}>No active assignment found.</Text>}
+                </View>
+              </View>
+            </View>
           </View>
         )}
         {canViewAllService && <View style={styles.formCard}>
           <View style={styles.sectionHeaderRow}>
             <View>
               <Text style={styles.cardLabel}>Service engineer assignments</Text>
-              <Text style={styles.muted}>All service engineers and their current service, breakdown, installation, and scheduled service assignments.</Text>
+              <Text style={styles.muted}>Active Service staff come from Team Accounts. Add, deactivate, or edit staff there, then reset assignments to rebuild this board.</Text>
             </View>
-            <Text style={styles.statusPill}>{assignedServiceEngineers}/{serviceEngineerRoster.length} assigned</Text>
+            <View style={styles.inlineActions}>
+              <Text style={styles.statusPill}>{assignedServiceEngineers}/{serviceEngineerRoster.length} assigned</Text>
+              <Pressable style={styles.smallButton} onPress={() => setActiveTab("accounts")} disabled={loading}>
+                <Text style={styles.smallButtonText}>Team Accounts</Text>
+              </Pressable>
+              {canViewAllService && (
+                <Pressable style={styles.smallButton} onPress={resetServiceAssignmentsFromTeam} disabled={loading || !serviceEngineerRoster.length}>
+                  <Text style={styles.smallButtonText}>Reset assignments</Text>
+                </Pressable>
+              )}
+            </View>
           </View>
           <View style={styles.metricGrid}>
             <View style={styles.card}>
               <Text style={styles.cardLabel}>Service engineers</Text>
               <Text style={styles.metricValue}>{serviceEngineerRoster.length}</Text>
-              <Text style={styles.muted}>Roster pulled from team, staff, and user records.</Text>
+              <Text style={styles.muted}>Active service users from Team Accounts.</Text>
             </View>
             <View style={styles.card}>
               <Text style={styles.cardLabel}>Active assignments</Text>
@@ -3436,115 +3938,130 @@ export default function App() {
               <Text style={styles.muted}>Open or upcoming assignments visible below.</Text>
             </View>
           </View>
-          <View style={styles.selectorList}>
+          <View style={styles.serviceEngineerGrid}>
             {serviceEngineerRoster.map((row) => (
-              <View key={`service-engineer-roster-${row.engineer.name}`} style={styles.dispatchRosterRow}>
-                <View style={styles.dispatchRosterMain}>
-                  <View style={styles.dispatchRosterTitleRow}>
+              <View key={`service-engineer-roster-${row.engineer.name}`} style={styles.serviceEngineerTile}>
+                <View style={styles.serviceEngineerTileHeader}>
+                  <View style={styles.serviceEngineerTitleBlock}>
                     <Text style={styles.dispatchRosterName}>{row.engineer.name}</Text>
                     <Text style={[styles.dispatchStatusChip, row.assignments.length ? styles.dispatchStatusBusy : styles.dispatchStatusAvailable]}>
                       {row.assignments.length ? `${row.assignments.length} assigned` : "Available"}
                     </Text>
                   </View>
                   {!!row.engineer.department && <Text style={styles.dispatchRosterMeta}>{row.engineer.department}</Text>}
-                  {row.assignments.slice(0, 4).map((assignment, assignmentIndex) => (
+                </View>
+                <View style={row.lastLocation?.isOnSite ? styles.engineerLocationLive : styles.engineerLocationPanel}>
+                  <View style={styles.dispatchRosterTitleRow}>
+                    <Text style={styles.serviceJobType}>{row.lastLocation?.isOnSite ? "Live site" : "Last location"}</Text>
+                    <Text style={[styles.dispatchStatusChip, row.lastLocation?.isOnSite ? styles.dispatchStatusBusy : styles.dispatchStatusAvailable]}>
+                      {row.lastLocation?.isOnSite ? "Checked in" : row.lastLocation ? "Checked out" : "No check-in"}
+                    </Text>
+                  </View>
+                  {row.lastLocation ? (
+                    <>
+                      <Text style={styles.serviceJobTitle} numberOfLines={1}>{row.lastLocation.customer}</Text>
+                      <Text style={styles.serviceJobMeta} numberOfLines={2}>{row.lastLocation.site}</Text>
+                      <Text style={styles.serviceJobMeta}>In {displayDateTime(row.lastLocation.checkInAt) || "-"}</Text>
+                      <Text style={styles.serviceJobMeta}>Out {displayDateTime(row.lastLocation.checkOutAt) || "On site now"}</Text>
+                      {!!row.lastLocation.locationText && <Text style={styles.serviceJobMeta}>GPS {row.lastLocation.locationText}</Text>}
+                    </>
+                  ) : (
+                    <Text style={styles.serviceJobMeta}>No GPS check-in captured yet.</Text>
+                  )}
+                </View>
+                <View style={styles.nearbyServicePanel}>
+                  <View style={styles.serviceJobTopLine}>
+                    <Text style={styles.serviceJobType}>Nearest next service</Text>
+                    <Text style={styles.serviceJobDate}>
+                      {row.nearestService?.distanceKm !== null && row.nearestService?.distanceKm !== undefined
+                        ? `${row.nearestService.distanceKm.toFixed(1)} km`
+                        : "GPS needed"}
+                    </Text>
+                  </View>
+                  {row.nearestService ? (
+                    <>
+                      <Text style={styles.serviceJobTitle} numberOfLines={1}>{row.nearestService.title}</Text>
+                      <Text style={styles.serviceJobMeta} numberOfLines={2}>{row.nearestService.site}</Text>
+                      <Text style={styles.serviceJobMeta}>{row.nearestService.date || "No schedule date"}{row.nearestService.needsGps ? " · add GPS/site pin for exact distance" : ""}</Text>
+                      {canViewAllService && (
+                        <Pressable
+                          style={styles.smallButton}
+                          onPress={() => assignNearbyServiceToEngineer(row.nearestService?.id || "", row.engineer.name)}
+                          disabled={loading || !row.nearestService.id}
+                        >
+                          <Text style={styles.smallButtonText}>Assign nearest</Text>
+                        </Pressable>
+                      )}
+                    </>
+                  ) : (
+                    <Text style={styles.serviceJobMeta}>No open service job is available for suggestion.</Text>
+                  )}
+                </View>
+                <View style={styles.serviceJobList}>
+                  {row.assignments.map((assignment, assignmentIndex) => (
                     <Pressable
                       key={`service-engineer-${row.engineer.name}-${assignment.type}-${assignmentIndex}`}
+                      style={styles.serviceJobRow}
                       onPress={() => {
                         if (assignment.tab === "service" && assignment.search) setServiceRecordSearch(assignment.search);
                         setActiveTab(assignment.tab);
                       }}
                       disabled={loading}
                     >
-                      <Text style={styles.dispatchRosterMeta}>
-                        {assignment.type}: {assignment.title} - {assignment.status || "Open"}{assignment.date ? ` - ${assignment.date}` : ""}
-                      </Text>
-                      <Text style={styles.muted}>{assignment.detail}</Text>
+                      <View style={styles.serviceJobTopLine}>
+                        <Text style={styles.serviceJobType}>{assignment.type}</Text>
+                        <Text style={styles.serviceJobDate}>{assignment.date || "No date"}</Text>
+                      </View>
+                      <Text style={styles.serviceJobTitle} numberOfLines={1}>{assignment.title}</Text>
+                      <Text style={styles.serviceJobMeta} numberOfLines={2}>{assignment.jobLabel} - {assignment.site}</Text>
+                      <Text style={styles.serviceJobMeta}>{assignment.status || "Open"}</Text>
+                      {assignment.tab === "service" && assignment.record && canViewAllService && (
+                        <View style={styles.field}>
+                          <Pressable
+                            style={[styles.dropdownButton, serviceQuickAssignOpen === `${row.engineer.name}-${assignment.search || assignmentIndex}` && styles.selectorPillActive]}
+                            onPress={() => setServiceQuickAssignOpen((openId) => openId === `${row.engineer.name}-${assignment.search || assignmentIndex}` ? "" : `${row.engineer.name}-${assignment.search || assignmentIndex}`)}
+                            disabled={loading || !engineerOptions.length}
+                          >
+                            <Text style={styles.selectorText}>Assign to engineer</Text>
+                            <Text style={styles.dropdownChevron}>{serviceQuickAssignOpen === `${row.engineer.name}-${assignment.search || assignmentIndex}` ? "▲" : "▼"}</Text>
+                          </Pressable>
+                          {serviceQuickAssignOpen === `${row.engineer.name}-${assignment.search || assignmentIndex}` && (
+                            <View style={styles.dropdownPanel}>
+                              <Pressable
+                                style={styles.dropdownOption}
+                                onPress={() => unassignServiceEngineer(recordIdentity(assignment.record as Record<string, unknown>))}
+                                disabled={loading}
+                              >
+                                <Text style={styles.selectorText}>Unassign engineer</Text>
+                                <Text style={styles.muted}>Clear this service job assignment.</Text>
+                              </Pressable>
+                              {engineerOptions.map((engineer) => (
+                                <Pressable
+                                  key={`quick-assign-${row.engineer.name}-${assignment.search || assignmentIndex}-${engineer.name}`}
+                                  style={[styles.dropdownOption, engineerMatchesAssignment(engineer.name, assignment.record as Record<string, unknown>, ["assigned_engineer", "technician", "engineer", "assigned_to"]) && styles.selectorPillActive]}
+                                  onPress={() => assignServiceToEngineer(recordIdentity(assignment.record as Record<string, unknown>), engineer.name)}
+                                  disabled={loading}
+                                >
+                                  <Text style={styles.selectorText}>{engineer.name}</Text>
+                                  {!!engineer.department && <Text style={styles.muted}>{engineer.department}</Text>}
+                                </Pressable>
+                              ))}
+                            </View>
+                          )}
+                        </View>
+                      )}
+                      {assignment.tab === "service" && assignment.record && canViewerCaptureServiceVisitPoint(assignment.record as Record<string, unknown>) && (
+                        renderServiceVisitActions(assignment.record as Record<string, unknown>)
+                      )}
                     </Pressable>
                   ))}
-                  {!row.assignments.length && <Text style={styles.dispatchRosterMeta}>No active assignment found.</Text>}
-                  {row.assignments.length > 4 && <Text style={styles.muted}>+{row.assignments.length - 4} more assignments</Text>}
+                  {!row.assignments.length && <Text style={styles.serviceJobMeta}>No active assignment found.</Text>}
                 </View>
               </View>
             ))}
             {!serviceEngineerRoster.length && <Text style={styles.muted}>No service engineers were found in the team, staff, or user records.</Text>}
           </View>
         </View>}
-        <View style={styles.formCard}>
-          <View style={styles.sectionHeaderRow}>
-            <View>
-              <Text style={styles.cardLabel}>Scheduled from installation date</Text>
-              <Text style={styles.muted}>Seven service visits per year are calculated from each elevator handover/install date. Overdue and upcoming services appear here.</Text>
-            </View>
-            <Text style={styles.statusPill}>{dueInstalledServices.length} due / upcoming</Text>
-          </View>
-          {!!visibleInstalledServices.length && (
-            <View style={styles.selectorList}>
-              {visibleInstalledServices.map((item) => (
-                <View key={`install-service-due-${item.jobId || item.customerId || item.installDate}`} style={styles.scheduleServiceRow}>
-                  <View style={styles.scheduleServiceMain}>
-                    <View style={styles.dispatchRosterTitleRow}>
-                      <Text style={styles.dispatchRosterName}>{item.customerName || "Customer"}</Text>
-                      <Text style={[styles.dispatchStatusChip, item.status === "Overdue" ? styles.slaOverdue : item.status === "Due today" ? styles.slaWarning : styles.slaOnTrack]}>
-                        {item.status}
-                      </Text>
-                    </View>
-                    <Text style={styles.muted}>
-                      Job {item.jobId || "-"} - Unit {String(item.job.unit || item.job.lift_reference || item.job.site || "-")} - Installed {item.installDate} - Service #{item.nextServiceNumber} due {item.nextDue}
-                    </Text>
-                    <Text style={styles.muted}>Previous services: {item.serviceCount} - Last service: {item.lastServiceDate || "None yet"} - Service end: {item.serviceEndDate || "Active / not set"}</Text>
-                    <View style={styles.inlineActions}>
-                      {[1, 2, 3, 5].map((years) => (
-                        <Pressable
-                          key={`extend-service-${item.customerId || item.jobId}-${years}`}
-                          style={styles.smallButton}
-                          onPress={() => extendCustomerServiceYears(item, years)}
-                          disabled={loading || !item.customerId}
-                        >
-                          <Text style={styles.smallButtonText}>+{years} yr{years === 1 ? "" : "s"}</Text>
-                        </Pressable>
-                      ))}
-                      {!item.customerId && <Text style={styles.muted}>Link this schedule to a CRM customer before extending service years.</Text>}
-                    </View>
-                    <Text style={styles.muted}>
-                      {item.annualPlan.length
-                        ? `${Array.from(new Set(item.annualPlan.map((entry) => entry.serviceYear))).length} service year${Array.from(new Set(item.annualPlan.map((entry) => entry.serviceYear))).length === 1 ? "" : "s"} available. Open the service record Edit panel to select year and slot.`
-                        : "No service slots available yet."}
-                    </Text>
-                  </View>
-                  <Pressable
-                    style={styles.smallButton}
-                    onPress={() => {
-                      setServiceDraft((draft) => ({
-                        ...draft,
-                        customer_id: item.customerId,
-                        customer: item.customerName,
-                        source_inquiry_id: String(item.job.source_inquiry_id || ""),
-                        site: String(item.job.site || item.job.site_address || ""),
-                        phone: String(item.job.phone || item.job.customer_phone || ""),
-                        install_job_id: item.jobId,
-                        scheduled_date: item.nextDue,
-                        service_number: String(item.nextServiceNumber),
-                        next_service_number: String(item.nextServiceNumber),
-                        installation_date: item.installDate,
-                        assigned_engineer: String(item.job.service_engineer || item.job.engineer || item.job.assigned_engineer || draft.assigned_engineer || ""),
-                        issue_category: "Scheduled preventive service",
-                        status: "Scheduled",
-                      }));
-                      setServiceNewVisitOpen(true);
-                    }}
-                    disabled={loading}
-                  >
-                    <Text style={styles.smallButtonText}>Create service</Text>
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          )}
-          {!visibleInstalledServices.length && (
-            <Text style={styles.muted}>{installJobs.length ? "No installed elevators are due in the next 30 days." : "No installation jobs are available for service scheduling yet."}</Text>
-          )}
-        </View>
         <View style={styles.formCard}>
           <Pressable
             style={[styles.dropdownButton, serviceNewVisitOpen && styles.selectorPillActive]}
@@ -3767,12 +4284,30 @@ export default function App() {
             installInfo.job?.engineer ||
             ""
           );
+          const currentRecord = draft || record;
+          const serviceJobNumber = cleanDisplayValue(record.job_number || record.job_no || record.id || id, id);
+          const serviceNumber = cleanDisplayValue(currentRecord.service_number || currentRecord.next_service_number);
+          const serviceScheduleDate = cleanDisplayValue(currentRecord.scheduled_date || currentRecord.next_service_date);
+          const serviceDateTime = displayDateTime(record.service_date || record.date_time || record.created_at) || cleanDisplayValue(record.service_date || record.created_at);
+          const engineerName = cleanDisplayValue(currentRecord.assigned_engineer || currentRecord.technician || record.engineer);
+          const issueText = cleanDisplayValue(currentRecord.issue_category || record.issue || record.fault);
+          const partsText = cleanDisplayValue(currentRecord.parts_used);
+          const checkInText = displayDateTime(record.check_in_at) || "Not checked in";
+          const checkOutText = displayDateTime(record.check_out_at) || "Not checked out";
+          const completedText = cleanDisplayValue(record.completed_date || record.completed_at);
           const servicePlanPanel = (
-            <View style={styles.inlineRecordEditor}>
-              <Text style={styles.cardLabel}>Client service schedule</Text>
-              <Text style={styles.bodyText}>Source: CRM install date - Install job: {installInfo.jobId || "-"} - Installed: {installInfo.installDate || "Missing in CRM/install data"} - Service end: {installInfo.serviceEndDate || "Active / not set"}</Text>
-              <Text style={styles.bodyText}>Unit/site: {installInfo.unit || "-"} - {installInfo.site || "-"}</Text>
-              <Text style={styles.bodyText}>Service number: {String((draft || record).service_number || (draft || record).next_service_number || "-")} - Scheduled: {String((draft || record).scheduled_date || "-")}</Text>
+            <View style={styles.serviceRecordPanel}>
+              <View style={styles.serviceRecordSectionHeader}>
+                <Text style={styles.cardLabel}>Client service schedule</Text>
+                <Text style={styles.statusPill}>{serviceNumber === "Not set" ? "Manual" : `Service ${serviceNumber}`}</Text>
+              </View>
+              <View style={styles.serviceMetaGrid}>
+                <View style={styles.serviceMetaTile}><Text style={styles.serviceMetaLabel}>Install job</Text><Text style={styles.serviceMetaValue}>{cleanDisplayValue(installInfo.jobId)}</Text></View>
+                <View style={styles.serviceMetaTile}><Text style={styles.serviceMetaLabel}>Installed</Text><Text style={styles.serviceMetaValue}>{cleanDisplayValue(installInfo.installDate, "Missing in CRM")}</Text></View>
+                <View style={styles.serviceMetaTile}><Text style={styles.serviceMetaLabel}>Service end</Text><Text style={styles.serviceMetaValue}>{cleanDisplayValue(installInfo.serviceEndDate, "Active / not set")}</Text></View>
+                <View style={styles.serviceMetaTile}><Text style={styles.serviceMetaLabel}>Scheduled</Text><Text style={styles.serviceMetaValue}>{serviceScheduleDate}</Text></View>
+              </View>
+              <Text style={styles.serviceJobMeta}>Unit/site: {cleanDisplayValue(installInfo.unit)} / {cleanDisplayValue(installInfo.site)}</Text>
               <Text style={styles.muted}>
                 {serviceYears.length ? `${serviceYears.length} service year${serviceYears.length === 1 ? "" : "s"} available. Click Edit, choose a service year, then choose one of that year’s slots.` : "No service years available yet."}
               </Text>
@@ -3791,30 +4326,53 @@ export default function App() {
                   </View>
                 </View>
               )}
+              {!!draft && canViewAllService && (
+                <View style={styles.serviceYearBlock}>
+                  <Text style={styles.serviceYearTitle}>Extend customer service years in CRM</Text>
+                  <Text style={styles.muted}>Use this only after the client buys more service years. The new service end date is saved back to the CRM customer record.</Text>
+                  <View style={styles.inlineActions}>
+                    {[1, 2, 3, 5].map((years) => (
+                      <Pressable
+                        key={`edit-extend-service-${id}-${years}`}
+                        style={styles.smallButton}
+                        onPress={() => extendCustomerServiceYears({
+                          customerId: customerId,
+                          customerName: String((draft || record).customer || record.customer || ""),
+                          installDate: installInfo.installDate,
+                          serviceEndDate: installInfo.serviceEndDate,
+                        }, years)}
+                        disabled={loading || !customerId}
+                      >
+                        <Text style={styles.smallButtonText}>+{years} yr{years === 1 ? "" : "s"}</Text>
+                      </Pressable>
+                    ))}
+                    {!customerId && <Text style={styles.muted}>Link this service record to a CRM customer before extending service years.</Text>}
+                  </View>
+                </View>
+              )}
               {!installInfo.installDate && <Text style={styles.muted}>Add the elevator installed date in CRM, or link this ticket to the install job, to calculate the seven service due dates.</Text>}
               {!!(installInfo.warrantyStart || installInfo.warrantyEnd) && <Text style={styles.muted}>Warranty: {installInfo.warrantyStart || "-"} to {installInfo.warrantyEnd || "-"}</Text>}
               {!!installInfo.handoverBy && <Text style={styles.muted}>Installed/handover by: {installInfo.handoverBy}</Text>}
             </View>
           );
           return (
-            <View key={id} style={styles.card}>
-              <View style={styles.cardHeaderRow}>
+            <View key={id} style={styles.serviceRecordCard}>
+              <View style={styles.serviceRecordHeader}>
                 <View style={styles.cardTitleBlock}>
-                  <Text style={styles.cardTitle}>{String((draft || record).customer || record.customer || "-")}</Text>
-                  <Text style={styles.muted}>Service job: {String(record.job_number || record.job_no || record.id || id)}</Text>
-                  <View style={styles.inlineMeta}>
-                    <Text style={styles.muted}>Customer no.</Text>
+                  <Text style={styles.serviceRecordTitle}>{cleanDisplayValue(currentRecord.customer || record.customer, "Unnamed customer")}</Text>
+                  <View style={styles.serviceRecordChips}>
+                    <Text style={styles.serviceRecordChip}>Job {serviceJobNumber}</Text>
                     {customerId ? (
                       <Pressable onPress={() => openCrmForCustomerNumber(customerId)} disabled={loading}>
-                        <Text style={styles.clickableUsername}>{customerId}</Text>
+                        <Text style={styles.serviceRecordChipLink}>Customer {customerId}</Text>
                       </Pressable>
                     ) : (
-                      <Text style={styles.muted}>Missing</Text>
+                      <Text style={styles.serviceRecordChip}>Customer missing</Text>
                     )}
-                    {!!record.source_inquiry_id && <Text style={styles.muted}>- CRM {String(record.source_inquiry_id)}</Text>}
+                    {!!record.source_inquiry_id && <Text style={styles.serviceRecordChip}>CRM {String(record.source_inquiry_id)}</Text>}
                   </View>
                 </View>
-                <Text style={styles.statusPill}>{String((draft || record).status || "Open")}</Text>
+                <Text style={styles.statusPill}>{cleanDisplayValue(currentRecord.status, "Open")}</Text>
               </View>
               {servicePlanPanel}
               {draft ? (
@@ -4047,23 +4605,62 @@ export default function App() {
                 </View>
               ) : (
                 <>
-                  <Text style={styles.bodyText}>{String(record.customer || "-")} - {String(record.site || record.city || "-")}</Text>
-                  <Text style={styles.bodyText}>Breakdown no: {String(record.breakdown_number || record.service_number || record.id || "-")} - Date/time: {String(record.service_date || record.created_at || "-")}</Text>
-                  <Text style={styles.bodyText}>Engineer: {String(record.assigned_engineer || record.technician || "-")} - Issue: {String(record.issue_category || "-")}</Text>
-                  <Text style={styles.bodyText}>Parts: {String(record.parts_used || "-")} - Qty {String(record.parts_quantity || "0")}</Text>
-                  <Text style={styles.bodyText}>Check-in: {String(record.check_in_at || "-")} - Check-out: {String(record.check_out_at || "-")}</Text>
+                  <View style={styles.serviceDetailGrid}>
+                    <View style={styles.serviceDetailTile}><Text style={styles.serviceMetaLabel}>Site</Text><Text style={styles.serviceMetaValue}>{cleanDisplayValue(record.site || record.city)}</Text></View>
+                    <View style={styles.serviceDetailTile}><Text style={styles.serviceMetaLabel}>Date/time</Text><Text style={styles.serviceMetaValue}>{serviceDateTime}</Text></View>
+                    <View style={styles.serviceDetailTile}><Text style={styles.serviceMetaLabel}>Engineer</Text><Text style={styles.serviceMetaValue}>{engineerName}</Text></View>
+                    <View style={styles.serviceDetailTile}><Text style={styles.serviceMetaLabel}>Issue</Text><Text style={styles.serviceMetaValue}>{issueText}</Text></View>
+                    <View style={styles.serviceDetailTile}><Text style={styles.serviceMetaLabel}>Parts</Text><Text style={styles.serviceMetaValue}>{partsText} · Qty {String(record.parts_quantity || "0")}</Text></View>
+                    <View style={styles.serviceDetailTile}><Text style={styles.serviceMetaLabel}>Completed</Text><Text style={styles.serviceMetaValue}>{completedText}</Text></View>
+                  </View>
+                  <View style={styles.serviceVisitTimeline}>
+                    <View style={styles.serviceVisitPoint}><Text style={styles.serviceMetaLabel}>Check-in</Text><Text style={styles.serviceMetaValue}>{checkInText}</Text></View>
+                    <View style={styles.serviceVisitPoint}><Text style={styles.serviceMetaLabel}>Check-out</Text><Text style={styles.serviceMetaValue}>{checkOutText}</Text></View>
+                    <View style={styles.serviceVisitPoint}><Text style={styles.serviceMetaLabel}>History</Text><Text style={styles.serviceMetaValue}>{historyCount} entries</Text></View>
+                  </View>
                   {!!attendanceLocationText(record.check_in_location) && <Text style={styles.muted}>Check-in location: {attendanceLocationText(record.check_in_location)}</Text>}
                   {!!attendanceLocationText(record.check_out_location) && <Text style={styles.muted}>Check-out location: {attendanceLocationText(record.check_out_location)}</Text>}
-                  <Text style={styles.bodyText}>Completed: {String(record.completed_date || "-")} - History entries: {historyCount}</Text>
-                  <Text style={styles.muted}>Action taken: {String(record.action_taken || record.findings || "-")}</Text>
+                  {!!String(record.action_taken || record.findings || "").trim() && <Text style={styles.serviceNoteText}>Action taken: {String(record.action_taken || record.findings)}</Text>}
                   {!!String(record.customer_comments || "").trim() && <Text style={styles.muted}>Customer comments: {String(record.customer_comments)}</Text>}
-                  <View style={styles.inlineActions}>
-                    <Pressable style={styles.smallButton} onPress={() => updateServiceVisitPoint(record, "check_in")} disabled={loading}>
-                      <Text style={styles.smallButtonText}>Check in</Text>
-                    </Pressable>
-                    <Pressable style={styles.smallButton} onPress={() => updateServiceVisitPoint(record, "check_out")} disabled={loading}>
-                      <Text style={styles.smallButtonText}>Check out</Text>
-                    </Pressable>
+                  <View style={styles.serviceActionRow}>
+                    {canViewAllService && (
+                      <View style={styles.field}>
+                        <Pressable
+                          style={[styles.dropdownButton, serviceQuickAssignOpen === `record-${id}` && styles.selectorPillActive]}
+                          onPress={() => setServiceQuickAssignOpen((openId) => openId === `record-${id}` ? "" : `record-${id}`)}
+                          disabled={loading || !engineerOptions.length}
+                        >
+                          <Text style={styles.selectorText}>Assign to engineer</Text>
+                          <Text style={styles.dropdownChevron}>{serviceQuickAssignOpen === `record-${id}` ? "▲" : "▼"}</Text>
+                        </Pressable>
+                        {serviceQuickAssignOpen === `record-${id}` && (
+                          <View style={styles.dropdownPanel}>
+                            <Pressable
+                              style={styles.dropdownOption}
+                              onPress={() => unassignServiceEngineer(id)}
+                              disabled={loading}
+                            >
+                              <Text style={styles.selectorText}>Unassign engineer</Text>
+                              <Text style={styles.muted}>Clear this service job assignment.</Text>
+                            </Pressable>
+                            {engineerOptions.map((engineer) => (
+                              <Pressable
+                                key={`record-quick-assign-${id}-${engineer.name}`}
+                                style={[styles.dropdownOption, engineerMatchesAssignment(engineer.name, record, ["assigned_engineer", "technician", "engineer", "assigned_to"]) && styles.selectorPillActive]}
+                                onPress={() => assignServiceToEngineer(id, engineer.name)}
+                                disabled={loading}
+                              >
+                                <Text style={styles.selectorText}>{engineer.name}</Text>
+                                {!!engineer.department && <Text style={styles.muted}>{engineer.department}</Text>}
+                              </Pressable>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                    )}
+                    {canViewerCaptureServiceVisitPoint(record) && (
+                      renderServiceVisitActions(record)
+                    )}
                     <Pressable style={styles.smallButton} onPress={() => startServiceEdit(record)} disabled={loading}>
                       <Text style={styles.smallButtonText}>Edit</Text>
                     </Pressable>
@@ -5839,6 +6436,20 @@ export default function App() {
       if (canReviewLeave) return normalizedKey(fieldText(item, ["department"])) === normalizedKey(viewerDepartment);
       return fieldText(item, ["person_id", "staff_id"]) === viewerStaffId;
     });
+    const leaveRequestsByMonth = visibleLeaveHistory.reduce((groups, item) => {
+      const start = fieldText(item, ["start_date"]) || fieldText(item, ["submitted_at", "created_at"]).slice(0, 10) || today;
+      const monthKey = start.slice(0, 7);
+      if (!groups.has(monthKey)) groups.set(monthKey, []);
+      groups.get(monthKey)?.push(item);
+      return groups;
+    }, new Map<string, Array<Record<string, unknown>>>());
+    const monthlyLeaveRows = Array.from(leaveRequestsByMonth.entries())
+      .sort(([a], [b]) => b.localeCompare(a))
+      .slice(0, 12)
+      .map(([month, requests]) => ({
+        month,
+        requests: requests.sort((a, b) => fieldText(a, ["start_date"]).localeCompare(fieldText(b, ["start_date"]))),
+      }));
     const approvedLeaves = leaves.filter((item) => {
       const status = String(item.status || "").toLowerCase();
       const start = fieldText(item, ["start_date"]);
@@ -6103,6 +6714,41 @@ export default function App() {
             {!!attendanceLocationText(item.check_in_location) && <Text style={styles.muted}>Check-in location: {attendanceLocationText(item.check_in_location)}</Text>}
             {!!attendanceLocationText(item.check_out_location) && <Text style={styles.muted}>Check-out location: {attendanceLocationText(item.check_out_location)}</Text>}
             {!!fieldText(item, ["notes"]) && <Text style={styles.bodyText}>{fieldText(item, ["notes"])}</Text>}
+          </View>
+        ))}
+
+        <Text style={styles.sectionTitle}>Time Off By Month</Text>
+        {!monthlyLeaveRows.length && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>No time off requests</Text>
+            <Text style={styles.muted}>Requests from your visible team will appear here by month.</Text>
+          </View>
+        )}
+        {monthlyLeaveRows.map((group) => (
+          <View key={`leave-month-${group.month}`} style={styles.card}>
+            <View style={styles.cardHeaderRow}>
+              <View>
+                <Text style={styles.cardLabel}>Month</Text>
+                <Text style={styles.cardTitle}>{group.month}</Text>
+              </View>
+              <Text style={styles.statusPill}>{group.requests.length} requests</Text>
+            </View>
+            <View style={styles.serviceJobList}>
+              {group.requests.map((item, index) => {
+                const status = fieldText(item, ["status"]) || "Pending";
+                const id = recordIdentity(item) || `${group.month}-${index}`;
+                return (
+                  <View key={`leave-month-${id}`} style={styles.serviceJobRow}>
+                    <View style={styles.serviceJobTopLine}>
+                      <Text style={styles.serviceJobTitle}>{fieldText(item, ["person_name", "name"]) || "Staff member"}</Text>
+                      <Text style={styles.statusPill}>{status}</Text>
+                    </View>
+                    <Text style={styles.serviceJobMeta}>{fieldText(item, ["leave_type"]) || "Time off"} - {fieldText(item, ["start_date"])} to {fieldText(item, ["end_date"]) || fieldText(item, ["start_date"])}</Text>
+                    {!!fieldText(item, ["reason", "notes"]) && <Text style={styles.muted}>{fieldText(item, ["reason", "notes"])}</Text>}
+                  </View>
+                );
+              })}
+            </View>
           </View>
         ))}
 
@@ -9966,7 +10612,7 @@ export default function App() {
                   <Text style={styles.smallButtonText}>Reset staff password</Text>
                 </Pressable>
                 <Pressable style={styles.smallButton} onPress={() => updateAccount(String(user.id), { active: String(user.active) === "false" ? true : false })} disabled={loading}>
-                  <Text style={styles.smallButtonText}>{String(user.active) === "false" ? "Activate" : "Deactivate"}</Text>
+                  <Text style={styles.smallButtonText}>{String(user.active) === "false" ? "Restore to team" : "Remove from team"}</Text>
                 </Pressable>
               </View>
             )}
@@ -13512,8 +14158,9 @@ export default function App() {
       person_name: personName,
       department: fieldText(staff, ["department"]),
       status: "present",
+      attendance_action: action,
       check_in: action === "check_in" ? currentTime : fieldText(existing || {}, ["check_in", "time_in"]).replace("-", ""),
-      check_out: action === "check_out" ? currentTime : fieldText(existing || {}, ["check_out", "time_out"]).replace("-", ""),
+      check_out: action === "check_out" ? currentTime : "",
       ...(action === "check_in" ? { check_in_location: location } : { check_out_location: location }),
       notes: fieldText(existing || {}, ["notes"]).replace("-", ""),
       marked_by: data?.viewer?.username || username,
@@ -14176,6 +14823,39 @@ const styles = StyleSheet.create({
   dispatchStatusChip: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3, fontWeight: "900", fontSize: 10, overflow: "hidden" },
   dispatchStatusAvailable: { backgroundColor: "#e8f7ee", color: "#137a35" },
   dispatchStatusBusy: { backgroundColor: "#fff2d8", color: "#8a5a00" },
+  serviceEngineerGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  serviceEngineerTile: { flexGrow: 1, flexShrink: 1, flexBasis: 270, maxWidth: 390, borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#fff", padding: 11, gap: 10 },
+  serviceEngineerTileHeader: { gap: 4, borderBottomWidth: 1, borderBottomColor: "#e4e7ee", paddingBottom: 8 },
+  serviceEngineerTitleBlock: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" },
+  engineerLocationPanel: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 9, gap: 3 },
+  engineerLocationLive: { borderWidth: 1, borderColor: "rgba(146,95,0,0.24)", borderRadius: 8, backgroundColor: "#fff8e5", padding: 9, gap: 3 },
+  nearbyServicePanel: { borderWidth: 1, borderColor: "rgba(15,118,110,0.2)", borderRadius: 8, backgroundColor: "#ecfdf5", padding: 9, gap: 5 },
+  serviceJobList: { gap: 7 },
+  serviceJobRow: { borderWidth: 1, borderColor: "#edf0f5", borderRadius: 8, backgroundColor: "#f8fafc", padding: 8, gap: 3 },
+  serviceJobTopLine: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  serviceJobType: { color: "#e02020", fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
+  serviceJobDate: { color: "#5b6270", fontSize: 10, fontWeight: "900" },
+  serviceJobTitle: { color: "#11131b", fontSize: 12, fontWeight: "900" },
+  serviceJobMeta: { color: "#5b6270", fontSize: 11, lineHeight: 15, fontWeight: "700" },
+  serviceMoreText: { color: "#2d3240", fontSize: 11, fontWeight: "900" },
+  serviceRecordCard: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#dfe4ed", padding: 13, marginBottom: 10, gap: 10, shadowColor: "#11131b", shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 6 } },
+  serviceRecordHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10, flexWrap: "wrap", borderBottomWidth: 1, borderBottomColor: "#e4e7ee", paddingBottom: 10 },
+  serviceRecordTitle: { color: "#11131b", fontSize: 17, lineHeight: 22, fontWeight: "900", marginBottom: 6 },
+  serviceRecordChips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  serviceRecordChip: { color: "#2d3240", backgroundColor: "#f3f5f8", borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, overflow: "hidden", fontWeight: "900", fontSize: 11 },
+  serviceRecordChipLink: { color: "#b91414", backgroundColor: "#fff5f5", borderWidth: 1, borderColor: "rgba(224,32,32,0.22)", borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, overflow: "hidden", fontWeight: "900", fontSize: 11 },
+  serviceRecordPanel: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 11, gap: 9 },
+  serviceRecordSectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" },
+  serviceMetaGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  serviceMetaTile: { flex: 1, minWidth: 130, borderWidth: 1, borderColor: "#edf0f5", borderRadius: 8, backgroundColor: "#fff", padding: 8, gap: 2 },
+  serviceMetaLabel: { color: "#747b8d", fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
+  serviceMetaValue: { color: "#11131b", fontSize: 12, lineHeight: 16, fontWeight: "900" },
+  serviceDetailGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  serviceDetailTile: { flex: 1, minWidth: 165, borderWidth: 1, borderColor: "#edf0f5", borderRadius: 8, backgroundColor: "#f8fafc", padding: 9, gap: 3 },
+  serviceVisitTimeline: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  serviceVisitPoint: { flex: 1, minWidth: 150, borderLeftWidth: 3, borderLeftColor: "#e02020", borderRadius: 8, backgroundColor: "#fffafa", paddingHorizontal: 10, paddingVertical: 8, gap: 2 },
+  serviceNoteText: { color: "#2d3240", fontSize: 13, lineHeight: 19, fontWeight: "800", borderTopWidth: 1, borderTopColor: "#e4e7ee", paddingTop: 8 },
+  serviceActionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, borderTopWidth: 1, borderTopColor: "#e4e7ee", paddingTop: 10 },
   scheduleServiceRow: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" },
   scheduleServiceMain: { flex: 1, minWidth: 240, gap: 3 },
   serviceYearBlock: { borderTopWidth: 1, borderTopColor: "#e4e7ee", paddingTop: 8, marginTop: 8, gap: 4 },
