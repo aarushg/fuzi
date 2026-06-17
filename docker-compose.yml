@@ -25,27 +25,3 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
-
-  web:
-    profiles: ["dev"]
-    build: .
-    image: fuzi-ops-web:local
-    command: npm --prefix expo-app run web -- --host lan --port 8082
-    environment:
-      EXPO_PUBLIC_FUZI_API_URL: ${EXPO_PUBLIC_FUZI_API_URL:-}
-      EXPO_PUBLIC_FUZI_API_PROTOCOL: ${EXPO_PUBLIC_FUZI_API_PROTOCOL:-http}
-      EXPO_PUBLIC_FUZI_API_HOST: ${EXPO_PUBLIC_FUZI_API_HOST:-127.0.0.1}
-      EXPO_PUBLIC_FUZI_API_PORT: ${EXPO_PUBLIC_FUZI_API_PORT:-${FUZI_API_PUBLISHED_PORT:-5000}}
-      EXPO_NO_TELEMETRY: "1"
-      CI: "1"
-    ports:
-      - "${FUZI_DEV_WEB_PUBLISHED_PORT:-8083}:8082"
-    depends_on:
-      api:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8082/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 30s

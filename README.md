@@ -52,12 +52,11 @@ Seeded staff accounts are stored in `fuzi.sqlite3`. Staff portal accounts use th
 
 ## Docker
 
-FUZI production runs as one Node service. The production image builds the Expo web bundle and serves it from the API container, and Compose publishes that container on both `5000` and `8082`. The separate Expo web service is for development and is enabled with the `dev` Compose profile.
+FUZI production runs as one Node service. The production image builds the Expo web bundle and serves it from the API container, and Compose publishes that single container on both `5000` and `8082`.
 
 | Service | Runtime | Install | Start | Port |
 |---|---|---|---|---|
 | API + production web | Node 22 | `npm ci` | `npm run api` | `5000`, `8082` |
-| Web dev server | Node 22 / Expo | `npm --prefix expo-app ci` | `npm --prefix expo-app run web -- --host lan --port 8082` | `8083` on host, `8082` in container |
 
 The API uses SQLite. In Docker production, `fuzi.sqlite3` is copied into the image and Compose sets `FUZI_DB_PATH=/app/fuzi.sqlite3`. Rebuilding the image refreshes the bundled database from the repository copy.
 
@@ -68,7 +67,6 @@ Common environment variables:
 | `FUZI_API_PORT` | `5000` | API |
 | `FUZI_API_PUBLISHED_PORT` | `5000` | Docker host port for API |
 | `FUZI_WEB_PUBLISHED_PORT` | `8082` | Docker host port for production web, served by the API container |
-| `FUZI_DEV_WEB_PUBLISHED_PORT` | `8083` | Docker host port for the optional dev Web service |
 | `FUZI_DB_PATH` | `/app/fuzi.sqlite3` in Compose | API |
 | `EXPO_PUBLIC_FUZI_API_URL` | `http://127.0.0.1:5000` | Web |
 | `EXPO_PUBLIC_FUZI_API_PROTOCOL` | `http` | Web |
@@ -84,12 +82,6 @@ Build and run the production service:
 
 ```bash
 docker compose up --build -d
-```
-
-Run the optional Expo web dev service alongside the API:
-
-```bash
-docker compose --profile dev up --build -d
 ```
 
 Equivalent npm scripts are available:
@@ -119,7 +111,6 @@ After startup, verify:
 
 - Production app/API: `http://127.0.0.1:5000`
 - Production web alias: `http://127.0.0.1:8082`
-- Optional Expo dev web portal: `http://127.0.0.1:8083`
 - Health checks: `docker compose ps`
 
 Secrets and local database files are excluded by `.dockerignore`; provide production secrets through environment variables or a local `.env` file used by Docker Compose.
