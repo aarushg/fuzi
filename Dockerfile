@@ -16,6 +16,5 @@ COPY . .
 RUN npm --prefix expo-app run export:web
 
 EXPOSE 5000
-VOLUME ["/data"]
 
 CMD ["npm", "run", "prod"]

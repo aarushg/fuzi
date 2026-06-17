@@ -13,7 +13,7 @@
     "typecheck": "npm --prefix expo-app run typecheck",
     "check": "npm --prefix expo-app run typecheck && npm --prefix expo-app exec expo install --check",
     "docker:build": "docker compose build",
-    "docker:up": "docker compose up --build",
+    "docker:up": "docker compose up --build -d",
     "docker:down": "docker compose down"
   },
   "dependencies": {

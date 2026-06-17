@@ -52,14 +52,14 @@ Seeded staff accounts are stored in `fuzi.sqlite3`. Staff portal accounts use th
 
 ## Docker
 
-FUZI production runs as one Node service. The production image builds the Expo web bundle and serves it from the API container, so only the API port is published by default. The separate Expo web service is for development and is enabled with the `dev` Compose profile.
+FUZI production runs as one Node service. The production image builds the Expo web bundle and serves it from the API container, and Compose publishes that container on both `5000` and `8082`. The separate Expo web service is for development and is enabled with the `dev` Compose profile.
 
 | Service | Runtime | Install | Start | Port |
 |---|---|---|---|---|
-| API | Node 22 | `npm ci` | `npm run api` | `5000` |
-| Web dev server | Node 22 / Expo | `npm --prefix expo-app ci` | `npm --prefix expo-app run web -- --host lan --port 8082` | `8082` |
+| API + production web | Node 22 | `npm ci` | `npm run api` | `5000`, `8082` |
+| Web dev server | Node 22 / Expo | `npm --prefix expo-app ci` | `npm --prefix expo-app run web -- --host lan --port 8082` | `8083` on host, `8082` in container |
 
-The API uses SQLite. In Docker, `FUZI_DB_PATH=/data/fuzi.sqlite3` stores `fuzi.sqlite3`, the `app_secrets` password-hash table, and WAL/SHM sidecar files inside the `/data` volume. The app creates the volume directory on startup, and Compose maps it to the named volume `fuzi-sqlite-data` so operational data persists outside the image.
+The API uses SQLite. In Docker production, `fuzi.sqlite3` is copied into the image and Compose sets `FUZI_DB_PATH=/app/fuzi.sqlite3`. Rebuilding the image refreshes the bundled database from the repository copy.
 
 Common environment variables:
 
@@ -67,8 +67,9 @@ Common environment variables:
 |---|---|---|
 | `FUZI_API_PORT` | `5000` | API |
 | `FUZI_API_PUBLISHED_PORT` | `5000` | Docker host port for API |
-| `FUZI_WEB_PUBLISHED_PORT` | `8082` | Docker host port for the optional dev Web service |
-| `FUZI_DB_PATH` | `/data/fuzi.sqlite3` in Compose | API |
+| `FUZI_WEB_PUBLISHED_PORT` | `8082` | Docker host port for production web, served by the API container |
+| `FUZI_DEV_WEB_PUBLISHED_PORT` | `8083` | Docker host port for the optional dev Web service |
+| `FUZI_DB_PATH` | `/app/fuzi.sqlite3` in Compose | API |
 | `EXPO_PUBLIC_FUZI_API_URL` | `http://127.0.0.1:5000` | Web |
 | `EXPO_PUBLIC_FUZI_API_PROTOCOL` | `http` | Web |
 | `EXPO_PUBLIC_FUZI_API_HOST` | `127.0.0.1` | Web |
@@ -82,13 +83,13 @@ Common environment variables:
 Build and run the production service:
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
 Run the optional Expo web dev service alongside the API:
 
 ```bash
-docker compose --profile dev up --build
+docker compose --profile dev up --build -d
 ```
 
 Equivalent npm scripts are available:
@@ -99,7 +100,7 @@ npm run docker:up
 npm run docker:down
 ```
 
-Staff portal and OpenClaw password values are not stored in the app or Compose defaults. Keep them in the SQLite `app_secrets` table inside `fuzi.sqlite3`; the Docker volume stores that database at `/data/fuzi.sqlite3`.
+Staff portal and OpenClaw password values are not stored in the app or Compose defaults. Keep them in the SQLite `app_secrets` table inside `fuzi.sqlite3`; the production Docker image bundles that database at `/app/fuzi.sqlite3`.
 
 Stop the services:
 
@@ -117,8 +118,8 @@ stopondocker.bat
 After startup, verify:
 
 - Production app/API: `http://127.0.0.1:5000`
-- Optional Expo dev web portal: `http://127.0.0.1:8082`
-- Data volume: `fuzi-sqlite-data`, mounted at `/data`
+- Production web alias: `http://127.0.0.1:8082`
+- Optional Expo dev web portal: `http://127.0.0.1:8083`
 - Health checks: `docker compose ps`
 
 Secrets and local database files are excluded by `.dockerignore`; provide production secrets through environment variables or a local `.env` file used by Docker Compose.
