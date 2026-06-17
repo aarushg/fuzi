@@ -23,9 +23,10 @@ npm run api
 Start the React/Expo web app:
 
 ```bash
-cd expo-app
 npm run web
 ```
+
+This starts the latest development UI on port `8082`. In dev, the `8082` UI sends API calls to `http://127.0.0.1:5000`.
 
 Start the Android app from the Expo project:
 
@@ -36,9 +37,10 @@ npm run android
 
 | URL | Description |
 |---|---|
-| `http://127.0.0.1:5000` | Node API and static-file fallback |
-| `http://127.0.0.1:8082` | Expo website home and staff/mobile portal |
+| `http://127.0.0.1:5000` | Node API plus the stable exported single-page app when `expo-app/dist/index.html` exists |
+| `http://127.0.0.1:8082` | Latest development UI served by Expo; API calls still go to port `5000` |
 | `http://127.0.0.1:5000/api/portal/data` | Authenticated portal data API |
+| `http://127.0.0.1:5000/api/app` | App/export status API |
 
 **Default admin credentials:**
 ```
@@ -52,11 +54,11 @@ Seeded staff accounts are stored in `fuzi.sqlite3`. Staff portal accounts use th
 
 ## Docker
 
-FUZI production runs as one Node service. The production image builds the Expo web bundle and serves it from the API container, and Compose publishes that single container on both `5000` and `8082`.
+FUZI production runs as one Node service on port `5000`. The production image builds the Expo single-page web bundle and serves it from the same API container, so `http://127.0.0.1:5000` is both the production app and API origin.
 
 | Service | Runtime | Install | Start | Port |
 |---|---|---|---|---|
-| API + production web | Node 22 | `npm ci` | `npm run api` | `5000`, `8082` |
+| API + production web | Node 22 | `npm ci` | `npm run api` | `5000` |
 
 The API uses SQLite. In Docker production, SQLite files live in the named Docker volume `fuzi-sqlite-data`, mounted into the container at `/data`; the image does not bundle `fuzi.sqlite3`.
 
@@ -66,7 +68,8 @@ Common environment variables:
 |---|---|---|
 | `FUZI_API_PORT` | `5000` | API |
 | `FUZI_API_PUBLISHED_PORT` | `5000` | Docker host port for API |
-| `FUZI_WEB_PUBLISHED_PORT` | `8082` | Docker host port for production web, served by the API container |
+| `FUZI_WEB_DEV_PORT` | `8082` | Local Expo dev UI port |
+| `FUZI_WEB_PREVIEW_PORT` | `8083` | Optional local preview port for the exported single-page file |
 | `FUZI_DB_PATH` | `/data/fuzi.sqlite3` in Compose | API |
 | `EXPO_PUBLIC_FUZI_API_URL` | `http://127.0.0.1:5000` | Web |
 | `EXPO_PUBLIC_FUZI_API_PROTOCOL` | `http` | Web |
@@ -110,7 +113,7 @@ stopondocker.bat
 After startup, verify:
 
 - Production app/API: `http://127.0.0.1:5000`
-- Production web alias: `http://127.0.0.1:8082`
+- Export/status API: `http://127.0.0.1:5000/api/app`
 - SQLite volume: `fuzi-sqlite-data`, mounted at `/data`
 - Health checks: `docker compose ps`
 
@@ -135,11 +138,19 @@ Secrets and local database files are excluded by `.dockerignore`; provide produc
 The website home and portal are now React/Expo first on the same web port. It uses the Node API with bearer-token login and no Flask/Jinja runtime.
 
 Development URLs:
-- Node API and static-file fallback: `http://127.0.0.1:5000`
-- Expo website home and portal: `http://127.0.0.1:8082`
+- API plus the stable exported app: `http://127.0.0.1:5000`
+- Latest Expo development UI: `http://127.0.0.1:8082`
+- Optional exported single-page preview: `http://127.0.0.1:8083`
+
+Development scripts:
+- `npm run api` starts the API and stable static HTML server on port `5000`.
+- `npm run web` starts the latest Expo development UI on port `8082`.
+- `npm run web:dev` is an explicit alias for the same live Expo dev server.
+- `npm run web:export` refreshes `expo-app/dist/index.html`, which production serves from port `5000`.
+- `npm run web:preview` exports and previews the single-page production file on port `8083`.
 
 API base URL:
-- Web and local development default to `http://127.0.0.1:5000`.
+- Web and local development default to `http://127.0.0.1:5000`, so the latest UI on `8082` sends API calls to `5000`.
 - `EXPO_PUBLIC_FUZI_API_URL` can override the full API origin.
 - To configure only the `host:port` part, set `EXPO_PUBLIC_FUZI_API_HOST` and `EXPO_PUBLIC_FUZI_API_PORT`, for example `a` and `b` builds `http://a:b`.
 - In Docker Compose, `EXPO_PUBLIC_FUZI_API_PORT` defaults to `FUZI_API_PUBLISHED_PORT`, so changing the published API port also changes the web app API origin.

@@ -5148,6 +5148,7 @@ async function cachedPortalData(user) {
 }
 
 const app = express();
+app.disable("x-powered-by");
 app.use(cors({ origin: true, credentials: true }));
 app.use(compressionMiddleware);
 app.use(express.json({ limit: "5mb" }));
@@ -5155,6 +5156,16 @@ app.use("/assets/offer", express.static(path.join(rootDir, "docs", "offer", "ass
 app.use("/assets/customer", express.static(path.join(rootDir, "docs", "customer-assets"), { setHeaders: staticCacheControl }));
 const webDistDir = path.join(rootDir, "expo-app", "dist");
 const webDistIndex = path.join(webDistDir, "index.html");
+function webDistInfo() {
+  const available = fsSync.existsSync(webDistIndex);
+  const stats = available ? fsSync.statSync(webDistIndex) : null;
+  return {
+    available,
+    type: "expo-single-page-web-export",
+    updated_at: stats ? stats.mtime.toISOString() : null,
+    bytes: stats ? stats.size : 0
+  };
+}
 if (fsSync.existsSync(webDistIndex)) {
   app.use(express.static(webDistDir, {
     index: false,
@@ -7052,6 +7063,17 @@ app.get("/api/portal/:collection", authRequired, async (req, res) => {
   res.json({ ok: true, [req.params.collection]: visibleRecords });
 });
 
+app.get("/api/app", (_req, res) => {
+  if (process.env.NODE_ENV === "production") {
+    return res.status(404).json({ ok: false, message: "Not found." });
+  }
+  res.json({
+    ok: true,
+    service: "FUZI API + production web",
+    web: webDistInfo()
+  });
+});
+
 app.get("/", (_req, res) => {
   if (fsSync.existsSync(webDistIndex)) {
     res.setHeader("Cache-Control", "no-store");
@@ -7060,8 +7082,12 @@ app.get("/", (_req, res) => {
   res.json({
     ok: true,
     service: "FUZI API",
-    ui: "http://127.0.0.1:8082/",
+    web: webDistInfo()
   });
+});
+
+app.get("/metadata.json", (_req, res) => {
+  res.status(404).json({ ok: false, message: "Not found." });
 });
 
 if (fsSync.existsSync(webDistIndex)) {

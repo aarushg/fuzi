@@ -17,14 +17,14 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV EXPO_NO_TELEMETRY=1
+ENV EXPO_PUBLIC_FUZI_API_URL=/
 ENV CI=1
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/expo-app/node_modules ./expo-app/node_modules
 COPY . .
 
-RUN rm -rf expo-app/dist expo-app/.expo \
-  && npm --prefix expo-app run export:web
+RUN npm run web:export
 
 
 FROM node:22-bookworm-slim AS runtime
