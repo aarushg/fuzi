@@ -1381,6 +1381,7 @@ export default function App() {
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
   const [navSearch, setNavSearch] = useState("");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [backlogSearch, setBacklogSearch] = useState("");
   const [backlogCategory, setBacklogCategory] = useState("All");
   const [compactLists, setCompactLists] = useState(true);
@@ -14489,6 +14490,56 @@ export default function App() {
         </View>
       ))}
     </ScrollView>
+  ) : isPhone ? (
+    <View style={styles.mobileMenuWrap}>
+      <Pressable
+        style={[styles.mobileMenuButton, mobileNavOpen && styles.selectorPillActive]}
+        onPress={() => setMobileNavOpen((open) => !open)}
+      >
+        <View style={styles.mobileMenuCurrent}>
+          <Text style={styles.mobileMenuIcon}>{activeNavItem?.icon || "•"}</Text>
+          <View style={styles.mobileMenuTextBlock}>
+            <Text style={styles.mobileMenuLabel}>Current module</Text>
+            <Text style={styles.mobileMenuTitle} numberOfLines={1}>{activeNavItem?.label || "Operations"}</Text>
+          </View>
+        </View>
+        <Text style={styles.dropdownChevron}>{mobileNavOpen ? "▲" : "▼"}</Text>
+      </Pressable>
+      {mobileNavOpen && (
+        <View style={styles.mobileMenuPanel}>
+          <TextInput
+            style={styles.mobileMenuSearch}
+            value={navSearch}
+            onChangeText={setNavSearch}
+            placeholder="Find module"
+            placeholderTextColor="#7f8798"
+            commitDelayMs={250}
+          />
+          <ScrollView style={styles.mobileMenuScroll} nestedScrollEnabled>
+            {navGroups.map((section) => (
+              <View key={`mobile-${section.group}`} style={styles.mobileMenuGroup}>
+                <Text style={styles.mobileMenuGroupLabel}>{section.group}</Text>
+                <View style={styles.mobileMenuGrid}>
+                  {section.items.map((item) => (
+                    <Pressable
+                      key={`mobile-${item.key}`}
+                      style={[styles.mobileMenuItem, activeTab === item.key && styles.mobileMenuItemActive]}
+                      onPress={() => {
+                        setActiveTab(item.key);
+                        setMobileNavOpen(false);
+                      }}
+                    >
+                      <Text style={[styles.mobileMenuItemIcon, activeTab === item.key && styles.activeTabText]}>{item.icon}</Text>
+                      <Text style={[styles.mobileMenuItemText, activeTab === item.key && styles.activeTabText]} numberOfLines={2}>{item.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+    </View>
   ) : (
     <ScrollView
       horizontal
@@ -14518,76 +14569,102 @@ export default function App() {
     return (
       <SafeAreaView style={styles.safe}>
         <StatusBar style="dark" />
-        <View style={styles.loginShell}>
-          <Text style={styles.logo}>FUZI</Text>
-          <Text style={styles.title}>Operations Portal</Text>
-          <Text style={styles.muted}>Secure operations workspace for web and mobile teams.</Text>
-          <Pressable style={styles.homeLinkButton} onPress={() => setShowPortalLogin(false)}>
-            <Text style={styles.homeLinkText}>Back to website home</Text>
-          </Pressable>
-          <TextInput style={styles.input} value={username} onChangeText={setUsername} autoCapitalize="none" placeholder="Username" />
-          <TextInput style={styles.input} value={password} onChangeText={setPassword} secureTextEntry placeholder="Password" />
-          <Pressable style={styles.primaryButton} onPress={() => signIn()} disabled={loading}>
-            <Text style={styles.primaryButtonText}>{loading ? "Signing in..." : "Sign in"}</Text>
-          </Pressable>
-          <Text style={styles.cardLabel}>Quick username select</Text>
-          <Text style={styles.muted}>Choose your department, then pick your staff login and enter the staff portal password.</Text>
-          <Pressable
-            style={[styles.dropdownButton, loginDepartmentOpen && styles.selectorPillActive]}
-            onPress={() => setLoginDepartmentOpen((open) => !open)}
-            disabled={loading || !loginDepartments.length}
-          >
-            <Text style={styles.selectorText}>{selectedLoginDepartment || "Select department"}</Text>
-            <Text style={styles.dropdownChevron}>{loginDepartmentOpen ? "▲" : "▼"}</Text>
-          </Pressable>
-          {loginDepartmentOpen && (
-            <ScrollView style={styles.dropdownScroll} contentContainerStyle={styles.dropdownPanel}>
-              {loginDepartments.map((department) => (
-                <Pressable
-                  key={`login-dept-${department}`}
-                  style={styles.dropdownOption}
-                  onPress={() => {
-                    setLoginDepartment(department);
-                    setLoginDepartmentOpen(false);
-                    setLoginUserOpen(true);
-                  }}
-                >
-                  <Text style={styles.quickLoginText}>{department}</Text>
-                  <Text style={styles.quickLoginSub}>{loginDirectory.filter((user) => (fieldText(user, ["department"]) || "Unassigned") === department).length} logins</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          )}
-          <Pressable
-            style={[styles.dropdownButton, loginUserOpen && styles.selectorPillActive]}
-            onPress={() => setLoginUserOpen((open) => !open)}
-            disabled={loading || !loginUsersForDepartment.length}
-          >
-            <Text style={styles.selectorText}>{username || "Select staff login"}</Text>
-            <Text style={styles.dropdownChevron}>{loginUserOpen ? "▲" : "▼"}</Text>
-          </Pressable>
-          {loginUserOpen && (
-            <ScrollView style={styles.dropdownScroll} contentContainerStyle={styles.dropdownPanel}>
-              {loginUsersForDepartment.map((account) => (
-                <Pressable
-                  key={`login-user-${String(account.username)}`}
-                  style={styles.dropdownOption}
-                  onPress={() => {
-                    setUsername(String(account.username || ""));
-                    setPassword("");
-                    setLoginUserOpen(false);
-                  }}
-                  disabled={loading}
-                >
-                  <Text style={styles.quickLoginText}>{fieldText(account, ["display_name", "username"])}</Text>
-                  <Text style={styles.quickLoginSubLink}>{fieldText(account, ["username"])} - {fieldText(account, ["role"])}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          )}
-          <Text style={styles.hint}>API: {apiBaseUrl}</Text>
-          {!!message && <Text style={styles.error}>{message}</Text>}
-        </View>
+        <ScrollView style={styles.loginScreen} contentContainerStyle={styles.loginScrollContent} keyboardShouldPersistTaps="handled">
+          <View style={styles.loginCard}>
+            <View style={styles.loginHeader}>
+              <View style={styles.loginBadge}><Text style={styles.loginBadgeText}>FE</Text></View>
+              <View style={styles.loginTitleBlock}>
+                <Text style={styles.logo}>FUZI</Text>
+                <Text style={styles.title}>Operations Portal</Text>
+                <Text style={styles.muted}>Secure operations workspace for web and mobile teams.</Text>
+              </View>
+            </View>
+            <Pressable style={styles.homeLinkButton} onPress={() => setShowPortalLogin(false)}>
+              <Text style={styles.homeLinkText}>Back to website home</Text>
+            </Pressable>
+            <View style={styles.loginField}>
+              <Text style={styles.label}>Username</Text>
+              <TextInput style={styles.loginInput} value={username} onChangeText={setUsername} autoCapitalize="none" placeholder="Enter username" placeholderTextColor="#7f8798" />
+            </View>
+            <View style={styles.loginField}>
+              <Text style={styles.label}>Password</Text>
+              <TextInput style={styles.loginInput} value={password} onChangeText={setPassword} secureTextEntry placeholder="Enter password" placeholderTextColor="#7f8798" />
+            </View>
+            <Pressable style={[styles.primaryButton, loading && styles.disabledButton]} onPress={() => signIn()} disabled={loading}>
+              <Text style={styles.primaryButtonText}>{loading ? "Signing in..." : "Sign in"}</Text>
+            </Pressable>
+            <View style={styles.quickLoginHeader}>
+              <Text style={styles.cardLabel}>Quick username select</Text>
+              <Text style={styles.hint}>Connected to operations API</Text>
+            </View>
+            <Text style={styles.muted}>Choose your department, then pick your staff login and enter the staff portal password.</Text>
+            <Pressable
+              style={[styles.dropdownButton, loginDepartmentOpen && styles.selectorPillActive]}
+              onPress={() => {
+                setLoginDepartmentOpen((open) => !open);
+                setLoginUserOpen(false);
+              }}
+              disabled={loading || !loginDepartments.length}
+            >
+              <Text style={styles.selectorText}>{selectedLoginDepartment || "Select department"}</Text>
+              <Text style={styles.dropdownChevron}>{loginDepartmentOpen ? "▲" : "▼"}</Text>
+            </Pressable>
+            {loginDepartmentOpen && (
+              <ScrollView style={styles.dropdownScroll} contentContainerStyle={styles.dropdownPanel} nestedScrollEnabled>
+                {loginDepartments.map((department) => {
+                  const loginCount = department === "Admin / CEO"
+                    ? adminLoginUsers.length
+                    : loginDirectory.filter((user) => (fieldText(user, ["department"]) || "Unassigned") === department).length;
+                  return (
+                    <Pressable
+                      key={`login-dept-${department}`}
+                      style={styles.dropdownOption}
+                      onPress={() => {
+                        setLoginDepartment(department);
+                        setLoginDepartmentOpen(false);
+                        setLoginUserOpen(true);
+                      }}
+                    >
+                      <Text style={styles.quickLoginText}>{department}</Text>
+                      <Text style={styles.quickLoginSub}>{loginCount} logins</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
+            <Pressable
+              style={[styles.dropdownButton, loginUserOpen && styles.selectorPillActive]}
+              onPress={() => {
+                setLoginUserOpen((open) => !open);
+                setLoginDepartmentOpen(false);
+              }}
+              disabled={loading || !loginUsersForDepartment.length}
+            >
+              <Text style={styles.selectorText}>{username || "Select staff login"}</Text>
+              <Text style={styles.dropdownChevron}>{loginUserOpen ? "▲" : "▼"}</Text>
+            </Pressable>
+            {loginUserOpen && (
+              <ScrollView style={styles.dropdownScroll} contentContainerStyle={styles.dropdownPanel} nestedScrollEnabled>
+                {loginUsersForDepartment.map((account) => (
+                  <Pressable
+                    key={`login-user-${String(account.username)}`}
+                    style={styles.dropdownOption}
+                    onPress={() => {
+                      setUsername(String(account.username || ""));
+                      setPassword("");
+                      setLoginUserOpen(false);
+                    }}
+                    disabled={loading}
+                  >
+                    <Text style={styles.quickLoginText}>{fieldText(account, ["display_name", "username"])}</Text>
+                    <Text style={styles.quickLoginSubLink}>{fieldText(account, ["username"])} - {fieldText(account, ["role"])}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+            {!!message && <Text style={styles.error}>{message}</Text>}
+          </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -14861,6 +14938,23 @@ const styles = StyleSheet.create({
   mobileBrandRow: { paddingHorizontal: 14, paddingVertical: 10, backgroundColor: "#11131b", flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   mobileBrandRowPhone: { paddingHorizontal: 10, paddingVertical: 8 },
   mobileDepartment: { color: "rgba(255,255,255,0.7)", fontWeight: "800", fontSize: 12 },
+  mobileMenuWrap: { backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e4e7ee", paddingHorizontal: 8, paddingVertical: 8, gap: 8 },
+  mobileMenuButton: { minHeight: 48, borderRadius: 10, borderWidth: 1, borderColor: "#d5dae4", backgroundColor: "#f8fafc", paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  mobileMenuCurrent: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 10 },
+  mobileMenuIcon: { width: 30, height: 30, borderRadius: 8, backgroundColor: "#11131b", color: "#fff", textAlign: "center", textAlignVertical: "center", lineHeight: 30, fontSize: 13, fontWeight: "900", overflow: "hidden" },
+  mobileMenuTextBlock: { flex: 1, minWidth: 0 },
+  mobileMenuLabel: { color: "#747b8d", fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
+  mobileMenuTitle: { color: "#11131b", fontSize: 15, lineHeight: 19, fontWeight: "900" },
+  mobileMenuPanel: { borderRadius: 10, borderWidth: 1, borderColor: "#d5dae4", backgroundColor: "#fff", padding: 8, gap: 8 },
+  mobileMenuSearch: { minHeight: 40, borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f3f5f8", color: "#11131b", paddingHorizontal: 10, fontWeight: "800" },
+  mobileMenuScroll: { maxHeight: 360 },
+  mobileMenuGroup: { gap: 6, marginBottom: 10 },
+  mobileMenuGroupLabel: { color: "#e02020", fontSize: 10, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8, paddingHorizontal: 2 },
+  mobileMenuGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  mobileMenuItem: { flexGrow: 1, flexBasis: "48%", minHeight: 46, borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", backgroundColor: "#f8fafc", paddingHorizontal: 8, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 7 },
+  mobileMenuItemActive: { backgroundColor: "#e02020", borderColor: "#e02020" },
+  mobileMenuItemIcon: { width: 20, color: "#747b8d", fontSize: 12, fontWeight: "900", textAlign: "center" },
+  mobileMenuItemText: { flex: 1, minWidth: 0, color: "#2d3240", fontSize: 11, lineHeight: 14, fontWeight: "900" },
   tabs: { backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e4e7ee" },
   tabsPhone: { maxHeight: 58 },
   mobileNavRail: { gap: 8, paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row" },
@@ -15071,6 +15165,16 @@ const styles = StyleSheet.create({
   loader: { marginVertical: 8 },
   banner: { marginHorizontal: 24, marginTop: 10, padding: 12, color: "#b91414", backgroundColor: "#fff5f5", borderColor: "rgba(224,32,32,0.18)", borderWidth: 1, borderRadius: 10, overflow: "hidden", fontWeight: "800" },
   loginShell: { flex: 1, justifyContent: "center", padding: 28, gap: 14, maxWidth: 480, width: "100%", alignSelf: "center", backgroundColor: "#fff" },
+  loginScreen: { flex: 1, backgroundColor: "#eef2f6" },
+  loginScrollContent: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 18, paddingVertical: 28 },
+  loginCard: { width: "100%", maxWidth: 520, alignSelf: "center", borderRadius: 8, borderWidth: 1, borderColor: "#d5dae4", backgroundColor: "#fff", padding: 24, gap: 14 },
+  loginHeader: { flexDirection: "row", alignItems: "center", gap: 14 },
+  loginBadge: { width: 48, height: 48, borderRadius: 8, backgroundColor: "#11131b", alignItems: "center", justifyContent: "center" },
+  loginBadgeText: { color: "#fff", fontWeight: "900", fontSize: 16 },
+  loginTitleBlock: { flex: 1, minWidth: 0, gap: 3 },
+  loginField: { gap: 6 },
+  loginInput: { minHeight: 48, borderWidth: 1, borderColor: "#d5dae4", borderRadius: 8, backgroundColor: "#f8fafc", paddingHorizontal: 12, color: "#11131b", fontWeight: "800" },
+  quickLoginHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginTop: 2 },
   logo: { fontSize: 44, fontWeight: "900", color: "#e02020" },
   logoSmall: { fontSize: 20, fontWeight: "900", color: "#11131b" },
   title: { fontSize: 28, fontWeight: "900", color: "#11131b" },
@@ -15083,6 +15187,7 @@ const styles = StyleSheet.create({
   clickableUsername: { color: "#b91414", fontWeight: "900", textDecorationLine: "underline" },
   homeLinkButton: { minHeight: 40, borderRadius: 8, borderWidth: 1, borderColor: "#d5dae4", backgroundColor: "#fff", alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
   homeLinkText: { color: "#2d3240", fontWeight: "900", fontSize: 13 },
+  disabledButton: { opacity: 0.72 },
   error: { color: "#b91414", fontWeight: "800" },
   hint: { color: "#747b8d", fontSize: 12 },
 });
