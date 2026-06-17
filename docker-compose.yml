@@ -2,7 +2,7 @@ services:
   api:
     build: .
     image: fuzi-ops-api:local
-    command: npm run api
+    command: npm run prod
     environment:
       FUZI_API_PORT: "5000"
       FUZI_DB_PATH: /data/fuzi.sqlite3
@@ -18,6 +18,7 @@ services:
       - "host.docker.internal:host-gateway"
     ports:
       - "${FUZI_API_PUBLISHED_PORT:-5000}:5000"
+      - "${FUZI_WEB_PUBLISHED_PORT:-8082}:5000"
     volumes:
       - fuzi-data:/data
     healthcheck:
@@ -28,6 +29,7 @@ services:
       start_period: 20s
 
   web:
+    profiles: ["dev"]
     build: .
     image: fuzi-ops-web:local
     command: npm --prefix expo-app run web -- --host lan --port 8082

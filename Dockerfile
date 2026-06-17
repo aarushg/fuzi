@@ -2,7 +2,7 @@ FROM node:22-bookworm-slim
 
 WORKDIR /app
 
-ENV NODE_ENV=development
+ENV NODE_ENV=production
 ENV EXPO_NO_TELEMETRY=1
 ENV CI=1
 
@@ -13,7 +13,9 @@ RUN npm ci && npm --prefix expo-app ci
 
 COPY . .
 
-EXPOSE 5000 8082
+RUN npm --prefix expo-app run export:web
+
+EXPOSE 5000
 VOLUME ["/data"]
 
-CMD ["npm", "run", "api"]
+CMD ["npm", "run", "prod"]

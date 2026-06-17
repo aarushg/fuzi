@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import zlib from "node:zlib";
 import express from "express";
 import cors from "cors";
 import Database from "better-sqlite3";
@@ -138,6 +139,16 @@ const writeAppSecretStmt = db.prepare(`
   VALUES (?, ?, ?)
   ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
 `);
+const collectionCache = new Map();
+const portalResponseCache = new Map();
+let dataVersion = 0;
+const portalCacheTtlMs = Number(process.env.FUZI_PORTAL_CACHE_TTL_SECONDS || 20) * 1000;
+
+function invalidateRuntimeCaches(fileName) {
+  if (fileName) collectionCache.delete(fileName);
+  portalResponseCache.clear();
+  dataVersion += 1;
+}
 
 const listFiles = {
   users: "users.json",
@@ -265,10 +276,13 @@ const operationsPrefixes = {
 };
 
 async function readJson(fileName, fallback = []) {
+  if (collectionCache.has(fileName)) return collectionCache.get(fileName);
   const stored = readCollectionStmt.get(fileName);
   if (stored?.payload) {
     try {
-      return JSON.parse(stored.payload) ?? fallback;
+      const parsed = JSON.parse(stored.payload) ?? fallback;
+      collectionCache.set(fileName, parsed);
+      return parsed;
     } catch {
       return fallback;
     }
@@ -277,15 +291,20 @@ async function readJson(fileName, fallback = []) {
     const text = await fs.readFile(path.join(rootDir, fileName), "utf8");
     const parsed = JSON.parse(text);
     writeCollectionStmt.run(fileName, JSON.stringify(parsed ?? fallback), new Date().toISOString());
-    return parsed ?? fallback;
+    const value = parsed ?? fallback;
+    collectionCache.set(fileName, value);
+    return value;
   } catch {
     writeCollectionStmt.run(fileName, JSON.stringify(fallback), new Date().toISOString());
+    collectionCache.set(fileName, fallback);
     return fallback;
   }
 }
 
 async function writeJson(fileName, value) {
   writeCollectionStmt.run(fileName, JSON.stringify(value), new Date().toISOString());
+  invalidateRuntimeCaches(fileName);
+  collectionCache.set(fileName, value);
 }
 
 function publicUser(user) {
@@ -4826,6 +4845,45 @@ function buildMetrics(data) {
   ];
 }
 
+function compressionMiddleware(req, res, next) {
+  const acceptEncoding = String(req.headers["accept-encoding"] || "");
+  const encoding = /\bbr\b/.test(acceptEncoding) ? "br" : /\bgzip\b/.test(acceptEncoding) ? "gzip" : "";
+  if (!encoding || req.method === "HEAD") return next();
+  const originalSend = res.send.bind(res);
+  res.send = (body) => {
+    if (
+      res.headersSent ||
+      res.getHeader("Content-Encoding") ||
+      res.statusCode === 204 ||
+      res.statusCode === 304 ||
+      body === undefined ||
+      body === null
+    ) {
+      return originalSend(body);
+    }
+    const contentType = String(res.getHeader("Content-Type") || "");
+    const shouldCompress = /json|text|javascript|css|svg|xml/i.test(contentType);
+    if (!shouldCompress) return originalSend(body);
+    const buffer = Buffer.isBuffer(body) ? body : Buffer.from(typeof body === "string" ? body : JSON.stringify(body));
+    if (buffer.length < 1024) return originalSend(body);
+    const compressed = encoding === "br" ? zlib.brotliCompressSync(buffer) : zlib.gzipSync(buffer);
+    res.setHeader("Content-Encoding", encoding);
+    res.setHeader("Vary", "Accept-Encoding");
+    res.setHeader("Content-Length", String(compressed.length));
+    return originalSend(compressed);
+  };
+  return next();
+}
+
+function staticCacheControl(res, filePath) {
+  const normalized = filePath.replace(/\\/g, "/");
+  if (/\.(?:js|css|png|jpe?g|webp|gif|svg|ico|woff2?)$/i.test(normalized)) {
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    return;
+  }
+  res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=86400");
+}
+
 async function loadPortalCollections() {
   await ensureFourDigitCustomerIds();
   await ensureSalesInquiryCustomerIds();
@@ -4921,11 +4979,36 @@ function portalData(collections, user) {
   return filterPortalPayload(payload, access);
 }
 
+async function cachedPortalData(user) {
+  const access = accessForUser(user);
+  const userKey = [
+    String(user.username || user.display_name || ""),
+    String(user.department || ""),
+    String(user.role || ""),
+    (access.allowed_views || []).join(","),
+    dataVersion
+  ].join("|");
+  const cached = portalResponseCache.get(userKey);
+  if (cached && Date.now() - cached.createdAt < portalCacheTtlMs) return cached.payload;
+  const payload = portalData(await loadPortalCollections(), user);
+  portalResponseCache.set(userKey, { createdAt: Date.now(), payload });
+  return payload;
+}
+
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
+app.use(compressionMiddleware);
 app.use(express.json({ limit: "5mb" }));
-app.use("/assets/offer", express.static(path.join(rootDir, "docs", "offer", "assets")));
-app.use("/assets/customer", express.static(path.join(rootDir, "docs", "customer-assets")));
+app.use("/assets/offer", express.static(path.join(rootDir, "docs", "offer", "assets"), { setHeaders: staticCacheControl }));
+app.use("/assets/customer", express.static(path.join(rootDir, "docs", "customer-assets"), { setHeaders: staticCacheControl }));
+const webDistDir = path.join(rootDir, "expo-app", "dist");
+const webDistIndex = path.join(webDistDir, "index.html");
+if (fsSync.existsSync(webDistIndex)) {
+  app.use(express.static(webDistDir, {
+    index: false,
+    setHeaders: staticCacheControl
+  }));
+}
 
 const communicationService = createOpenClawCommunicationService({
   config: defaultOpenClawCommunicationData(process.env, rootDir),
@@ -5118,7 +5201,8 @@ app.post("/api/portal/auth/logout", authRequired, (req, res) => {
 
 app.get("/api/portal/data", authRequired, async (req, res) => {
   await ensureSharedStaffPortalPassword();
-  res.json(portalData(await loadPortalCollections(), req.user));
+  res.setHeader("Cache-Control", "private, max-age=15, stale-while-revalidate=60");
+  res.json(await cachedPortalData(req.user));
 });
 
 app.get("/api/portal/global-search", authRequired, async (req, res) => {
@@ -6817,12 +6901,23 @@ app.get("/api/portal/:collection", authRequired, async (req, res) => {
 });
 
 app.get("/", (_req, res) => {
+  if (fsSync.existsSync(webDistIndex)) {
+    res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    return res.sendFile(webDistIndex);
+  }
   res.json({
     ok: true,
     service: "FUZI API",
     ui: "http://127.0.0.1:8082/",
   });
 });
+
+if (fsSync.existsSync(webDistIndex)) {
+  app.get(/^\/(?!api\/).*/, (_req, res) => {
+    res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    res.sendFile(webDistIndex);
+  });
+}
 
 let discordBreakdownSyncWarned = false;
 function autoAssignmentNotificationErrorMessage(records = []) {

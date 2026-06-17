@@ -152,6 +152,7 @@ export function PublicWebsite({ onOpenPortal }: { onOpenPortal: () => void }) {
   const { width } = useWindowDimensions();
   const [page, setPage] = useState<PublicPage>("home");
   const isWide = width >= 900;
+  const isCompact = width < 640;
   const selectedProduct = productByKey.get(page);
 
   const groupedProducts = useMemo(
@@ -173,27 +174,51 @@ export function PublicWebsite({ onOpenPortal }: { onOpenPortal: () => void }) {
       ["Installation", "installation"],
       ["Maintenance", "maintenance"],
     ];
-    return (
-      <View style={styles.nav}>
-        <Pressable style={styles.brand} onPress={() => setPage("home")}>
-          <View style={styles.brandMark}>
-            <Text style={styles.brandMarkText}>FE</Text>
-          </View>
-          <Text style={styles.brandText}>FUZI <Text style={styles.brandAccent}>Elevators</Text></Text>
-        </Pressable>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.navLinks}>
-          {navLinks.map(([label, key]) => (
-            <Pressable key={key} style={[styles.navLink, page === key && styles.navLinkActive]} onPress={() => setPage(key)}>
-              <Text style={[styles.navLinkText, page === key && styles.navLinkTextActive]}>{label}</Text>
+    const pageRail = (
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={[styles.navScroller, isCompact && styles.navScrollerCompact]}
+        contentContainerStyle={[styles.navLinks, isCompact && styles.navLinksCompact]}
+      >
+        {navLinks.map(([label, key]) => (
+          <Pressable key={key} style={[styles.navLink, page === key && styles.navLinkActive]} onPress={() => setPage(key)}>
+            <Text style={[styles.navLinkText, page === key && styles.navLinkTextActive]}>{label}</Text>
+          </Pressable>
+        ))}
+        {!isCompact && (
+          <>
+            <Pressable style={styles.navLink} onPress={onOpenPortal}>
+              <Text style={styles.navLinkText}>Login</Text>
             </Pressable>
-          ))}
-          <Pressable style={styles.navLink} onPress={onOpenPortal}>
-            <Text style={styles.navLinkText}>Login</Text>
+            <Pressable style={styles.navCta} onPress={() => openUrl(phoneUrl)}>
+              <Text style={styles.navCtaText}>Call Us</Text>
+            </Pressable>
+          </>
+        )}
+      </ScrollView>
+    );
+    return (
+      <View style={[styles.nav, isCompact && styles.navCompact]}>
+        <View style={[styles.brandRow, isCompact && styles.brandRowCompact]}>
+          <Pressable style={[styles.brand, isCompact && styles.brandCompact]} onPress={() => setPage("home")}>
+            <View style={styles.brandMark}>
+              <Text style={styles.brandMarkText}>FE</Text>
+            </View>
+            <Text style={styles.brandText}>FUZI <Text style={styles.brandAccent}>Elevators</Text></Text>
           </Pressable>
-          <Pressable style={styles.navCta} onPress={() => openUrl(phoneUrl)}>
-            <Text style={styles.navCtaText}>Call Us</Text>
-          </Pressable>
-        </ScrollView>
+          {isCompact && (
+            <View style={styles.mobileActions}>
+              <Pressable style={styles.mobileLogin} onPress={onOpenPortal}>
+                <Text style={styles.navLinkText}>Login</Text>
+              </Pressable>
+              <Pressable style={styles.navCta} onPress={() => openUrl(phoneUrl)}>
+                <Text style={styles.navCtaText}>Call</Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
+        {pageRail}
       </View>
     );
   }
@@ -201,10 +226,10 @@ export function PublicWebsite({ onOpenPortal }: { onOpenPortal: () => void }) {
   function renderHome() {
     return (
       <>
-        <View style={[styles.hero, isWide && styles.heroWide]}>
+        <View style={[styles.hero, isCompact && styles.heroCompact, isWide && styles.heroWide]}>
           <View style={styles.heroCopy}>
             <Text style={styles.eyebrow}>Elevator manufacturing, installation, and service</Text>
-            <Text style={styles.heroTitle}>Elevating Your World</Text>
+            <Text style={[styles.heroTitle, isCompact && styles.heroTitleCompact]}>Elevating Your World</Text>
             <Text style={styles.heroText}>
               FUZI Classic Elevators designs, installs, modernizes, and maintains elevators and escalators for homes, hospitals, hotels, commercial spaces, and industrial sites.
             </Text>
@@ -351,6 +376,7 @@ export function PublicWebsite({ onOpenPortal }: { onOpenPortal: () => void }) {
           title={title}
           label={isInstall ? "Project Execution" : "AMC and Service"}
           text={isInstall ? "A structured installation workflow from site readiness to final handover." : "Reliable lift uptime through preventive maintenance, breakdown support, and service records."}
+          compact={isCompact}
         />
         <Section label="Workflow" title={isInstall ? "Built for genuine site progress" : "Keeping every lift running safely"}>
           <View style={styles.timeline}>
@@ -400,11 +426,11 @@ function Section({ label, title, muted, children }: { label: string; title: stri
   );
 }
 
-function PageHero({ label, title, text }: { label: string; title: string; text: string }) {
+function PageHero({ label, title, text, compact }: { label: string; title: string; text: string; compact?: boolean }) {
   return (
-    <View style={styles.pageHero}>
+    <View style={[styles.pageHero, compact && styles.pageHeroCompact]}>
       <Text style={styles.eyebrow}>{label}</Text>
-      <Text style={styles.pageTitle}>{title}</Text>
+      <Text style={[styles.pageTitle, compact && styles.pageTitleCompact]}>{title}</Text>
       <Text style={styles.heroText}>{text}</Text>
     </View>
   );
@@ -482,12 +508,21 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 14,
   },
+  navCompact: { paddingHorizontal: 16, paddingVertical: 10, alignItems: "stretch", flexDirection: "column", gap: 10 },
+  brandRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0 },
+  brandRowCompact: { width: "100%" },
   brand: { flexDirection: "row", alignItems: "center", gap: 12, flexShrink: 0 },
+  brandCompact: { flexShrink: 1 },
   brandMark: { width: 40, height: 40, borderRadius: 8, backgroundColor: "#e02020", alignItems: "center", justifyContent: "center" },
   brandMarkText: { color: "#fff", fontWeight: "900", fontSize: 15 },
   brandText: { color: "#fff", fontWeight: "900", fontSize: 16 },
   brandAccent: { color: "#ff5b5b" },
+  mobileActions: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 0 },
+  mobileLogin: { minHeight: 38, borderRadius: 8, paddingHorizontal: 12, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.08)" },
+  navScroller: { flexShrink: 1, maxWidth: "100%" },
+  navScrollerCompact: { width: "100%" },
   navLinks: { alignItems: "center", gap: 8, paddingVertical: 2 },
+  navLinksCompact: { paddingRight: 16 },
   navLink: { minHeight: 40, borderRadius: 8, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
   navLinkActive: { backgroundColor: "rgba(255,255,255,0.1)" },
   navLinkText: { color: "rgba(255,255,255,0.72)", fontWeight: "800", fontSize: 13 },
@@ -495,10 +530,12 @@ const styles = StyleSheet.create({
   navCta: { minHeight: 40, borderRadius: 8, backgroundColor: "#e02020", paddingHorizontal: 14, alignItems: "center", justifyContent: "center" },
   navCtaText: { color: "#fff", fontWeight: "900", fontSize: 13 },
   hero: { backgroundColor: "#11131b", paddingHorizontal: 24, paddingVertical: 56, gap: 28 },
+  heroCompact: { paddingHorizontal: 18, paddingVertical: 36, gap: 22 },
   heroWide: { minHeight: 560, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 56 },
   heroCopy: { maxWidth: 680, gap: 18 },
   eyebrow: { color: "#ff7070", fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 1.2 },
   heroTitle: { color: "#fff", fontSize: 56, lineHeight: 62, fontWeight: "900" },
+  heroTitleCompact: { fontSize: 40, lineHeight: 46 },
   heroText: { color: "rgba(255,255,255,0.68)", fontSize: 16, lineHeight: 25, maxWidth: 660 },
   actionRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 8 },
   primaryButton: { minHeight: 48, borderRadius: 8, backgroundColor: "#e02020", paddingHorizontal: 20, alignItems: "center", justifyContent: "center", alignSelf: "flex-start" },
@@ -517,7 +554,7 @@ const styles = StyleSheet.create({
   sectionLabel: { color: "#e02020", fontSize: 11, fontWeight: "900", textTransform: "uppercase", letterSpacing: 1.3, marginBottom: 8 },
   sectionTitle: { color: "#11131b", fontSize: 30, lineHeight: 36, fontWeight: "900", marginBottom: 24 },
   cardGrid: { flexDirection: "row", flexWrap: "wrap", gap: 16 },
-  productCard: { width: 300, maxWidth: "100%", backgroundColor: "#fff", borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, overflow: "hidden" },
+  productCard: { width: 300, minWidth: 280, flexGrow: 1, maxWidth: "100%", backgroundColor: "#fff", borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, overflow: "hidden" },
   productImage: { height: 146, backgroundColor: "#11131b", overflow: "hidden" },
   productImageAsset: { width: "100%", height: "100%" },
   productImageOverlay: { position: "absolute", left: 0, right: 0, bottom: 0, padding: 10, backgroundColor: "rgba(0,0,0,0.5)" },
@@ -528,11 +565,13 @@ const styles = StyleSheet.create({
   productSummary: { color: "#697184", fontSize: 13, lineHeight: 19 },
   productLink: { color: "#e02020", fontSize: 13, fontWeight: "900", marginTop: 4 },
   serviceGrid: { flexDirection: "row", flexWrap: "wrap", gap: 14 },
-  serviceTile: { width: 310, maxWidth: "100%", borderWidth: 1, borderColor: "#e4e7ee", backgroundColor: "#fff", borderRadius: 8, padding: 18, gap: 8 },
+  serviceTile: { width: 310, minWidth: 280, flexGrow: 1, maxWidth: "100%", borderWidth: 1, borderColor: "#e4e7ee", backgroundColor: "#fff", borderRadius: 8, padding: 18, gap: 8 },
   serviceTitle: { color: "#11131b", fontSize: 18, fontWeight: "900" },
   serviceText: { color: "#697184", fontSize: 13, lineHeight: 20 },
   pageHero: { backgroundColor: "#11131b", paddingHorizontal: 24, paddingVertical: 70, gap: 14 },
+  pageHeroCompact: { paddingHorizontal: 18, paddingVertical: 42 },
   pageTitle: { color: "#fff", fontSize: 44, lineHeight: 50, fontWeight: "900" },
+  pageTitleCompact: { fontSize: 34, lineHeight: 40 },
   table: { borderWidth: 1, borderColor: "#dfe3eb", borderRadius: 8, overflow: "hidden" },
   tableRow: { flexDirection: "row", flexWrap: "wrap", borderTopWidth: 1, borderTopColor: "#dfe3eb", backgroundColor: "#fff" },
   tableRowFirst: { borderTopWidth: 0 },

@@ -12350,10 +12350,46 @@ export default function App() {
     }
   }
 
+  const portalCacheKey = "fuzi_portal_data_cache_v1";
+  const portalCacheMaxAgeMs = 10 * 60 * 1000;
+
+  function portalCacheTokenKey(nextToken = token) {
+    return nextToken ? nextToken.slice(-16) : "";
+  }
+
+  function readCachedPortal(nextToken = token) {
+    if (Platform.OS !== "web" || typeof globalThis.localStorage === "undefined") return null;
+    try {
+      const cached = JSON.parse(globalThis.localStorage.getItem(portalCacheKey) || "null");
+      if (!cached || cached.tokenKey !== portalCacheTokenKey(nextToken)) return null;
+      if (Date.now() - Number(cached.savedAt || 0) > portalCacheMaxAgeMs) return null;
+      return cached.data as PortalData;
+    } catch {
+      return null;
+    }
+  }
+
+  function writeCachedPortal(nextToken: string, portalData: PortalData) {
+    if (Platform.OS !== "web" || typeof globalThis.localStorage === "undefined") return;
+    try {
+      globalThis.localStorage.setItem(portalCacheKey, JSON.stringify({
+        tokenKey: portalCacheTokenKey(nextToken),
+        savedAt: Date.now(),
+        data: portalData,
+      }));
+    } catch {
+      // Storage can be full or disabled; the live network response still drives the app.
+    }
+  }
+
   async function loadPortal(nextToken = token) {
+    const cachedPortalData = readCachedPortal(nextToken);
+    if (!data && cachedPortalData) setData(stripRawTransportPayloads(cachedPortalData));
     const portalData = await apiFetch<PortalData>("/api/portal/data", { token: nextToken });
     // WARNING: Frontend state stores FUZI domain records only. Never store raw Discord/OpenClaw message history or transport payloads here.
-    setData(stripRawTransportPayloads(portalData));
+    const sanitizedPortalData = stripRawTransportPayloads(portalData);
+    setData(sanitizedPortalData);
+    writeCachedPortal(nextToken, sanitizedPortalData);
   }
 
   async function syncDiscordBreakdowns() {
@@ -12383,6 +12419,7 @@ export default function App() {
   function clearStoredSession() {
     if (Platform.OS === "web" && typeof globalThis.localStorage !== "undefined") {
       globalThis.localStorage.removeItem("fuzi_portal_token");
+      globalThis.localStorage.removeItem(portalCacheKey);
     }
   }
 

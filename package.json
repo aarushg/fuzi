@@ -7,6 +7,8 @@
     "start": "node server/index.mjs",
     "api": "node server/index.mjs",
     "web": "npm --prefix expo-app run web -- --port 8082",
+    "web:export": "npm --prefix expo-app run export:web",
+    "prod": "node server/index.mjs",
     "android": "npm --prefix expo-app run android",
     "typecheck": "npm --prefix expo-app run typecheck",
     "check": "npm --prefix expo-app run typecheck && npm --prefix expo-app exec expo install --check",

@@ -17,6 +17,11 @@ function buildApiUrl(): string {
     const port = configuredPort ? `:${configuredPort}` : "";
     return `${configuredProtocol}://${configuredHost}${port}`.replace(/\/+$/, "");
   }
+  if (Platform.OS === "web" && typeof globalThis.location !== "undefined") {
+    const { origin, hostname, port } = globalThis.location;
+    const isExpoDevServer = ["8081", "8082", "19006"].includes(port);
+    if (origin && !isExpoDevServer && hostname !== "localhost") return origin.replace(/\/+$/, "");
+  }
   return fallbackUrl.replace(/\/+$/, "");
 }
 
