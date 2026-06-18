@@ -26,6 +26,22 @@ type BufferedTextInputProps = NativeTextInputProps & { commitDelayMs?: number; c
 
 const LanguageContext = createContext<PortalLanguage>("en");
 const DEFAULT_LIST_STEP = 3;
+const crmCsvImportTypes = [
+  { key: "auto", label: "Auto detect" },
+  { key: "customer_master", label: "Customer master" },
+  { key: "customers", label: "Customers" },
+  { key: "sales_inquiries", label: "Sales enquiries" },
+  { key: "site_visits", label: "Site visits" },
+  { key: "service_history", label: "Service history" },
+];
+const crmCsvTemplates = [
+  ["Master customer import", "crm_customer_import_master.csv"],
+  ["Customers", "crm_customers_template.csv"],
+  ["Sales enquiries", "crm_sales_inquiries_template.csv"],
+  ["Site visits", "crm_site_visits_template.csv"],
+  ["Service history", "crm_service_history_import.csv"],
+  ["Import mapping", "crm_import_mapping.csv"],
+] as const;
 
 const hindiTranslations: Record<string, string> = {
   English: "अंग्रेजी",
@@ -1308,6 +1324,8 @@ export default function App() {
   );
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [crmImportOpen, setCrmImportOpen] = useState(false);
+  const [crmImportType, setCrmImportType] = useState("auto");
   const [listStepInput, setListStepInput] = useState(String(DEFAULT_LIST_STEP));
   const [listVisibleCounts, setListVisibleCounts] = useState<Record<string, number>>({});
   const [overviewStartDate, setOverviewStartDate] = useState(currentFiscalYearRange().start);
@@ -9346,6 +9364,7 @@ export default function App() {
     const dueFollowUps = dueInquiryFollowUps;
     const crmFollowupListKey = "crm-followups";
     const consentMissing = customers.filter((customer) => String(customer.dpdp_consent || "N").toUpperCase() !== "Y");
+    const canImportCrmCsv = isAdmin || /manager|lead|ceo|admin/i.test(String(data?.viewer?.role || ""));
     const latestMotorForCustomer = (customer: Customer) => {
       const customerId = String(customer.id || "");
       const nameKey = crmNameKey(customer.name);
@@ -9375,6 +9394,46 @@ export default function App() {
             </View>
           )}
         </View>
+        {canImportCrmCsv && (
+          <View style={styles.formCard}>
+            <View style={styles.cardHeaderRow}>
+              <View style={styles.cardTitleBlock}>
+                <Text style={styles.cardLabel}>CSV import</Text>
+                <Text style={styles.cardTitle}>Upload captured CRM data</Text>
+              </View>
+              <Pressable style={styles.smallButton} onPress={() => setCrmImportOpen((open) => !open)} disabled={loading}>
+                <Text style={styles.smallButtonText}>{crmImportOpen ? "Close" : "Open"}</Text>
+              </Pressable>
+            </View>
+            {crmImportOpen && (
+              <>
+                <View style={styles.inlineActions}>
+                  {crmCsvImportTypes.map((item) => (
+                    <Pressable
+                      key={item.key}
+                      style={[styles.selectorPill, crmImportType === item.key && styles.selectorPillActive]}
+                      onPress={() => setCrmImportType(item.key)}
+                      disabled={loading}
+                    >
+                      <Text style={[styles.selectorText, crmImportType === item.key && styles.selectorTextActive]}>{item.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <View style={styles.inlineActions}>
+                  <Pressable style={styles.primaryButtonInline} onPress={uploadCrmCsv} disabled={loading}>
+                    <Text style={styles.primaryButtonText}>Upload CSV</Text>
+                  </Pressable>
+                  {crmCsvTemplates.map(([label, fileName]) => (
+                    <Pressable key={fileName} style={styles.smallButton} onPress={() => openCrmImportTemplate(fileName)} disabled={loading}>
+                      <Text style={styles.smallButtonText}>{label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Text style={styles.muted}>Use the FUZI CSV templates, keep the headers unchanged, then upload here. Rows with matching FUZI customer ID, external reference, phone, or enquiry number update existing records.</Text>
+              </>
+            )}
+          </View>
+        )}
         <View style={styles.crmMetricGrid}>
           <View style={[styles.card, styles.crmMetricTile]}>
             <Text style={styles.cardLabel}>Accounts</Text>
@@ -13645,6 +13704,50 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function uploadCrmCsv() {
+    if (Platform.OS !== "web" || typeof document === "undefined") {
+      setMessage("CSV import is available from the web portal.");
+      return;
+    }
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".csv,text/csv";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async () => {
+        setLoading(true);
+        try {
+          const result = await apiFetch<{ created?: number; updated?: number; skipped?: number; imported?: number; created_service_jobs?: number; errors?: string[] }>("/api/portal/crm/import-csv", {
+            method: "POST",
+            token,
+            body: JSON.stringify({
+              filename: file.name,
+              import_type: crmImportType,
+              csv_text: String(reader.result || ""),
+            }),
+          });
+          await loadPortal();
+          const errors = (result.errors || []).slice(0, 3);
+          setMessage(`CSV import complete: ${result.created || 0} created, ${result.updated || 0} updated, ${result.skipped || 0} skipped, ${result.created_service_jobs || 0} service jobs assigned.${errors.length ? ` ${errors.join(" ")}` : ""}`);
+        } catch (error) {
+          setMessage(error instanceof Error ? error.message : "CSV import failed.");
+        } finally {
+          setLoading(false);
+        }
+      };
+      reader.onerror = () => setMessage("CSV file could not be read.");
+      reader.readAsText(file);
+    };
+    input.click();
+  }
+
+  function openCrmImportTemplate(fileName: string) {
+    const url = `${apiBaseUrl}/crm-import-templates/${encodeURIComponent(fileName)}`;
+    Linking.openURL(url).catch(() => setMessage("Template could not be opened."));
   }
 
   async function sendCustomerOccasionReminders() {

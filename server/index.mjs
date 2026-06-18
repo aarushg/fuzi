@@ -1751,6 +1751,48 @@ function rowsToCsv(rows = []) {
   return [headers.join(","), ...rows.map((row) => headers.map((header) => csvEscape(row[header])).join(","))].join("\r\n");
 }
 
+function parseCsvRows(text = "") {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+  const source = String(text || "").replace(/^\uFEFF/, "");
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    const next = source[index + 1];
+    if (inQuotes) {
+      if (char === "\"" && next === "\"") {
+        field += "\"";
+        index += 1;
+      } else if (char === "\"") {
+        inQuotes = false;
+      } else {
+        field += char;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inQuotes = true;
+    } else if (char === ",") {
+      row.push(field);
+      field = "";
+    } else if (char === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+    } else if (char !== "\r") {
+      field += char;
+    }
+  }
+  row.push(field);
+  if (row.some((value) => String(value || "").trim())) rows.push(row);
+  const headers = (rows.shift() || []).map((header) => String(header || "").trim());
+  return rows
+    .filter((values) => values.some((value) => String(value || "").trim()))
+    .map((values) => Object.fromEntries(headers.map((header, index) => [header, String(values[index] ?? "").trim()])));
+}
+
 function phoneDigits(value = "") {
   return String(value || "").replace(/\D/g, "").slice(-10);
 }
@@ -1774,6 +1816,268 @@ function salesInquiryCustomerPayload(inquiry = {}, actor = {}) {
     source_inquiry_id: String(inquiry.id || inquiry.enquiry_no || "").trim(),
     source_enquiry_no: String(inquiry.enquiry_no || inquiry.source_enquiry_no || "").trim()
   };
+}
+
+function yesNo(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (["y", "yes", "true", "1"].includes(text)) return "Y";
+  if (["n", "no", "false", "0"].includes(text)) return "N";
+  return String(value || "").trim();
+}
+
+function csvRowImportType(row = {}) {
+  const keys = new Set(Object.keys(row));
+  if (keys.has("service_number") || keys.has("service_slot_in_year")) return "service_history";
+  if (keys.has("pit_size_mm") || keys.has("site_visit_date")) return "site_visits";
+  if (keys.has("enquiry_no") || keys.has("lead_name")) return "sales_inquiries";
+  return "customers";
+}
+
+function customerFromCsvRow(row = {}, existing = {}, now = new Date().toISOString()) {
+  const id = String(row.fuzi_customer_id || row.id || existing.id || "").trim();
+  return cleanPayload({
+    ...existing,
+    external_customer_ref: row.external_customer_ref || existing.external_customer_ref || "",
+    ...(id ? { id } : {}),
+    name: row.name || row.customer || row.customer_name || row.lead_name || existing.name || "",
+    contact_person: row.contact_person || existing.contact_person || "",
+    phone: row.phone || row.whatsapp_no || existing.phone || "",
+    email: row.email || existing.email || "",
+    address: row.address || row.site_address || row.site || existing.address || "",
+    segment: row.segment || row.lead_type || existing.segment || "Residential",
+    pipeline_stage: row.pipeline_stage || row.lead_status || row.status || existing.pipeline_stage || "Lead",
+    status: row.status || existing.status || "Active",
+    lead_source: row.lead_source || row.referral_by || existing.lead_source || "",
+    account_owner: row.account_owner || row.assigned_to || existing.account_owner || "",
+    next_follow_up: row.next_follow_up || row.next_followup || existing.next_follow_up || "",
+    preferred_channel: row.preferred_channel || row.followup_channel || existing.preferred_channel || "",
+    date_of_birth: row.date_of_birth || existing.date_of_birth || "",
+    anniversary_date: row.anniversary_date || existing.anniversary_date || "",
+    gstin: row.gstin || existing.gstin || "",
+    pan: row.pan || existing.pan || "",
+    state: row.state || existing.state || "",
+    place_of_supply: row.place_of_supply || existing.place_of_supply || "",
+    dpdp_consent: yesNo(row.dpdp_consent || existing.dpdp_consent || ""),
+    dpdp_consent_at: row.dpdp_consent_at || existing.dpdp_consent_at || "",
+    marketing_consent: yesNo(row.marketing_consent || existing.marketing_consent || ""),
+    dlt_reference: row.dlt_reference || existing.dlt_reference || "",
+    installation_date: row.installation_date || existing.installation_date || "",
+    installed_date: row.installed_date || row.installation_date || existing.installed_date || "",
+    service_start_date: row.service_start_date || row.installed_date || row.installation_date || existing.service_start_date || "",
+    included_service_years: row.included_service_years || existing.included_service_years || "",
+    included_service_end_date: row.included_service_end_date || existing.included_service_end_date || "",
+    additional_service_years_purchased: row.additional_service_years_purchased || existing.additional_service_years_purchased || "",
+    service_end_date: row.service_end_date || row.service_contract_end_date || existing.service_end_date || "",
+    service_contract_end_date: row.service_contract_end_date || row.service_end_date || existing.service_contract_end_date || "",
+    service_years_purchased: row.service_years_purchased || existing.service_years_purchased || "",
+    amc_status: row.amc_status || existing.amc_status || "",
+    service_frequency: row.service_frequency || existing.service_frequency || "",
+    parts_included: row.parts_included || existing.parts_included || "",
+    annual_service_price: row.annual_service_price || existing.annual_service_price || "",
+    unit: row.unit || existing.unit || "",
+    lift_count: row.lift_count || existing.lift_count || "",
+    assigned_engineer: row.assigned_engineer || existing.assigned_engineer || "",
+    consent_notes: row.consent_notes || existing.consent_notes || "",
+    notes: row.notes || existing.notes || "",
+    imported_from: row.imported_from || existing.imported_from || "CRM CSV upload",
+    created_at: existing.created_at || now,
+    updated_at: now
+  });
+}
+
+function findCustomerImportIndex(customers = [], row = {}) {
+  const id = String(row.fuzi_customer_id || row.customer_id || row.id || "").trim();
+  const external = String(row.external_customer_ref || "").trim().toLowerCase();
+  const phone = phoneDigits(row.phone || row.whatsapp_no || "");
+  const name = staffLookupKey(row.name || row.customer || row.customer_name || row.lead_name || "");
+  return customers.findIndex((customer) => {
+    if (id && [customer.id, customer.customer_id].some((value) => String(value || "").trim() === id)) return true;
+    if (external && String(customer.external_customer_ref || "").trim().toLowerCase() === external) return true;
+    if (phone && phoneDigits(customer.phone || "") === phone) return true;
+    return name && staffLookupKey(customer.name || "") === name;
+  });
+}
+
+function siteVisitFromCsvRow(row = {}, existing = {}, now = new Date().toISOString()) {
+  const openingSchedule = [1, 2, 3, 4, 5, 6].map((index) => ({
+    floor: row[`opening_floor_${index}`] || "",
+    ff_height_mm: row[`opening_floor_to_floor_height_mm_${index}`] || "",
+    lintel_height_mm: row[`opening_lintel_height_mm_${index}`] || ""
+  })).filter((entry) => entry.floor || entry.ff_height_mm || entry.lintel_height_mm);
+  return cleanPayload({
+    ...existing,
+    customer_id: row.customer_id || row.fuzi_customer_id || existing.customer_id || "",
+    customer_name: row.customer_name || row.customer || existing.customer_name || "",
+    address: row.address || existing.address || "",
+    site_person_name: row.site_person_name || row.contact_person || existing.site_person_name || "",
+    site_person_mobile: row.site_person_mobile || row.phone || existing.site_person_mobile || "",
+    reference_given_by: row.reference_given_by || existing.reference_given_by || "",
+    reference_mobile: row.reference_mobile || existing.reference_mobile || "",
+    pit_size_mm: row.pit_size_mm || existing.pit_size_mm || "",
+    machine_room_available: yesNo(row.machine_room_available || existing.machine_room_available || ""),
+    site_visit_date: row.site_visit_date || existing.site_visit_date || "",
+    site_offer_no: row.site_offer_no || existing.site_offer_no || "",
+    site_enquiry_no: row.site_enquiry_no || row.enquiry_no || existing.site_enquiry_no || "",
+    site_offer_type: row.site_offer_type || existing.site_offer_type || "",
+    site_motor_required: row.site_motor_required || existing.site_motor_required || "",
+    site_finish_required: row.site_finish_required || existing.site_finish_required || "",
+    site_door_required: row.site_door_required || existing.site_door_required || "",
+    site_stops: row.site_stops || existing.site_stops || "",
+    site_number_of_openings: row.site_number_of_openings || existing.site_number_of_openings || "",
+    site_opening_type: row.site_opening_type || existing.site_opening_type || "",
+    door_size_width_mm: row.door_size_width_mm || existing.door_size_width_mm || "",
+    door_size_height_mm: row.door_size_height_mm || existing.door_size_height_mm || "",
+    car_size_width_mm: row.car_size_width_mm || existing.car_size_width_mm || "",
+    car_size_depth_mm: row.car_size_depth_mm || existing.car_size_depth_mm || "",
+    site_capacity_persons: row.site_capacity_persons || existing.site_capacity_persons || "",
+    site_capacity_kg: row.site_capacity_kg || existing.site_capacity_kg || "",
+    shaft_width_mm: row.shaft_width_mm || existing.shaft_width_mm || "",
+    shaft_depth_mm: row.shaft_depth_mm || existing.shaft_depth_mm || "",
+    brick_wall_available: yesNo(row.brick_wall_available || existing.brick_wall_available || ""),
+    civil_door_height_mm: row.civil_door_height_mm || existing.civil_door_height_mm || "",
+    visited_by: row.visited_by || existing.visited_by || "",
+    opening_schedule: openingSchedule.length ? openingSchedule : existing.opening_schedule,
+    notes: row.notes || existing.notes || "",
+    imported_from: existing.imported_from || "CRM CSV upload",
+    created_at: existing.created_at || now,
+    updated_at: now
+  });
+}
+
+async function importCrmCsvRows(rows = [], requestedType = "auto", user = {}) {
+  const now = new Date().toISOString();
+  const result = { imported: rows.length, created: 0, updated: 0, skipped: 0, type_counts: {}, errors: [] };
+  const customers = await readJson(listFiles.customers, []);
+  const inquiries = await readJson(listFiles.sales_inquiries, []);
+  const siteVisits = await readJson(listFiles.site_visits, []);
+  const serviceRecords = await readJson(listFiles.service_records, []);
+
+  for (const [rowIndex, row] of rows.entries()) {
+    const type = requestedType === "auto" ? csvRowImportType(row) : requestedType;
+    result.type_counts[type] = (result.type_counts[type] || 0) + 1;
+    try {
+      if (type === "customers" || type === "customer_master") {
+        const name = String(row.name || row.customer || row.customer_name || row.lead_name || "").trim();
+        if (!name) {
+          result.skipped += 1;
+          result.errors.push(`Row ${rowIndex + 2}: customer name is required.`);
+          continue;
+        }
+        const index = findCustomerImportIndex(customers, row);
+        const record = customerFromCsvRow(row, index >= 0 ? customers[index] : {}, now);
+        record.id = String(record.id || "").trim() || randomFourDigitCustomerId(customers);
+        if (index >= 0) {
+          const before = customers[index];
+          customers[index] = record;
+          await appendAuditLog({ user, collection: "customers", recordId: record.id, action: "csv-import-update", before, after: record });
+          result.updated += 1;
+        } else {
+          customers.unshift(record);
+          await appendAuditLog({ user, collection: "customers", recordId: record.id, action: "csv-import-create", before: null, after: record });
+          result.created += 1;
+        }
+      } else if (type === "sales_inquiries") {
+        const existingIndex = inquiries.findIndex((item) =>
+          String(item.enquiry_no || item.id || "") === String(row.enquiry_no || row.id || "") ||
+          (row.customer_id && String(item.customer_id || "") === String(row.customer_id))
+        );
+        const record = {
+          ...(existingIndex >= 0 ? inquiries[existingIndex] : {}),
+          ...normalizeSalesInquiryPayload(row, existingIndex >= 0 ? inquiries[existingIndex] : {}),
+          id: existingIndex >= 0 ? inquiries[existingIndex].id : nextId(inquiries, "SIQ"),
+          customer_id: String(row.customer_id || row.fuzi_customer_id || (existingIndex >= 0 ? inquiries[existingIndex].customer_id : "") || "").trim() || randomFourDigitCustomerId([...customers, ...inquiries]),
+          source_enquiry_no: String(row.enquiry_no || row.source_enquiry_no || "").trim(),
+          imported_from: "CRM CSV upload",
+          created_at: existingIndex >= 0 ? inquiries[existingIndex].created_at : now,
+          updated_at: now
+        };
+        if (existingIndex >= 0) {
+          const before = inquiries[existingIndex];
+          inquiries[existingIndex] = record;
+          await appendAuditLog({ user, collection: "sales_inquiries", recordId: record.id, action: "csv-import-update", before, after: record });
+          result.updated += 1;
+        } else {
+          inquiries.unshift(record);
+          await appendAuditLog({ user, collection: "sales_inquiries", recordId: record.id, action: "csv-import-create", before: null, after: record });
+          result.created += 1;
+        }
+      } else if (type === "site_visits") {
+        const customerId = String(row.customer_id || row.fuzi_customer_id || "").trim();
+        if (!customerId) {
+          result.skipped += 1;
+          result.errors.push(`Row ${rowIndex + 2}: site visit customer_id is required.`);
+          continue;
+        }
+        const existingIndex = siteVisits.findIndex((item) =>
+          String(item.customer_id || "") === customerId &&
+          String(item.site_visit_date || "") === String(row.site_visit_date || "") &&
+          String(item.site_enquiry_no || "") === String(row.site_enquiry_no || row.enquiry_no || "")
+        );
+        const record = siteVisitFromCsvRow(row, existingIndex >= 0 ? siteVisits[existingIndex] : {}, now);
+        record.id = existingIndex >= 0 ? siteVisits[existingIndex].id : nextId(siteVisits, "SV");
+        if (existingIndex >= 0) {
+          const before = siteVisits[existingIndex];
+          siteVisits[existingIndex] = record;
+          await appendAuditLog({ user, collection: "site_visits", recordId: record.id, action: "csv-import-update", before, after: record });
+          result.updated += 1;
+        } else {
+          siteVisits.unshift(record);
+          await appendAuditLog({ user, collection: "site_visits", recordId: record.id, action: "csv-import-create", before: null, after: record });
+          result.created += 1;
+        }
+      } else if (type === "service_history") {
+        const customerId = String(row.customer_id || row.fuzi_customer_id || "").trim();
+        if (!customerId) {
+          result.skipped += 1;
+          result.errors.push(`Row ${rowIndex + 2}: service customer_id is required.`);
+          continue;
+        }
+        const existingIndex = serviceRecords.findIndex((item) =>
+          String(item.service_number || item.job_number || item.id || "") === String(row.service_number || row.id || "") ||
+          (String(item.customer_id || "") === customerId && String(item.service_date || item.completed_date || "") === String(row.service_date || row.completed_date || ""))
+        );
+        const record = cleanPayload({
+          ...(existingIndex >= 0 ? serviceRecords[existingIndex] : {}),
+          ...row,
+          id: existingIndex >= 0 ? serviceRecords[existingIndex].id : nextId(serviceRecords, "SVC"),
+          job_number: row.service_number || row.job_number || (existingIndex >= 0 ? serviceRecords[existingIndex].job_number : ""),
+          customer_id: customerId,
+          customer: row.customer || (existingIndex >= 0 ? serviceRecords[existingIndex].customer : ""),
+          assigned_engineer: row.assigned_engineer || row.technician || (existingIndex >= 0 ? serviceRecords[existingIndex].assigned_engineer : ""),
+          status: row.status || (existingIndex >= 0 ? serviceRecords[existingIndex].status : "Completed"),
+          imported_from: "CRM CSV upload",
+          created_at: existingIndex >= 0 ? serviceRecords[existingIndex].created_at : now,
+          updated_at: now
+        });
+        if (existingIndex >= 0) {
+          const before = serviceRecords[existingIndex];
+          serviceRecords[existingIndex] = record;
+          await appendAuditLog({ user, collection: "service_records", recordId: record.id, action: "csv-import-update", before, after: record });
+          result.updated += 1;
+        } else {
+          serviceRecords.unshift(record);
+          await appendAuditLog({ user, collection: "service_records", recordId: record.id, action: "csv-import-create", before: null, after: record });
+          result.created += 1;
+        }
+      } else {
+        result.skipped += 1;
+        result.errors.push(`Row ${rowIndex + 2}: unknown import type ${type}.`);
+      }
+    } catch (error) {
+      result.skipped += 1;
+      result.errors.push(`Row ${rowIndex + 2}: ${error?.message || error}`);
+    }
+  }
+
+  await Promise.all([
+    writeJson(listFiles.customers, customers),
+    writeJson(listFiles.sales_inquiries, inquiries),
+    writeJson(listFiles.site_visits, siteVisits),
+    writeJson(listFiles.service_records, serviceRecords)
+  ]);
+  const backfill = await ensureServiceJobsForCustomers();
+  result.created_service_jobs = backfill.created;
+  return result;
 }
 
 function globalSearchItems(collectionName, records = [], fields = [], query = "", limit = 8) {
@@ -4447,6 +4751,88 @@ async function syncCustomerServiceCounts(customerIds = []) {
   if (changed) await writeJson(listFiles.customers, nextCustomers);
 }
 
+function serviceRecordMatchesCustomer(record = {}, customer = {}) {
+  const customerId = String(customer.id || customer.customer_id || "").trim();
+  const customerName = crmNameKey(customer.name || customer.customer || customer.customer_name || "");
+  const recordCustomerId = String(record.customer_id || "").trim();
+  const recordCustomerName = crmNameKey(record.customer || record.customer_name || record.building || "");
+  return Boolean(
+    (customerId && recordCustomerId && customerId === recordCustomerId) ||
+    (customerName && recordCustomerName && customerName === recordCustomerName)
+  );
+}
+
+function defaultServiceDateForCustomer(customer = {}) {
+  const candidates = [
+    customer.next_service_date,
+    customer.next_follow_up,
+    customer.service_start_date,
+    customer.installed_date,
+    customer.installation_date
+  ];
+  const today = new Date().toISOString().slice(0, 10);
+  for (const value of candidates) {
+    const date = String(value || "").slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) return date < today ? today : date;
+  }
+  return today;
+}
+
+function autoServiceRecordForCustomer(customer = {}, records = []) {
+  const now = new Date().toISOString();
+  const customerId = String(customer.id || customer.customer_id || "").trim();
+  const customerName = String(customer.name || customer.customer || customer.customer_name || customerId).trim();
+  const scheduledDate = defaultServiceDateForCustomer(customer);
+  const id = nextId(records, "SVC");
+  return {
+    id,
+    service_number: id,
+    job_number: id,
+    customer_id: customerId,
+    customer: customerName,
+    phone: String(customer.phone || customer.whatsapp_no || "").trim(),
+    site: String(customer.address || customer.site || customer.site_address || "").trim(),
+    unit: String(customer.unit || customer.lift_unit || "").trim(),
+    service_type: "Preventive Maintenance",
+    issue_category: "Scheduled preventive service",
+    scheduled_date: scheduledDate,
+    next_service_date: scheduledDate,
+    assigned_engineer: String(customer.assigned_engineer || customer.service_engineer || customer.account_owner || "").trim(),
+    technician: String(customer.assigned_engineer || customer.service_engineer || "").trim(),
+    status: "Scheduled",
+    notes: "Auto-created so every CRM customer has a linked service job.",
+    assignment_source: "auto-customer-service-backfill",
+    created_at: now,
+    updated_at: now
+  };
+}
+
+async function ensureServiceJobsForCustomers(targetCustomerIds = []) {
+  const [customers, serviceRecords] = await Promise.all([
+    readJson(listFiles.customers, []),
+    readJson(listFiles.service_records, [])
+  ]);
+  if (!Array.isArray(customers) || !customers.length) return { created: 0, customer_ids: [] };
+  const requestedIds = new Set(targetCustomerIds.map((id) => String(id || "").trim()).filter(Boolean));
+  const eligibleCustomers = requestedIds.size
+    ? customers.filter((customer) => requestedIds.has(String(customer.id || customer.customer_id || "").trim()))
+    : customers;
+  const nextServiceRecords = [...serviceRecords];
+  const createdCustomerIds = [];
+  for (const customer of eligibleCustomers) {
+    const customerId = String(customer.id || customer.customer_id || "").trim();
+    if (!customerId) continue;
+    if (nextServiceRecords.some((record) => serviceRecordMatchesCustomer(record, customer))) continue;
+    const record = autoServiceRecordForCustomer(customer, nextServiceRecords);
+    nextServiceRecords.unshift(record);
+    createdCustomerIds.push(customerId);
+  }
+  if (!createdCustomerIds.length) return { created: 0, customer_ids: [] };
+  await writeJson(listFiles.service_records, nextServiceRecords);
+  await syncCustomerServiceCounts(createdCustomerIds);
+  return { created: createdCustomerIds.length, customer_ids: createdCustomerIds };
+}
+
 async function siteVisitCrmCustomerPayload(body, res) {
   const customerId = String(body?.customer_id || "").trim();
   if (!customerId) {
@@ -5146,6 +5532,7 @@ async function ensurePortalCollectionIntegrity() {
     await ensureOfferInquiryLinks();
     await ensureRenewalCustomerLinks();
     await ensureSiteVisitCustomerLinks();
+    await ensureServiceJobsForCustomers();
     portalIntegrityCheckedAt = Date.now();
   })().finally(() => {
     portalIntegrityPromise = null;
@@ -5298,8 +5685,10 @@ app.use(compressionMiddleware);
 app.use(express.json({ limit: "5mb" }));
 const offerAssetsDir = path.join(rootDir, "docs", "offer", "assets");
 const customerAssetsDir = path.join(rootDir, "docs", "customer-assets");
+const crmImportTemplatesDir = path.join(rootDir, "crm-import-templates");
 app.use("/assets/offer", precompressedStaticMiddleware(offerAssetsDir), express.static(offerAssetsDir, { setHeaders: staticCacheControl }));
 app.use("/assets/customer", precompressedStaticMiddleware(customerAssetsDir), express.static(customerAssetsDir, { setHeaders: staticCacheControl }));
+app.use("/crm-import-templates", express.static(crmImportTemplatesDir, { setHeaders: staticCacheControl }));
 const webDistDir = path.join(rootDir, "expo-app", "dist");
 const webDistIndex = path.join(webDistDir, "index.html");
 const webSiteDir = path.join(webDistDir, "site");
@@ -5542,6 +5931,19 @@ app.get("/api/portal/global-search", authRequired, async (req, res) => {
     ...globalSearchItems("dept_comms", collections.dept_comms, ["subject", "message"], query)
   ];
   res.json({ ok: true, query, results: results.slice(0, 40) });
+});
+
+app.post("/api/portal/crm/import-csv", authRequired, async (req, res) => {
+  if (!isAdminUser(req.user) && !canManageCustomerAssignments(req.user)) {
+    return res.status(403).json({ ok: false, message: "Only Admin, Manager, or Team Lead users can import CRM CSV data." });
+  }
+  const csvText = String(req.body?.csv_text || "");
+  if (!csvText.trim()) return res.status(400).json({ ok: false, message: "Upload a CSV file with rows to import." });
+  const rows = parseCsvRows(csvText);
+  if (!rows.length) return res.status(400).json({ ok: false, message: "No data rows found in the CSV file." });
+  const importType = String(req.body?.import_type || "auto").trim() || "auto";
+  const result = await importCrmCsvRows(rows, importType, req.user || {});
+  res.json({ ok: true, ...result, filename: String(req.body?.filename || "").trim() });
 });
 
 app.get("/api/portal/crm/export", authRequired, async (req, res) => {
@@ -6006,6 +6408,7 @@ app.post("/api/portal/customers", authRequired, async (req, res) => {
   };
   customers.unshift(customer);
   await writeJson(listFiles.customers, customers);
+  await ensureServiceJobsForCustomers([customer.id]);
   await appendAuditLog({ user: req.user || {}, collection: "customers", recordId: customer.id, action: "create", before: null, after: customer });
   res.json({ ok: true, customer, message: `${name} saved.` });
 });
