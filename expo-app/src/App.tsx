@@ -25,6 +25,7 @@ type NativeTextInputProps = ComponentProps<typeof NativeTextInput>;
 type BufferedTextInputProps = NativeTextInputProps & { commitDelayMs?: number; commitOnBlur?: boolean };
 
 const LanguageContext = createContext<PortalLanguage>("en");
+const DEFAULT_LIST_STEP = 3;
 
 const hindiTranslations: Record<string, string> = {
   English: "अंग्रेजी",
@@ -1302,9 +1303,13 @@ export default function App() {
   const [loginDepartmentOpen, setLoginDepartmentOpen] = useState(false);
   const [loginUserOpen, setLoginUserOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
-  const [showPortalLogin, setShowPortalLogin] = useState(false);
+  const [showPortalLogin, setShowPortalLogin] = useState(
+    () => Platform.OS === "web" && typeof window !== "undefined" && window.location.pathname.startsWith("/portal")
+  );
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [listStepInput, setListStepInput] = useState(String(DEFAULT_LIST_STEP));
+  const [listVisibleCounts, setListVisibleCounts] = useState<Record<string, number>>({});
   const [overviewStartDate, setOverviewStartDate] = useState(currentFiscalYearRange().start);
   const [overviewEndDate, setOverviewEndDate] = useState(currentFiscalYearRange().end);
   const [projectNow, setProjectNow] = useState(() => Date.now());
@@ -1438,6 +1443,40 @@ export default function App() {
   const asRecords = (value: unknown): Array<Record<string, unknown>> => (Array.isArray(value) ? (value as Array<Record<string, unknown>>) : []);
   const isAdmin = ["admin", "ceo"].includes(String(data?.viewer?.role || "").trim().toLowerCase());
   const normalizedKey = (value: unknown) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  const listsLimitedAfterLogin = Boolean(data?.viewer);
+  const listStep = Math.max(1, Number.parseInt(listStepInput, 10) || DEFAULT_LIST_STEP);
+  const listVisibleCount = (key: string, total: number) => listsLimitedAfterLogin ? Math.min(total, Math.max(0, listVisibleCounts[key] ?? Math.min(DEFAULT_LIST_STEP, total))) : total;
+  const limitedItems = <T,>(key: string, items: T[]) => items.slice(0, listVisibleCount(key, items.length));
+  function setListCount(key: string, total: number, nextCount: number) {
+    setListVisibleCounts((counts) => ({ ...counts, [key]: Math.min(total, Math.max(Math.min(DEFAULT_LIST_STEP, total), nextCount)) }));
+  }
+  function renderListControls(key: string, total: number) {
+    if (!listsLimitedAfterLogin) return null;
+    if (total <= DEFAULT_LIST_STEP) return null;
+    const visibleCount = listVisibleCount(key, total);
+    return (
+      <View style={styles.listControls}>
+        <View style={styles.listControlLine}>
+          <TextInput
+            style={styles.listStepInput}
+            value={listStepInput}
+            onChangeText={(value) => setListStepInput(value.replace(/[^0-9]/g, "") || String(DEFAULT_LIST_STEP))}
+            keyboardType="number-pad"
+            commitDelayMs={0}
+          />
+          <Pressable style={styles.listControlButton} onPress={() => setListCount(key, total, visibleCount + listStep)} disabled={visibleCount >= total}>
+            <Text style={styles.smallButtonText}>show more</Text>
+          </Pressable>
+        </View>
+        <View style={styles.listControlLine}>
+          <Text style={styles.listStepEcho}>{listStep}</Text>
+          <Pressable style={styles.listControlButton} onPress={() => setListCount(key, total, visibleCount - listStep)} disabled={visibleCount <= Math.min(DEFAULT_LIST_STEP, total)}>
+            <Text style={styles.smallButtonText}>show less</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
   const adminLoginUsers = useMemo(
     () => loginDirectory.filter((user) => {
       const text = `${fieldText(user, ["username"])} ${fieldText(user, ["display_name"])} ${fieldText(user, ["department"])} ${fieldText(user, ["role"])}`;
@@ -1481,6 +1520,8 @@ export default function App() {
   }, [navSearch, visibleNavItems, portalLanguage]);
   const activeNavItem = visibleNavItems.find((item) => item.key === activeTab) || navItems.find((item) => item.key === activeTab);
   const unreadNotifications = asRecords(data?.dept_comms).filter((item) => item.read !== true && String(item.status || "").toLowerCase() !== "read");
+  const globalSearchListKey = "global-search-results";
+  const notificationListKey = "notifications-unread";
   const lowStock = useMemo(
     () => (data?.inventory || []).filter((item) => {
       const onHand = Number(item.qty_on_hand ?? item.stock ?? 0);
@@ -1999,7 +2040,7 @@ export default function App() {
     );
   }
 
-  function renderRecordCards(records: Array<Record<string, unknown>>, titleKeys: string[], detailKeys: string[][], config?: ModuleConfig) {
+  function renderRecordCards(records: Array<Record<string, unknown>>, titleKeys: string[], detailKeys: string[][], config?: ModuleConfig, listKey = "records") {
     if (!records.length) {
       return (
         <View style={styles.card}>
@@ -2008,27 +2049,33 @@ export default function App() {
         </View>
       );
     }
-    return records.slice(0, 30).map((record, index) => {
-      return (
-        <View key={String(record.id || record.name || index)} style={styles.card}>
-          <Text style={styles.cardTitle}>{fieldText(record, titleKeys)}</Text>
-          {detailKeys.map((keys) => (
-            <Text key={keys.join("-")} style={styles.bodyText}>{fieldText(record, keys)}</Text>
-          ))}
-          {renderLinkedSystems(record)}
-          {!!config && !!recordIdentity(record) && (
-            <View style={styles.inlineActions}>
-              <Pressable style={styles.smallButton} onPress={() => updateModuleRecord(record, "In Progress")} disabled={loading}>
-                <Text style={styles.smallButtonText}>Start</Text>
-              </Pressable>
-              <Pressable style={styles.smallButton} onPress={() => updateModuleRecord(record, "Closed")} disabled={loading}>
-                <Text style={styles.smallButtonText}>Close</Text>
-              </Pressable>
+    const visibleCount = listVisibleCount(listKey, records.length);
+    return (
+      <View style={styles.limitedList}>
+        {records.slice(0, visibleCount).map((record, index) => {
+          return (
+            <View key={String(record.id || record.name || index)} style={styles.card}>
+              <Text style={styles.cardTitle}>{fieldText(record, titleKeys)}</Text>
+              {detailKeys.map((keys) => (
+                <Text key={keys.join("-")} style={styles.bodyText}>{fieldText(record, keys)}</Text>
+              ))}
+              {renderLinkedSystems(record)}
+              {!!config && !!recordIdentity(record) && (
+                <View style={styles.inlineActions}>
+                  <Pressable style={styles.smallButton} onPress={() => updateModuleRecord(record, "In Progress")} disabled={loading}>
+                    <Text style={styles.smallButtonText}>Start</Text>
+                  </Pressable>
+                  <Pressable style={styles.smallButton} onPress={() => updateModuleRecord(record, "Closed")} disabled={loading}>
+                    <Text style={styles.smallButtonText}>Close</Text>
+                  </Pressable>
+                </View>
+              )}
             </View>
-          )}
-        </View>
-      );
-    });
+          );
+        })}
+        {renderListControls(listKey, records.length)}
+      </View>
+    );
   }
 
   function renderFeaturePage(
@@ -2047,7 +2094,7 @@ export default function App() {
           <Text style={styles.moduleHeroText}>{subtitle}</Text>
         </View>
         {config && renderModuleForm(config)}
-        {renderRecordCards(records, titleKeys, detailKeys, config)}
+        {renderRecordCards(records, titleKeys, detailKeys, config, `feature-${activeTab}`)}
       </View>
     );
   }
@@ -2245,6 +2292,15 @@ export default function App() {
       { label: "Stock risk", value: lowStock.length, detail: "Inventory at reorder threshold", tab: "inventory" as TabKey },
       { label: "Open project tickets", value: openTickets.length, detail: "Cross-department work still active", tab: "tickets" as TabKey },
     ].filter((item) => item.value > 0);
+    const overviewPipelineListKey = "overview-pipeline";
+    const assignedCustomerRows = [...new Map([...myAssignedCustomers, ...departmentAssignedCustomers].map((item) => [String(item.customer?.id || item.assignment.customer_id || item.assignment.id), item])).values()];
+    const assignedCustomerListKey = "overview-assigned-customers";
+    const departmentCapacityRows = departmentCapacity.filter((item) => item.active > 0);
+    const departmentCapacityListKey = "overview-department-capacity";
+    const attentionListKey = "overview-attention";
+    const fiscalMetricsListKey = "overview-fiscal-metrics";
+    const executiveMetricsListKey = "overview-executive-metrics";
+    const executiveMetrics = data?.metrics || [];
     return (
       <View>
         <View style={styles.commandBand}>
@@ -2280,24 +2336,26 @@ export default function App() {
           </View>
         </View>
         <View style={styles.metricGrid}>
-          {fiscalMetrics.map((metric) => (
+          {limitedItems(fiscalMetricsListKey, fiscalMetrics).map((metric) => (
             <View key={`fiscal-${metric.label}`} style={styles.card}>
               <Text style={styles.cardLabel}>{metric.label}</Text>
               <Text style={styles.metricValue}>{metric.value}</Text>
               <Text style={styles.muted}>{metric.detail}</Text>
             </View>
           ))}
+          {renderListControls(fiscalMetricsListKey, fiscalMetrics.length)}
         </View>
 
         <Text style={styles.sectionTitle}>Executive Snapshot</Text>
         <View style={styles.metricGrid}>
-          {(data?.metrics || []).map((metric) => (
+          {limitedItems(executiveMetricsListKey, executiveMetrics).map((metric) => (
             <View key={metric.label} style={styles.card}>
               <Text style={styles.cardLabel}>{metric.label}</Text>
               <Text style={styles.metricValue}>{metric.value}</Text>
               <Text style={styles.muted}>{metric.delta}</Text>
             </View>
           ))}
+          {renderListControls(executiveMetricsListKey, executiveMetrics.length)}
           <View style={styles.card}>
             <Text style={styles.cardLabel}>Estimate value</Text>
             <Text style={styles.metricValue}>{formatMoney(totalEstimateValue)}</Text>
@@ -2317,7 +2375,7 @@ export default function App() {
 
         <Text style={styles.sectionTitle}>Sales Pipeline</Text>
         <View style={styles.analyticsPanel}>
-          {pipelineRows.map((item) => (
+          {limitedItems(overviewPipelineListKey, pipelineRows).map((item) => (
             <View key={`overview-pipeline-${item.status}`} style={styles.analyticsRow}>
               <View style={styles.analyticsRowHeader}>
                 <Text style={styles.cardTitle}>{item.status}</Text>
@@ -2328,6 +2386,7 @@ export default function App() {
               </View>
             </View>
           ))}
+          {renderListControls(overviewPipelineListKey, pipelineRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>Assigned Customers</Text>
@@ -2344,7 +2403,7 @@ export default function App() {
           </View>
         </View>
         <View style={styles.analyticsPanel}>
-          {[...new Map([...myAssignedCustomers, ...departmentAssignedCustomers].map((item) => [String(item.customer?.id || item.assignment.customer_id || item.assignment.id), item])).values()].slice(0, 8).map((item, index) => (
+          {limitedItems(assignedCustomerListKey, assignedCustomerRows).map((item, index) => (
             <View key={`assigned-overview-${String(item.assignment.id || index)}`} style={styles.assignmentRow}>
               <View style={styles.assignmentDetails}>
                 <Text style={styles.assignmentName}>{String(item.customer?.name || item.assignment.customer_id || "-")}</Text>
@@ -2367,6 +2426,7 @@ export default function App() {
           {!myAssignedCustomers.length && !departmentAssignedCustomers.length && (
             <Text style={styles.muted}>No assigned customers match your staff profile or department filters.</Text>
           )}
+          {renderListControls(assignedCustomerListKey, assignedCustomerRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>Department Workflow</Text>
@@ -2388,7 +2448,7 @@ export default function App() {
           </View>
         </View>
         <View style={styles.analyticsPanel}>
-          {departmentCapacity.filter((item) => item.active > 0).slice(0, 9).map((item) => (
+          {limitedItems(departmentCapacityListKey, departmentCapacityRows).map((item) => (
             <View key={`capacity-${item.department}`} style={styles.analyticsRow}>
               <View style={styles.analyticsRowHeader}>
                 <Text style={styles.cardTitle}>{item.department}</Text>
@@ -2398,6 +2458,7 @@ export default function App() {
             </View>
           ))}
           {!departmentCapacity.some((item) => item.active > 0) && <Text style={styles.muted}>No active department queues are open right now.</Text>}
+          {renderListControls(departmentCapacityListKey, departmentCapacityRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>Workload Analytics</Text>
@@ -2425,7 +2486,8 @@ export default function App() {
         </View>
 
         <Text style={styles.sectionTitle}>Attention Needed</Text>
-        {attentionItems.length ? attentionItems.map((item) => (
+        <View style={styles.limitedList}>
+        {attentionItems.length ? limitedItems(attentionListKey, attentionItems).map((item) => (
           <Pressable key={`attention-${item.label}`} style={styles.alertCard} onPress={() => setActiveTab(item.tab)}>
             <View style={styles.cardHeaderRow}>
               <View style={styles.cardTitleBlock}>
@@ -2441,6 +2503,8 @@ export default function App() {
             <Text style={styles.muted}>Follow-ups, stock, payments, tickets, and breakdowns are clear for now.</Text>
           </View>
         )}
+        {renderListControls(attentionListKey, attentionItems.length)}
+        </View>
 
         <Pressable style={styles.portalShortcut} onPress={() => setActiveTab("breakdown")}>
           <Text style={styles.cardLabel}>Emergency access</Text>
@@ -2509,6 +2573,7 @@ export default function App() {
               const recordStatus = normalizeProjectStatus(fieldText(record, ["status"]));
               return recordStatus === status;
             });
+            const columnListKey = `project-tickets-${normalizedKey(status)}`;
             return (
               <View key={`project-column-${status}`} style={styles.kanbanColumn}>
                 <View style={styles.kanbanColumnHeader}>
@@ -2520,7 +2585,7 @@ export default function App() {
                     <Text style={styles.muted}>No tickets in this status.</Text>
                   </View>
                 )}
-                {columnRecords.map((record, index) => {
+                {limitedItems(columnListKey, columnRecords).map((record, index) => {
                   const id = recordIdentity(record) || String(record.title || index);
                   const currentIndex = statuses.indexOf(status);
                   const forwardStatuses = statuses.slice(currentIndex + 1, currentIndex + 5);
@@ -2544,6 +2609,7 @@ export default function App() {
                     </View>
                   );
                 })}
+                {renderListControls(columnListKey, columnRecords.length)}
               </View>
             );
           })}
@@ -2746,6 +2812,7 @@ export default function App() {
           {projectDepartments.map((department) => {
             const rows = activeRows.filter(({ assignment }) => String(assignment?.department_id || "") === department);
             const averageHours = rows.length ? rows.reduce((sum, row) => sum + projectHoursBetween(row.assignment?.entered_at || row.assignment?.assigned_date), 0) / rows.length : 0;
+            const departmentProjectListKey = `department-projects-${normalizedKey(department)}`;
             return (
               <View key={`dept-${department}`} style={styles.departmentColumn}>
                 <View style={styles.kanbanColumnHeader}>
@@ -2758,11 +2825,13 @@ export default function App() {
                     <Text style={styles.muted}>No customers in this department.</Text>
                   </View>
                 )}
-                {rows.map(({ customer, assignment }) => {
+                {limitedItems(departmentProjectListKey, rows).map(({ customer, assignment }) => {
                   const enteredAt = assignment?.entered_at || assignment?.assigned_date;
                   const hours = projectHoursBetween(enteredAt);
                   const history = projectHistoryForCustomer(customer.id);
                   const staffHours = [...projectStaffHours(customer.id, department).values()];
+                  const historyListKey = `department-history-${customer.id}`;
+                  const staffHoursListKey = `department-staff-hours-${customer.id}`;
                   const totalProjectHours = [...projectStaffHours(customer.id).values()].reduce((sum, row) => sum + row.hours, 0) + history.reduce((sum, item) => sum + Number(item.duration_hours || 0), 0);
                   const sla = projectSlaStatus(hours, assignment?.priority);
                   const assignedTeam = customerAssignmentRecords(customer.id);
@@ -2781,19 +2850,21 @@ export default function App() {
                       <Text style={styles.muted}>Last activity: {staffHours.map((row) => row.last_activity).sort().pop()?.slice(0, 10) || String(assignment?.updated_at || assignment?.assigned_date || "-").slice(0, 10)}</Text>
                       <View style={styles.historyPanel}>
                         <Text style={styles.cardLabel}>Department History</Text>
-                        {history.slice(-5).map((item, index) => (
+                        {limitedItems(historyListKey, history).map((item, index) => (
                           <Text key={`hist-${customer.id}-${index}`} style={styles.muted}>
                             {String(item.department_id || "-")} - {String(item.entered_at || "-").slice(0, 10)} to {item.exited_at ? String(item.exited_at).slice(0, 10) : "Present"} - {Number(item.duration_hours || projectHoursBetween(item.entered_at, item.exited_at || undefined)).toFixed(1)}h
                           </Text>
                         ))}
                         {!history.length && <Text style={styles.muted}>No completed movement history yet.</Text>}
+                        {renderListControls(historyListKey, history.length)}
                       </View>
                       <View style={styles.historyPanel}>
                         <Text style={styles.cardLabel}>Staff Hours</Text>
-                        {staffHours.slice(0, 4).map((row) => (
+                        {limitedItems(staffHoursListKey, staffHours).map((row) => (
                           <Text key={`staff-hours-${customer.id}-${row.staff_id}`} style={styles.muted}>{row.staff_name} - {row.department_id} - {row.hours.toFixed(1)}h - {row.tasks} tasks - {row.last_activity.slice(0, 10) || "-"}</Text>
                         ))}
                         {!staffHours.length && <Text style={styles.muted}>No staff time entries logged.</Text>}
+                        {renderListControls(staffHoursListKey, staffHours.length)}
                       </View>
                       <View style={styles.inlineActions}>
                         {projectDepartments.filter((next) => next !== department).slice(0, 5).map((next) => (
@@ -2808,6 +2879,7 @@ export default function App() {
                     </View>
                   );
                 })}
+                {renderListControls(departmentProjectListKey, rows.length)}
               </View>
             );
           })}
@@ -2952,7 +3024,7 @@ export default function App() {
       const blockedRole = /\bbreakdown\b|\binstallation\b|\binstall\b|\bmanager\b|\badmin\b|\bceo\b|\bdirector\b|\bstaff\b/.test(searchText);
       const isJitendraServiceManager = /jitendra/.test(searchText) && /choudh?ary|choudry/.test(searchText);
       return isServicePerson && !blockedRole && !isJitendraServiceManager;
-    }).map(({ name, department }) => ({ name, department })).slice(0, 80);
+    }).map(({ name, department }) => ({ name, department }));
   }
 
   async function saveNewServiceRecord() {
@@ -3188,8 +3260,8 @@ export default function App() {
     const selectedServiceCustomer = customerOptions.find((customer) => customer.id === serviceDraft.customer_id);
     const serviceCustomerQuery = serviceCustomerSearch.trim().toLowerCase();
     const visibleServiceCustomers = customerOptions
-      .filter((customer) => !serviceCustomerQuery || `${customer.id} ${customer.name} ${customer.phone} ${customer.source_inquiry_id}`.toLowerCase().includes(serviceCustomerQuery))
-      .slice(0, 80);
+      .filter((customer) => !serviceCustomerQuery || `${customer.id} ${customer.name} ${customer.phone} ${customer.source_inquiry_id}`.toLowerCase().includes(serviceCustomerQuery));
+    const serviceNewVisitCustomerListKey = "service-new-visit-customers";
     const engineerOptions = serviceEngineerOptions();
     const todayDate = new Date().toISOString().slice(0, 10);
     const viewerStaffId = fieldText(viewerStaff || {}, ["id"]);
@@ -3200,7 +3272,6 @@ export default function App() {
       ? [...viewerAttendance.entries as Array<Record<string, unknown>>]
         .filter((entry) => String(entry.date || todayDate).slice(0, 10) === todayDate)
         .sort((a, b) => String(b.timestamp || b.marked_at || "").localeCompare(String(a.timestamp || a.marked_at || "")))
-        .slice(0, 6)
       : [];
     const officeAttendanceHistoryRows = viewerStaffId
       ? asRecords(data?.attendance_today)
@@ -3761,20 +3832,20 @@ export default function App() {
         record.next_service_number,
       ].some((value) => String(value || "").toLowerCase().includes(query));
     });
-    const servicePageSize = 10;
-    const servicePageCount = Math.max(1, Math.ceil(filteredRecords.length / servicePageSize));
-    const safeServicePage = Math.min(servicePage, servicePageCount);
-    const visibleRecords = filteredRecords.slice((safeServicePage - 1) * servicePageSize, safeServicePage * servicePageSize);
+    const serviceListKey = "service-records";
+    const visibleRecords = filteredRecords.slice(0, listVisibleCount(serviceListKey, filteredRecords.length));
     const checkedOutServiceVisitRecords = records
       .filter((record) => String(record.check_in_at || "").trim())
       .filter((record) => String(record.check_out_at || "").trim())
-      .sort((a, b) => String(b.check_in_at || "").localeCompare(String(a.check_in_at || "")))
-      .slice(0, 11);
+      .sort((a, b) => String(b.check_in_at || "").localeCompare(String(a.check_in_at || "")));
     const checkedInServiceRecords = [
       ...(activeServiceCheckInRecord ? [activeServiceCheckInRecord] : []),
       ...checkedOutServiceVisitRecords,
-    ].slice(0, 12);
+    ];
     const activeCheckedInCount = activeServiceCheckInRecord ? 1 : 0;
+    const serviceCheckInListKey = "service-check-ins";
+    const officeAttendanceHistoryListKey = "service-office-attendance-history";
+    const serviceEngineerRosterListKey = "service-engineer-roster";
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -3792,7 +3863,7 @@ export default function App() {
           </View>
           {!!checkedInServiceRecords.length && (
             <View style={styles.selectorList}>
-              {checkedInServiceRecords.map((record, index) => {
+              {limitedItems(serviceCheckInListKey, checkedInServiceRecords).map((record, index) => {
                 const recordId = recordIdentity(record) || String(record.id || `check-${index}`);
                 const isOnSite = !String(record.check_out_at || "").trim();
                 return (
@@ -3817,6 +3888,7 @@ export default function App() {
                   </Pressable>
                 );
               })}
+              {renderListControls(serviceCheckInListKey, checkedInServiceRecords.length)}
             </View>
           )}
           {!checkedInServiceRecords.length && <Text style={styles.muted}>No service engineer check-ins have been captured yet.</Text>}
@@ -3840,7 +3912,7 @@ export default function App() {
             {!!officeAttendanceEntries.length && (
               <View style={styles.serviceJobList}>
                 <Text style={styles.label}>Office check-in history</Text>
-                {officeAttendanceEntries.map((entry, index) => (
+                {limitedItems("service-office-attendance-entries", officeAttendanceEntries).map((entry, index) => (
                   <View key={`office-attendance-entry-${String(entry.id || index)}`} style={styles.serviceJobRow}>
                     <View style={styles.serviceJobTopLine}>
                       <Text style={styles.serviceJobType}>{String(entry.label || entry.action || "Entry").replace("_", " ")}</Text>
@@ -3849,6 +3921,7 @@ export default function App() {
                     <Text style={styles.serviceJobMeta}>{String(entry.date || todayDate)}{attendanceLocationText(entry.location) ? ` - ${attendanceLocationText(entry.location)}` : ""}</Text>
                   </View>
                 ))}
+                {renderListControls("service-office-attendance-entries", officeAttendanceEntries.length)}
               </View>
             )}
             <View style={styles.inlineActions}>
@@ -3872,7 +3945,7 @@ export default function App() {
               <Text style={styles.statusPill}>{officeAttendanceHistoryRows.length} days</Text>
             </View>
             <View style={styles.serviceJobList}>
-              {officeAttendanceHistoryRows.map((row, index) => {
+              {limitedItems(officeAttendanceHistoryListKey, officeAttendanceHistoryRows).map((row, index) => {
                 const rowDate = fieldText(row, ["date"]) || todayDate;
                 const rowEntries = Array.isArray(row.entries)
                   ? (row.entries as Array<Record<string, unknown>>)
@@ -3897,6 +3970,7 @@ export default function App() {
                 );
               })}
               {!officeAttendanceHistoryRows.length && <Text style={styles.muted}>No office attendance history has been recorded yet.</Text>}
+              {renderListControls(officeAttendanceHistoryListKey, officeAttendanceHistoryRows.length)}
             </View>
           </View>
         )}
@@ -3935,7 +4009,7 @@ export default function App() {
                   )}
                 </View>
                 <View style={styles.serviceJobList}>
-                  {viewerRosterRow.assignments.map((assignment, assignmentIndex) => (
+                  {limitedItems("service-viewer-assignments", viewerRosterRow.assignments).map((assignment, assignmentIndex) => (
                     <Pressable
                       key={`my-service-assignment-${assignment.type}-${assignmentIndex}`}
                       style={styles.serviceJobRow}
@@ -3958,6 +4032,7 @@ export default function App() {
                     </Pressable>
                   ))}
                   {!viewerRosterRow.assignments.length && <Text style={styles.serviceJobMeta}>No active assignment found.</Text>}
+                  {renderListControls("service-viewer-assignments", viewerRosterRow.assignments.length)}
                 </View>
               </View>
             </View>
@@ -3994,7 +4069,7 @@ export default function App() {
             </View>
           </View>
           <View style={styles.serviceEngineerGrid}>
-            {serviceEngineerRoster.map((row) => (
+            {limitedItems(serviceEngineerRosterListKey, serviceEngineerRoster).map((row) => (
               <View key={`service-engineer-roster-${row.engineer.name}`} style={styles.serviceEngineerTile}>
                 <View style={styles.serviceEngineerTileHeader}>
                   <View style={styles.serviceEngineerTitleBlock}>
@@ -4053,7 +4128,7 @@ export default function App() {
                   )}
                 </View>
                 <View style={styles.serviceJobList}>
-                  {row.assignments.map((assignment, assignmentIndex) => (
+                  {limitedItems(`service-engineer-assignments-${row.engineer.name}`, row.assignments).map((assignment, assignmentIndex) => (
                     <Pressable
                       key={`service-engineer-${row.engineer.name}-${assignment.type}-${assignmentIndex}`}
                       style={styles.serviceJobRow}
@@ -4090,7 +4165,7 @@ export default function App() {
                                 <Text style={styles.selectorText}>Unassign engineer</Text>
                                 <Text style={styles.muted}>Clear this service job assignment.</Text>
                               </Pressable>
-                              {engineerOptions.map((engineer) => (
+                              {limitedItems(`service-quick-engineers-${row.engineer.name}-${assignment.search || assignmentIndex}`, engineerOptions).map((engineer) => (
                                 <Pressable
                                   key={`quick-assign-${row.engineer.name}-${assignment.search || assignmentIndex}-${engineer.name}`}
                                   style={[styles.dropdownOption, engineerMatchesAssignment(engineer.name, assignment.record as Record<string, unknown>, ["assigned_engineer", "technician", "engineer", "assigned_to"]) && styles.selectorPillActive]}
@@ -4101,6 +4176,7 @@ export default function App() {
                                   {!!engineer.department && <Text style={styles.muted}>{engineer.department}</Text>}
                                 </Pressable>
                               ))}
+                              {renderListControls(`service-quick-engineers-${row.engineer.name}-${assignment.search || assignmentIndex}`, engineerOptions.length)}
                             </View>
                           )}
                         </View>
@@ -4111,9 +4187,11 @@ export default function App() {
                     </Pressable>
                   ))}
                   {!row.assignments.length && <Text style={styles.serviceJobMeta}>No active assignment found.</Text>}
+                  {renderListControls(`service-engineer-assignments-${row.engineer.name}`, row.assignments.length)}
                 </View>
               </View>
             ))}
+            {renderListControls(serviceEngineerRosterListKey, serviceEngineerRoster.length)}
             {!serviceEngineerRoster.length && <Text style={styles.muted}>No service engineers were found in the team, staff, or user records.</Text>}
           </View>
         </View>}
@@ -4151,7 +4229,7 @@ export default function App() {
                 <View style={styles.dropdownPanel}>
                   <TextInput style={styles.input} value={serviceCustomerSearch} onChangeText={setServiceCustomerSearch} placeholder="Search customer number, name, phone, CRM ID" />
                   <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                    {visibleServiceCustomers.map((customer, index) => (
+                    {limitedItems(serviceNewVisitCustomerListKey, visibleServiceCustomers).map((customer, index) => (
                       <Pressable
                         key={`new-service-customer-${customer.id}-${customer.source_inquiry_id}-${index}`}
                         style={[styles.dropdownOption, serviceDraft.customer_id === customer.id && styles.selectorPillActive]}
@@ -4180,6 +4258,7 @@ export default function App() {
                       </Pressable>
                     ))}
                     {!visibleServiceCustomers.length && <Text style={styles.muted}>No CRM customers match that search.</Text>}
+                    {renderListControls(serviceNewVisitCustomerListKey, visibleServiceCustomers.length)}
                   </ScrollView>
                 </View>
               )}
@@ -4198,7 +4277,7 @@ export default function App() {
                 serviceEngineerDropdownOpen && (
                   <View style={styles.dropdownPanel}>
                     <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                      {engineerOptions.map((engineer) => (
+                      {limitedItems("service-new-visit-engineers", engineerOptions).map((engineer) => (
                         <Pressable
                           key={`svc-eng-${engineer.name}`}
                           style={[styles.dropdownOption, serviceDraft.assigned_engineer === engineer.name && styles.selectorPillActive]}
@@ -4211,6 +4290,7 @@ export default function App() {
                           {!!engineer.department && <Text style={styles.muted}>{engineer.department}</Text>}
                         </Pressable>
                       ))}
+                      {renderListControls("service-new-visit-engineers", engineerOptions.length)}
                     </ScrollView>
                   </View>
                 )
@@ -4299,18 +4379,8 @@ export default function App() {
             placeholder="Search customer name, customer number, CRM ID, job no, phone, site, technician, status"
           />
         </View>
-        <View style={styles.paginationBar}>
-          <Text style={styles.muted}>Showing {filteredRecords.length ? (safeServicePage - 1) * servicePageSize + 1 : 0}-{Math.min(safeServicePage * servicePageSize, filteredRecords.length)} of {filteredRecords.length}</Text>
-          <View style={styles.inlineActions}>
-            <Pressable style={styles.smallButton} onPress={() => setServicePage((page) => Math.max(1, page - 1))} disabled={safeServicePage <= 1}>
-              <Text style={styles.smallButtonText}>Previous</Text>
-            </Pressable>
-            <Text style={styles.muted}>Page {safeServicePage} / {servicePageCount}</Text>
-            <Pressable style={styles.smallButton} onPress={() => setServicePage((page) => Math.min(servicePageCount, page + 1))} disabled={safeServicePage >= servicePageCount}>
-              <Text style={styles.smallButtonText}>Next</Text>
-            </Pressable>
-          </View>
-        </View>
+        {!!filteredRecords.length && <Text style={styles.muted}>Showing {visibleRecords.length} of {filteredRecords.length}</Text>}
+        <View style={styles.limitedList}>
         {!visibleRecords.length && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No service records found</Text>
@@ -4321,7 +4391,7 @@ export default function App() {
           const id = recordIdentity(record) || String(record.id || `SVC-${index + 1}`);
           const draft = serviceEditDrafts[id];
           const customerId = String((draft || record).customer_id || "");
-          const historyCount = Array.isArray(record.service_history) ? record.service_history.length : 0;
+          const historyCount = Array.isArray(record.service_history) ? record.service_history.length : Number(record.service_history_count || 0);
           const installInfo = installInfoForServiceRecord(draft || record);
           const serviceYears = Array.from(new Set(installInfo.annualPlan.map((entry) => entry.serviceYear))).sort((a, b) => a - b);
           const nextActionableSlot = installInfo.annualPlan.find((entry) => !["Completed", "Ended"].includes(entry.status)) || installInfo.annualPlan[0];
@@ -4563,7 +4633,7 @@ export default function App() {
                             </Pressable>
                           )}
                           <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                            {engineerOptions.map((engineer) => (
+                            {limitedItems(`service-edit-engineers-${id}`, engineerOptions).map((engineer) => (
                               <Pressable
                                 key={`${id}-edit-service-engineer-${engineer.name}`}
                                 style={[styles.dropdownOption, draft.assigned_engineer === engineer.name && styles.selectorPillActive]}
@@ -4577,6 +4647,7 @@ export default function App() {
                                 {!!engineer.department && <Text style={styles.muted}>{engineer.department}</Text>}
                               </Pressable>
                             ))}
+                            {renderListControls(`service-edit-engineers-${id}`, engineerOptions.length)}
                           </ScrollView>
                         </View>
                       )}
@@ -4699,7 +4770,7 @@ export default function App() {
                               <Text style={styles.selectorText}>Unassign engineer</Text>
                               <Text style={styles.muted}>Clear this service job assignment.</Text>
                             </Pressable>
-                            {engineerOptions.map((engineer) => (
+                            {limitedItems(`service-record-engineers-${id}`, engineerOptions).map((engineer) => (
                               <Pressable
                                 key={`record-quick-assign-${id}-${engineer.name}`}
                                 style={[styles.dropdownOption, engineerMatchesAssignment(engineer.name, record, ["assigned_engineer", "technician", "engineer", "assigned_to"]) && styles.selectorPillActive]}
@@ -4731,6 +4802,8 @@ export default function App() {
             </View>
           );
         })}
+        {renderListControls(serviceListKey, filteredRecords.length)}
+        </View>
       </View>
     );
   }
@@ -4743,8 +4816,9 @@ export default function App() {
     const visibleServiceCustomers = config.route === "/api/portal/service"
       ? customerOptions
         .filter((customer) => !serviceCustomerQuery || `${customer.id} ${customer.name} ${customer.phone} ${customer.source_inquiry_id}`.toLowerCase().includes(serviceCustomerQuery))
-        .slice(0, 80)
       : customerOptions;
+    const moduleServiceCustomerListKey = `module-service-customers-${activeTab}`;
+    const moduleCustomerListKey = `module-customers-${activeTab}`;
     return (
       <View style={styles.formCard}>
         <Text style={styles.cardLabel}>Add / update module data</Text>
@@ -4788,7 +4862,7 @@ export default function App() {
                       />
                       <Text style={styles.muted}>Showing {visibleServiceCustomers.length} matching customers.</Text>
                       <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                        {visibleServiceCustomers.map((customer, index) => (
+                        {limitedItems(moduleServiceCustomerListKey, visibleServiceCustomers).map((customer, index) => (
                           <Pressable
                             key={`service-customer-${customer.id}-${customer.source_inquiry_id}-${index}`}
                             style={[styles.dropdownOption, moduleDraft.customer_id === customer.id && styles.selectorPillActive]}
@@ -4808,13 +4882,14 @@ export default function App() {
                           </Pressable>
                         ))}
                         {!visibleServiceCustomers.length && <Text style={styles.muted}>No CRM customers match that search.</Text>}
+                        {renderListControls(moduleServiceCustomerListKey, visibleServiceCustomers.length)}
                       </ScrollView>
                     </View>
                   )}
                 </View>
               ) : (
                 <View style={styles.selectorList}>
-                  {customerOptions.slice(0, 80).map((customer) => (
+                  {limitedItems(moduleCustomerListKey, customerOptions).map((customer) => (
                     <Pressable
                       key={customer.id}
                       style={[styles.selectorPill, moduleDraft.customer_id === customer.id && styles.selectorPillActive]}
@@ -4825,6 +4900,7 @@ export default function App() {
                       </Text>
                     </Pressable>
                   ))}
+                  {renderListControls(moduleCustomerListKey, customerOptions.length)}
                 </View>
               )
             )}
@@ -4879,6 +4955,9 @@ export default function App() {
     const selectedPayments = payments.filter((payment) => String(payment.estimate_id || "") === String(paymentDraft.estimate_id || selectedEstimate?.id || ""));
     const paid = selectedPayments.filter((payment) => String(payment.status || "").toLowerCase() === "paid").reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
     const total = selectedPayments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    const estimateListKey = "estimator-estimates";
+    const estimatePickerListKey = "estimator-estimate-picker";
+    const paymentLedgerListKey = "estimator-payment-ledger";
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -4888,7 +4967,8 @@ export default function App() {
         </View>
 
         <Text style={styles.sectionTitle}>Saved Estimates</Text>
-        {estimates.map((estimate) => (
+        <View style={styles.limitedList}>
+        {limitedItems(estimateListKey, estimates).map((estimate) => (
           <View key={estimate.id} style={styles.card}>
             <Text style={styles.cardTitle}>{estimate.id} - {estimate.customer_name}</Text>
             <Text style={styles.muted}>{estimate.site || "Site pending"} - {estimate.elevator_type || "Elevator"} - {estimate.status || "Draft"}</Text>
@@ -4912,6 +4992,8 @@ export default function App() {
             </View>
           </View>
         ))}
+        {renderListControls(estimateListKey, estimates.length)}
+        </View>
 
         <Text style={styles.sectionTitle}>Payment Ledger</Text>
         <View style={styles.metricGrid}>
@@ -4929,7 +5011,7 @@ export default function App() {
         <View style={styles.formCard}>
           <Text style={styles.cardLabel}>Add payment milestone</Text>
           <View style={styles.selectorList}>
-            {estimates.slice(0, 10).map((estimate) => (
+            {limitedItems(estimatePickerListKey, estimates).map((estimate) => (
               <Pressable
                 key={estimate.id}
                 style={[styles.selectorPill, paymentDraft.estimate_id === estimate.id && styles.selectorPillActive]}
@@ -4940,6 +5022,7 @@ export default function App() {
                 </Text>
               </Pressable>
             ))}
+            {renderListControls(estimatePickerListKey, estimates.length)}
           </View>
           {[
             ["milestone", "Milestone"],
@@ -4967,7 +5050,8 @@ export default function App() {
             </Pressable>
           </View>
         </View>
-        {selectedPayments.map((payment) => (
+        <View style={styles.limitedList}>
+        {limitedItems(paymentLedgerListKey, selectedPayments).map((payment) => (
           <View key={String(payment.id)} style={styles.card}>
             <Text style={styles.cardTitle}>{fieldText(payment, ["milestone", "description", "id"])}</Text>
             <Text style={styles.muted}>{fieldText(payment, ["estimate_id"])} - {fieldText(payment, ["due_date"])} - {fieldText(payment, ["status"])}</Text>
@@ -4982,6 +5066,8 @@ export default function App() {
             </View>
           </View>
         ))}
+        {renderListControls(paymentLedgerListKey, selectedPayments.length)}
+        </View>
       </View>
     );
   }
@@ -5021,7 +5107,10 @@ export default function App() {
         );
       }).sort((a, b) => String(b.offer_date || b.created_at || "").localeCompare(String(a.offer_date || a.created_at || "")));
     };
-    const linkedEstimateOptions = estimatesForAccountsCustomer(selectedCustomer).slice(0, 12);
+    const linkedEstimateOptions = estimatesForAccountsCustomer(selectedCustomer);
+    const paymentCustomerListKey = "payment-customers";
+    const paymentEstimateListKey = "payment-estimates";
+    const paymentRecordsListKey = "payment-records";
     const paymentSummary = paymentAccountSummary(paymentDraft as Record<string, unknown>);
     const totalContractFinal = payments.reduce((sum, item) => sum + paymentAccountSummary(item).finalContract, 0);
     const totalOutstanding = payments.reduce((sum, item) => sum + paymentAccountSummary(item).outstandingTotal, 0);
@@ -5100,7 +5189,7 @@ export default function App() {
           </View>
           <Text style={styles.label}>Link customer</Text>
           <View style={styles.selectorList}>
-            {customers.slice(0, 12).map((customer) => (
+            {limitedItems(paymentCustomerListKey, customers).map((customer) => (
               <Pressable
                 key={customer.id}
                 style={[styles.selectorPill, paymentDraft.customer_id === customer.id && styles.selectorPillActive]}
@@ -5111,12 +5200,13 @@ export default function App() {
                 </Text>
               </Pressable>
             ))}
+            {renderListControls(paymentCustomerListKey, customers.length)}
           </View>
           <Text style={styles.label}>Link offer / estimate</Text>
           <View style={styles.selectorList}>
             {!selectedCustomer && <Text style={styles.muted}>Select a customer first to show only that customer's linked offers and estimates.</Text>}
             {selectedCustomer && linkedEstimateOptions.length === 0 && <Text style={styles.muted}>No offers or estimates are linked to {selectedCustomer.name}. Create or link an offer in Offer Manager first.</Text>}
-            {linkedEstimateOptions.map((estimate) => (
+            {limitedItems(paymentEstimateListKey, linkedEstimateOptions).map((estimate) => (
               <Pressable
                 key={String(estimate.id)}
                 style={[styles.selectorPill, paymentDraft.estimate_id === String(estimate.id) && styles.selectorPillActive]}
@@ -5127,6 +5217,7 @@ export default function App() {
                 </Text>
               </Pressable>
             ))}
+            {renderListControls(paymentEstimateListKey, linkedEstimateOptions.length)}
           </View>
           {[["milestone", "Milestone / payment purpose"], ["method", "Payment method"], ["contract_basic_value", "Basic contract value"], ["basic_check_value", "Basic cheque value"], ["basic_cash_value", "Basic cash value"], ["basic_card_value", "Basic credit card value"], ["credit_card_charge_percent", "Credit card charge percent paid by client"], ["amount_received_check", "Received by cheque"], ["amount_received_cash", "Received by cash"], ["amount_received_card", "Received by credit card"], ["due_date", "Payment due date YYYY-MM-DD"], ["outstanding_date", "Outstanding date YYYY-MM-DD"], ["reminder_interval_days", "Reminder increment days"], ["cheque_number", "Cheque number"], ["reference", "Bank / payment reference"], ["notes", "Notes"]].map(([key, label]) => (
             <View key={key} style={styles.field}>
@@ -5169,7 +5260,8 @@ export default function App() {
         </View>
 
         <Text style={styles.sectionTitle}>Saved account payments</Text>
-        {payments.map((payment) => {
+        <View style={styles.limitedList}>
+        {limitedItems(paymentRecordsListKey, payments).map((payment) => {
           const summary = paymentAccountSummary(payment);
           const id = String(payment.id || "");
           return (
@@ -5193,6 +5285,8 @@ export default function App() {
             </View>
           );
         })}
+        {renderListControls(paymentRecordsListKey, payments.length)}
+        </View>
       </View>
     );
   }
@@ -5250,10 +5344,11 @@ export default function App() {
       ].map((value) => String(value || "")).join(" ").toLowerCase();
       return haystack.includes(customerHistoryQuery);
     });
-    const breakdownPageSize = 10;
-    const breakdownPageCount = Math.max(1, Math.ceil(filteredBreakdowns.length / breakdownPageSize));
-    const safeBreakdownPage = Math.min(breakdownPage, breakdownPageCount);
-    const pagedBreakdowns = filteredBreakdowns.slice((safeBreakdownPage - 1) * breakdownPageSize, safeBreakdownPage * breakdownPageSize);
+    const breakdownListKey = "breakdown-calls";
+    const pagedBreakdowns = filteredBreakdowns.slice(0, listVisibleCount(breakdownListKey, filteredBreakdowns.length));
+    const breakdownStaffRosterListKey = "breakdown-staff-roster";
+    const breakdownCustomerListKey = "breakdown-customers";
+    const breakdownEngineerListKey = "breakdown-engineers";
     const unlinkedBreakdowns = breakdowns.filter((item) => !String(item.customer_id || "").trim());
     const activeBreakdowns = breakdowns.filter((item) => !["closed", "resolved", "done"].includes(String(item.status || "").toLowerCase()));
     const trappedCalls = breakdowns.filter((item) => ["y", "yes", "true"].includes(String(item.trapped_passenger || item.passenger_trapped || "").toLowerCase()));
@@ -5309,7 +5404,7 @@ export default function App() {
                 Select one while logging a new call, or use the schedule controls on an existing breakdown.
               </Text>
               <View style={styles.selectorList}>
-                {assignableStaff.map((member) => {
+                {limitedItems(breakdownStaffRosterListKey, assignableStaff).map((member) => {
                   const availability = staffAvailabilityInfo(member);
                   const taskDraft = breakdownEngineerTaskDrafts[member.name] ?? String(member.current_job || "");
                   return (
@@ -5346,6 +5441,7 @@ export default function App() {
                   );
                 })}
                 {!assignableStaff.length && <Text style={styles.muted}>No engineer roster found. Add engineers in Install Team to schedule breakdown dispatch.</Text>}
+                {renderListControls(breakdownStaffRosterListKey, assignableStaff.length)}
               </View>
             </View>
           )}
@@ -5400,7 +5496,7 @@ export default function App() {
                         />
                         <Text style={styles.muted}>Showing {visibleBreakdownCustomers.length} matching customers.</Text>
                         <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                          {visibleBreakdownCustomers.map((customer, index) => (
+                          {limitedItems(breakdownCustomerListKey, visibleBreakdownCustomers).map((customer, index) => (
                             <Pressable
                               key={`breakdown-customer-${customer.id}-${customer.enquiryNo}-${index}`}
                               style={[styles.dropdownOption, breakdownDraft.customer_id === customer.id && styles.selectorPillActive]}
@@ -5421,6 +5517,7 @@ export default function App() {
                             </Pressable>
                           ))}
                           {!visibleBreakdownCustomers.length && <Text style={styles.muted}>No CRM customers match that search.</Text>}
+                          {renderListControls(breakdownCustomerListKey, visibleBreakdownCustomers.length)}
                         </ScrollView>
                       </View>
                     )}
@@ -5467,7 +5564,7 @@ export default function App() {
                   {!!engineerOptions.length && breakdownEngineerDropdownOpen && (
                     <View style={styles.dropdownPanel}>
                       <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                        {engineerOptions.map((engineer) => (
+                        {limitedItems(breakdownEngineerListKey, engineerOptions).map((engineer) => (
                           <Pressable
                             key={`brk-eng-${engineer.name}`}
                             style={[styles.dropdownOption, breakdownDraft.engineer === engineer.name && styles.selectorPillActive]}
@@ -5480,6 +5577,7 @@ export default function App() {
                             {!!engineer.department && <Text style={styles.muted}>{engineer.department}</Text>}
                           </Pressable>
                         ))}
+                        {renderListControls(breakdownEngineerListKey, engineerOptions.length)}
                       </ScrollView>
                     </View>
                   )}
@@ -5535,20 +5633,8 @@ export default function App() {
             </View>
           )}
         </View>
-        {!!filteredBreakdowns.length && (
-          <View style={styles.paginationBar}>
-            <Text style={styles.muted}>Showing {(safeBreakdownPage - 1) * breakdownPageSize + 1}-{Math.min(safeBreakdownPage * breakdownPageSize, filteredBreakdowns.length)} of {filteredBreakdowns.length}</Text>
-            <View style={styles.inlineActions}>
-              <Pressable style={styles.smallButton} onPress={() => setBreakdownPage((page) => Math.max(1, page - 1))} disabled={safeBreakdownPage <= 1}>
-                <Text style={styles.smallButtonText}>Previous</Text>
-              </Pressable>
-              <Text style={styles.muted}>Page {safeBreakdownPage} / {breakdownPageCount}</Text>
-              <Pressable style={styles.smallButton} onPress={() => setBreakdownPage((page) => Math.min(breakdownPageCount, page + 1))} disabled={safeBreakdownPage >= breakdownPageCount}>
-                <Text style={styles.smallButtonText}>Next</Text>
-              </Pressable>
-            </View>
-          </View>
-        )}
+        {!!filteredBreakdowns.length && <Text style={styles.muted}>Showing {pagedBreakdowns.length} of {filteredBreakdowns.length}</Text>}
+        <View style={styles.limitedList}>
         {!filteredBreakdowns.length && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No breakdown calls found</Text>
@@ -5706,7 +5792,7 @@ export default function App() {
                 </Pressable>
                 {breakdownCallEngineerDropdownOpen === id && (
                   <View style={styles.dropdownPanel}>
-                  {assignableStaff.map((member) => {
+                  {limitedItems(`breakdown-call-engineers-${id}`, assignableStaff).map((member) => {
                     const isAssigned = member.name.toLowerCase() === assignedEngineerName.toLowerCase();
                     const availability = staffAvailabilityInfo(member);
                     return (
@@ -5725,6 +5811,7 @@ export default function App() {
                     );
                   })}
                   {!assignableStaff.length && <Text style={styles.muted}>No engineers are available in the breakdown roster.</Text>}
+                  {renderListControls(`breakdown-call-engineers-${id}`, assignableStaff.length)}
                   </View>
                 )}
               </View>
@@ -5748,6 +5835,8 @@ export default function App() {
             </View>
           );
         })}
+        {renderListControls(breakdownListKey, filteredBreakdowns.length)}
+        </View>
       </View>
     );
   }
@@ -5939,9 +6028,14 @@ export default function App() {
     const visibleCustomers = customers.filter((customer) => {
       const query = installationCustomerSearch.trim().toLowerCase();
       return !query || `${customer.id} ${customer.name} ${customer.phone} ${customer.address}`.toLowerCase().includes(query);
-    }).slice(0, 30);
+    });
     const filteredJobs = jobs.filter((job) => installationStatusFilter === "All" || String(job.status || "") === installationStatusFilter)
       .filter((job) => !installationSearch.trim() || JSON.stringify(job).toLowerCase().includes(installationSearch.trim().toLowerCase()));
+    const installationListKey = "installation-records";
+    const visibleInstallationJobs = filteredJobs.slice(0, listVisibleCount(installationListKey, filteredJobs.length));
+    const installTeamMetricListKey = "installation-team-metrics";
+    const installContractorMetricListKey = "installation-contractor-metrics";
+    const installationCustomerListKey = "installation-customers";
     const today = new Date().toISOString().slice(0, 10);
     const statusOptions = ["All", "Site Visit Pending", "Site Ready", "Material Ready", "Installation Assigned", "Under Installation", "Commissioning", "Handover Pending", "Completed", "Closed"];
     const warrantyExpiring = jobs.filter((job) => String(job.warranty_end_date || "") >= today && String(job.warranty_end_date || "") <= datePlusDays(90));
@@ -5991,7 +6085,7 @@ export default function App() {
                 <Text style={styles.label}>Select CRM customer</Text>
                 <TextInput style={styles.input} value={installationCustomerSearch} onChangeText={setInstallationCustomerSearch} placeholder="Search CRM customers by ID, name, phone, site" />
                 <View style={styles.selectorList}>
-                  {visibleCustomers.map((customer) => (
+                  {limitedItems(installationCustomerListKey, visibleCustomers).map((customer) => (
                     <Pressable
                       key={`install-customer-${customer.id}`}
                       style={[styles.selectorPill, installationDraft.customer_id === customer.id && styles.selectorPillActive]}
@@ -6002,6 +6096,7 @@ export default function App() {
                     </Pressable>
                   ))}
                   {!visibleCustomers.length && <Text style={styles.muted}>No CRM customers match. Add or edit customers in Customer CRM first.</Text>}
+                  {renderListControls(installationCustomerListKey, visibleCustomers.length)}
                 </View>
               </View>
               {selectedCustomer && (
@@ -6078,7 +6173,9 @@ export default function App() {
             </Pressable>
           </View>
         </View>
-        {filteredJobs.map((job, index) => {
+        {!!filteredJobs.length && <Text style={styles.muted}>Showing {visibleInstallationJobs.length} of {filteredJobs.length}</Text>}
+        <View style={styles.limitedList}>
+        {visibleInstallationJobs.map((job, index) => {
           const id = recordIdentity(job) || String(job.job_id || index);
           const customerId = String(job.customer_id || "");
           const technical = (job.technical_details || {}) as Record<string, unknown>;
@@ -6116,16 +6213,20 @@ export default function App() {
             </View>
           );
         })}
+        {renderListControls(installationListKey, filteredJobs.length)}
         {!filteredJobs.length && <View style={styles.card}><Text style={styles.cardTitle}>No installations found</Text><Text style={styles.muted}>Create one from an existing CRM customer above.</Text></View>}
+        </View>
 
         <Text style={styles.sectionTitle}>Team & Contractor Metrics</Text>
         <View style={styles.metricGrid}>
-          {teams.slice(0, 8).map((team) => {
+          {limitedItems(installTeamMetricListKey, teams).map((team) => {
             const name = fieldText(team, ["name"]);
             const assignedCount = jobs.filter((job) => String(job.assigned_team || job.crew || "").toLowerCase().includes(name.toLowerCase())).length;
             return <View key={`team-metric-${name}`} style={styles.card}><Text style={styles.cardLabel}>{name}</Text><Text style={styles.metricValue}>{assignedCount}</Text><Text style={styles.muted}>{fieldText(team, ["availability"])} - {fieldText(team, ["phone"])}</Text></View>;
           })}
-          {contractors.slice(0, 8).map((contractor) => <View key={`contractor-metric-${recordIdentity(contractor) || fieldText(contractor, ["name", "contractor_name"])}`} style={styles.card}><Text style={styles.cardLabel}>{fieldText(contractor, ["contractor_name", "name"])}</Text><Text style={styles.metricValue}>{jobs.filter((job) => fieldText(job, ["contractor", "contractor_name"]) === fieldText(contractor, ["contractor_name", "name"])).length}</Text><Text style={styles.muted}>{fieldText(contractor, ["mobile", "phone"])} - GST {fieldText(contractor, ["gst", "gst_number"])}</Text></View>)}
+          {renderListControls(installTeamMetricListKey, teams.length)}
+          {limitedItems(installContractorMetricListKey, contractors).map((contractor) => <View key={`contractor-metric-${recordIdentity(contractor) || fieldText(contractor, ["name", "contractor_name"])}`} style={styles.card}><Text style={styles.cardLabel}>{fieldText(contractor, ["contractor_name", "name"])}</Text><Text style={styles.metricValue}>{jobs.filter((job) => fieldText(job, ["contractor", "contractor_name"]) === fieldText(contractor, ["contractor_name", "name"])).length}</Text><Text style={styles.muted}>{fieldText(contractor, ["mobile", "phone"])} - GST {fieldText(contractor, ["gst", "gst_number"])}</Text></View>)}
+          {renderListControls(installContractorMetricListKey, contractors.length)}
         </View>
       </View>
     );
@@ -6136,6 +6237,10 @@ export default function App() {
     const jobs = asRecords(data?.install_jobs);
     const available = team.filter((member) => ["available", "on site", "standby"].includes(String(member.availability || "").toLowerCase()));
     const assigned = team.filter((member) => String(member.current_job || "").trim());
+    const installTeamJobPickerListKey = "install-team-job-picker";
+    const installTeamRosterListKey = "install-team-roster";
+    const installHandoffListKey = "install-handoffs";
+    const installTeamCardJobListKey = "install-team-card-jobs";
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -6179,7 +6284,7 @@ export default function App() {
           ))}
           <Text style={styles.label}>Assign to job</Text>
           <View style={styles.selectorList}>
-            {jobs.slice(0, 10).map((job) => {
+            {limitedItems(installTeamJobPickerListKey, jobs).map((job) => {
               const jobId = fieldText(job, ["job_id", "id"]);
               return (
                 <Pressable
@@ -6193,6 +6298,7 @@ export default function App() {
                 </Pressable>
               );
             })}
+            {renderListControls(installTeamJobPickerListKey, jobs.length)}
           </View>
           <Pressable style={styles.primaryButton} onPress={saveInstallTeamMember} disabled={loading}>
             <Text style={styles.primaryButtonText}>Save team member</Text>
@@ -6200,7 +6306,8 @@ export default function App() {
         </View>
 
         <Text style={styles.sectionTitle}>Team Roster</Text>
-        {team.map((member, index) => {
+        <View style={styles.limitedList}>
+        {limitedItems(installTeamRosterListKey, team).map((member, index) => {
           const id = recordIdentity(member) || String(member.id || `TM-${index + 1}`);
           return (
             <View key={id} style={styles.card}>
@@ -6215,7 +6322,7 @@ export default function App() {
 
               <Text style={styles.label}>Assign job</Text>
               <View style={styles.inlineActions}>
-                {jobs.slice(0, 6).map((job) => {
+                {limitedItems(`${installTeamCardJobListKey}-${id}`, jobs).map((job) => {
                   const jobId = fieldText(job, ["job_id", "id"]);
                   return (
                     <Pressable key={`${id}-${jobId}`} style={styles.smallButton} onPress={() => assignInstallTeamMember(id, jobId)} disabled={loading}>
@@ -6223,6 +6330,7 @@ export default function App() {
                     </Pressable>
                   );
                 })}
+                {renderListControls(`${installTeamCardJobListKey}-${id}`, jobs.length)}
               </View>
               <View style={styles.inlineActions}>
                 <Pressable style={styles.smallButton} onPress={() => updateInstallTeamMember(id, { availability: "Available" })} disabled={loading}>
@@ -6238,9 +6346,12 @@ export default function App() {
             </View>
           );
         })}
+        {renderListControls(installTeamRosterListKey, team.length)}
+        </View>
 
         <Text style={styles.sectionTitle}>Install Handoffs</Text>
-        {jobs.map((job) => {
+        <View style={styles.limitedList}>
+        {limitedItems(installHandoffListKey, jobs).map((job) => {
           const jobId = fieldText(job, ["id", "job_id"]);
           const canHandoff = ["complete", "installed", "done"].some((value) => String(job.status || "").toLowerCase().includes(value));
           return (
@@ -6256,6 +6367,8 @@ export default function App() {
             </View>
           );
         })}
+        {renderListControls(installHandoffListKey, jobs.length)}
+        </View>
       </View>
     );
   }
@@ -6275,6 +6388,10 @@ export default function App() {
       });
     const pending = commissionings.filter((item) => ["pending", "open"].includes(String(item.status || "").toLowerCase()));
     const inProgress = commissionings.filter((item) => String(item.status || "").toLowerCase().includes("progress"));
+    const commissioningEngineerListKey = "commissioning-engineers";
+    const commissioningMessagesListKey = "commissioning-messages";
+    const commissioningBoardListKey = "commissioning-board";
+    const commissioningCardEngineerListKey = "commissioning-card-engineers";
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -6300,7 +6417,7 @@ export default function App() {
           <Text style={styles.cardLabel}>Manual commissioning record</Text>
           <Text style={styles.label}>Assign engineer</Text>
           <View style={styles.selectorList}>
-            {commissioningEngineers.slice(0, 16).map((engineer) => {
+            {limitedItems(commissioningEngineerListKey, commissioningEngineers).map((engineer) => {
               const name = fieldText(engineer, ["name"]);
               return (
                 <Pressable
@@ -6315,6 +6432,7 @@ export default function App() {
                 </Pressable>
               );
             })}
+            {renderListControls(commissioningEngineerListKey, commissioningEngineers.length)}
           </View>
           {[
             ["installation_ref", "Installation ref"],
@@ -6358,16 +6476,20 @@ export default function App() {
             <Text style={styles.muted}>No install-to-commissioning handoff messages are open.</Text>
           </View>
         )}
-        {messages.slice(0, 10).map((item, index) => (
+        <View style={styles.limitedList}>
+        {limitedItems(commissioningMessagesListKey, messages).map((item, index) => (
           <View key={String(item.id || index)} style={styles.card}>
             <Text style={styles.cardTitle}>{fieldText(item, ["subject", "title"])}</Text>
             <Text style={styles.muted}>{fieldText(item, ["installation_ref"])} - {fieldText(item, ["status"])}</Text>
             <Text style={styles.bodyText}>{fieldText(item, ["message", "notes"])}</Text>
           </View>
         ))}
+        {renderListControls(commissioningMessagesListKey, messages.length)}
+        </View>
 
         <Text style={styles.sectionTitle}>Commissioning Board</Text>
-        {commissionings.map((item, index) => {
+        <View style={styles.limitedList}>
+        {limitedItems(commissioningBoardListKey, commissionings).map((item, index) => {
           const id = recordIdentity(item) || String(item.id || `COM-${index + 1}`);
           return (
             <View key={id} style={styles.card}>
@@ -6386,7 +6508,7 @@ export default function App() {
                 <>
                   <Text style={styles.label}>Assign engineer</Text>
                   <View style={styles.inlineActions}>
-                    {commissioningEngineers.slice(0, 8).map((engineer) => {
+                    {limitedItems(`${commissioningCardEngineerListKey}-${id}`, commissioningEngineers).map((engineer) => {
                       const name = fieldText(engineer, ["name"]);
                       return (
                         <Pressable key={`${id}-engineer-${name}`} style={styles.smallButton} onPress={() => updateCommissioning(id, { assigned_engineer: name })} disabled={loading}>
@@ -6394,6 +6516,7 @@ export default function App() {
                         </Pressable>
                       );
                     })}
+                    {renderListControls(`${commissioningCardEngineerListKey}-${id}`, commissioningEngineers.length)}
                   </View>
                 </>
               )}
@@ -6439,6 +6562,8 @@ export default function App() {
             </View>
           );
         })}
+        {renderListControls(commissioningBoardListKey, commissionings.length)}
+        </View>
       </View>
     );
   }
@@ -6501,7 +6626,6 @@ export default function App() {
     }, new Map<string, Array<Record<string, unknown>>>());
     const monthlyLeaveRows = Array.from(leaveRequestsByMonth.entries())
       .sort(([a], [b]) => b.localeCompare(a))
-      .slice(0, 12)
       .map(([month, requests]) => ({
         month,
         requests: requests.sort((a, b) => fieldText(a, ["start_date"]).localeCompare(fieldText(b, ["start_date"]))),
@@ -6515,6 +6639,11 @@ export default function App() {
     const presentToday = todayAttendance.filter((item) => String(item.status || "").toLowerCase() === "present");
     const unavailableToday = todayAttendance.filter((item) => ["absent", "half-day", "leave"].includes(String(item.status || "").toLowerCase()));
     const selectedPerson = staff.find((person) => fieldText(person, ["id"]) === attendanceDraft.person_id);
+    const staffDirectoryListKey = "staff-directory";
+    const pendingLeavesListKey = "staff-pending-leaves";
+    const todayAttendanceListKey = "staff-today-attendance";
+    const monthlyLeaveListKey = "staff-monthly-leaves";
+    const leaveHistoryListKey = "staff-leave-history";
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -6647,7 +6776,7 @@ export default function App() {
 
         <Text style={styles.sectionTitle}>Staff Directory</Text>
         <View style={styles.metricGrid}>
-          {visibleStaff.slice(0, 80).map((person) => {
+          {limitedItems(staffDirectoryListKey, visibleStaff).map((person) => {
             const personId = fieldText(person, ["id"]);
             const statusRecord = attendanceByPerson.get(personId);
             const status = fieldText(statusRecord || {}, ["status"]) || "Not marked";
@@ -6675,6 +6804,7 @@ export default function App() {
               </View>
             );
           })}
+          {renderListControls(staffDirectoryListKey, visibleStaff.length)}
         </View>
         {!visibleStaff.length && (
           <View style={styles.card}>
@@ -6720,13 +6850,14 @@ export default function App() {
         </View>}
 
         <Text style={styles.sectionTitle}>Leave Approval Queue</Text>
+        <View style={styles.limitedList}>
         {!visiblePendingLeaves.length && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No pending leave requests</Text>
             <Text style={styles.muted}>Approved and rejected requests stay in the leave history below.</Text>
           </View>
         )}
-        {visiblePendingLeaves.map((item, index) => {
+        {limitedItems(pendingLeavesListKey, visiblePendingLeaves).map((item, index) => {
           const id = recordIdentity(item) || String(item.id || `LEAVE-${index + 1}`);
           return (
             <View key={id} style={styles.card}>
@@ -6751,15 +6882,18 @@ export default function App() {
             </View>
           );
         })}
+        {renderListControls(pendingLeavesListKey, visiblePendingLeaves.length)}
+        </View>
 
         <Text style={styles.sectionTitle}>Today Attendance</Text>
+        <View style={styles.limitedList}>
         {!todayAttendance.length && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No attendance marked today</Text>
             <Text style={styles.muted}>Use quick actions on staff cards or the attendance console.</Text>
           </View>
         )}
-        {todayAttendance.map((item, index) => (
+        {limitedItems(todayAttendanceListKey, todayAttendance).map((item, index) => (
           <View key={String(item.id || index)} style={styles.card}>
             <View style={styles.cardHeaderRow}>
               <Text style={styles.cardTitle}>{fieldText(item, ["person_name", "staff_name", "name"])}</Text>
@@ -6772,15 +6906,18 @@ export default function App() {
             {!!fieldText(item, ["notes"]) && <Text style={styles.bodyText}>{fieldText(item, ["notes"])}</Text>}
           </View>
         ))}
+        {renderListControls(todayAttendanceListKey, todayAttendance.length)}
+        </View>
 
         <Text style={styles.sectionTitle}>Time Off By Month</Text>
+        <View style={styles.limitedList}>
         {!monthlyLeaveRows.length && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No time off requests</Text>
             <Text style={styles.muted}>Requests from your visible team will appear here by month.</Text>
           </View>
         )}
-        {monthlyLeaveRows.map((group) => (
+        {limitedItems(monthlyLeaveListKey, monthlyLeaveRows).map((group) => (
           <View key={`leave-month-${group.month}`} style={styles.card}>
             <View style={styles.cardHeaderRow}>
               <View>
@@ -6790,7 +6927,7 @@ export default function App() {
               <Text style={styles.statusPill}>{group.requests.length} requests</Text>
             </View>
             <View style={styles.serviceJobList}>
-              {group.requests.map((item, index) => {
+              {limitedItems(`staff-monthly-leave-requests-${group.month}`, group.requests).map((item, index) => {
                 const status = fieldText(item, ["status"]) || "Pending";
                 const id = recordIdentity(item) || `${group.month}-${index}`;
                 return (
@@ -6804,12 +6941,16 @@ export default function App() {
                   </View>
                 );
               })}
+              {renderListControls(`staff-monthly-leave-requests-${group.month}`, group.requests.length)}
             </View>
           </View>
         ))}
+        {renderListControls(monthlyLeaveListKey, monthlyLeaveRows.length)}
+        </View>
 
         <Text style={styles.sectionTitle}>Leave History</Text>
-        {visibleLeaveHistory.slice(0, 30).map((item, index) => {
+        <View style={styles.limitedList}>
+        {limitedItems(leaveHistoryListKey, visibleLeaveHistory).map((item, index) => {
           const id = recordIdentity(item) || String(item.id || `LEAVE-HISTORY-${index + 1}`);
           return (
             <View key={id} style={styles.card}>
@@ -6841,6 +6982,8 @@ export default function App() {
             <Text style={styles.muted}>No staff leave requests are waiting in this queue.</Text>
           </View>
         )}
+        {renderListControls(leaveHistoryListKey, visibleLeaveHistory.length)}
+        </View>
       </View>
     );
   }
@@ -7034,6 +7177,8 @@ export default function App() {
   function renderCustomerAssignmentManager(customer: Customer) {
     const assignedTeam = customerAssignmentRecords(customer.id);
     const assignedStaffKeys = new Set(assignedTeam.map(assignmentStaffKey));
+    const assignedTeamListKey = `assignment-team-${customer.id}`;
+    const staffDirectoryListKey = `assignment-staff-directory-${customer.id}`;
     if (!canManageCustomerAssignments()) {
       return <Text style={styles.muted}>Only Admin, Manager, or Team Lead users can change assignments.</Text>;
     }
@@ -7043,7 +7188,7 @@ export default function App() {
           <Text style={styles.cardLabel}>Assign Staff</Text>
           {!!assignedTeam.length && <Text style={styles.statusPill}>{assignedTeam.length} selected</Text>}
         </View>
-        {assignedTeam.map((assignment) => {
+        {limitedItems(assignedTeamListKey, assignedTeam).map((assignment) => {
           const name = String(assignment.staff_name || assignment.name || "-");
           return (
             <View key={`edit-assignment-${String(assignment.id || assignment.staff_id || name)}`} style={styles.assignmentRow}>
@@ -7067,10 +7212,11 @@ export default function App() {
           );
         })}
         {!assignedTeam.length && <Text style={styles.muted}>No staff assigned yet.</Text>}
+        {renderListControls(assignedTeamListKey, assignedTeam.length)}
         <Text style={styles.label}>Add staff member</Text>
         {customerStaffDirectory.length ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
-            {customerStaffDirectory.map((staff) => {
+            {limitedItems(staffDirectoryListKey, customerStaffDirectory).map((staff) => {
               const active = assignedStaffKeys.has(assignmentStaffKey(staff));
               return (
                 <Pressable
@@ -7083,6 +7229,7 @@ export default function App() {
                 </Pressable>
               );
             })}
+            {renderListControls(staffDirectoryListKey, customerStaffDirectory.length)}
           </ScrollView>
         ) : (
           <Text style={styles.muted}>Staff directory is still loading. Refresh once if staff names do not appear.</Text>
@@ -7408,6 +7555,8 @@ export default function App() {
 
   function renderSiteVisitEditorModal() {
     const linkedCustomer = siteVisitDraft.customer_id ? crmCustomerForSiteVisit(siteVisitDraft as Record<string, unknown>) : undefined;
+    const modalSiteVisits = data?.site_visits || [];
+    const modalSiteVisitListKey = "site-visit-modal-saved";
     return (
       <Modal visible={siteVisitEditorOpen} transparent animationType="fade" onRequestClose={() => setSiteVisitEditorOpen(false)}>
         <View style={styles.modalOverlay}>
@@ -7574,6 +7723,7 @@ export default function App() {
 
   function renderOfferMeasurementSection() {
     const linkedSiteVisits = siteVisitsForCustomerId(offerDraft.customer_id);
+    const offerSiteVisitListKey = `offer-site-visits-${offerDraft.customer_id || "none"}`;
     const measurementFields = [
       ["site_visit_id", "Linked site visit ID"],
       ["site_measurements_source", "Measurement source"],
@@ -7605,7 +7755,7 @@ export default function App() {
         </View>
         {linkedSiteVisits.length ? (
           <View style={styles.inlineActions}>
-            {linkedSiteVisits.slice(0, 4).map((visit) => {
+            {limitedItems(offerSiteVisitListKey, linkedSiteVisits).map((visit) => {
               const visitId = recordIdentity(visit);
               const label = `${visitId || "Site visit"}${visit.site_visit_date ? ` - ${visit.site_visit_date}` : ""}`;
               return (
@@ -7614,6 +7764,7 @@ export default function App() {
                 </Pressable>
               );
             })}
+            {renderListControls(offerSiteVisitListKey, linkedSiteVisits.length)}
           </View>
         ) : (
           <View style={styles.emptyState}>
@@ -7702,6 +7853,8 @@ export default function App() {
     const pricedInventory = inventory
       .filter((item) => String(item.name || item.item || "").trim())
       .sort((a, b) => String(a.category || "").localeCompare(String(b.category || "")) || String(a.name || a.item || "").localeCompare(String(b.name || b.item || "")));
+    const offerInventoryPickerListKey = "offer-inventory-picker";
+    const offerInventoryLinesListKey = "offer-inventory-lines";
     return (
       <View style={styles.openingSchedulePanel}>
         <View style={styles.sectionHeaderRow}>
@@ -7713,7 +7866,7 @@ export default function App() {
         </View>
         {!!pricedInventory.length && (
           <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
-            {pricedInventory.slice(0, 24).map((item, index) => {
+            {limitedItems(offerInventoryPickerListKey, pricedInventory).map((item, index) => {
               const id = recordIdentity(item) || String(item.id || item.name || index);
               const price = inventoryPrice(item);
               return (
@@ -7722,6 +7875,7 @@ export default function App() {
                 </Pressable>
               );
             })}
+            {renderListControls(offerInventoryPickerListKey, pricedInventory.length)}
           </ScrollView>
         )}
         {!pricedInventory.length && (
@@ -7729,7 +7883,7 @@ export default function App() {
             <Text style={styles.muted}>Add inventory items with current prices first, then they can be used in Offer Manager costing.</Text>
           </View>
         )}
-        {selectedLines.map((line, index) => {
+        {limitedItems(offerInventoryLinesListKey, selectedLines).map((line, index) => {
           const qty = offerNumber(line.qty, 1) || 1;
           const price = offerNumber(line.current_price || line.unit_price || line.sale_price || line.unit_cost);
           return (
@@ -7756,6 +7910,7 @@ export default function App() {
             </View>
           );
         })}
+        {renderListControls(offerInventoryLinesListKey, selectedLines.length)}
         <Text style={styles.muted}>Material cost from inventory: {formatMoney(materialTotal)}. You can still override the material cost field if needed.</Text>
       </View>
     );
@@ -7916,7 +8071,6 @@ export default function App() {
     const activeOffers = offers.filter((offer) => !String(offer.status || offer.lead_status || "").toLowerCase().includes("lost"));
     const measurementReadyRecords = customerOptions.filter((customer) => siteVisitsForOfferRecord(customer.record).length);
     const offerCustomerQuery = offerCustomerSearch.trim().toLowerCase();
-    const offerCustomerPageSize = 10;
     const filteredOfferCustomers = customerOptions
       .filter((customer) => !offerCustomerQuery || `${customer.id || ""} ${customer.name || ""} ${customer.phone || ""} ${customer.address || ""} ${customer.source || ""}`.toLowerCase().includes(offerCustomerQuery))
       .filter((customer) => {
@@ -7925,9 +8079,8 @@ export default function App() {
         if (offerCustomerOfferFilter === "Has offers") return count > 0;
         return true;
       });
-    const offerCustomerPageCount = Math.max(1, Math.ceil(filteredOfferCustomers.length / offerCustomerPageSize));
-    const safeOfferCustomerPage = Math.min(offerCustomerPage, offerCustomerPageCount);
-    const visibleOfferCustomers = filteredOfferCustomers.slice((safeOfferCustomerPage - 1) * offerCustomerPageSize, safeOfferCustomerPage * offerCustomerPageSize);
+    const offerCustomerListKey = "offer-customers";
+    const visibleOfferCustomers = filteredOfferCustomers.slice(0, listVisibleCount(offerCustomerListKey, filteredOfferCustomers.length));
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -7996,24 +8149,12 @@ export default function App() {
               ))}
             </View>
           )}
-          {!!filteredOfferCustomers.length && (
-            <View style={styles.paginationBar}>
-              <Text style={styles.muted}>Showing {(safeOfferCustomerPage - 1) * offerCustomerPageSize + 1}-{Math.min(safeOfferCustomerPage * offerCustomerPageSize, filteredOfferCustomers.length)} of {filteredOfferCustomers.length} CRM records</Text>
-              <View style={styles.inlineActions}>
-                <Pressable style={styles.smallButton} onPress={() => setOfferCustomerPage((page) => Math.max(1, page - 1))} disabled={safeOfferCustomerPage <= 1}>
-                  <Text style={styles.smallButtonText}>Previous</Text>
-                </Pressable>
-                <Text style={styles.muted}>Page {safeOfferCustomerPage} / {offerCustomerPageCount}</Text>
-                <Pressable style={styles.smallButton} onPress={() => setOfferCustomerPage((page) => Math.min(offerCustomerPageCount, page + 1))} disabled={safeOfferCustomerPage >= offerCustomerPageCount}>
-                  <Text style={styles.smallButtonText}>Next</Text>
-                </Pressable>
-              </View>
-            </View>
-          )}
+          {!!filteredOfferCustomers.length && <Text style={styles.muted}>Showing {visibleOfferCustomers.length} of {filteredOfferCustomers.length} CRM records</Text>}
           <View style={styles.formGrid}>
             {visibleOfferCustomers.map((customer) => {
               const visits = siteVisitsForOfferRecord(customer.record);
               const linkedOffers = offersForCustomerOption(customer);
+              const linkedOffersListKey = `offer-linked-offers-${customer.source}-${customer.id}`;
               const latestVisit = visits[0];
               const measurementText = latestVisit
                 ? `Site visit ${recordIdentity(latestVisit) || ""} - ${String(latestVisit.site_visit_date || "No date")} - Stops ${String(latestVisit.site_stops || "-")} - Pit ${String(latestVisit.pit_size_mm || "-")} mm - Shaft ${String(latestVisit.shaft_width_mm || "-")} x ${String(latestVisit.shaft_depth_mm || "-")} mm`
@@ -8034,7 +8175,7 @@ export default function App() {
                   {!!linkedOffers.length && (
                     <View style={styles.linkedSystemsPanel}>
                       <Text style={styles.cardLabel}>Saved offers for this CRM record</Text>
-                      {linkedOffers.slice(0, 3).map((offer, offerIndex) => {
+                      {limitedItems(linkedOffersListKey, linkedOffers).map((offer, offerIndex) => {
                         const id = recordIdentity(offer) || String(offer.job_no || offerIndex);
                         const cost = offerCostSummary(offer);
                         return (
@@ -8063,7 +8204,7 @@ export default function App() {
                           </View>
                         );
                       })}
-                      {linkedOffers.length > 3 && <Text style={styles.muted}>{linkedOffers.length - 3} more saved offers match this CRM record. Use search to narrow by offer/customer details.</Text>}
+                      {renderListControls(linkedOffersListKey, linkedOffers.length)}
                     </View>
                   )}
                   <View style={styles.inlineActions}>
@@ -8093,6 +8234,7 @@ export default function App() {
                 <Text style={styles.muted}>Clear the search or add the customer/enquiry in CRM first.</Text>
               </View>
             )}
+            {renderListControls(offerCustomerListKey, filteredOfferCustomers.length)}
           </View>
         </View>
 
@@ -8148,6 +8290,8 @@ export default function App() {
     const actions = todayActions();
     const critical = actions.filter((item) => item.priority === 1);
     const todayDue = actions.filter((item) => item.date && item.date <= new Date().toISOString().slice(0, 10));
+    const todayListKey = "today-priority";
+    const visibleActions = actions.slice(0, listVisibleCount(todayListKey, actions.length));
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -8164,7 +8308,7 @@ export default function App() {
         <Text style={styles.sectionTitle}>Priority List</Text>
         <View style={styles.analyticsPanel}>
           {!actions.length && <Text style={styles.muted}>Nothing urgent is queued from the loaded records.</Text>}
-          {actions.slice(0, 40).map((item) => (
+          {visibleActions.map((item) => (
             <Pressable key={item.id} style={[styles.analyticsRow, item.priority === 1 && styles.alertCard]} onPress={() => setActiveTab(item.tab)}>
               <View style={styles.analyticsRowHeader}>
                 <View style={styles.cardTitleBlock}>
@@ -8176,6 +8320,7 @@ export default function App() {
               <Text style={styles.muted}>{item.detail}</Text>
             </Pressable>
           ))}
+          {renderListControls(todayListKey, actions.length)}
         </View>
       </View>
     );
@@ -8222,7 +8367,7 @@ export default function App() {
       ...asRecords(data?.service_records).filter((item) => !recordIsClosed(item)).map((record) => ({ type: "Service", record, priority: 3 })),
       ...asRecords(data?.site_visits).filter((item) => !recordIsClosed(item)).map((record) => ({ type: "Site Visit", record, priority: 4 })),
     ].sort((a, b) => a.priority - b.priority);
-    const assignmentRows = routeJobs.slice(0, 12).map((job, index) => {
+    const assignmentRows = routeJobs.map((job, index) => {
       const selected = engineers
         .map((engineer) => {
           const name = fieldText(engineer, ["name"]);
@@ -8240,13 +8385,13 @@ export default function App() {
       const target = Number(item.target_stock ?? item.reorder_point ?? item.min_stock ?? 0) || Math.max(1, Number(item.reorder_point ?? item.min_stock ?? 1) * 2);
       return { key: `po-${index}`, item, qty: Math.max(0, Math.ceil(target - (onHand - reserved))) };
     }).filter((item) => item.qty > 0);
-    const installTimeline = asRecords(data?.install_jobs).filter((item) => !recordIsClosed(item)).slice(0, 10).map((job, index) => ({
+    const installTimeline = asRecords(data?.install_jobs).filter((item) => !recordIsClosed(item)).map((job, index) => ({
       key: `gantt-${index}`,
       job,
       steps: ["Site Ready", "Material Ready", "Under Installation", "Commissioning", "Handover Pending", "Completed"],
       status: statusText(job) || "Open"
     }));
-    const offerVersions = asRecords(data?.estimates).slice(0, 12).map((offer) => {
+    const offerVersions = asRecords(data?.estimates).map((offer) => {
       const id = recordIdentity(offer);
       const edits = asRecords(data?.audit_logs).filter((log) => String(log.collection || "") === "estimates" && String(log.record_id || "") === id);
       return { offer, edits };
@@ -8278,7 +8423,7 @@ export default function App() {
       .filter((item) => !recordIsClosed(item))
       .map((item, index) => ({ key: `amc-${index}`, customer: fieldText(item, ["customer", "building", "name"]), date: recordDate(item, ["next_visit_date", "renewal_date", "date"]), status: statusText(item) || "Open" }))
       .sort((a, b) => a.date.localeCompare(b.date));
-    const customerPortalRows = asRecords(data?.customers).slice(0, 12).map((customer) => {
+    const customerPortalRows = asRecords(data?.customers).map((customer) => {
       const id = fieldText(customer, ["id"]);
       const portalUser = asRecords(data?.customer_users).find((user) => fieldText(user, ["customer_id"]) === id);
       return { customer, portalUser, active: Boolean(portalUser) };
@@ -8332,7 +8477,7 @@ export default function App() {
         linked_id: amcToRenew?.key || "",
       },
     ];
-    const profitabilityRows = asRecords(data?.estimates).slice(0, 12).map((offer) => {
+    const profitabilityRows = asRecords(data?.estimates).map((offer) => {
       const summary = offerCostSummary(offer);
       const collected = asRecords(data?.payments).filter((payment) => fieldText(payment, ["estimate_id", "offer_id"]) === fieldText(offer, ["id", "job_no"])).reduce((sum, payment) => sum + paymentAccountSummary(payment).receivedTotal, 0);
       const cost = summary.materialCost + summary.installCost;
@@ -8399,7 +8544,7 @@ export default function App() {
       row.recommendedStock = Math.max(row.recommendedStock, Math.ceil(row.monthlyUse * 1.5));
       return rows;
     }, []).sort((a, b) => b.monthlyUse - a.monthlyUse);
-    const installationMilestoneRows = asRecords(data?.install_jobs).slice(0, 12).map((job, index) => {
+    const installationMilestoneRows = asRecords(data?.install_jobs).map((job, index) => {
       const status = statusText(job).toLowerCase();
       const milestones = [
         ["Site ready", /site ready|ready|civil/i],
@@ -8427,7 +8572,7 @@ export default function App() {
         ...asRecords(data?.payments).filter((item) => customerMatchesRecord(customer, item) && !recordIsClosed(item)),
       ].length;
       return { customer, portalUser, docs, openItems, needsPortal: !portalUser };
-    }).filter((row) => row.needsPortal || row.openItems || row.docs).slice(0, 12);
+    }).filter((row) => row.needsPortal || row.openItems || row.docs);
     const voiceNoteRows = serviceReportRows
       .filter((item) => fieldText(item, ["voice_note_url", "voice_transcript", "voice_note", "transcript"]).replace("-", "").trim())
       .map((item, index) => ({
@@ -8514,6 +8659,8 @@ export default function App() {
     const conversations = asRecords(data?.conversations);
     const rules = asRecords(data?.escalation_rules);
     const auditLogs = asRecords(data?.audit_logs);
+    const commandItems = <T,>(key: string, items: T[]) => limitedItems(`intelligence-${key}`, items);
+    const commandControls = (key: string, total: number) => renderListControls(`intelligence-${key}`, total);
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -8524,13 +8671,14 @@ export default function App() {
 
         <Text style={styles.sectionTitle}>1. Role-Based Home Dashboards</Text>
         <View style={styles.metricGrid}>
-          {intel.roleMetrics.map((item) => (
+          {commandItems("role-metrics", intel.roleMetrics).map((item) => (
             <Pressable key={item.label} style={styles.card} onPress={() => setActiveTab(item.tab)}>
               <Text style={styles.cardLabel}>{item.label}</Text>
               <Text style={styles.metricValue}>{item.count}</Text>
               <Text style={styles.muted}>{item.detail}</Text>
             </Pressable>
           ))}
+          {commandControls("role-metrics", intel.roleMetrics.length)}
         </View>
 
         <Text style={styles.sectionTitle}>2. Escalation Rules Engine</Text>
@@ -8549,34 +8697,37 @@ export default function App() {
           <Text style={styles.muted}>{rules.length} saved rule records. {intel.escalationHits.length} live records currently match escalation conditions.</Text>
         </View>
         <View style={styles.analyticsPanel}>
-          {intel.escalationHits.slice(0, 12).map((item) => (
+          {commandItems("escalations", intel.escalationHits).map((item) => (
             <Pressable key={item.key} style={[styles.analyticsRow, styles.alertCard]} onPress={() => setActiveTab(item.tab)}>
               <Text style={styles.cardTitle}>{item.title}</Text>
               <Text style={styles.muted}>{item.detail}</Text>
             </Pressable>
           ))}
           {!intel.escalationHits.length && <Text style={styles.muted}>No records currently match escalation conditions.</Text>}
+          {commandControls("escalations", intel.escalationHits.length)}
         </View>
 
         <Text style={styles.sectionTitle}>3. Customer 360 Health Score</Text>
         <View style={styles.analyticsPanel}>
-          {intel.healthRows.slice(0, 10).map((row) => (
+          {commandItems("health", intel.healthRows).map((row) => (
             <Pressable key={`health-${fieldText(row.customer, ["id", "name"])}`} style={row.score < 65 ? [styles.analyticsRow, styles.alertCard] : styles.analyticsRow} onPress={() => { setCrmSearch(fieldText(row.customer, ["id", "name"])); setActiveTab("customers"); }}>
               <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.customer, ["name"])}</Text><Text style={styles.statusPill}>{row.score}/100</Text></View>
               <Text style={styles.muted}>{row.risk} open risk signals across payments, breakdowns, service, and renewals.</Text>
             </Pressable>
           ))}
+          {commandControls("health", intel.healthRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>4. Engineer Route Planner</Text>
         <View style={styles.analyticsPanel}>
-          {intel.routeJobs.slice(0, 12).map((job, index) => (
+          {commandItems("routes", intel.routeJobs).map((job, index) => (
             <View key={`route-${index}`} style={styles.analyticsRow}>
               <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{index + 1}. {job.type} - {fieldText(job.record, ["customer", "customer_name", "unit", "id"])}</Text><Text style={styles.statusPill}>P{job.priority}</Text></View>
               <Text style={styles.muted}>{fieldText(job.record, ["site", "location", "address"])} - {fieldText(job.record, ["phone", "caller_mobile", "contact_phone"])}</Text>
             </View>
           ))}
           {!intel.routeJobs.length && <Text style={styles.muted}>No open route jobs are waiting.</Text>}
+          {commandControls("routes", intel.routeJobs.length)}
         </View>
 
         <Text style={styles.sectionTitle}>5. WhatsApp/Discord Conversation Inbox</Text>
@@ -8590,13 +8741,14 @@ export default function App() {
           <Pressable style={styles.primaryButtonInline} onPress={saveConversation} disabled={loading}><Text style={styles.primaryButtonText}>Save conversation</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {conversations.slice(0, 8).map((item, index) => <View key={`conv-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer", "subject"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["channel"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["linked_type"])} {fieldText(item, ["linked_id"])} - {fieldText(item, ["status"])}</Text><Text style={styles.bodyText}>{fieldText(item, ["message"])}</Text></View>)}
+          {commandItems("conversations", conversations).map((item, index) => <View key={`conv-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer", "subject"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["channel"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["linked_type"])} {fieldText(item, ["linked_id"])} - {fieldText(item, ["status"])}</Text><Text style={styles.bodyText}>{fieldText(item, ["message"])}</Text></View>)}
           {!conversations.length && <Text style={styles.muted}>No linked customer conversations are saved yet.</Text>}
+          {commandControls("conversations", conversations.length)}
         </View>
 
         <Text style={styles.sectionTitle}>5A. WhatsApp Follow-Up Templates</Text>
         <View style={styles.analyticsPanel}>
-          {intel.whatsappTemplates.map((template) => (
+          {commandItems("whatsapp-templates", intel.whatsappTemplates).map((template) => (
             <Pressable
               key={`wa-template-${template.key}`}
               style={styles.analyticsRow}
@@ -8619,51 +8771,58 @@ export default function App() {
               <Text style={styles.bodyText}>{template.message}</Text>
             </Pressable>
           ))}
+          {commandControls("whatsapp-templates", intel.whatsappTemplates.length)}
         </View>
 
         <Text style={styles.sectionTitle}>6. Smart Auto Assignment</Text>
         <View style={styles.analyticsPanel}>
-          {intel.assignmentRows.map((row) => (
+          {commandItems("assignments", intel.assignmentRows).map((row) => (
             <View key={row.key} style={styles.analyticsRow}>
               <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.type}: {fieldText(row.record, ["unit", "job_id", "job_number", "customer"])}</Text><Text style={styles.statusPill}>{row.engineer}</Text></View>
               <Text style={styles.muted}>Suggested from availability, current task, and open workload.</Text>
             </View>
           ))}
+          {commandControls("assignments", intel.assignmentRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>7. Offer Versioning & Comparison</Text>
         <View style={styles.analyticsPanel}>
-          {intel.offerVersions.map((row, index) => <Pressable key={`offer-version-${recordIdentity(row.offer) || index}`} style={styles.analyticsRow} onPress={() => setActiveTab("offerManager")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.offer, ["job_no", "id", "customer_name"])}</Text><Text style={styles.statusPill}>{row.edits.length + 1} versions</Text></View><Text style={styles.muted}>{fieldText(row.offer, ["customer_name", "offer_name"])} - {formatMoney(offerCostSummary(row.offer).totalCost)}</Text></Pressable>)}
+          {commandItems("offer-versions", intel.offerVersions).map((row, index) => <Pressable key={`offer-version-${recordIdentity(row.offer) || index}`} style={styles.analyticsRow} onPress={() => setActiveTab("offerManager")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.offer, ["job_no", "id", "customer_name"])}</Text><Text style={styles.statusPill}>{row.edits.length + 1} versions</Text></View><Text style={styles.muted}>{fieldText(row.offer, ["customer_name", "offer_name"])} - {formatMoney(offerCostSummary(row.offer).totalCost)}</Text></Pressable>)}
           {!intel.offerVersions.length && <Text style={styles.muted}>No offer records are available for version comparison.</Text>}
+          {commandControls("offer-versions", intel.offerVersions.length)}
         </View>
 
         <Text style={styles.sectionTitle}>8. Inventory Purchase Planning</Text>
         <View style={styles.analyticsPanel}>
-          {intel.purchaseSuggestions.slice(0, 12).map((row) => <View key={row.key} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.item, ["name", "item", "part_name"])}</Text><Text style={styles.statusPill}>Buy {row.qty}</Text></View><Text style={styles.muted}>Vendor {fieldText(row.item, ["vendor"])} - bin {fieldText(row.item, ["bin_location"])}</Text></View>)}
+          {commandItems("purchase-suggestions", intel.purchaseSuggestions).map((row) => <View key={row.key} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.item, ["name", "item", "part_name"])}</Text><Text style={styles.statusPill}>Buy {row.qty}</Text></View><Text style={styles.muted}>Vendor {fieldText(row.item, ["vendor"])} - bin {fieldText(row.item, ["bin_location"])}</Text></View>)}
           {!intel.purchaseSuggestions.length && <Text style={styles.muted}>No purchase suggestions from current stock thresholds.</Text>}
+          {commandControls("purchase-suggestions", intel.purchaseSuggestions.length)}
         </View>
 
         <Text style={styles.sectionTitle}>9. Install Project Gantt View</Text>
         <View style={styles.analyticsPanel}>
-          {intel.installTimeline.map((row) => <View key={row.key} style={styles.analyticsRow}><Text style={styles.cardTitle}>{fieldText(row.job, ["job_id", "id"])} - {fieldText(row.job, ["customer", "site"])}</Text><View style={styles.inlineActions}>{row.steps.map((step) => <Text key={step} style={[styles.statusPill, row.status.toLowerCase().includes(step.toLowerCase()) && styles.selectorPillActive]}>{step}</Text>)}</View></View>)}
+          {commandItems("install-timeline", intel.installTimeline).map((row) => <View key={row.key} style={styles.analyticsRow}><Text style={styles.cardTitle}>{fieldText(row.job, ["job_id", "id"])} - {fieldText(row.job, ["customer", "site"])}</Text><View style={styles.inlineActions}>{row.steps.map((step) => <Text key={step} style={[styles.statusPill, row.status.toLowerCase().includes(step.toLowerCase()) && styles.selectorPillActive]}>{step}</Text>)}</View></View>)}
           {!intel.installTimeline.length && <Text style={styles.muted}>No active installation jobs need timeline tracking.</Text>}
+          {commandControls("install-timeline", intel.installTimeline.length)}
         </View>
 
         <Text style={styles.sectionTitle}>9A. Installation Milestone Tracker</Text>
         <View style={styles.analyticsPanel}>
-          {intel.installationMilestoneRows.map((row) => (
+          {commandItems("installation-milestones", intel.installationMilestoneRows).map((row) => (
             <Pressable key={row.key} style={styles.analyticsRow} onPress={() => setActiveTab("installations")}>
               <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.job, ["job_id", "id"])} - {fieldText(row.job, ["customer"])}</Text><Text style={styles.statusPill}>{row.completed}/{row.total}</Text></View>
               <Text style={styles.muted}>Next milestone: {row.next} - Status {statusText(row.job) || "Open"}</Text>
             </Pressable>
           ))}
           {!intel.installationMilestoneRows.length && <Text style={styles.muted}>No installation milestones are available yet.</Text>}
+          {commandControls("installation-milestones", intel.installationMilestoneRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>10. Audit Trail Everywhere</Text>
         <View style={styles.analyticsPanel}>
-          {auditLogs.slice(0, 14).map((item, index) => <View key={`audit-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["collection"])} - {fieldText(item, ["action"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["actor"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["record_id"])} - {fieldText(item, ["changed_at"])}</Text><Text style={styles.bodyText}>Before: {String(item.before || item.previous || "-").slice(0, 120)} | After: {String(item.after || item.changes || item.next || "-").slice(0, 120)}</Text></View>)}
+          {commandItems("audit-logs", auditLogs).map((item, index) => <View key={`audit-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["collection"])} - {fieldText(item, ["action"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["actor"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["record_id"])} - {fieldText(item, ["changed_at"])}</Text><Text style={styles.bodyText}>Before: {String(item.before || item.previous || "-").slice(0, 120)} | After: {String(item.after || item.changes || item.next || "-").slice(0, 120)}</Text></View>)}
           {!auditLogs.length && <Text style={styles.muted}>Audit entries will be recorded as portal records are created, updated, or deleted.</Text>}
+          {commandControls("audit-logs", auditLogs.length)}
         </View>
 
         <Text style={styles.sectionTitle}>11. Warranty Tracker</Text>
@@ -8677,8 +8836,9 @@ export default function App() {
           <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("warranty-records", warrantyDraft, () => setWarrantyDraft(emptyWarrantyDraft), "Warranty record saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save warranty</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {intel.warrantyRows.slice(0, 10).map((item, index) => <View key={`war-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer"])} - {fieldText(item, ["unit"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["warranty_end"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["status"])} - Customer ID {fieldText(item, ["customer_id"])}</Text></View>)}
+          {commandItems("warranties", intel.warrantyRows).map((item, index) => <View key={`war-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer"])} - {fieldText(item, ["unit"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["warranty_end"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["status"])} - Customer ID {fieldText(item, ["customer_id"])}</Text></View>)}
           {!intel.warrantyRows.length && <Text style={styles.muted}>No warranty records have been saved or detected from installations.</Text>}
+          {commandControls("warranties", intel.warrantyRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>12. Material Dispatch Board</Text>
@@ -8692,8 +8852,9 @@ export default function App() {
           <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("dispatch-records", dispatchDraft, () => setDispatchDraft(emptyDispatchDraft), "Dispatch record saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save dispatch</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {intel.dispatchRows.slice(0, 10).map((item, index) => <View key={`dispatch-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["material"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["transporter"])} - LR {fieldText(item, ["lr_number"])} - Delivered {fieldText(item, ["delivered_at"])}</Text></View>)}
+          {commandItems("dispatch", intel.dispatchRows).map((item, index) => <View key={`dispatch-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["material"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["transporter"])} - LR {fieldText(item, ["lr_number"])} - Delivered {fieldText(item, ["delivered_at"])}</Text></View>)}
           {!intel.dispatchRows.length && <Text style={styles.muted}>No dispatch records are currently saved.</Text>}
+          {commandControls("dispatch", intel.dispatchRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>13. Site Readiness Checklist</Text>
@@ -8707,8 +8868,9 @@ export default function App() {
           <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("readiness-checklists", readinessDraft, () => setReadinessDraft(emptyReadinessDraft), "Readiness checklist saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save readiness</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {intel.readinessRows.slice(0, 8).map((item, index) => <View key={`ready-${recordIdentity(item) || index}`} style={styles.analyticsRow}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.muted}>Pit {fieldText(item, ["pit_ready"])} - Shaft {fieldText(item, ["shaft_ready"])} - Power {fieldText(item, ["power_ready"])} - Safety {fieldText(item, ["safety_ready"])}</Text></View>)}
+          {commandItems("readiness", intel.readinessRows).map((item, index) => <View key={`ready-${recordIdentity(item) || index}`} style={styles.analyticsRow}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.muted}>Pit {fieldText(item, ["pit_ready"])} - Shaft {fieldText(item, ["shaft_ready"])} - Power {fieldText(item, ["power_ready"])} - Safety {fieldText(item, ["safety_ready"])}</Text></View>)}
           {!intel.readinessRows.length && <Text style={styles.muted}>No readiness checklists are saved yet.</Text>}
+          {commandControls("readiness", intel.readinessRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>14. Engineer Skill Matrix</Text>
@@ -8722,49 +8884,56 @@ export default function App() {
           <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("skill-matrix", skillDraft, () => setSkillDraft(emptySkillDraft), "Engineer skill record saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save skills</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {intel.skillRows.slice(0, 10).map((item, index) => <View key={`skill-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["engineer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["department"])}</Text></View><Text style={styles.muted}>Controller {fieldText(item, ["controller_type"])} - Door {fieldText(item, ["door_type"])} - Troubleshooting {fieldText(item, ["troubleshooting"])}</Text></View>)}
+          {commandItems("skills", intel.skillRows).map((item, index) => <View key={`skill-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["engineer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["department"])}</Text></View><Text style={styles.muted}>Controller {fieldText(item, ["controller_type"])} - Door {fieldText(item, ["door_type"])} - Troubleshooting {fieldText(item, ["troubleshooting"])}</Text></View>)}
           {!intel.skillRows.length && <Text style={styles.muted}>No engineer skill records are saved yet.</Text>}
+          {commandControls("skills", intel.skillRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>15. Complaint Repeat Analysis</Text>
         <View style={styles.analyticsPanel}>
-          {intel.repeatComplaints.slice(0, 12).map((row) => <Pressable key={row.key} style={[styles.analyticsRow, styles.alertCard]} onPress={() => setActiveTab("breakdown")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.customer} - {row.unit}</Text><Text style={styles.statusPill}>{row.count} repeats</Text></View><Text style={styles.muted}>{row.fault}</Text></Pressable>)}
+          {commandItems("repeat-complaints", intel.repeatComplaints).map((row) => <Pressable key={row.key} style={[styles.analyticsRow, styles.alertCard]} onPress={() => setActiveTab("breakdown")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.customer} - {row.unit}</Text><Text style={styles.statusPill}>{row.count} repeats</Text></View><Text style={styles.muted}>{row.fault}</Text></Pressable>)}
           {!intel.repeatComplaints.length && <Text style={styles.muted}>No repeated complaint pattern has crossed the repeat threshold.</Text>}
+          {commandControls("repeat-complaints", intel.repeatComplaints.length)}
         </View>
 
         <Text style={styles.sectionTitle}>16. AMC Visit Calendar</Text>
         <View style={styles.analyticsPanel}>
-          {intel.amcCalendar.slice(0, 12).map((row) => <Pressable key={row.key} style={styles.analyticsRow} onPress={() => setActiveTab("renewals")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.customer}</Text><Text style={styles.statusPill}>{row.date || "No date"}</Text></View><Text style={styles.muted}>{row.status}</Text></Pressable>)}
+          {commandItems("amc-calendar", intel.amcCalendar).map((row) => <Pressable key={row.key} style={styles.analyticsRow} onPress={() => setActiveTab("renewals")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.customer}</Text><Text style={styles.statusPill}>{row.date || "No date"}</Text></View><Text style={styles.muted}>{row.status}</Text></Pressable>)}
           {!intel.amcCalendar.length && <Text style={styles.muted}>No open AMC visits or renewals are scheduled.</Text>}
+          {commandControls("amc-calendar", intel.amcCalendar.length)}
         </View>
 
         <Text style={styles.sectionTitle}>17. Customer Portal</Text>
         <View style={styles.analyticsPanel}>
-          {intel.customerPortalRows.map((row) => <Pressable key={`portal-${fieldText(row.customer, ["id"])}`} style={styles.analyticsRow} onPress={() => { setCrmSearch(fieldText(row.customer, ["id", "name"])); setActiveTab("customers"); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.customer, ["name"])}</Text><Text style={styles.statusPill}>{row.active ? "Portal active" : "No portal user"}</Text></View><Text style={styles.muted}>Customer ID {fieldText(row.customer, ["id"])} - User {fieldText(row.portalUser || {}, ["username"])}</Text></Pressable>)}
+          {commandItems("customer-portals", intel.customerPortalRows).map((row) => <Pressable key={`portal-${fieldText(row.customer, ["id"])}`} style={styles.analyticsRow} onPress={() => { setCrmSearch(fieldText(row.customer, ["id", "name"])); setActiveTab("customers"); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.customer, ["name"])}</Text><Text style={styles.statusPill}>{row.active ? "Portal active" : "No portal user"}</Text></View><Text style={styles.muted}>Customer ID {fieldText(row.customer, ["id"])} - User {fieldText(row.portalUser || {}, ["username"])}</Text></Pressable>)}
           {!intel.customerPortalRows.length && <Text style={styles.muted}>No customers are loaded for portal access review.</Text>}
+          {commandControls("customer-portals", intel.customerPortalRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>17A. Customer Portal Action Queue</Text>
         <View style={styles.analyticsPanel}>
-          {intel.customerPortalQueue.map((row) => (
+          {commandItems("customer-portal-queue", intel.customerPortalQueue).map((row) => (
             <Pressable key={`portal-queue-${fieldText(row.customer, ["id"])}`} style={row.needsPortal ? [styles.analyticsRow, styles.alertCard] : styles.analyticsRow} onPress={() => { setCrmSearch(fieldText(row.customer, ["id", "name"])); setActiveTab("customers"); }}>
               <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.customer, ["name"])}</Text><Text style={styles.statusPill}>{row.needsPortal ? "Create access" : "Review"}</Text></View>
               <Text style={styles.muted}>{row.openItems} open service/payment items - {row.docs} vault documents - User {fieldText(row.portalUser || {}, ["username"])}</Text>
             </Pressable>
           ))}
           {!intel.customerPortalQueue.length && <Text style={styles.muted}>No customer portal actions are waiting.</Text>}
+          {commandControls("customer-portal-queue", intel.customerPortalQueue.length)}
         </View>
 
         <Text style={styles.sectionTitle}>18. Profitability Dashboard</Text>
         <View style={styles.analyticsPanel}>
-          {intel.profitabilityRows.slice(0, 12).map((row, index) => <Pressable key={`profit-${recordIdentity(row.offer) || index}`} style={styles.analyticsRow} onPress={() => setActiveTab("offerManager")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.offer, ["job_no", "customer_name", "id"])}</Text><Text style={styles.statusPill}>{formatMoney(row.margin)}</Text></View><Text style={styles.muted}>Revenue {formatMoney(row.revenue)} - Cost {formatMoney(row.cost)} - Collected {formatMoney(row.collected)}</Text></Pressable>)}
+          {commandItems("profitability", intel.profitabilityRows).map((row, index) => <Pressable key={`profit-${recordIdentity(row.offer) || index}`} style={styles.analyticsRow} onPress={() => setActiveTab("offerManager")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.offer, ["job_no", "customer_name", "id"])}</Text><Text style={styles.statusPill}>{formatMoney(row.margin)}</Text></View><Text style={styles.muted}>Revenue {formatMoney(row.revenue)} - Cost {formatMoney(row.cost)} - Collected {formatMoney(row.collected)}</Text></Pressable>)}
           {!intel.profitabilityRows.length && <Text style={styles.muted}>No offers are available for profitability analysis.</Text>}
+          {commandControls("profitability", intel.profitabilityRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>19. Vendor Performance Scorecard</Text>
         <View style={styles.analyticsPanel}>
-          {intel.vendorRows.slice(0, 12).map((row) => <View key={`vendor-${row.vendor}`} style={row.lowStock ? [styles.analyticsRow, styles.alertCard] : styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.vendor}</Text><Text style={styles.statusPill}>{row.items} items</Text></View><Text style={styles.muted}>Inventory value {formatMoney(row.value)} - {row.lowStock} low-stock items</Text></View>)}
+          {commandItems("vendors", intel.vendorRows).map((row) => <View key={`vendor-${row.vendor}`} style={row.lowStock ? [styles.analyticsRow, styles.alertCard] : styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.vendor}</Text><Text style={styles.statusPill}>{row.items} items</Text></View><Text style={styles.muted}>Inventory value {formatMoney(row.value)} - {row.lowStock} low-stock items</Text></View>)}
           {!intel.vendorRows.length && <Text style={styles.muted}>No vendor-linked inventory is available for scoring.</Text>}
+          {commandControls("vendors", intel.vendorRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>20. Digital Handover Pack</Text>
@@ -8778,8 +8947,9 @@ export default function App() {
           <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("handover-packs", handoverDraft, () => setHandoverDraft(emptyHandoverDraft), "Handover pack saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save handover pack</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {intel.handoverRows.slice(0, 10).map((item, index) => <View key={`handover-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>Warranty {fieldText(item, ["warranty_id"])} - Signature {fieldText(item, ["customer_signature"])}</Text></View>)}
+          {commandItems("handovers", intel.handoverRows).map((item, index) => <View key={`handover-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>Warranty {fieldText(item, ["warranty_id"])} - Signature {fieldText(item, ["customer_signature"])}</Text></View>)}
           {!intel.handoverRows.length && <Text style={styles.muted}>No digital handover packs are saved yet.</Text>}
+          {commandControls("handovers", intel.handoverRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>21. Lift Asset Registry</Text>
@@ -8793,8 +8963,9 @@ export default function App() {
           <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("lift-assets", liftAssetDraft, () => setLiftAssetDraft(emptyLiftAssetDraft), "Lift asset saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save lift asset</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {intel.liftAssetRows.slice(0, 10).map((item, index) => <View key={`asset-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer"])} - {fieldText(item, ["unit"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["amc_status", "status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["site"])} - Controller {fieldText(item, ["controller"])} - Door {fieldText(item, ["door_type"])}</Text></View>)}
+          {commandItems("lift-assets", intel.liftAssetRows).map((item, index) => <View key={`asset-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer"])} - {fieldText(item, ["unit"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["amc_status", "status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["site"])} - Controller {fieldText(item, ["controller"])} - Door {fieldText(item, ["door_type"])}</Text></View>)}
           {!intel.liftAssetRows.length && <Text style={styles.muted}>No lift assets are registered yet.</Text>}
+          {commandControls("lift-assets", intel.liftAssetRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>22. Spare Parts Usage Ledger</Text>
@@ -8808,25 +8979,28 @@ export default function App() {
           <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("parts-usage", partsUsageDraft, () => setPartsUsageDraft(emptyPartsUsageDraft), "Parts usage saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save parts usage</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {intel.partsUsageRows.slice(0, 10).map((item, index) => <View key={`part-use-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["part_name"])} - {fieldText(item, ["job_id"])}</Text><Text style={styles.statusPill}>Qty {fieldText(item, ["quantity"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["customer"])} - {fieldText(item, ["engineer"])} - {fieldText(item, ["unit"])}</Text></View>)}
+          {commandItems("parts-usage", intel.partsUsageRows).map((item, index) => <View key={`part-use-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["part_name"])} - {fieldText(item, ["job_id"])}</Text><Text style={styles.statusPill}>Qty {fieldText(item, ["quantity"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["customer"])} - {fieldText(item, ["engineer"])} - {fieldText(item, ["unit"])}</Text></View>)}
           {!intel.partsUsageRows.length && <Text style={styles.muted}>No spare part usage entries are saved yet.</Text>}
+          {commandControls("parts-usage", intel.partsUsageRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>22A. Spare Parts Consumption Forecast</Text>
         <View style={styles.analyticsPanel}>
-          {intel.spareForecastRows.slice(0, 12).map((row) => (
+          {commandItems("spare-forecast", intel.spareForecastRows).map((row) => (
             <Pressable key={`spare-forecast-${row.part}`} style={styles.analyticsRow} onPress={() => setActiveTab("inventory")}>
               <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.part}</Text><Text style={styles.statusPill}>Stock {row.recommendedStock}</Text></View>
               <Text style={styles.muted}>Estimated monthly use {row.monthlyUse} from {row.sourceCount} service, breakdown, and parts-usage records.</Text>
             </Pressable>
           ))}
           {!intel.spareForecastRows.length && <Text style={styles.muted}>Forecast appears after engineers record parts used on service or breakdown jobs.</Text>}
+          {commandControls("spare-forecast", intel.spareForecastRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>23. QR Code on Every Lift</Text>
         <View style={styles.analyticsPanel}>
-          {intel.qrRows.slice(0, 12).map((row) => <Pressable key={row.key} style={styles.analyticsRow} onPress={() => { setServiceRecordSearch(fieldText(row.asset, ["unit", "customer"])); setActiveTab("service"); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.asset, ["unit"])} - {fieldText(row.asset, ["customer"])}</Text><Text style={styles.statusPill}>Service link</Text></View><Text style={styles.muted}>{row.qr}</Text></Pressable>)}
+          {commandItems("qr", intel.qrRows).map((row) => <Pressable key={row.key} style={styles.analyticsRow} onPress={() => { setServiceRecordSearch(fieldText(row.asset, ["unit", "customer"])); setActiveTab("service"); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.asset, ["unit"])} - {fieldText(row.asset, ["customer"])}</Text><Text style={styles.statusPill}>Service link</Text></View><Text style={styles.muted}>{row.qr}</Text></Pressable>)}
           {!intel.qrRows.length && <Text style={styles.muted}>Register lift assets to generate service lookup QR values.</Text>}
+          {commandControls("qr", intel.qrRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>24. Service Report Generator</Text>
@@ -8844,13 +9018,14 @@ export default function App() {
           <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("service-reports", serviceReportDraft, () => setServiceReportDraft(emptyServiceReportDraft), "Service report saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save service report</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {intel.serviceReportRows.slice(0, 10).map((item, index) => <View key={`service-report-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["engineer"])} - Next {fieldText(item, ["next_visit_date"])}</Text></View>)}
+          {commandItems("service-reports", intel.serviceReportRows).map((item, index) => <View key={`service-report-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["engineer"])} - Next {fieldText(item, ["next_visit_date"])}</Text></View>)}
           {!intel.serviceReportRows.length && <Text style={styles.muted}>No service reports are saved yet.</Text>}
+          {commandControls("service-reports", intel.serviceReportRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>24A. Engineer Voice Notes</Text>
         <View style={styles.analyticsPanel}>
-          {intel.voiceNoteRows.slice(0, 10).map((row) => (
+          {commandItems("voice-notes", intel.voiceNoteRows).map((row) => (
             <View key={row.key} style={styles.analyticsRow}>
               <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.item, ["job_id", "customer"])}</Text><Text style={styles.statusPill}>{row.url !== "-" ? "Audio linked" : "Transcript"}</Text></View>
               <Text style={styles.muted}>{fieldText(row.item, ["engineer"])} - {row.url}</Text>
@@ -8858,6 +9033,7 @@ export default function App() {
             </View>
           ))}
           {!intel.voiceNoteRows.length && <Text style={styles.muted}>Voice notes appear after a service report stores an audio reference or transcript.</Text>}
+          {commandControls("voice-notes", intel.voiceNoteRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>25. Payment Collection Forecast</Text>
@@ -8866,14 +9042,16 @@ export default function App() {
           <View style={styles.card}><Text style={styles.cardLabel}>Forecast value</Text><Text style={styles.metricValue}>{formatMoney(intel.paymentForecastRows.reduce((sum, row) => sum + row.amount, 0))}</Text><Text style={styles.muted}>Outstanding and scheduled collection</Text></View>
         </View>
         <View style={styles.analyticsPanel}>
-          {intel.paymentForecastRows.slice(0, 12).map((row) => <Pressable key={row.key} style={styles.analyticsRow} onPress={() => setActiveTab("finance")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.customer}</Text><Text style={styles.statusPill}>{formatMoney(row.amount)}</Text></View><Text style={styles.muted}>{row.date} - {row.status}</Text></Pressable>)}
+          {commandItems("payment-forecast", intel.paymentForecastRows).map((row) => <Pressable key={row.key} style={styles.analyticsRow} onPress={() => setActiveTab("finance")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.customer}</Text><Text style={styles.statusPill}>{formatMoney(row.amount)}</Text></View><Text style={styles.muted}>{row.date} - {row.status}</Text></Pressable>)}
           {!intel.paymentForecastRows.length && <Text style={styles.muted}>No open payment collection items are due.</Text>}
+          {commandControls("payment-forecast", intel.paymentForecastRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>26. Engineer Performance Dashboard</Text>
         <View style={styles.analyticsPanel}>
-          {intel.engineerPerformanceRows.slice(0, 12).map((row) => <View key={`eng-perf-${row.name}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.name}</Text><Text style={styles.statusPill}>{row.closed} closed</Text></View><Text style={styles.muted}>{row.open} open jobs - {fieldText(row.engineer, ["department", "role"])} - {fieldText(row.engineer, ["availability", "status"])}</Text></View>)}
+          {commandItems("engineer-performance", intel.engineerPerformanceRows).map((row) => <View key={`eng-perf-${row.name}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.name}</Text><Text style={styles.statusPill}>{row.closed} closed</Text></View><Text style={styles.muted}>{row.open} open jobs - {fieldText(row.engineer, ["department", "role"])} - {fieldText(row.engineer, ["availability", "status"])}</Text></View>)}
           {!intel.engineerPerformanceRows.length && <Text style={styles.muted}>No engineer-linked job history is available yet.</Text>}
+          {commandControls("engineer-performance", intel.engineerPerformanceRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>27. Safety Incident Register</Text>
@@ -8887,8 +9065,9 @@ export default function App() {
           <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("safety-incidents", safetyIncidentDraft, () => setSafetyIncidentDraft(emptySafetyIncidentDraft), "Safety incident saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save safety incident</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {intel.safetyRows.slice(0, 10).map((item, index) => <View key={`safety-${recordIdentity(item) || index}`} style={/high|critical/i.test(fieldText(item, ["severity"])) ? [styles.analyticsRow, styles.alertCard] : styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["incident_type"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["severity"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["site"])} - {fieldText(item, ["status"])}</Text></View>)}
+          {commandItems("safety", intel.safetyRows).map((item, index) => <View key={`safety-${recordIdentity(item) || index}`} style={/high|critical/i.test(fieldText(item, ["severity"])) ? [styles.analyticsRow, styles.alertCard] : styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["incident_type"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["severity"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["site"])} - {fieldText(item, ["status"])}</Text></View>)}
           {!intel.safetyRows.length && <Text style={styles.muted}>No safety incidents are registered.</Text>}
+          {commandControls("safety", intel.safetyRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>28. Tender Document Checklist</Text>
@@ -8901,8 +9080,9 @@ export default function App() {
           <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("tender-checklists", tenderChecklistDraft, () => setTenderChecklistDraft(emptyTenderChecklistDraft), "Tender checklist saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save tender checklist</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {intel.tenderChecklistRows.slice(0, 10).map((item, index) => <View key={`tdc-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["tender_title", "tender_id"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["final_submission"])}</Text></View><Text style={styles.muted}>EMD {fieldText(item, ["emd"])} - GST {fieldText(item, ["gst_docs"])} - Drawings {fieldText(item, ["drawings"])}</Text></View>)}
+          {commandItems("tender-checklists", intel.tenderChecklistRows).map((item, index) => <View key={`tdc-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["tender_title", "tender_id"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["final_submission"])}</Text></View><Text style={styles.muted}>EMD {fieldText(item, ["emd"])} - GST {fieldText(item, ["gst_docs"])} - Drawings {fieldText(item, ["drawings"])}</Text></View>)}
           {!intel.tenderChecklistRows.length && <Text style={styles.muted}>No tender checklists are saved yet.</Text>}
+          {commandControls("tender-checklists", intel.tenderChecklistRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>29. AMC Contract Builder</Text>
@@ -8916,8 +9096,9 @@ export default function App() {
           <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("amc-contracts", amcContractDraft, () => setAmcContractDraft(emptyAmcContractDraft), "AMC contract saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save AMC contract</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {intel.amcContractRows.slice(0, 10).map((item, index) => <View key={`amc-contract-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{formatMoney(offerNumber(item.annual_price))}</Text></View><Text style={styles.muted}>{fieldText(item, ["lift_count"])} lifts - {fieldText(item, ["service_frequency"])} - {fieldText(item, ["status"])}</Text></View>)}
+          {commandItems("amc-contracts", intel.amcContractRows).map((item, index) => <View key={`amc-contract-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{formatMoney(offerNumber(item.annual_price))}</Text></View><Text style={styles.muted}>{fieldText(item, ["lift_count"])} lifts - {fieldText(item, ["service_frequency"])} - {fieldText(item, ["status"])}</Text></View>)}
           {!intel.amcContractRows.length && <Text style={styles.muted}>No AMC contracts are saved yet.</Text>}
+          {commandControls("amc-contracts", intel.amcContractRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>30. Management Daily Brief PDF</Text>
@@ -8943,8 +9124,9 @@ export default function App() {
           </View>
         </View>
         <View style={styles.analyticsPanel}>
-          {intel.dailyBriefRows.slice(0, 8).map((item, index) => <View key={`brief-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["date"])} - {fieldText(item, ["audience"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["summary"])}</Text></View>)}
+          {commandItems("daily-briefs", intel.dailyBriefRows).map((item, index) => <View key={`brief-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["date"])} - {fieldText(item, ["audience"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["summary"])}</Text></View>)}
           {!intel.dailyBriefRows.length && <Text style={styles.muted}>No management daily briefs are saved yet.</Text>}
+          {commandControls("daily-briefs", intel.dailyBriefRows.length)}
         </View>
       </View>
     );
@@ -8963,6 +9145,8 @@ export default function App() {
       total: operationsBacklog.filter((item) => item.category === category).length,
       nearTerm: operationsBacklog.filter((item) => item.category === category && item.priority === "Near-term").length,
     }));
+    const backlogCategoryListKey = "backlog-categories";
+    const backlogFilteredListKey = "backlog-filtered";
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -8998,18 +9182,19 @@ export default function App() {
 
         <Text style={styles.sectionTitle}>Backlog by Department</Text>
         <View style={styles.metricGrid}>
-          {categoryRows.map((row) => (
+          {limitedItems(backlogCategoryListKey, categoryRows).map((row) => (
             <Pressable key={row.category} style={styles.card} onPress={() => setBacklogCategory(row.category)}>
               <Text style={styles.cardLabel}>{row.category}</Text>
               <Text style={styles.metricValue}>{row.total}</Text>
               <Text style={styles.muted}>{row.nearTerm} near-term items</Text>
             </Pressable>
           ))}
+          {renderListControls(backlogCategoryListKey, categoryRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>Filtered Roadmap</Text>
         <View style={styles.analyticsPanel}>
-          {filtered.map((item) => (
+          {limitedItems(backlogFilteredListKey, filtered).map((item) => (
             <View key={`backlog-${item.number}`} style={styles.analyticsRow}>
               <View style={styles.analyticsRowHeader}>
                 <View style={styles.cardTitleBlock}>
@@ -9022,6 +9207,7 @@ export default function App() {
             </View>
           ))}
           {!filtered.length && <Text style={styles.muted}>No backlog items match the current search.</Text>}
+          {renderListControls(backlogFilteredListKey, filtered.length)}
         </View>
       </View>
     );
@@ -9052,6 +9238,7 @@ export default function App() {
   function renderApprovalsPage() {
     const approvals = asRecords(data?.approvals);
     const pending = approvals.filter((item) => !/approved|rejected/i.test(statusText(item)));
+    const approvalListKey = "approvals";
     return (
       <View>
         <View style={styles.moduleHero}><Text style={styles.eyebrow}>Controls</Text><Text style={styles.moduleHeroTitle}>Approval Workflow</Text><Text style={styles.moduleHeroText}>Manager approvals for offers, discounts, tender submissions, purchase orders, and payment changes.</Text></View>
@@ -9065,8 +9252,9 @@ export default function App() {
         </View>
         <View style={styles.metricGrid}><View style={styles.card}><Text style={styles.cardLabel}>Pending</Text><Text style={styles.metricValue}>{pending.length}</Text><Text style={styles.muted}>Awaiting manager decision.</Text></View><View style={styles.card}><Text style={styles.cardLabel}>Total</Text><Text style={styles.metricValue}>{approvals.length}</Text><Text style={styles.muted}>Approval records in audit trail.</Text></View></View>
         <View style={styles.analyticsPanel}>
-          {approvals.map((item, index) => <View key={`approval-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["reference", "type", "customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["type"])} - {fieldText(item, ["customer"])} - {fieldText(item, ["amount"])}</Text><Text style={styles.bodyText}>{fieldText(item, ["notes"])}</Text>{!/approved|rejected/i.test(statusText(item)) && <View style={styles.inlineActions}><Pressable style={styles.smallButton} onPress={() => updateApproval(item, "Approved")} disabled={loading}><Text style={styles.smallButtonText}>Approve</Text></Pressable><Pressable style={styles.dangerButton} onPress={() => updateApproval(item, "Rejected")} disabled={loading}><Text style={styles.dangerButtonText}>Reject</Text></Pressable></View>}</View>)}
+          {limitedItems(approvalListKey, approvals).map((item, index) => <View key={`approval-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["reference", "type", "customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["type"])} - {fieldText(item, ["customer"])} - {fieldText(item, ["amount"])}</Text><Text style={styles.bodyText}>{fieldText(item, ["notes"])}</Text>{!/approved|rejected/i.test(statusText(item)) && <View style={styles.inlineActions}><Pressable style={styles.smallButton} onPress={() => updateApproval(item, "Approved")} disabled={loading}><Text style={styles.smallButtonText}>Approve</Text></Pressable><Pressable style={styles.dangerButton} onPress={() => updateApproval(item, "Rejected")} disabled={loading}><Text style={styles.dangerButtonText}>Reject</Text></Pressable></View>}</View>)}
           {!approvals.length && <Text style={styles.muted}>No approval records yet.</Text>}
+          {renderListControls(approvalListKey, approvals.length)}
         </View>
       </View>
     );
@@ -9074,6 +9262,7 @@ export default function App() {
 
   function renderDocumentVaultPage() {
     const documents = asRecords(data?.documents);
+    const documentListKey = "documents";
     return (
       <View>
         <View style={styles.moduleHero}><Text style={styles.eyebrow}>Vault</Text><Text style={styles.moduleHeroTitle}>Document Vault</Text><Text style={styles.moduleHeroText}>Attach signed offers, POs, invoices, site photos, GAD drawings, service reports, and receipts to customers and jobs.</Text></View>
@@ -9086,8 +9275,9 @@ export default function App() {
           <View style={styles.inlineActions}><Pressable style={styles.primaryButtonInline} onPress={uploadVaultDocument} disabled={loading}><Text style={styles.primaryButtonText}>Upload file</Text></Pressable><Pressable style={styles.secondaryButton} onPress={() => saveDocumentRecord(documentDraft)} disabled={loading}><Text style={styles.secondaryButtonText}>Save link</Text></Pressable></View>
         </View>
         <View style={styles.analyticsPanel}>
-          {documents.map((item, index) => <View key={`doc-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["title", "filename"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["document_type", "linked_type"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["customer"])} - {fieldText(item, ["linked_type"])} {fieldText(item, ["linked_id"])}</Text><Text style={styles.bodyText}>{fieldText(item, ["notes"])}</Text>{!!fieldText(item, ["url", "data_url"])?.replace("-", "") && <Pressable style={styles.smallButton} onPress={() => Linking.openURL(fieldText(item, ["url", "data_url"]))}><Text style={styles.smallButtonText}>Open document</Text></Pressable>}</View>)}
+          {limitedItems(documentListKey, documents).map((item, index) => <View key={`doc-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["title", "filename"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["document_type", "linked_type"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["customer"])} - {fieldText(item, ["linked_type"])} {fieldText(item, ["linked_id"])}</Text><Text style={styles.bodyText}>{fieldText(item, ["notes"])}</Text>{!!fieldText(item, ["url", "data_url"])?.replace("-", "") && <Pressable style={styles.smallButton} onPress={() => Linking.openURL(fieldText(item, ["url", "data_url"]))}><Text style={styles.smallButtonText}>Open document</Text></Pressable>}</View>)}
           {!documents.length && <Text style={styles.muted}>No documents have been attached yet.</Text>}
+          {renderListControls(documentListKey, documents.length)}
         </View>
       </View>
     );
@@ -9102,14 +9292,16 @@ export default function App() {
       ...asRecords(data?.service_records).filter((item) => !recordIsClosed(item) && matchesEngineer(item)).map((item) => ({ type: "Service", tab: "service" as TabKey, record: item })),
       ...asRecords(data?.install_jobs).filter((item) => !recordIsClosed(item) && matchesEngineer(item)).map((item) => ({ type: "Install", tab: "installations" as TabKey, record: item })),
     ];
+    const engineerJobListKey = "engineer-jobs";
     return (
       <View>
         <View style={styles.moduleHero}><Text style={styles.eyebrow}>Field</Text><Text style={styles.moduleHeroTitle}>Engineer Mobile Job View</Text><Text style={styles.moduleHeroText}>A focused technician screen for today’s assigned jobs, customer contact, check-in, photos, status, notes, and signature handoff.</Text></View>
         <View style={styles.metricGrid}><View style={styles.card}><Text style={styles.cardLabel}>Assigned jobs</Text><Text style={styles.metricValue}>{jobs.length}</Text><Text style={styles.muted}>{name || "Current user"} active queue.</Text></View><View style={styles.card}><Text style={styles.cardLabel}>Attendance</Text><Text style={styles.metricValue}>{fieldText(asRecords(data?.attendance_today).find((item) => fieldText(item, ["person_id", "staff_id"]) === fieldText(staff || {}, ["id"])) || {}, ["status"]) || "-"}</Text><Text style={styles.muted}>Today field attendance.</Text></View></View>
         <View style={styles.inlineActions}><Pressable style={styles.smallButton} onPress={() => markSelfAttendance("check_in")} disabled={loading}><Text style={styles.smallButtonText}>Check in</Text></Pressable><Pressable style={styles.smallButton} onPress={() => markSelfAttendance("check_out")} disabled={loading}><Text style={styles.smallButtonText}>Check out</Text></Pressable></View>
         <View style={styles.analyticsPanel}>
-          {jobs.map((job, index) => <Pressable key={`engineer-${job.type}-${index}`} style={styles.analyticsRow} onPress={() => setActiveTab(job.tab)}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{job.type}: {fieldText(job.record, ["unit", "job_id", "job_number", "id", "customer"])}</Text><Text style={styles.statusPill}>{fieldText(job.record, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(job.record, ["customer", "customer_name"])} - {fieldText(job.record, ["site", "location", "address"])}</Text><Text style={styles.bodyText}>Contact: {fieldText(job.record, ["phone", "caller_mobile", "contact_phone"])} - Schedule: {fieldText(job.record, ["scheduled_at", "service_date", "handover_date", "due_date"])}</Text><Text style={styles.bodyText}>Notes/signature/photos can be added from the linked job record.</Text></Pressable>)}
+          {limitedItems(engineerJobListKey, jobs).map((job, index) => <Pressable key={`engineer-${job.type}-${index}`} style={styles.analyticsRow} onPress={() => setActiveTab(job.tab)}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{job.type}: {fieldText(job.record, ["unit", "job_id", "job_number", "id", "customer"])}</Text><Text style={styles.statusPill}>{fieldText(job.record, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(job.record, ["customer", "customer_name"])} - {fieldText(job.record, ["site", "location", "address"])}</Text><Text style={styles.bodyText}>Contact: {fieldText(job.record, ["phone", "caller_mobile", "contact_phone"])} - Schedule: {fieldText(job.record, ["scheduled_at", "service_date", "handover_date", "due_date"])}</Text><Text style={styles.bodyText}>Notes/signature/photos can be added from the linked job record.</Text></Pressable>)}
           {!jobs.length && <Text style={styles.muted}>No assigned open jobs matched your staff profile.</Text>}
+          {renderListControls(engineerJobListKey, jobs.length)}
         </View>
       </View>
     );
@@ -9141,10 +9333,8 @@ export default function App() {
       ...(crmRecordView === "Customers" ? currentCustomerInquiryRows.map((inquiry, index) => ({ type: "inquiry" as const, inquiry, index })) : []),
       ...(crmRecordView === "Enquiries" ? leadInquiryRows.map((inquiry, index) => ({ type: "inquiry" as const, inquiry, index })) : []),
     ];
-    const crmPageSize = 20;
-    const crmPageCount = Math.max(1, Math.ceil(crmRows.length / crmPageSize));
-    const safeCrmPage = Math.min(enquiryPage, crmPageCount);
-    const pagedCrmRows = crmRows.slice((safeCrmPage - 1) * crmPageSize, safeCrmPage * crmPageSize);
+    const crmListKey = `crm-${crmRecordView}`;
+    const pagedCrmRows = crmRows.slice(0, listVisibleCount(crmListKey, crmRows.length));
     const inquiriesWithEstimates = inquiries.filter((item) => estimatesForInquiry(item, offers).length);
     const stages = ["All", "Lead", "Current Customer", "Qualified", "Site Visit", "Quoted", "Negotiation", "Won", "Lost", "AMC"];
     const today = new Date().toISOString().slice(0, 10);
@@ -9154,6 +9344,7 @@ export default function App() {
       return date && date <= today && status !== "closed";
     });
     const dueFollowUps = dueInquiryFollowUps;
+    const crmFollowupListKey = "crm-followups";
     const consentMissing = customers.filter((customer) => String(customer.dpdp_consent || "N").toUpperCase() !== "Y");
     const latestMotorForCustomer = (customer: Customer) => {
       const customerId = String(customer.id || "");
@@ -9528,7 +9719,7 @@ export default function App() {
             <Text style={styles.statusPill}>Auto follow-up</Text>
           </View>
           {!dueFollowUps.length && <Text style={styles.muted}>No due follow-ups. Future follow-ups are already scheduled by date.</Text>}
-          {dueFollowUps.slice(0, 12).map((item, index) => {
+          {limitedItems(crmFollowupListKey, dueFollowUps).map((item, index) => {
             const id = recordIdentity(item) || String(item.enquiry_no || item.id || index);
             return (
               <View key={`followup-${id}-${index}`} style={styles.card}>
@@ -9554,21 +9745,12 @@ export default function App() {
               </View>
             );
           })}
+          {renderListControls(crmFollowupListKey, dueFollowUps.length)}
         </View>
 
         <Text style={styles.sectionTitle}>{crmRecordView === "Customers" ? "CRM Customer Records" : "CRM Enquiries"}</Text>
-        <View style={styles.paginationBar}>
-          <Text style={styles.muted}>Showing {crmRows.length ? (safeCrmPage - 1) * crmPageSize + 1 : 0}-{Math.min(safeCrmPage * crmPageSize, crmRows.length)} of {crmRows.length}</Text>
-          <View style={styles.inlineActions}>
-            <Pressable style={styles.smallButton} onPress={() => setEnquiryPage((page) => Math.max(1, page - 1))} disabled={safeCrmPage <= 1}>
-              <Text style={styles.smallButtonText}>Previous</Text>
-            </Pressable>
-            <Text style={styles.muted}>Page {safeCrmPage} / {crmPageCount}</Text>
-            <Pressable style={styles.smallButton} onPress={() => setEnquiryPage((page) => Math.min(crmPageCount, page + 1))} disabled={safeCrmPage >= crmPageCount}>
-              <Text style={styles.smallButtonText}>Next</Text>
-            </Pressable>
-          </View>
-        </View>
+        {!!crmRows.length && <Text style={styles.muted}>Showing {pagedCrmRows.length} of {crmRows.length}</Text>}
+        <View style={styles.limitedList}>
         {!crmRows.length && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{crmRecordView === "Customers" ? "No CRM customers found" : "No enquiries found"}</Text>
@@ -9591,6 +9773,8 @@ export default function App() {
             const storedServiceCount = Number(customer.service_count ?? customer.services_done);
             const serviceCount = Number.isFinite(storedServiceCount) ? storedServiceCount : liveServiceCount;
             const customerInstallations = crmInstallationJobsForRecord(customer as unknown as Record<string, unknown>);
+            const customerInstallationsListKey = `crm-customer-installations-${customer.id}`;
+            const customerTimelineListKey = `crm-customer-timeline-${customer.id}`;
             const { job: latestInstalledJob, date: latestInstalledDate } = crmLatestInstalledFromJobs(customerInstallations);
             const relationshipStatus = crmRelationshipStatus(customer as unknown as Record<string, unknown>);
             const assignedTeam = customerAssignmentRecords(customer.id);
@@ -9623,22 +9807,24 @@ export default function App() {
                 {!!customerInstallations.length && (
                   <View style={styles.linkedSystemsPanel}>
                     <Text style={styles.cardLabel}>Installation History</Text>
-                    {customerInstallations.slice(0, 4).map((job, jobIndex) => (
+                    {limitedItems(customerInstallationsListKey, customerInstallations).map((job, jobIndex) => (
                       <Text key={`customer-install-${customer.id}-${String(job.id || jobIndex)}`} style={styles.muted}>
                         {String(job.job_id || job.id || "-")} - {String(job.status || "-")} - Installed {crmInstalledDateForJob(job) || "-"} - Handover {String(job.handed_over_date || job.handover_date || "-").slice(0, 10)} - Warranty end {String(job.warranty_end_date || "-").slice(0, 10)} - Team {String(job.assigned_team || job.crew || "-")} - Contractor {String(job.contractor || job.contractor_name || "-")} - Engineer {String(job.engineer || job.assigned_engineer || "-")}
                       </Text>
                     ))}
+                    {renderListControls(customerInstallationsListKey, customerInstallations.length)}
                   </View>
                 )}
                 <View style={styles.linkedSystemsPanel}>
                   <Text style={styles.cardLabel}>Customer Timeline</Text>
-                  {timeline.slice(0, 8).map((item) => (
+                  {limitedItems(customerTimelineListKey, timeline).map((item) => (
                     <Pressable key={item.key} onPress={() => setActiveTab(item.tab)}>
                       <Text style={styles.muted}>{item.date} - {item.label} - {item.title}</Text>
                       {!!item.detail && item.detail !== "-" && <Text style={styles.bodyText}>{item.detail}</Text>}
                     </Pressable>
                   ))}
                   {!timeline.length && <Text style={styles.muted}>No linked department history yet.</Text>}
+                  {renderListControls(customerTimelineListKey, timeline.length)}
                 </View>
                 <Text style={styles.bodyText}>{customer.contact_person || "No contact"} - {customer.phone || "No mobile"} - {customer.email || "No email"}</Text>
                 <Text style={styles.bodyText}>Owner: {customer.account_owner || "-"} - Source: {customer.lead_source || "-"} - Channel: {customer.preferred_channel || "-"}</Text>
@@ -9713,7 +9899,7 @@ export default function App() {
             );
           }
           const item = row.inquiry;
-          const id = recordIdentity(item) || String(item.enquiry_no || `${safeCrmPage}-${index}`);
+          const id = recordIdentity(item) || String(item.enquiry_no || `crm-${index}`);
           const status = String(item.status || item.lead_status || "New");
           const relationshipStatus = crmRelationshipStatus(item);
           const isEditing = salesInquiryDraft.id === id;
@@ -9727,7 +9913,8 @@ export default function App() {
             const sameEnquiry = inquiryEnquiryNo && String(visit.site_enquiry_no || "") === inquiryEnquiryNo;
             return sameCustomer && (!String(visit.site_enquiry_no || "") || sameEnquiry);
           });
-          const inquiryInstallations = crmInstallationJobsForRecord(item);
+            const inquiryInstallations = crmInstallationJobsForRecord(item);
+            const inquiryInstallationsListKey = `crm-inquiry-installations-${id}`;
           const { job: latestInquiryInstalledJob, date: latestInquiryInstalledDate } = crmLatestInstalledFromJobs(inquiryInstallations);
           return (
             <View key={`${id}-${index}`} style={[styles.card, compactLists && styles.compactCard]}>
@@ -9892,11 +10079,12 @@ export default function App() {
                   {!!inquiryInstallations.length && (
                     <View style={styles.linkedSystemsPanel}>
                       <Text style={styles.cardLabel}>Installation History</Text>
-                      {inquiryInstallations.slice(0, 4).map((job, jobIndex) => (
+                      {limitedItems(inquiryInstallationsListKey, inquiryInstallations).map((job, jobIndex) => (
                         <Text key={`inquiry-install-${id}-${String(job.id || jobIndex)}`} style={styles.muted}>
                           {String(job.job_id || job.id || "-")} - {String(job.status || "-")} - Installed {crmInstalledDateForJob(job) || "-"} - Handover {String(job.handed_over_date || job.handover_date || "-").slice(0, 10)}
                         </Text>
                       ))}
+                      {renderListControls(inquiryInstallationsListKey, inquiryInstallations.length)}
                     </View>
                   )}
                   {isLostInquiryStatus(status) && !!(item.lost_reason || item.status_lost_reason) ? <Text style={styles.muted}>Lost reason: {String(item.lost_reason || item.status_lost_reason)}</Text> : null}
@@ -9925,6 +10113,8 @@ export default function App() {
             </View>
           );
         })}
+        {renderListControls(crmListKey, crmRows.length)}
+        </View>
         <Modal visible={costingEditorOpen} transparent animationType="fade" onRequestClose={() => setCostingEditorOpen(false)}>
           <View style={styles.modalOverlay}>
             <View style={styles.modalCard}>
@@ -10192,24 +10382,27 @@ export default function App() {
         </Modal>
 
         <Text style={styles.sectionTitle}>Saved Site Visits</Text>
-        {(data?.site_visits || []).map((visit) => {
-          const linkedCustomer = crmCustomerForSiteVisit(visit as Record<string, unknown>);
+        <View style={styles.limitedList}>
+        {limitedItems("site-visit-modal-saved", asRecords(data?.site_visits)).map((visit) => {
+          const linkedCustomer = crmCustomerForSiteVisit(visit);
           return (
-            <View key={visit.id} style={styles.card}>
-              <Text style={styles.cardTitle}>{visit.id} - {linkedCustomer?.name || visit.customer_name || visit.customer_id}</Text>
-              <Text style={styles.muted}>{visit.customer_id} - {linkedCustomer?.address || visit.address || "CRM customer address not set"}</Text>
+            <View key={String(visit.id || recordIdentity(visit))} style={styles.card}>
+              <Text style={styles.cardTitle}>{String(visit.id || "-")} - {String(linkedCustomer?.name || visit.customer_name || visit.customer_id || "-")}</Text>
+              <Text style={styles.muted}>{String(visit.customer_id || "-")} - {String(linkedCustomer?.address || visit.address || "CRM customer address not set")}</Text>
               {!linkedCustomer && <Text style={styles.statusPill}>Needs CRM customer link</Text>}
-              <Text style={styles.bodyText}>Site contact: {visit.site_person_name || linkedCustomer?.name || "Not set"} - {visit.site_person_mobile || linkedCustomer?.phone || "No mobile"}</Text>
-              <Text style={styles.bodyText}>Pit {visit.pit_size_mm || "-"} mm - Machine room {visit.machine_room_available || "N"}</Text>
-              <Text style={styles.bodyText}>Offer {visit.site_offer_type || "-"} - Stops {visit.site_stops || "-"}</Text>
+              <Text style={styles.bodyText}>Site contact: {String(visit.site_person_name || linkedCustomer?.name || "Not set")} - {String(visit.site_person_mobile || linkedCustomer?.phone || "No mobile")}</Text>
+              <Text style={styles.bodyText}>Pit {String(visit.pit_size_mm || "-")} mm - Machine room {String(visit.machine_room_available || "N")}</Text>
+              <Text style={styles.bodyText}>Offer {String(visit.site_offer_type || "-")} - Stops {String(visit.site_stops || "-")}</Text>
               {Array.isArray(visit.opening_schedule) && visit.opening_schedule.length ? (
                 <Text style={styles.muted}>
-                  Openings: {visit.opening_schedule.map((row) => `${row.floor || "-"} FF ${row.ff_height_mm || "-"} / Lintel ${row.lintel_height_mm || "-"}`).join("; ")}
+                  Openings: {asRecords(visit.opening_schedule).map((row) => `${String(row.floor || "-")} FF ${String(row.ff_height_mm || "-")} / Lintel ${String(row.lintel_height_mm || "-")}`).join("; ")}
                 </Text>
               ) : null}
             </View>
           );
         })}
+        {renderListControls("site-visit-modal-saved", asRecords(data?.site_visits).length)}
+        </View>
       </View>
     );
   }
@@ -10221,6 +10414,10 @@ export default function App() {
       !query || `${customer.id} ${customer.name} ${customer.phone} ${customer.source_inquiry_id}`.toLowerCase().includes(query)
     ));
     const siteVisits = [...(data?.site_visits || [])].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
+    const siteVisitCustomerListKey = "site-visit-customers";
+    const siteVisitListKey = "site-visits";
+    const visibleSiteVisitCustomers = matchingCustomers.slice(0, listVisibleCount(siteVisitCustomerListKey, matchingCustomers.length));
+    const visibleSiteVisits = siteVisits.slice(0, listVisibleCount(siteVisitListKey, siteVisits.length));
     const myName = String(data?.viewer?.display_name || username || "");
     const myUsername = String(data?.viewer?.username || username || "");
     const myVisits = siteVisits.filter((visit) => (
@@ -10271,7 +10468,7 @@ export default function App() {
             />
           </View>
           <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-            {matchingCustomers.slice(0, 60).map((customer) => {
+            {visibleSiteVisitCustomers.map((customer) => {
               const savedVisitCount = siteVisits.filter((visit) => String(visit.customer_id || "") === customer.id).length;
               return (
                 <Pressable key={`site-visit-customer-${customer.id}`} style={styles.dropdownOption} onPress={() => openSiteVisitForCrmOption(customer)} disabled={loading}>
@@ -10285,6 +10482,7 @@ export default function App() {
                 </Pressable>
               );
             })}
+            {renderListControls(siteVisitCustomerListKey, matchingCustomers.length)}
           </ScrollView>
           {!matchingCustomers.length && (
             <View style={styles.emptyState}>
@@ -10296,7 +10494,9 @@ export default function App() {
         {renderSiteVisitEditorModal()}
 
         <Text style={styles.sectionTitle}>Saved Site Visits</Text>
-        {siteVisits.map((visit) => {
+        {!!siteVisits.length && <Text style={styles.muted}>Showing {visibleSiteVisits.length} of {siteVisits.length}</Text>}
+        <View style={styles.limitedList}>
+        {visibleSiteVisits.map((visit) => {
           const linkedCustomer = crmCustomerForSiteVisit(visit);
           return (
           <View key={visit.id} style={styles.card}>
@@ -10328,12 +10528,14 @@ export default function App() {
           </View>
           );
         })}
+        {renderListControls(siteVisitListKey, siteVisits.length)}
         {!siteVisits.length && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No site visits saved</Text>
             <Text style={styles.muted}>Select a CRM customer above to submit the first site visit notes.</Text>
           </View>
         )}
+        </View>
       </View>
     );
   }
@@ -10437,6 +10639,9 @@ export default function App() {
     const sortedUsers = [...users]
       .filter(matchesAccountSearch)
       .sort((a, b) => userRank(a) - userRank(b) || fieldText(a, ["display_name", "username"]).localeCompare(fieldText(b, ["display_name", "username"])));
+    const staffLoginCoverageListKey = "accounts-staff-login-coverage";
+    const supervisorListKey = "accounts-supervisors";
+    const userAccountListKey = "accounts-users";
     const renderInlineAccountEditor = (user: Record<string, unknown>) => {
       const id = String(user.id || "");
       const draft = accountEditDrafts[id];
@@ -10591,7 +10796,8 @@ export default function App() {
         </View>
 
         <Text style={styles.sectionTitle}>Staff Login Coverage</Text>
-        {sortedOrg.map((person) => {
+        <View style={styles.limitedList}>
+        {limitedItems(staffLoginCoverageListKey, sortedOrg).map((person) => {
           const linked = loginForPerson(person);
           return (
             <View key={`staff-login-${String(person.id || person.name)}`} style={styles.card}>
@@ -10628,9 +10834,12 @@ export default function App() {
             </View>
           );
         })}
+        {renderListControls(staffLoginCoverageListKey, sortedOrg.length)}
+        </View>
 
         <Text style={styles.sectionTitle}>Org Supervisors</Text>
-        {sortedHeads.map((person) => {
+        <View style={styles.limitedList}>
+        {limitedItems(supervisorListKey, sortedHeads).map((person) => {
           const linked = loginForPerson(person);
           return (
             <View key={String(person.id)} style={styles.card}>
@@ -10652,9 +10861,12 @@ export default function App() {
             </View>
           );
         })}
+        {renderListControls(supervisorListKey, sortedHeads.length)}
+        </View>
 
         <Text style={styles.sectionTitle}>User Accounts</Text>
-        {sortedUsers.map((user) => (
+        <View style={styles.limitedList}>
+        {limitedItems(userAccountListKey, sortedUsers).map((user) => (
           <View key={String(user.id || user.username)} style={styles.card}>
             <View style={styles.cardHeaderRow}>
               <Text style={styles.cardTitle}>{fieldText(user, ["display_name", "username"])}</Text>
@@ -10714,6 +10926,8 @@ export default function App() {
             <Text style={styles.muted}>Clear the search to see all logins.</Text>
           </View>
         )}
+        {renderListControls(userAccountListKey, sortedUsers.length)}
+        </View>
       </View>
     );
   }
@@ -10722,6 +10936,11 @@ export default function App() {
     const renewals = asRecords(data?.renewals);
     const openRenewals = renewals.filter((item) => !["closed", "renewed", "lost"].includes(String(item.status || "").toLowerCase()));
     const highValue = renewals.filter((item) => String(item.value || "").toLowerCase() === "high");
+    const renewalCustomerListKey = "renewal-customers";
+    const renewalListKey = "renewals";
+    const renewalCustomerOptions = data?.customers || [];
+    const visibleRenewalCustomers = renewalCustomerOptions.slice(0, listVisibleCount(renewalCustomerListKey, renewalCustomerOptions.length));
+    const visibleRenewals = renewals.slice(0, listVisibleCount(renewalListKey, renewals.length));
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -10758,7 +10977,7 @@ export default function App() {
           )}
           {!!data?.customers.length && (
             <View style={styles.selectorList}>
-              {data.customers.map((customer) => (
+              {visibleRenewalCustomers.map((customer) => (
                 <Pressable
                   key={customer.id}
                   style={[styles.selectorPill, renewalDraft.customer_id === customer.id && styles.selectorPillActive]}
@@ -10769,6 +10988,7 @@ export default function App() {
                   </Text>
                 </Pressable>
               ))}
+              {renderListControls(renewalCustomerListKey, renewalCustomerOptions.length)}
             </View>
           )}
           {[
@@ -10794,7 +11014,9 @@ export default function App() {
         </View>
 
         <Text style={styles.sectionTitle}>Renewal Records</Text>
-        {renewals.map((item, index) => {
+        {!!renewals.length && <Text style={styles.muted}>Showing {visibleRenewals.length} of {renewals.length}</Text>}
+        <View style={styles.limitedList}>
+        {visibleRenewals.map((item, index) => {
           const id = recordIdentity(item) || String(item.id || `REN-LEGACY-${index + 1}`);
           return (
             <View key={id} style={styles.card}>
@@ -10819,6 +11041,8 @@ export default function App() {
             </View>
           );
         })}
+        {renderListControls(renewalListKey, renewals.length)}
+        </View>
       </View>
     );
   }
@@ -10901,10 +11125,8 @@ export default function App() {
       return true;
     });
     const visibleVendors = filteredByStatus.filter((item) => !query || JSON.stringify(item).toLowerCase().includes(query));
-    const vendorPageSize = 25;
-    const vendorPageCount = Math.max(1, Math.ceil(visibleVendors.length / vendorPageSize));
-    const safeVendorPage = Math.min(internationalVendorPage, vendorPageCount);
-    const pagedVendors = visibleVendors.slice((safeVendorPage - 1) * vendorPageSize, safeVendorPage * vendorPageSize);
+    const vendorListKey = "international-vendors";
+    const pagedVendors = visibleVendors.slice(0, listVisibleCount(vendorListKey, visibleVendors.length));
     const activeVendors = vendors.filter((item) => !String(item.status || "").toLowerCase().includes("lost"));
     const tenderPartners = vendors.filter((item) => String(item.followup_stage || "").toLowerCase().includes("tender") || String(item.tender_source || "").trim());
     const sentVendors = vendors.filter((item) => String(item.last_outreach_at || item.delivery_status || "").trim());
@@ -11184,6 +11406,7 @@ export default function App() {
         <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.kanbanBoard}>
           {internationalVendorPipelineStages.filter((stage) => stage !== "Lost").map((stage) => {
             const stageRecords = visibleVendors.filter((vendor) => String(vendor.pipeline_stage || vendor.status || "Lead identified").toLowerCase() === stage.toLowerCase());
+            const stageListKey = `international-vendor-stage-${normalizedKey(stage)}`;
             return (
               <View key={`ivendor-column-${stage}`} style={styles.kanbanColumn}>
                 <View style={styles.kanbanColumnHeader}>
@@ -11195,7 +11418,7 @@ export default function App() {
                     <Text style={styles.muted}>No partners here.</Text>
                   </View>
                 )}
-                {stageRecords.slice(0, 8).map((vendor, index) => {
+                {limitedItems(stageListKey, stageRecords).map((vendor, index) => {
                   const id = recordIdentity(vendor) || String(vendor.id || index);
                   const stageIndex = internationalVendorPipelineStages.indexOf(stage);
                   const nextStage = internationalVendorPipelineStages[Math.min(stageIndex + 1, internationalVendorPipelineStages.length - 2)];
@@ -11213,30 +11436,19 @@ export default function App() {
                     </View>
                   );
                 })}
+                {renderListControls(stageListKey, stageRecords.length)}
               </View>
             );
           })}
         </ScrollView>
+        <View style={styles.limitedList}>
         {!visibleVendors.length && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No vendors yet</Text>
             <Text style={styles.muted}>Add Canadian and USA elevator companies, then use OpenClaw/email to run the catalog and tender-partner follow-up sequence.</Text>
           </View>
         )}
-        {!!visibleVendors.length && (
-          <View style={styles.paginationBar}>
-            <Text style={styles.muted}>Showing {(safeVendorPage - 1) * vendorPageSize + 1}-{Math.min(safeVendorPage * vendorPageSize, visibleVendors.length)} of {visibleVendors.length}</Text>
-            <View style={styles.inlineActions}>
-              <Pressable style={styles.smallButton} onPress={() => setInternationalVendorPage((page) => Math.max(1, page - 1))} disabled={safeVendorPage <= 1}>
-                <Text style={styles.smallButtonText}>Previous</Text>
-              </Pressable>
-              <Text style={styles.muted}>Page {safeVendorPage} / {vendorPageCount}</Text>
-              <Pressable style={styles.smallButton} onPress={() => setInternationalVendorPage((page) => Math.min(vendorPageCount, page + 1))} disabled={safeVendorPage >= vendorPageCount}>
-                <Text style={styles.smallButtonText}>Next</Text>
-              </Pressable>
-            </View>
-          </View>
-        )}
+        {!!visibleVendors.length && <Text style={styles.muted}>Showing {pagedVendors.length} of {visibleVendors.length}</Text>}
         {pagedVendors.map((vendor, index) => {
           const id = recordIdentity(vendor) || String(vendor.id || index);
           const cost = internationalVendorCost(vendor);
@@ -11338,6 +11550,8 @@ export default function App() {
             </View>
           );
         })}
+        {renderListControls(vendorListKey, visibleVendors.length)}
+        </View>
       </View>
     );
   }
@@ -11360,6 +11574,7 @@ export default function App() {
     const assets = asRecords(data?.marketing_assets);
     const query = marketingSearch.trim().toLowerCase();
     const visibleAssets = assets.filter((asset) => !query || JSON.stringify(asset).toLowerCase().includes(query));
+    const marketingAssetListKey = "marketing-assets";
     const imageAssets = assets.filter((asset) => String(asset.asset_type || "").toLowerCase().includes("image"));
     const catalogAssets = assets.filter((asset) => String(asset.asset_type || asset.catalog_title || "").toLowerCase().includes("catalog"));
     const openclawTouched = assets.filter((asset) => String(asset.last_openclaw_at || asset.delivery_status || "").trim());
@@ -11477,13 +11692,14 @@ export default function App() {
         </View>
 
         <Text style={styles.sectionTitle}>Marketing Studio</Text>
+        <View style={styles.limitedList}>
         {!visibleAssets.length && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No marketing assets yet</Text>
             <Text style={styles.muted}>Create an ad image prompt or company catalog draft, then send it to OpenClaw for AI creative generation.</Text>
           </View>
         )}
-        {visibleAssets.map((asset, index) => {
+        {limitedItems(marketingAssetListKey, visibleAssets).map((asset, index) => {
           const id = recordIdentity(asset) || String(asset.id || index);
           return (
             <View key={`marketing-${id}`} style={styles.card}>
@@ -11515,6 +11731,8 @@ export default function App() {
             </View>
           );
         })}
+        {renderListControls(marketingAssetListKey, visibleAssets.length)}
+        </View>
       </View>
     );
   }
@@ -11529,7 +11747,13 @@ export default function App() {
     const totalAvailable = inventory.reduce((sum, item) => sum + inventoryAvailable(item), 0);
     const customerReservedItems = inventory.filter((item) => String(item.customer_id || item.customer_name || item.offer_id || "").trim());
     const selectedOffer = offers.find((offer) => recordIdentity(offer) === inventoryDraft.offer_id);
-    const offerOptions = offers.slice(0, 16);
+    const offerOptions = offers;
+    const reorderList = reorderItems.filter((item) => !query || JSON.stringify(item).toLowerCase().includes(query));
+    const reorderListKey = "inventory-reorder";
+    const stockListKey = "inventory-stock";
+    const inventoryOfferListKey = "inventory-offers";
+    const visibleReorderItems = reorderList.slice(0, listVisibleCount(reorderListKey, reorderList.length));
+    const visibleStockItems = visibleInventory.slice(0, listVisibleCount(stockListKey, visibleInventory.length));
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -11576,7 +11800,7 @@ export default function App() {
           )}
           {!!offerOptions.length && (
             <View style={styles.selectorList}>
-              {offerOptions.map((offer) => {
+              {limitedItems(inventoryOfferListKey, offerOptions).map((offer) => {
                 const offerId = recordIdentity(offer);
                 const customerName = String(offer.customer_name || offer.offer_name || offer.customer || "");
                 return (
@@ -11598,9 +11822,10 @@ export default function App() {
                     </Text>
                   </Pressable>
                 );
-              })}
-            </View>
-          )}
+            })}
+            {renderListControls(inventoryOfferListKey, offerOptions.length)}
+          </View>
+        )}
           {!!selectedOffer && (
             <View style={styles.linkedSystemsPanel}>
               <Text style={styles.cardLabel}>Selected offer</Text>
@@ -11697,16 +11922,23 @@ export default function App() {
         </View>
 
         <Text style={styles.sectionTitle}>Reorder Watchlist</Text>
+        <View style={styles.limitedList}>
         {!reorderItems.length && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>All reorder triggers are clear</Text>
             <Text style={styles.muted}>Available stock is above every configured reorder point.</Text>
           </View>
         )}
-        {reorderItems.filter((item) => !query || JSON.stringify(item).toLowerCase().includes(query)).slice(0, 12).map((item, index) => renderInventoryCard(item, index, true))}
+        {visibleReorderItems.map((item, index) => renderInventoryCard(item, index, true))}
+        {renderListControls(reorderListKey, reorderList.length)}
+        </View>
 
         <Text style={styles.sectionTitle}>Warehouse Stock</Text>
-        {visibleInventory.slice(0, 80).map((item, index) => renderInventoryCard(item, index, false))}
+        {!!visibleInventory.length && <Text style={styles.muted}>Showing {visibleStockItems.length} of {visibleInventory.length}</Text>}
+        <View style={styles.limitedList}>
+        {visibleStockItems.map((item, index) => renderInventoryCard(item, index, false))}
+        {renderListControls(stockListKey, visibleInventory.length)}
+        </View>
       </View>
     );
   }
@@ -11879,7 +12111,10 @@ export default function App() {
       counts[status] = (counts[status] || 0) + 1;
       return counts;
     }, {});
-    const topStatuses = Object.entries(statusCounts).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    const topStatuses = Object.entries(statusCounts).sort((a, b) => b[1] - a[1]);
+    const salesListKey = "sales-enquiries";
+    const salesStatusListKey = "sales-statuses";
+    const visibleSalesInquiries = inquiries.slice(0, listVisibleCount(salesListKey, inquiries.length));
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -11973,16 +12208,19 @@ export default function App() {
 
         <Text style={styles.sectionTitle}>Pipeline Status</Text>
         <View style={styles.metricGrid}>
-          {topStatuses.map(([status, count]) => (
+          {limitedItems(salesStatusListKey, topStatuses).map(([status, count]) => (
             <View key={status} style={styles.card}>
               <Text style={[styles.cardLabel, { color: salesInquiryStatusTone(status) }]}>{status}</Text>
               <Text style={styles.metricValue}>{count}</Text>
             </View>
           ))}
+          {renderListControls(salesStatusListKey, topStatuses.length)}
         </View>
 
         <Text style={styles.sectionTitle}>Recent Enquiries</Text>
-        {inquiries.slice(0, 60).map((item, index) => {
+        {!!inquiries.length && <Text style={styles.muted}>Showing {visibleSalesInquiries.length} of {inquiries.length}</Text>}
+        <View style={styles.limitedList}>
+        {visibleSalesInquiries.map((item, index) => {
           const id = recordIdentity(item) || String(item.enquiry_no || index);
           const status = String(item.status || item.lead_status || "New");
           return (
@@ -12015,6 +12253,8 @@ export default function App() {
             </View>
           );
         })}
+        {renderListControls(salesListKey, inquiries.length)}
+        </View>
       </View>
     );
   }
@@ -12187,6 +12427,10 @@ export default function App() {
       row.fuzi += tenderMoney(record.quoted_price || record.price_in_nit);
       competitorRows.set(name, row);
     }));
+    const tenderListKey = "tender-records";
+    const tenderRateListKey = "tender-rate-analysis";
+    const tenderCompetitorListKey = "tender-competitors";
+    const competitorRowsList = [...competitorRows.values()];
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -12305,7 +12549,8 @@ export default function App() {
             {statuses.map((status) => <Pressable key={status} style={[styles.smallButton, tenderStatusFilter === status && styles.selectorPillActive]} onPress={() => setTenderStatusFilter(status)}><Text style={styles.smallButtonText}>{status}</Text></Pressable>)}
           </View>
         </View>
-        {filtered.map((record, index) => {
+        <View style={styles.limitedList}>
+        {limitedItems(tenderListKey, filtered).map((record, index) => {
           const status = tenderStatus(record);
           const bills = asRecords(record.bills);
           const sdDueText = asRecords(record.sd_records).map((sd) => String(sd.refund_due_date || "")).filter(Boolean).sort()[0] || "";
@@ -12335,14 +12580,18 @@ export default function App() {
           );
         })}
         {!filtered.length && <View style={styles.card}><Text style={styles.cardTitle}>No tenders found</Text><Text style={styles.muted}>Create the first tender above or change filters.</Text></View>}
+        {renderListControls(tenderListKey, filtered.length)}
+        </View>
         <Text style={styles.sectionTitle}>Rate Analysis</Text>
         <View style={styles.analyticsPanel}>
-          {filtered.slice(0, 12).map((record, index) => <View key={`rate-${recordIdentity(record) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{String(record.product_type || "-")} - {String(record.party_name || record.tender_invited_by || "-")}</Text><Text style={styles.statusPill}>{formatMoney(tenderMoney(record.quoted_price || record.price_in_nit))}</Text></View><Text style={styles.muted}>{asRecords(record.items).map((item) => `${String(item.passenger_capacity || item.step_width_mm || "-")} / ${String(item.number_of_stops || item.degree || "-")} / ${String(item.speed || item.door_finish || "-")}`).join(" - ")}</Text></View>)}
+          {limitedItems(tenderRateListKey, filtered).map((record, index) => <View key={`rate-${recordIdentity(record) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{String(record.product_type || "-")} - {String(record.party_name || record.tender_invited_by || "-")}</Text><Text style={styles.statusPill}>{formatMoney(tenderMoney(record.quoted_price || record.price_in_nit))}</Text></View><Text style={styles.muted}>{asRecords(record.items).map((item) => `${String(item.passenger_capacity || item.step_width_mm || "-")} / ${String(item.number_of_stops || item.degree || "-")} / ${String(item.speed || item.door_finish || "-")}`).join(" - ")}</Text></View>)}
+          {renderListControls(tenderRateListKey, filtered.length)}
         </View>
         <Text style={styles.sectionTitle}>Competitor Analysis</Text>
         <View style={styles.metricGrid}>
-          {[...competitorRows.values()].slice(0, 12).map((row) => <View key={`competitor-${row.name}`} style={styles.card}><Text style={styles.cardLabel}>{row.name}</Text><Text style={styles.metricValue}>{row.tenders}</Text><Text style={styles.muted}>Won value {formatMoney(row.won)} - Lowest {formatMoney(row.lowest)} - Fuzi comparison {formatMoney(row.fuzi)}</Text></View>)}
+          {limitedItems(tenderCompetitorListKey, competitorRowsList).map((row) => <View key={`competitor-${row.name}`} style={styles.card}><Text style={styles.cardLabel}>{row.name}</Text><Text style={styles.metricValue}>{row.tenders}</Text><Text style={styles.muted}>Won value {formatMoney(row.won)} - Lowest {formatMoney(row.lowest)} - Fuzi comparison {formatMoney(row.fuzi)}</Text></View>)}
           {!competitorRows.size && <View style={styles.card}><Text style={styles.cardTitle}>No competitor rates yet</Text><Text style={styles.muted}>Add tender opening participants to build competitor analytics.</Text></View>}
+          {renderListControls(tenderCompetitorListKey, competitorRowsList.length)}
         </View>
       </View>
     );
@@ -12416,7 +12665,7 @@ export default function App() {
   }
 
   const portalCacheKey = "fuzi_portal_data_cache_v1";
-  const portalCacheSchemaVersion = 2;
+  const portalCacheSchemaVersion = 3;
   const portalCacheMaxAgeMs = 10 * 60 * 1000;
 
   function portalCacheTokenKey(nextToken = token) {
@@ -12525,7 +12774,6 @@ export default function App() {
       storeSession(response.token);
       setShowPortalLogin(false);
       setActiveTab((response.access?.default_view as TabKey) || "overview");
-      await loadPortal(response.token);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Login failed.");
     } finally {
@@ -14614,7 +14862,16 @@ export default function App() {
                 <Text style={styles.muted}>Secure operations workspace for web and mobile teams.</Text>
               </View>
             </View>
-            <Pressable style={styles.homeLinkButton} onPress={() => setShowPortalLogin(false)}>
+            <Pressable
+              style={styles.homeLinkButton}
+              onPress={() => {
+                if (Platform.OS === "web" && typeof window !== "undefined" && window.location.pathname.startsWith("/portal")) {
+                  window.location.href = "/";
+                  return;
+                }
+                setShowPortalLogin(false);
+              }}
+            >
               <Text style={styles.homeLinkText}>Back to website home</Text>
             </Pressable>
             <View style={styles.loginField}>
@@ -14810,12 +15067,13 @@ export default function App() {
                   <Text style={styles.smallButtonText}>Close</Text>
                 </Pressable>
               </View>
-              {globalSearchResults.length ? globalSearchResults.slice(0, 12).map((result, index) => (
+              {globalSearchResults.length ? limitedItems(globalSearchListKey, globalSearchResults).map((result, index) => (
                 <Pressable key={`global-result-${String(result.collection)}-${String(result.id)}-${index}`} style={styles.quickPanelRow} onPress={() => openGlobalSearchResult(result)}>
                   <Text style={styles.cardTitle}>{String(result.title || "-")}</Text>
                   <Text style={styles.muted}>{String(result.collection || "-")} - {String(result.subtitle || result.status || "")}</Text>
                 </Pressable>
               )) : <Text style={styles.muted}>{globalSearch.trim().length < 2 ? "Type at least 2 characters." : "No matching records found."}</Text>}
+              {renderListControls(globalSearchListKey, globalSearchResults.length)}
             </View>
           )}
 
@@ -14832,13 +15090,14 @@ export default function App() {
                   </Pressable>
                 </View>
               </View>
-              {unreadNotifications.slice(0, 8).map((item, index) => (
+              {limitedItems(notificationListKey, unreadNotifications).map((item, index) => (
                 <View key={`notif-${String(item.id || index)}`} style={styles.quickPanelRow}>
                   <Text style={styles.cardTitle}>{String(item.subject || item.title || item.notification_type || "-")}</Text>
                   <Text style={styles.muted}>{String(item.department || "-")} - {String(item.message || "").slice(0, 140)}</Text>
                 </View>
               ))}
               {!unreadNotifications.length && <Text style={styles.muted}>No unread notifications.</Text>}
+              {renderListControls(notificationListKey, unreadNotifications.length)}
             </View>
           )}
 
@@ -15089,6 +15348,12 @@ const styles = StyleSheet.create({
   inlineRecordEditor: { marginTop: 12, borderTopWidth: 1, borderTopColor: "#e4e7ee", paddingTop: 12, gap: 10 },
   compactInput: { minHeight: 38, borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#fff", paddingHorizontal: 10, color: "#11131b", fontWeight: "800" },
   paginationBar: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", padding: 12, marginBottom: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" },
+  limitedList: { width: "100%", borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 8, gap: 8, marginBottom: 10 },
+  listControls: { width: "100%", borderTopWidth: 1, borderTopColor: "#dfe4ed", backgroundColor: "#f8fafc", paddingTop: 10, paddingHorizontal: 4, paddingBottom: 2, gap: 8 },
+  listControlLine: { flexDirection: "row", alignItems: "center", gap: 8 },
+  listStepInput: { width: 58, minHeight: 36, borderWidth: 1, borderColor: "#d5dae4", borderRadius: 8, backgroundColor: "#f8fafc", color: "#11131b", fontWeight: "900", textAlign: "center", paddingHorizontal: 8 },
+  listStepEcho: { width: 58, minHeight: 36, borderWidth: 1, borderColor: "#d5dae4", borderRadius: 8, backgroundColor: "#f8fafc", color: "#11131b", fontWeight: "900", textAlign: "center", paddingTop: 8, overflow: "hidden" },
+  listControlButton: { minHeight: 36, minWidth: 104, borderRadius: 8, borderWidth: 1, borderColor: "#d5dae4", backgroundColor: "#f3f5f8", paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
   bodyText: { color: "#2d3240", fontSize: 14, marginTop: 4, lineHeight: 20 },
   muted: { color: "#747b8d", fontSize: 13, lineHeight: 19 },
   statusPill: { color: "#b91414", backgroundColor: "#fff5f5", borderWidth: 1, borderColor: "rgba(224,32,32,0.2)", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, overflow: "hidden", fontWeight: "900", fontSize: 11 },

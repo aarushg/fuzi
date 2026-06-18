@@ -8,7 +8,7 @@
     "api": "node server/index.mjs",
     "web": "npm --prefix expo-app run web -- --port 8082",
     "web:dev": "npm --prefix expo-app run web -- --port 8082",
-    "web:export": "node scripts/clean-web-export.mjs && npm --prefix expo-app run export:web && node scripts/sanitize-web-export.mjs",
+    "web:export": "node scripts/clean-web-export.mjs && npm --prefix expo-app run export:web && node scripts/sanitize-web-export.mjs && node scripts/precompress-web-assets.mjs && node scripts/report-web-bundle-sizes.mjs",
     "web:preview": "npm run web:export && npm run web:serve",
     "web:serve": "node scripts/serve-web-export.mjs",
     "prod": "node server/index.mjs",

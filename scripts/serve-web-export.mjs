@@ -47,6 +47,27 @@ function serveFile(res, filePath) {
     .pipe(res.writeHead(200, headers));
 }
 
+function serveMaybeCompressed(req, res, filePath) {
+  const acceptEncoding = String(req.headers["accept-encoding"] || "");
+  const candidates = [
+    { encoding: "br", path: `${filePath}.br`, accepted: /\bbr\b/.test(acceptEncoding) },
+    { encoding: "gzip", path: `${filePath}.gz`, accepted: /\bgzip\b/.test(acceptEncoding) }
+  ];
+  const match = candidates.find((candidate) => candidate.accepted && fs.existsSync(candidate.path));
+  if (!match) return serveFile(res, filePath);
+  const extension = path.extname(filePath).toLowerCase();
+  const headers = {
+    "Cache-Control": extension === ".html" ? "no-store" : "public, max-age=31536000, immutable",
+    "Content-Encoding": match.encoding,
+    "Content-Length": String(fs.statSync(match.path).size),
+    "Content-Type": contentTypes[extension] || "application/octet-stream",
+    "Vary": "Accept-Encoding"
+  };
+  fs.createReadStream(match.path)
+    .on("error", () => send(res, 500, "Failed to read web export.\n", { "Content-Type": "text/plain; charset=utf-8" }))
+    .pipe(res.writeHead(200, headers));
+}
+
 if (!fs.existsSync(indexFile)) {
   console.error("Missing expo-app/dist/index.html. Run `npm run web:export` first.");
   process.exit(1);
@@ -55,9 +76,9 @@ if (!fs.existsSync(indexFile)) {
 http.createServer((req, res) => {
   const filePath = safeFilePath(req.url || "/");
   if (filePath && fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-    return serveFile(res, filePath);
+    return serveMaybeCompressed(req, res, filePath);
   }
-  serveFile(res, indexFile);
+  serveMaybeCompressed(req, res, indexFile);
 }).listen(port, "0.0.0.0", () => {
   console.log(`FUZI exported single-page preview listening on http://127.0.0.1:${port}`);
   console.log("This is the same expo-app/dist/index.html bundle that production port 5000 serves.");

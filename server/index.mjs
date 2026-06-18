@@ -143,6 +143,9 @@ const collectionCache = new Map();
 const portalResponseCache = new Map();
 let dataVersion = 0;
 const portalCacheTtlMs = Number(process.env.FUZI_PORTAL_CACHE_TTL_SECONDS || 20) * 1000;
+const portalIntegrityTtlMs = Number(process.env.FUZI_PORTAL_INTEGRITY_TTL_SECONDS || 300) * 1000;
+let portalIntegrityCheckedAt = 0;
+let portalIntegrityPromise = null;
 
 function invalidateRuntimeCaches(fileName) {
   if (fileName) collectionCache.delete(fileName);
@@ -2008,6 +2011,27 @@ function publicRecords(key, records) {
   return key === "users" ? records.map(publicUser) : records;
 }
 
+const auditSnapshotKeys = [
+  "id",
+  "job_no",
+  "enquiry_no",
+  "customer_id",
+  "customer_name",
+  "customer",
+  "status",
+  "lead_status",
+  "updated_at"
+];
+
+function compactAuditSnapshot(record = null) {
+  if (!record || typeof record !== "object") return record;
+  const summary = {};
+  for (const key of auditSnapshotKeys) {
+    if (record[key] !== undefined && record[key] !== null && record[key] !== "") summary[key] = record[key];
+  }
+  return Object.keys(summary).length ? summary : { id: recordIdentityForAudit(record) };
+}
+
 async function appendAuditLog({ user = {}, collection = "", recordId = "", action = "", before = null, after = null }) {
   if (!listFiles.audit_logs || collection === "audit_logs") return;
   const records = await readJson(listFiles.audit_logs, []);
@@ -2021,8 +2045,8 @@ async function appendAuditLog({ user = {}, collection = "", recordId = "", actio
     actor_username: String(user.username || ""),
     actor_department: String(user.department || ""),
     changed_at: now,
-    before,
-    after
+    before: compactAuditSnapshot(before),
+    after: compactAuditSnapshot(after)
   };
   records.unshift(entry);
   await writeJson(listFiles.audit_logs, records.slice(0, 1000));
@@ -4993,6 +5017,13 @@ function buildMetrics(data) {
   ];
 }
 
+const dynamicBrotliOptions = {
+  params: {
+    [zlib.constants.BROTLI_PARAM_QUALITY]: Number(process.env.FUZI_DYNAMIC_BROTLI_QUALITY || 4)
+  }
+};
+const dynamicGzipOptions = { level: Number(process.env.FUZI_DYNAMIC_GZIP_LEVEL || 6) };
+
 function compressionMiddleware(req, res, next) {
   const acceptEncoding = String(req.headers["accept-encoding"] || "");
   const encoding = /\bbr\b/.test(acceptEncoding) ? "br" : /\bgzip\b/.test(acceptEncoding) ? "gzip" : "";
@@ -5014,7 +5045,9 @@ function compressionMiddleware(req, res, next) {
     if (!shouldCompress) return originalSend(body);
     const buffer = Buffer.isBuffer(body) ? body : Buffer.from(typeof body === "string" ? body : JSON.stringify(body));
     if (buffer.length < 1024) return originalSend(body);
-    const compressed = encoding === "br" ? zlib.brotliCompressSync(buffer) : zlib.gzipSync(buffer);
+    const compressed = encoding === "br"
+      ? zlib.brotliCompressSync(buffer, dynamicBrotliOptions)
+      : zlib.gzipSync(buffer, dynamicGzipOptions);
     res.setHeader("Content-Encoding", encoding);
     res.setHeader("Vary", "Accept-Encoding");
     res.setHeader("Content-Length", String(compressed.length));
@@ -5036,13 +5069,124 @@ function staticCacheControl(res, filePath) {
   res.setHeader("Cache-Control", "no-store");
 }
 
+const staticContentTypes = {
+  ".css": "text/css; charset=utf-8",
+  ".gif": "image/gif",
+  ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".webp": "image/webp",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2"
+};
+
+function staticContentType(filePath) {
+  return staticContentTypes[path.extname(filePath).toLowerCase()] || "application/octet-stream";
+}
+
+function safeStaticFilePath(baseDir, requestPath) {
+  try {
+    const decodedPath = decodeURIComponent(String(requestPath || "/").split("?")[0]);
+    const resolvedPath = path.resolve(baseDir, `.${decodedPath}`);
+    return resolvedPath === baseDir || resolvedPath.startsWith(`${baseDir}${path.sep}`) ? resolvedPath : "";
+  } catch {
+    return "";
+  }
+}
+
+function precompressedStaticMiddleware(baseDir) {
+  return (req, res, next) => {
+    if (!["GET", "HEAD"].includes(req.method)) return next();
+    const originalPath = safeStaticFilePath(baseDir, req.path);
+    if (!originalPath || !fsSync.existsSync(originalPath) || !fsSync.statSync(originalPath).isFile()) return next();
+    const acceptEncoding = String(req.headers["accept-encoding"] || "");
+    const candidates = [
+      { encoding: "br", path: `${originalPath}.br`, accepted: /\bbr\b/.test(acceptEncoding) },
+      { encoding: "gzip", path: `${originalPath}.gz`, accepted: /\bgzip\b/.test(acceptEncoding) }
+    ];
+    const match = candidates.find((candidate) => candidate.accepted && fsSync.existsSync(candidate.path));
+    if (!match) return next();
+    const stats = fsSync.statSync(match.path);
+    staticCacheControl(res, originalPath);
+    res.setHeader("Content-Encoding", match.encoding);
+    res.setHeader("Content-Length", String(stats.size));
+    res.setHeader("Content-Type", staticContentType(originalPath));
+    res.setHeader("Vary", "Accept-Encoding");
+    return res.sendFile(match.path);
+  };
+}
+
+function sendMaybePrecompressed(req, res, filePath) {
+  const acceptEncoding = String(req.headers["accept-encoding"] || "");
+  const candidates = [
+    { encoding: "br", path: `${filePath}.br`, accepted: /\bbr\b/.test(acceptEncoding) },
+    { encoding: "gzip", path: `${filePath}.gz`, accepted: /\bgzip\b/.test(acceptEncoding) }
+  ];
+  const match = candidates.find((candidate) => candidate.accepted && fsSync.existsSync(candidate.path));
+  staticCacheControl(res, filePath);
+  if (!match) return res.sendFile(filePath);
+  const stats = fsSync.statSync(match.path);
+  res.setHeader("Content-Encoding", match.encoding);
+  res.setHeader("Content-Length", String(stats.size));
+  res.setHeader("Content-Type", staticContentType(filePath));
+  res.setHeader("Vary", "Accept-Encoding");
+  return res.sendFile(match.path);
+}
+
+async function ensurePortalCollectionIntegrity() {
+  const now = Date.now();
+  if (portalIntegrityPromise) return portalIntegrityPromise;
+  if (now - portalIntegrityCheckedAt < portalIntegrityTtlMs) return;
+  portalIntegrityPromise = (async () => {
+    await ensureFourDigitCustomerIds();
+    await ensureSalesInquiryCustomerIds();
+    await ensureOfferInquiryLinks();
+    await ensureRenewalCustomerLinks();
+    await ensureSiteVisitCustomerLinks();
+    portalIntegrityCheckedAt = Date.now();
+  })().finally(() => {
+    portalIntegrityPromise = null;
+  });
+  return portalIntegrityPromise;
+}
+
+function slimPortalRecord(collectionKey, record = {}) {
+  if (!record || typeof record !== "object") return record;
+  if (collectionKey === "estimates") {
+    const { expanded_costing_data, costing_rows, ...rest } = record;
+    return rest;
+  }
+  if (collectionKey === "service_records") {
+    const { service_history, ...rest } = record;
+    return {
+      ...rest,
+      service_history_count: Array.isArray(service_history) ? service_history.length : 0
+    };
+  }
+  if (collectionKey === "audit_logs") {
+    const before = compactAuditSnapshot(record.before);
+    const after = compactAuditSnapshot(record.after);
+    return {
+      ...record,
+      before,
+      after,
+      before_summary: before,
+      after_summary: after
+    };
+  }
+  return record;
+}
+
+function slimPortalCollection(collectionKey, value) {
+  return Array.isArray(value) ? value.map((record) => slimPortalRecord(collectionKey, record)) : value;
+}
+
 async function loadPortalCollections() {
-  await ensureFourDigitCustomerIds();
-  await ensureSalesInquiryCustomerIds();
-  await ensureOfferInquiryLinks();
-  await ensureRenewalCustomerLinks();
-  await ensureSiteVisitCustomerLinks();
-  const entries = await Promise.all(Object.entries(listFiles).map(async ([key, file]) => [key, await readJson(file, [])]));
+  await ensurePortalCollectionIntegrity();
+  const entries = await Promise.all(Object.entries(listFiles).map(async ([key, file]) => [key, slimPortalCollection(key, await readJson(file, []))]));
   const data = Object.fromEntries(entries);
   data.operations_state = await readJson("operations_state.json", {});
   return data;
@@ -5152,10 +5296,14 @@ app.disable("x-powered-by");
 app.use(cors({ origin: true, credentials: true }));
 app.use(compressionMiddleware);
 app.use(express.json({ limit: "5mb" }));
-app.use("/assets/offer", express.static(path.join(rootDir, "docs", "offer", "assets"), { setHeaders: staticCacheControl }));
-app.use("/assets/customer", express.static(path.join(rootDir, "docs", "customer-assets"), { setHeaders: staticCacheControl }));
+const offerAssetsDir = path.join(rootDir, "docs", "offer", "assets");
+const customerAssetsDir = path.join(rootDir, "docs", "customer-assets");
+app.use("/assets/offer", precompressedStaticMiddleware(offerAssetsDir), express.static(offerAssetsDir, { setHeaders: staticCacheControl }));
+app.use("/assets/customer", precompressedStaticMiddleware(customerAssetsDir), express.static(customerAssetsDir, { setHeaders: staticCacheControl }));
 const webDistDir = path.join(rootDir, "expo-app", "dist");
 const webDistIndex = path.join(webDistDir, "index.html");
+const webSiteDir = path.join(webDistDir, "site");
+const webSiteIndex = path.join(webSiteDir, "index.html");
 function webDistInfo() {
   const available = fsSync.existsSync(webDistIndex);
   const stats = available ? fsSync.statSync(webDistIndex) : null;
@@ -5167,7 +5315,15 @@ function webDistInfo() {
   };
 }
 if (fsSync.existsSync(webDistIndex)) {
+  app.use(precompressedStaticMiddleware(webDistDir));
   app.use(express.static(webDistDir, {
+    index: false,
+    setHeaders: staticCacheControl
+  }));
+}
+if (fsSync.existsSync(webSiteIndex)) {
+  app.use(precompressedStaticMiddleware(webSiteDir));
+  app.use(express.static(webSiteDir, {
     index: false,
     setHeaders: staticCacheControl
   }));
@@ -7074,10 +7230,12 @@ app.get("/api/app", (_req, res) => {
   });
 });
 
-app.get("/", (_req, res) => {
+app.get("/", (req, res) => {
+  if (fsSync.existsSync(webSiteIndex)) {
+    return sendMaybePrecompressed(req, res, webSiteIndex);
+  }
   if (fsSync.existsSync(webDistIndex)) {
-    res.setHeader("Cache-Control", "no-store");
-    return res.sendFile(webDistIndex);
+    return sendMaybePrecompressed(req, res, webDistIndex);
   }
   res.json({
     ok: true,
@@ -7091,9 +7249,8 @@ app.get("/metadata.json", (_req, res) => {
 });
 
 if (fsSync.existsSync(webDistIndex)) {
-  app.get(/^\/(?!api\/).*/, (_req, res) => {
-    res.setHeader("Cache-Control", "no-store");
-    res.sendFile(webDistIndex);
+  app.get(/^\/(?!api\/).*/, (req, res) => {
+    sendMaybePrecompressed(req, res, webDistIndex);
   });
 }
 

@@ -1,0 +1,32 @@
+template_file,csv_column,platform_collection,platform_field,required_for_import,notes
+crm_customer_import_master.csv,external_customer_ref,customers,external_customer_ref,Y,Stable ID from customer's own spreadsheet; use to match records before FUZI customer_id exists.
+crm_customer_import_master.csv,fuzi_customer_id,customers,id,N,FUZI 4-digit customer ID after CRM record exists.
+crm_customer_import_master.csv,name,customers,name,Y,Customer or building name.
+crm_customer_import_master.csv,contact_person,customers,contact_person,N,Main contact person.
+crm_customer_import_master.csv,phone,customers,phone,N,Main mobile number.
+crm_customer_import_master.csv,address,customers,address,N,Site or billing address.
+crm_customer_import_master.csv,installation_date,customers,installation_date,N,Install/handover date used by service schedule.
+crm_customer_import_master.csv,installed_date,customers,installed_date,N,Alias install date used by service schedule.
+crm_customer_import_master.csv,service_start_date,customers,service_start_date,N,Usually same as installation_date.
+crm_customer_import_master.csv,included_service_years,customers,included_service_years,N,Usually 1 for included free service.
+crm_customer_import_master.csv,included_service_end_date,customers,included_service_end_date,N,Usually installation_date plus 1 year minus 1 day.
+crm_customer_import_master.csv,additional_service_years_purchased,customers,additional_service_years_purchased,N,Extra paid years after included service.
+crm_customer_import_master.csv,service_end_date,customers,service_end_date,N,Final current service expiry date.
+crm_customer_import_master.csv,service_contract_end_date,customers,service_contract_end_date,N,Same as service_end_date for portal contract tracking.
+crm_customer_import_master.csv,service_years_purchased,customers,service_years_purchased,N,Total covered years from installation date; included first year plus extra years.
+crm_service_history_import.csv,external_customer_ref,service_records,external_customer_ref,Y,Use with crm_customer_import_master.csv to connect service rows to customer.
+crm_service_history_import.csv,customer_id,service_records,customer_id,Y after CRM import,FUZI customer ID. Fill after customer import if unknown.
+crm_service_history_import.csv,service_number,service_records,service_number,N,Existing service number if available.
+crm_service_history_import.csv,service_year,service_records,service_year,N,Service year number from install date.
+crm_service_history_import.csv,service_slot_in_year,service_records,service_slot_in_year,N,Which visit in that service year.
+crm_service_history_import.csv,installation_date,service_records,installation_date,N,Install date copied into service row for schedule.
+crm_service_history_import.csv,scheduled_date,service_records,scheduled_date,N,Planned service date.
+crm_service_history_import.csv,service_date,service_records,service_date,N,Actual service date if known.
+crm_service_history_import.csv,completed_date,service_records,completed_date,N,Completion date.
+crm_service_history_import.csv,next_service_date,service_records,next_service_date,N,Next planned service date.
+crm_service_history_import.csv,assigned_engineer,service_records,assigned_engineer,N,Engineer assigned in portal.
+crm_service_history_import.csv,issue_category,service_records,issue_category,N,Use portal issue category text.
+crm_service_history_import.csv,action_taken,service_records,action_taken,N,Work done.
+crm_service_history_import.csv,parts_used,service_records,parts_used,N,Parts used during visit.
+crm_service_history_import.csv,parts_quantity,service_records,parts_quantity,N,Part quantity.
+crm_service_history_import.csv,status,service_records,status,N,Open/In Progress/Completed.
