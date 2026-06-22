@@ -141,6 +141,7 @@ const writeAppSecretStmt = db.prepare(`
 `);
 const collectionCache = new Map();
 const portalResponseCache = new Map();
+const costingArtifactPasswords = new Map();
 let dataVersion = 0;
 const portalCacheTtlMs = Number(process.env.FUZI_PORTAL_CACHE_TTL_SECONDS || 20) * 1000;
 const portalIntegrityTtlMs = Number(process.env.FUZI_PORTAL_INTEGRITY_TTL_SECONDS || 300) * 1000;
@@ -827,12 +828,65 @@ const restrictedPayloadKeys = [
   "lift_assets", "parts_usage", "safety_incidents", "tender_checklists", "amc_contracts", "service_reports", "daily_briefs"
 ];
 
-function parseCostingWorkbooks() {
+const costingImportSessionKey = "agent:main:explicit:fuzi-costing-workbook-import";
+
+function costingWorkbookDir() {
+  return path.join(rootDir, "docs", "6-passenger-costing");
+}
+
+function normalizeCostingOrderMode(value) {
+  return String(value || "").trim().toUpperCase() === "1A" ? "1A" : "A1";
+}
+
+async function listCostingWorkbookManifest() {
+  const docsDir = costingWorkbookDir();
+  const entries = await fs.readdir(docsDir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".xlsx") || entry.name.startsWith(".~lock.")) continue;
+    const fullPath = path.join(docsDir, entry.name);
+    const stats = await fs.stat(fullPath);
+    files.push({
+      source_file: entry.name,
+      bytes: stats.size,
+      size_bytes: stats.size,
+      size_kb: Number((stats.size / 1024).toFixed(2)),
+      modified_at: stats.mtime.toISOString()
+    });
+  }
+  files.sort((a, b) => a.source_file.localeCompare(b.source_file));
+  return {
+    session_key: costingImportSessionKey,
+    workbook_dir: "docs/6-passenger-costing",
+    source_count: files.length,
+    files
+  };
+}
+
+function costingOrderDecisionsMap(orderDecisions = {}) {
+  if (Array.isArray(orderDecisions)) {
+    return Object.fromEntries(orderDecisions.map((item) => [
+      String(item?.source_file || item?.file || item?.name || "").trim(),
+      normalizeCostingOrderMode(item?.order_mode || item?.order || item?.mode)
+    ]).filter(([name]) => name));
+  }
+  if (!orderDecisions || typeof orderDecisions !== "object") return {};
+  return Object.fromEntries(Object.entries(orderDecisions).map(([name, mode]) => [name, normalizeCostingOrderMode(mode)]));
+}
+
+function parseCostingWorkbooks({ orderDecisions = {}, defaultOrderMode = "A1" } = {}) {
+  const normalizedDefaultOrderMode = normalizeCostingOrderMode(defaultOrderMode);
+  const normalizedOrderDecisions = costingOrderDecisionsMap(orderDecisions);
   const script = String.raw`
 import json, pathlib, re, sys, zipfile
 from xml.etree import ElementTree as ET
 
 root = pathlib.Path(sys.argv[1])
+default_order_mode = sys.argv[2] if len(sys.argv) > 2 else "A1"
+try:
+    order_decisions = json.loads(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else {}
+except json.JSONDecodeError:
+    order_decisions = {}
 ns = {
     "a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
     "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
@@ -875,7 +929,7 @@ def cell_value(cell, strings):
         return "".join(t.text or "" for t in inline.findall(".//a:t", ns))
     return None
 
-def sort_key(item):
+def cell_parts(item):
     match = re.match(r"([A-Z]+)(\d+)$", str(item["cell"]).upper())
     if not match:
         return (10**9, 10**9, str(item["cell"]))
@@ -883,7 +937,13 @@ def sort_key(item):
     col_num = 0
     for ch in col:
         col_num = col_num * 26 + ord(ch) - 64
-    return (int(row), col_num, str(item["cell"]))
+    return (col_num, int(row), str(item["cell"]))
+
+def sort_key(item, order_mode):
+    col_num, row_num, cell_ref = cell_parts(item)
+    if order_mode == "1A":
+        return (row_num, col_num, cell_ref)
+    return (col_num, row_num, cell_ref)
 
 def variant(name):
     lower = name.lower()
@@ -895,9 +955,15 @@ def variant(name):
 
 sources = []
 for path in sorted(root.glob("*.xlsx")):
+    if path.name.startswith(".~lock."):
+        continue
+    order_mode = str(order_decisions.get(path.name) or default_order_mode or "A1").upper()
+    if order_mode != "1A":
+        order_mode = "A1"
     with zipfile.ZipFile(path) as z:
         strings = shared_strings(z)
         sheets = []
+        sheets_matrix = []
         all_cells = []
         for sheet_name, sheet_path in sheet_paths(z):
             tree = ET.fromstring(z.read(sheet_path))
@@ -914,21 +980,32 @@ for path in sorted(root.glob("*.xlsx")):
                     if formula_text:
                         entry["formula"] = formula_text
                     cells.append(entry)
-            cells.sort(key=sort_key)
+            cells.sort(key=lambda item: sort_key(item, order_mode))
+            matrix = []
+            for entry in cells:
+                value = entry.get("formula")
+                if value:
+                    value = "=" + str(value)
+                else:
+                    value = entry.get("value")
+                matrix.append([entry["cell"], "" if value is None else str(value)])
             sheets.append({"name": sheet_name, "non_empty_cell_count": len(cells)})
+            sheets_matrix.append(matrix)
             all_cells.extend(cells)
         sources.append({
             "source_file": path.name,
             "variant": variant(path.name),
+            "order_mode": order_mode,
             "sheets": sheets,
+            "sheets_matrix": sheets_matrix,
             "non_empty_cell_count": len(all_cells),
             "cells": all_cells,
         })
 print(json.dumps({"sources": sources, "source_count": len(sources)}, ensure_ascii=False))
 `;
-  const docsDir = path.join(rootDir, "docs", "costing");
+  const docsDir = costingWorkbookDir();
   return new Promise((resolve, reject) => {
-    execFile("python", ["-c", script, docsDir], { maxBuffer: 50 * 1024 * 1024 }, (error, stdout, stderr) => {
+    execFile("python", ["-c", script, docsDir, normalizedDefaultOrderMode, JSON.stringify(normalizedOrderDecisions)], { maxBuffer: 50 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) return reject(new Error(stderr || error.message));
       try {
         resolve(JSON.parse(stdout || "{}"));
@@ -2421,6 +2498,11 @@ function isPhoneDeliveryTarget(target) {
 
 function defaultOpenClawCommunicationData(env, baseDir) {
   const homeDir = env.USERPROFILE || env.HOME || baseDir;
+  const siblingDockerOpenClawDir = path.resolve(baseDir, "..", "dockeropenclaw", "data", "home", ".openclaw");
+  const fallbackOpenClawConfigDir = fsSync.existsSync(path.join(siblingDockerOpenClawDir, "openclaw.json"))
+    ? siblingDockerOpenClawDir
+    : path.join(homeDir, ".openclaw");
+  const openClawConfigDir = env.FUZI_OPENCLAW_CONFIG_DIR || fallbackOpenClawConfigDir;
   return {
     url: defaultOpenClawUrl(env),
     preferConfiguredUrl: hasExplicitOpenClawConnectionEnv(env),
@@ -2430,8 +2512,8 @@ function defaultOpenClawCommunicationData(env, baseDir) {
     agentId: env.FUZI_OPENCLAW_AGENT_ID || "main",
     whatsappBackendChannel: env.FUZI_OPENCLAW_WHATSAPP_BACKEND_CHANNEL || "",
     whatsappBackendTarget: env.FUZI_OPENCLAW_WHATSAPP_BACKEND_TARGET || "",
-    configFile: path.join(homeDir, ".openclaw", "openclaw.json"),
-    envFile: path.join(homeDir, ".openclaw", ".env"),
+    configFile: env.FUZI_OPENCLAW_CONFIG_FILE || path.join(openClawConfigDir, "openclaw.json"),
+    envFile: env.FUZI_OPENCLAW_ENV_FILE || path.join(openClawConfigDir, ".env"),
     allowedDashboardCommand: ["openclaw", "dashboard", "--no-open"],
     freeChannels: ["whatsapp", "telegram", "signal", "discord", "slack", "email"],
     agentTargetEnvKeys: {
@@ -3066,16 +3148,16 @@ function createOpenClawCommunicationService({
     for (const candidate of [
       env.OPENCLAW_GATEWAY_TOKEN,
       envValues.OPENCLAW_GATEWAY_TOKEN,
-      readAppSecret("fuzi_openclaw_token"),
-      readAppSecret("openclaw_gateway_token"),
-      readAppSecret("fuzi_openclaw_password"),
-      readAppSecret("openclaw_gateway_password"),
       await configSecret("token"),
       env.FUZI_OPENCLAW_PASSWORD,
       env.OPENCLAW_GATEWAY_PASSWORD,
       envValues.FUZI_OPENCLAW_PASSWORD,
       envValues.OPENCLAW_GATEWAY_PASSWORD,
       await configSecret("password"),
+      readAppSecret("fuzi_openclaw_token"),
+      readAppSecret("openclaw_gateway_token"),
+      readAppSecret("fuzi_openclaw_password"),
+      readAppSecret("openclaw_gateway_password"),
       dashboardToken
     ]) {
       if (String(candidate || "").trim()) return String(candidate).trim();
@@ -3258,6 +3340,74 @@ function createOpenClawCommunicationService({
     return delivery;
   };
 
+  const invokeTool = async (tool, args = {}, payload = {}) => {
+    const delivery = await postJson("/tools/invoke", {
+      tool,
+      args,
+      sessionKey: payload.sessionKey || payload.session_key || "fuzi-operations",
+      request: {
+        source: "fuzi-operations-portal",
+        timestamp: now(),
+        ...payload
+      }
+    });
+    const exactErrorMessage = deliveryErrorMessage(delivery);
+    if (!delivery.ok && exactErrorMessage) {
+      delivery.error = exactErrorMessage;
+      delivery.error_message = exactErrorMessage;
+    }
+    return delivery;
+  };
+
+  const appendOpenClawSessionMessage = async (sessionKey, message) => {
+    const sessionId = String(sessionKey || "").split(":").pop()?.trim();
+    if (!sessionId) return { ok: false, status: 400, error: "OpenClaw session id is required." };
+    const openClawDir = path.dirname(config.configFile);
+    const sessionsDir = path.join(openClawDir, "agents", "main", "sessions");
+    await fs.mkdir(sessionsDir, { recursive: true });
+    const sessionFile = path.join(sessionsDir, `${sessionId}.jsonl`);
+    const timestamp = new Date().toISOString();
+    if (!fsSync.existsSync(sessionFile) || !fsSync.readFileSync(sessionFile, "utf8").trim()) {
+      await fs.appendFile(sessionFile, JSON.stringify({
+        type: "session",
+        version: 3,
+        id: sessionId,
+        timestamp,
+        cwd: path.join(openClawDir, "workspace")
+      }) + "\n", "utf8");
+    }
+    const millis = Date.now();
+    await fs.appendFile(sessionFile, JSON.stringify({
+      type: "message",
+      id: `fuzi-backend-${millis.toString(36)}-${crypto.randomBytes(3).toString("hex")}`,
+      parentId: null,
+      timestamp,
+      message: {
+        role: "user",
+        content: [{ type: "text", text: String(message || "") }],
+        timestamp: millis
+      }
+    }) + "\n", "utf8");
+    return { ok: true, status: 202, transport: "openclaw-session-file", sessionKey, sessionFile };
+  };
+
+  const sendSessionMessage = async (sessionKey, message, payload = {}) => {
+    const normalizedSessionKey = String(sessionKey || "").trim();
+    if (!normalizedSessionKey) return { ok: false, status: 400, error: "OpenClaw session key is required." };
+    const delivery = await invokeTool("sessions_send", {
+      sessionKey: normalizedSessionKey,
+      message: String(message || "")
+    }, { ...payload, sessionKey: normalizedSessionKey });
+    if (delivery.ok) return delivery;
+    const fallbackReason = String(delivery.error || delivery.body || "").trim();
+    const fallback = await appendOpenClawSessionMessage(normalizedSessionKey, message);
+    return {
+      ...fallback,
+      gateway_delivery: delivery,
+      fallback_reason: fallbackReason || "OpenClaw gateway session send failed."
+    };
+  };
+
   const saveInboundPlatformMessage = async (body = {}) => {
     const state = await readState();
     const messages = Array.isArray(state.messages) ? state.messages : [];
@@ -3275,7 +3425,9 @@ function createOpenClawCommunicationService({
 
   return {
     configuredChannels,
+    invokeTool,
     saveInboundPlatformMessage,
+    sendSessionMessage,
     sendBusinessChannelUpdate
   };
 }
@@ -4903,18 +5055,21 @@ async function normalizeOfferPayload(body, res) {
   const customerLink = await offerCrmCustomerPayload(body, res);
   if (!customerLink) return null;
   const payload = cleanPayload(body);
+  const allowedOfferInventoryNames = new Set(["guide rail", "bracket"]);
   const inventoryItems = Array.isArray(payload.inventory_items) ? payload.inventory_items.map((item) => ({
     item_id: String(item?.item_id || item?.id || "").trim(),
     name: String(item?.name || item?.item || "").trim(),
+    description: String(item?.description || item?.specification || "").trim(),
     category: String(item?.category || "").trim(),
     unit: String(item?.unit || "pcs").trim(),
     qty: inventoryNumber(item?.qty ?? item?.quantity, 1),
+    actual: item?.actual === undefined || item?.actual === null || String(item?.actual).trim() === "" ? "" : inventoryNumber(item?.actual),
     current_price: inventoryNumber(item?.current_price ?? item?.unit_price ?? item?.sale_price ?? item?.unit_cost),
     purchase_price: inventoryNumber(item?.purchase_price ?? item?.unit_cost),
     price_date: String(item?.price_date || "").trim(),
     vendor: String(item?.vendor || "").trim()
-  })) : [];
-  const inventoryMaterialTotal = inventoryItems.reduce((sum, item) => sum + item.qty * item.current_price, 0);
+  })).filter((item) => allowedOfferInventoryNames.has(String(item.name || item.item_id).trim().toLowerCase())) : [];
+  const inventoryMaterialTotal = inventoryItems.reduce((sum, item) => sum + (item.actual === "" ? item.qty : item.actual) * item.current_price, 0);
   const costPayload = inventoryMaterialTotal && !payload.material_cost ? { ...payload, material_cost: inventoryMaterialTotal } : payload;
   const cost = offerCostSummary(costPayload);
   const measurementKeys = [
@@ -5036,10 +5191,11 @@ function buildOfferLetterHtml(estimate = {}, options = {}) {
   ];
   const inventoryRows = Array.isArray(estimate.inventory_items) ? estimate.inventory_items.map((item) => [
     item.name || item.item_id || "-",
-    `${item.qty || 1} ${item.unit || "pcs"}`,
+    item.description || "-",
+    item.unit || "pcs",
+    item.qty || 1,
     moneyInr(item.current_price || item.unit_price || 0),
-    moneyInr((Number(item.qty || 1) || 1) * (Number(item.current_price || item.unit_price || 0) || 0)),
-    item.price_date || "-"
+    item.actual === undefined || item.actual === null || item.actual === "" ? item.qty || 1 : item.actual
   ]) : [];
   const standardMakesImage = options.standardMakesImage || "/assets/offer/standard-makes.jpg";
   return `<!doctype html>
@@ -5153,7 +5309,7 @@ function buildOfferLetterHtml(estimate = {}, options = {}) {
 
     <h2>Price</h2>
     <p class="price">Our price for one number ${htmlEscape(capacity)} ${htmlEscape(motor)} elevator for ${htmlEscape(stops)} stops as per Annexure-I with ${htmlEscape(finish)} car and ${htmlEscape(doorType)} serving the above site will be @ ${htmlEscape(priceText)}.</p>
-    ${inventoryRows.length ? `<h3>Inventory Pricing Used For Internal Costing</h3><table><tr><th>Item</th><th>Qty</th><th>Current price</th><th>Line total</th><th>Price date</th></tr>${inventoryRows.map((row) => `<tr>${row.map((cell) => `<td>${htmlEscape(cell)}</td>`).join("")}</tr>`).join("")}</table>` : ""}
+    ${inventoryRows.length ? `<h3>Inventory Pricing Used For Internal Costing</h3><table><tr><th>Item</th><th>Description</th><th>Unit</th><th>QTY</th><th>Current price</th><th>Actual</th></tr>${inventoryRows.map((row) => `<tr>${row.map((cell) => `<td>${htmlEscape(cell)}</td>`).join("")}</tr>`).join("")}</table>` : ""}
     <h3>The above offer is Inclusive of:</h3>
     ${bulletList(["Installation charges along with 12 months warranty from the date of handing over", "Freight up to the site"])}
     <h3>The above offer is Exclusive of:</h3>
@@ -6087,6 +6243,429 @@ app.post("/api/openclaw/send", authRequired, async (req, res) => {
   const eventType = String(req.body?.event_type || "manual-message").trim();
   const delivery = await communicationService.sendBusinessChannelUpdate(eventType, req.body || {});
   res.status(delivery.ok ? 200 : 502).json({ ok: delivery.ok, delivery });
+});
+
+function openClawCostingBackendUrl(req) {
+  return String(process.env.FUZI_OPENCLAW_COSTING_BACKEND_URL || process.env.FUZI_BACKEND_URL || `${req.protocol}://${req.get("host")}`).replace(/\/+$/, "");
+}
+
+function openClawTerminalBackendUrl(req) {
+  const explicit = String(process.env.FUZI_OPENCLAW_COSTING_BACKEND_URL || process.env.FUZI_BACKEND_URL || process.env.FUZI_DOCKER_API_URL || "").trim();
+  if (explicit) return explicit.replace(/\/+$/, "");
+  const host = String(req.get("host") || "").replace(/^127\.0\.0\.1(?=:|$)/, "host.docker.internal").replace(/^localhost(?=:|$)/i, "host.docker.internal");
+  return `${req.protocol}://${host}`.replace(/\/+$/, "");
+}
+
+function costingManifestOpenClawMessage(manifest, req) {
+  return [
+    "FUZI costing workbook file list.",
+    JSON.stringify(manifest.files.map((file) => ({
+      source_file: file.source_file,
+      size_bytes: file.size_bytes
+    })), null, 2)
+  ].join("\n");
+}
+
+function openClawCostingNextPrompt(reason, details = {}) {
+  return [
+    "Update FUZI so OpenClaw can complete the costing workbook import through the Offer Manager Save offer section.",
+    "",
+    `Reason: ${reason}`,
+    "",
+    "Required behavior:",
+    "- OpenClaw must decide A1 or 1A ordering, convert every .xlsx workbook, fetch the full converted JSON, then POST the converted payload to the backend action that emulates typing into the Offer Manager section containing the Save offer button.",
+    "- That backend action must save the offer through the same normalization and storage path as the real Save offer button.",
+    "- The saved offer must include `costing_source_file` and `expanded_costing_data` from the converted workbook JSON.",
+    "- If a required customer/offer field cannot be chosen from backend context, return `exact_next_prompt_for_codex` with the missing field and no work for the user to invent.",
+    "",
+    `Backend details: ${JSON.stringify(details, null, 2)}`
+  ].join("\n");
+}
+
+async function writeCostingConversionArtifact(data, orderDecisions = {}, options = {}) {
+  const artifactDir = path.join(rootDir, "docs", "6-passenger-costing", "openclaw-import-results");
+  await fs.mkdir(artifactDir, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const artifactId = `costing-import-${timestamp}-${crypto.randomBytes(4).toString("hex")}`;
+  const password = crypto.randomBytes(18).toString("base64url");
+  const artifactPath = path.join(artifactDir, `${artifactId}.json`);
+  await fs.writeFile(artifactPath, JSON.stringify({
+    generated_at: new Date().toISOString(),
+    artifact_id: artifactId,
+    order_decisions: orderDecisions,
+    ...data
+  }, null, 2), "utf8");
+  costingArtifactPasswords.set(artifactId, {
+    password,
+    artifactPath,
+    data,
+    manifest: options.manifest || null,
+    orderDecisions,
+    sessionKey: options.sessionKey || costingImportSessionKey,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + (Number(process.env.FUZI_OPENCLAW_COSTING_PASSWORD_TTL_MINUTES || 240) * 60 * 1000)
+  });
+  return { artifactId, artifactPath, password };
+}
+
+function costingConversionOpenClawMessage(data, manifest, orderDecisions = {}, artifact = {}, req = null) {
+  const sources = Array.isArray(data.sources) ? data.sources : [];
+  const backendUrl = req ? openClawTerminalBackendUrl(req) : "";
+  const fetchUrl = backendUrl && artifact.artifactId ? `${backendUrl}/api/openclaw/costing/result/${encodeURIComponent(artifact.artifactId)}` : "";
+  const contextUrl = backendUrl && artifact.artifactId ? `${backendUrl}/api/openclaw/costing/offer-manager/context` : "";
+  const saveOfferUrl = backendUrl && artifact.artifactId ? `${backendUrl}/api/openclaw/costing/offer-manager/save` : "";
+  const terminalOutputPath = artifact.artifactId ? `/tmp/${artifact.artifactId}.json` : "/tmp/fuzi-costing-converted.json";
+  const commandOptions = fetchUrl && artifact.password ? {
+    curl: `curl -sS -H "X-FUZI-OpenClaw-Costing-Password: ${artifact.password}" "${fetchUrl}" -o "${terminalOutputPath}"`,
+    powershell: `$out = "${terminalOutputPath}"; Invoke-RestMethod -Uri "${fetchUrl}" -Headers @{ "X-FUZI-OpenClaw-Costing-Password" = "${artifact.password}" } | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $out -Encoding UTF8`,
+    node_fetch: `node -e "const fs=require('fs'); fetch('${fetchUrl}',{headers:{'X-FUZI-OpenClaw-Costing-Password':'${artifact.password}'}}).then(r=>r.text()).then(t=>{fs.writeFileSync('${terminalOutputPath}',t);})"`
+  } : {};
+  return [
+    "FUZI costing workbook conversion result.",
+    "Full converted cell arrays are not pasted into chat. OpenClaw must decide which terminal command to run, using the backend URL and password below, to receive the complete JSON.",
+    "",
+    JSON.stringify({
+      session_key: manifest.session_key,
+      source_count: data.source_count || sources.length,
+      total_values: sources.reduce((sum, source) => sum + Number(source.non_empty_cell_count || 0), 0),
+      order_decisions: orderDecisions,
+      artifact_id: artifact.artifactId || "",
+      full_result_path: artifact.artifactPath || "",
+      backend_result_url: fetchUrl,
+      backend_password: artifact.password || "",
+      terminal_output_path: terminalOutputPath,
+      terminal_command_decision_required: true,
+      terminal_command_options: commandOptions,
+      offer_manager_save_action: {
+        method: "POST",
+        url: saveOfferUrl,
+        password_header: "X-FUZI-OpenClaw-Costing-Password",
+        password: artifact.password || "",
+        required_body: {
+          artifact_id: artifact.artifactId || "",
+          converted_data_source: "Read the full JSON from terminal_output_path after running one terminal_command_options command.",
+          offer_fields: {
+            customer_id: "OpenClaw must choose or provide the CRM customer id for the Offer Manager draft.",
+            customer_name: "Customer name shown in the Offer Manager Save offer section.",
+            lead_status: "Offer Pending",
+            source: "CRM Offer Manager",
+            offer_source: "OpenClaw costing import"
+          }
+        },
+        behavior: "This endpoint emulates typing the converted costing fields into the Offer Manager section that contains Save offer, then uses the same backend save logic as the Save offer button.",
+        if_logic_missing: "Return exact_next_prompt_for_codex. Do not ask the user to invent the next prompt."
+      },
+      offer_manager_context_action: {
+        method: "POST",
+        url: contextUrl,
+        password_header: "X-FUZI-OpenClaw-Costing-Password",
+        password: artifact.password || "",
+        body: { artifact_id: artifact.artifactId || "" },
+        behavior: "Use this if OpenClaw needs minimal CRM customer/enquiry choices before deciding the offer_fields for offer_manager_save_action."
+      },
+      files: sources.map((source) => ({
+        source_file: source.source_file,
+        size_bytes: manifest.files.find((file) => file.source_file === source.source_file)?.size_bytes || 0
+      })),
+      save_offer_fields: {
+        costing_source_file: sources.map((source) => source.source_file),
+        expanded_costing_data: "OpenClaw decides and runs one terminal command using backend_result_url plus backend_password to receive the full converted sources, including all sheets_matrix cell arrays and samples."
+      },
+      after_terminal_command: "After OpenClaw runs one terminal_command_options command, POST the full converted JSON plus chosen Offer Manager fields to offer_manager_save_action.url. Do not stop at a short command summary."
+    }, null, 2)
+  ].join("\n");
+}
+
+function attachCostingManifestToSources(data, manifest) {
+  const filesByName = new Map((manifest.files || []).map((file) => [file.source_file, file]));
+  return {
+    ...data,
+    sources: (Array.isArray(data.sources) ? data.sources : []).map((source) => {
+      const file = filesByName.get(source.source_file) || {};
+      return {
+        ...source,
+        size_bytes: file.size_bytes || file.bytes || 0,
+        size_kb: file.size_kb || 0,
+        modified_at: file.modified_at || ""
+      };
+    })
+  };
+}
+
+app.get("/api/openclaw/costing/manifest", async (req, res) => {
+  try {
+    const manifest = await listCostingWorkbookManifest();
+    res.json({ ok: true, ...manifest });
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error instanceof Error ? error.message : "Could not read costing workbook manifest." });
+  }
+});
+
+app.post("/api/openclaw/costing/manifest/send", async (req, res) => {
+  try {
+    const manifest = await listCostingWorkbookManifest();
+    const sessionKey = String(req.body?.session_key || req.body?.sessionKey || costingImportSessionKey).trim();
+    const delivery = await communicationService.sendSessionMessage(
+      sessionKey,
+      costingManifestOpenClawMessage(manifest, req),
+      { event_type: "costing-workbook-manifest", source_count: manifest.source_count }
+    );
+    res.status(delivery.ok ? 200 : 202).json({
+      ok: true,
+      session_key: sessionKey,
+      source_count: manifest.source_count,
+      files: manifest.files.map((file) => ({
+        source_file: file.source_file,
+        size_bytes: file.size_bytes
+      })),
+      openclaw_delivery: delivery
+    });
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error instanceof Error ? error.message : "Could not send costing workbook manifest to OpenClaw." });
+  }
+});
+
+app.get("/api/openclaw/costing/result/:artifactId", async (req, res) => {
+  const artifactId = String(req.params.artifactId || "").trim();
+  const record = costingArtifactPasswords.get(artifactId);
+  const password = String(req.get("X-FUZI-OpenClaw-Costing-Password") || req.query.password || "").trim();
+  if (!record || record.expiresAt < Date.now()) {
+    if (record) costingArtifactPasswords.delete(artifactId);
+    return res.status(404).json({ ok: false, message: "Costing conversion artifact was not found or has expired." });
+  }
+  if (!password || password !== record.password) {
+    return res.status(401).json({ ok: false, message: "Costing conversion password is required." });
+  }
+  try {
+    if (String(req.query.response || req.query.format || "").trim().toLowerCase() === "prompt") {
+      if (!record.data || !record.manifest) {
+        return res.status(404).json({ ok: false, message: "Costing conversion prompt data was not found." });
+      }
+      res.setHeader("Cache-Control", "no-store");
+      res.type("text/plain");
+      return res.send(costingConversionOpenClawMessage(record.data, record.manifest, record.orderDecisions || {}, {
+        artifactId,
+        artifactPath: record.artifactPath,
+        password: record.password
+      }, req));
+    }
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Content-Disposition", `attachment; filename="${artifactId}.json"`);
+    res.type("application/json");
+    res.send(await fs.readFile(record.artifactPath, "utf8"));
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error instanceof Error ? error.message : "Could not read costing conversion artifact." });
+  }
+});
+
+app.post("/api/openclaw/costing/offer-manager/context", async (req, res) => {
+  const artifactId = String(req.body?.artifact_id || req.body?.artifactId || "").trim();
+  const artifact = costingArtifactPasswords.get(artifactId);
+  const password = String(req.get("X-FUZI-OpenClaw-Costing-Password") || req.body?.backend_password || req.body?.password || "").trim();
+  if (!artifact || artifact.expiresAt < Date.now()) {
+    if (artifact) costingArtifactPasswords.delete(artifactId);
+    return res.status(404).json({ ok: false, exact_next_prompt_for_codex: openClawCostingNextPrompt("The costing artifact expired before OpenClaw could read Offer Manager context.", { artifact_id: artifactId }) });
+  }
+  if (!password || password !== artifact.password) {
+    return res.status(401).json({ ok: false, exact_next_prompt_for_codex: openClawCostingNextPrompt("Offer Manager context requires the artifact password from the conversion prompt.", { artifact_id: artifactId }) });
+  }
+  try {
+    const [customers, inquiries, siteVisits, estimates] = await Promise.all([
+      readJson(listFiles.customers, []),
+      readJson(listFiles.sales_inquiries, []),
+      readJson(listFiles.site_visits, []),
+      readJson(listFiles.estimates, [])
+    ]);
+    const siteVisitCountByCustomer = new Map();
+    for (const visit of siteVisits) {
+      const key = String(visit.customer_id || "").trim();
+      if (!key) continue;
+      siteVisitCountByCustomer.set(key, (siteVisitCountByCustomer.get(key) || 0) + 1);
+    }
+    const offerCountByCustomer = new Map();
+    for (const offer of estimates) {
+      const key = String(offer.customer_id || "").trim();
+      if (!key) continue;
+      offerCountByCustomer.set(key, (offerCountByCustomer.get(key) || 0) + 1);
+    }
+    const customerOptions = customers.slice(0, 100).map((customer) => {
+      const id = String(customer.id || customer.customer_id || "").trim();
+      return {
+        customer_id: id,
+        customer_name: String(customer.name || customer.customer || "").trim(),
+        phone: String(customer.phone || customer.mobile || "").trim(),
+        address: String(customer.address || customer.site_address || "").trim(),
+        source: "CRM customer",
+        site_visit_count: siteVisitCountByCustomer.get(id) || 0,
+        offer_count: offerCountByCustomer.get(id) || 0
+      };
+    }).filter((item) => item.customer_id && item.customer_name);
+    const inquiryOptions = inquiries.slice(0, 100).map((inquiry) => {
+      const customerId = String(inquiry.customer_id || inquiry.id || inquiry.enquiry_no || "").trim();
+      return {
+        customer_id: customerId,
+        customer_name: String(inquiry.customer || inquiry.lead_name || inquiry.name || "").trim(),
+        source_inquiry_id: String(inquiry.id || inquiry.enquiry_no || "").trim(),
+        phone: String(inquiry.phone || inquiry.whatsapp_no || "").trim(),
+        address: String(inquiry.address || inquiry.site_address || inquiry.site || "").trim(),
+        status: String(inquiry.status || inquiry.lead_status || "").trim(),
+        source: "CRM enquiry",
+        site_visit_count: siteVisitCountByCustomer.get(customerId) || 0,
+        offer_count: offerCountByCustomer.get(customerId) || 0
+      };
+    }).filter((item) => item.customer_id && item.customer_name);
+    res.json({
+      ok: true,
+      artifact_id: artifactId,
+      instruction: "OpenClaw should choose the best Offer Manager customer/enquiry, then POST that choice as offer_fields to /api/openclaw/costing/offer-manager/save with converted_data.",
+      customers: customerOptions,
+      inquiries: inquiryOptions
+    });
+  } catch (error) {
+    res.status(500).json({ ok: false, exact_next_prompt_for_codex: openClawCostingNextPrompt("The backend could not provide Offer Manager context for OpenClaw.", { artifact_id: artifactId, error: error instanceof Error ? error.message : String(error) }) });
+  }
+});
+
+app.post("/api/openclaw/costing/offer-manager/save", async (req, res) => {
+  const artifactId = String(req.body?.artifact_id || req.body?.artifactId || "").trim();
+  const artifact = costingArtifactPasswords.get(artifactId);
+  const password = String(req.get("X-FUZI-OpenClaw-Costing-Password") || req.body?.backend_password || req.body?.password || "").trim();
+  if (!artifact || artifact.expiresAt < Date.now()) {
+    if (artifact) costingArtifactPasswords.delete(artifactId);
+    const exactPrompt = openClawCostingNextPrompt("The costing conversion artifact is missing or expired before OpenClaw could type the converted data into Offer Manager Save offer.", { artifact_id: artifactId });
+    return res.status(404).json({ ok: false, exact_next_prompt_for_codex: exactPrompt });
+  }
+  if (!password || password !== artifact.password) {
+    return res.status(401).json({ ok: false, exact_next_prompt_for_codex: openClawCostingNextPrompt("The Offer Manager save emulation endpoint needs the artifact password from the conversion prompt.", { artifact_id: artifactId }) });
+  }
+  try {
+    const convertedData = req.body?.converted_data && typeof req.body.converted_data === "object"
+      ? req.body.converted_data
+      : JSON.parse(await fs.readFile(artifact.artifactPath, "utf8"));
+    const sources = Array.isArray(convertedData.sources) ? convertedData.sources : [];
+    const sourceFiles = sources.map((source) => String(source.source_file || "").trim()).filter(Boolean);
+    const selectedSourceFile = String(req.body?.selected_source_file || req.body?.selectedSourceFile || sourceFiles[0] || "").trim();
+    const selectedSource = sources.find((source) => String(source.source_file || "") === selectedSourceFile) || sources[0] || {};
+    const offerFields = req.body?.offer_fields && typeof req.body.offer_fields === "object" ? req.body.offer_fields : {};
+    const customerId = String(offerFields.customer_id || req.body?.customer_id || "").trim();
+    if (!customerId) {
+      const exactPrompt = openClawCostingNextPrompt("OpenClaw has converted the workbooks but did not choose the CRM customer id required by the Offer Manager Save offer section.", {
+        endpoint: "/api/openclaw/costing/offer-manager/save",
+        missing_field: "offer_fields.customer_id",
+        available_action: "Call a FUZI context endpoint or select a CRM customer before retrying the same save endpoint with the converted_data payload."
+      });
+      return res.status(409).json({ ok: false, exact_next_prompt_for_codex: exactPrompt });
+    }
+    const offerPayloadInput = {
+      ...offerFields,
+      customer_id: customerId,
+      customer_name: String(offerFields.customer_name || req.body?.customer_name || "").trim(),
+      offer_name: String(offerFields.offer_name || offerFields.customer_name || req.body?.customer_name || "").trim(),
+      offer_type: String(offerFields.offer_type || selectedSource.variant || "Individual").trim(),
+      lead_status: String(offerFields.lead_status || offerFields.status || "Offer Pending").trim(),
+      source: "CRM Offer Manager",
+      offer_source: String(offerFields.offer_source || "OpenClaw costing import").trim(),
+      costing_source_file: String(offerFields.costing_source_file || sourceFiles.join(", ")).trim(),
+      expanded_costing_data: convertedData,
+      expanded_costing_data_status: String(offerFields.expanded_costing_data_status || `OpenClaw typed converted costing data from ${sourceFiles.length || 1} workbook${sourceFiles.length === 1 ? "" : "s"} into Offer Manager Save offer`).trim(),
+      source_snapshot: {
+        ...(offerFields.source_snapshot && typeof offerFields.source_snapshot === "object" ? offerFields.source_snapshot : {}),
+        costing_artifact_id: artifactId,
+        costing_source_file: String(offerFields.costing_source_file || sourceFiles.join(", ")).trim(),
+        openclaw_session_key: artifact.sessionKey || costingImportSessionKey,
+        save_emulation: "OpenClaw backend Offer Manager Save offer section"
+      },
+      offer_letter_status: String(offerFields.offer_letter_status || "Prepared").trim()
+    };
+    const openClawUser = { username: "openclaw", display_name: "OpenClaw", role: "agent", department: "CRM & Sales" };
+    const normalizeRes = {
+      req: { user: openClawUser },
+      statusCode: 200,
+      body: null,
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(payload) {
+        this.body = payload;
+        return payload;
+      }
+    };
+    const normalizedOffer = await normalizeOfferPayload(offerPayloadInput, normalizeRes);
+    if (!normalizedOffer) {
+      const exactPrompt = openClawCostingNextPrompt("FUZI rejected the Offer Manager Save offer emulation payload during normal offer validation.", {
+        status: normalizeRes.statusCode,
+        response: normalizeRes.body || null,
+        sent_fields: Object.keys(offerPayloadInput)
+      });
+      return res.status(normalizeRes.statusCode >= 400 ? normalizeRes.statusCode : 400).json({ ok: false, exact_next_prompt_for_codex: exactPrompt, validation: normalizeRes.body || null });
+    }
+    const records = await readJson(listFiles.estimates, []);
+    const now = new Date().toISOString();
+    const recordId = nextId(records, "EST");
+    const offer = {
+      id: recordId,
+      ...normalizedOffer,
+      job_no: String(normalizedOffer.job_no || "").trim() || recordId,
+      offer_number: String(normalizedOffer.offer_number || normalizedOffer.job_no || "").trim() || recordId,
+      created_at: now,
+      updated_at: now,
+      createdbyname: String(normalizedOffer.createdbyname || "OpenClaw").trim(),
+      lastmodifiedbyname: String(normalizedOffer.lastmodifiedbyname || "OpenClaw").trim()
+    };
+    records.unshift(offer);
+    await writeJson(listFiles.estimates, records);
+    await appendAuditLog({ user: openClawUser, collection: "estimates", recordId: offer.id, action: "create", before: null, after: offer });
+    if (offer.source_inquiry_id) {
+      const inquiries = await readJson(listFiles.sales_inquiries, []);
+      const inquiryIndex = findRecordIndex(inquiries, offer.source_inquiry_id);
+      if (inquiryIndex >= 0) {
+        const previousInquiry = inquiries[inquiryIndex];
+        inquiries[inquiryIndex] = { ...inquiries[inquiryIndex], lead_status: offer.lead_status, status: offer.lead_status, updated_at: now };
+        await writeJson(listFiles.sales_inquiries, inquiries);
+        await appendAuditLog({ user: openClawUser, collection: "sales_inquiries", recordId: recordIdentityForAudit(inquiries[inquiryIndex]), action: "update", before: previousInquiry, after: inquiries[inquiryIndex] });
+      }
+    }
+    res.json({
+      ok: true,
+      action: "offer-manager-save-emulated",
+      artifact_id: artifactId,
+      exact_next_prompt_for_codex: null,
+      saved_offer: {
+        id: offer.id,
+        job_no: offer.job_no,
+        offer_number: offer.offer_number,
+        customer_id: offer.customer_id,
+        customer_name: offer.customer_name,
+        costing_source_file: offer.costing_source_file,
+        expanded_costing_data_status: offer.expanded_costing_data_status,
+        source_count: sources.length,
+        total_values: sources.reduce((sum, source) => sum + Number(source.non_empty_cell_count || 0), 0)
+      }
+    });
+  } catch (error) {
+    const exactPrompt = openClawCostingNextPrompt("The backend failed while emulating typing converted costing data into Offer Manager Save offer.", {
+      artifact_id: artifactId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    res.status(500).json({ ok: false, exact_next_prompt_for_codex: exactPrompt });
+  }
+});
+
+app.post("/api/openclaw/costing/convert", async (req, res) => {
+  try {
+    const manifest = await listCostingWorkbookManifest();
+    const sessionKey = String(req.body?.session_key || req.body?.sessionKey || costingImportSessionKey).trim();
+    const orderDecisions = costingOrderDecisionsMap(req.body?.order_decisions || req.body?.orderDecisions || {});
+    const defaultOrderMode = normalizeCostingOrderMode(req.body?.default_order_mode || req.body?.defaultOrderMode || "A1");
+    const data = attachCostingManifestToSources(await parseCostingWorkbooks({ orderDecisions, defaultOrderMode }), manifest);
+    const artifact = await writeCostingConversionArtifact(data, orderDecisions, { manifest, sessionKey });
+    res.setHeader("Cache-Control", "no-store");
+    res.type("text/plain");
+    res.send(costingConversionOpenClawMessage(data, manifest, orderDecisions, artifact, req));
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error instanceof Error ? error.message : "Could not convert costing workbooks." });
+  }
 });
 
 function marketingAssetPrompt(record = {}, action = "generate-image") {
@@ -7035,12 +7614,49 @@ app.get("/api/portal/inventory/ai-insights", authRequired, async (_req, res) => 
   res.json({ ok: true, low_stock, recommendations: low_stock.map((item) => `Reorder ${item.item || item.name || item.id}.`) });
 });
 
-app.get("/api/portal/costing-source-data", authRequired, async (_req, res) => {
+app.get("/api/portal/costing-source-data", authRequired, async (req, res) => {
   try {
-    const data = await parseCostingWorkbooks();
-    res.json({ ok: true, ...data });
+    const manifest = await listCostingWorkbookManifest();
+    const data = attachCostingManifestToSources(await parseCostingWorkbooks(), manifest);
+    res.json({ ok: true, manifest, ...data });
   } catch (error) {
     res.status(500).json({ ok: false, message: error instanceof Error ? error.message : "Could not read costing source files." });
+  }
+});
+
+app.post("/api/portal/costing-source-data/openclaw-import", authRequired, async (req, res) => {
+  try {
+    const manifest = await listCostingWorkbookManifest();
+    const sessionKey = String(req.body?.session_key || req.body?.sessionKey || costingImportSessionKey).trim();
+    const manifestDelivery = await communicationService.sendSessionMessage(
+      sessionKey,
+      costingManifestOpenClawMessage(manifest, req),
+      { event_type: "costing-workbook-manifest", source_count: manifest.source_count }
+    );
+    const orderDecisions = costingOrderDecisionsMap(req.body?.order_decisions || req.body?.orderDecisions || {});
+    const defaultOrderMode = normalizeCostingOrderMode(req.body?.default_order_mode || req.body?.defaultOrderMode || "A1");
+    const data = attachCostingManifestToSources(await parseCostingWorkbooks({ orderDecisions, defaultOrderMode }), manifest);
+    const artifact = await writeCostingConversionArtifact(data, orderDecisions, { manifest, sessionKey });
+    const resultDelivery = await communicationService.sendSessionMessage(
+      sessionKey,
+      costingConversionOpenClawMessage(data, manifest, orderDecisions, artifact, req),
+      { event_type: "costing-workbook-conversion-result", source_count: data.source_count || 0 }
+    );
+    res.status(manifestDelivery.ok || resultDelivery.ok ? 200 : 202).json({
+      ok: true,
+      manifest,
+      order_decisions: orderDecisions,
+      artifact_id: artifact.artifactId,
+      artifact_path: artifact.artifactPath,
+      ...data,
+      openclaw: {
+        session_key: sessionKey,
+        manifest_delivery: manifestDelivery,
+        conversion_delivery: resultDelivery
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error instanceof Error ? error.message : "Could not send costing source data to OpenClaw." });
   }
 });
 

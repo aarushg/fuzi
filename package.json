@@ -1,8 +1,11 @@
 {
   "name": "fuzi-ops-react-node",
   "version": "0.2.0",
+  "description": "FUZI operations portal web, server, and desktop client",
+  "author": "FUZI Classic Elevators",
   "private": true,
   "type": "module",
+  "main": "desktop/electron-main.mjs",
   "scripts": {
     "start": "node server/index.mjs",
     "api": "node server/index.mjs",
@@ -11,6 +14,14 @@
     "web:export": "node scripts/clean-web-export.mjs && npm --prefix expo-app run export:web && node scripts/sanitize-web-export.mjs && node scripts/precompress-web-assets.mjs && node scripts/report-web-bundle-sizes.mjs",
     "web:preview": "npm run web:export && npm run web:serve",
     "web:serve": "node scripts/serve-web-export.mjs",
+    "desktop": "npm run web:export && electron .",
+    "desktop:open": "electron .",
+    "desktop:dev": "npm run web:export && electron .",
+    "desktop:package": "node scripts/clean-desktop-release.mjs && electron-builder --win nsis",
+    "desktop:build": "npm run web:export && npm run desktop:package",
+    "windows:build": "npm run desktop:build",
+    "android:build": "eas build --platform android --profile preview",
+    "android:build:production": "eas build --platform android --profile production",
     "prod": "node server/index.mjs",
     "android": "npm --prefix expo-app run android",
     "typecheck": "npm --prefix expo-app run typecheck",
@@ -23,5 +34,32 @@
     "better-sqlite3": "^12.10.0",
     "cors": "^2.8.5",
     "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "eas-cli": "^16.26.0",
+    "electron": "^39.2.7",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.fuzielevators.portal",
+    "productName": "FUZI Portal",
+    "npmRebuild": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**/*",
+      "expo-app/dist/**/*",
+      "fuzi-desktop.config.example.json",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

@@ -31,7 +31,13 @@
       "Bash(curl -s -c /tmp/fuzi2.txt -X POST http://127.0.0.1:5000/portal/login --data-urlencode username=admin --data-urlencode password=admin123 -D -)",
       "Bash(curl -s -c /tmp/fuzi3.txt -X POST http://127.0.0.1:5000/portal/login -d 'username=admin&password=admin123' -D /tmp/fuzi3_headers.txt -o /tmp/fuzi3_body.txt)",
       "Read(//tmp/**)",
-      "Bash(grep -v \"^$\")"
+      "Bash(grep -v \"^$\")",
+      "Bash(rm \"c:/Users/User/Documents/GitHub/fuzi/test-electron.cjs\" \"c:/Users/User/Documents/GitHub/fuzi/test-output.txt\" 2>/dev/null; echo \"cleaned\")",
+      "PowerShell($env:ELECTRON_RUN_AS_NODE)",
+      "PowerShell($env:ELECTRON_RUN_AS_NODE -eq $null)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\User\\Documents\\GitHub\\fuzi"
     ]
   }
 }

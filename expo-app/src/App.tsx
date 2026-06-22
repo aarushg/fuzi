@@ -15,7 +15,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { apiBaseUrl, apiFetch } from "./api";
+import { apiBaseUrl, apiFetch, clearQueuedOfflineWrites, syncQueuedOfflineWrites } from "./api";
 import { PublicWebsite } from "./PublicWebsite";
 import type { Customer, PortalData, SiteVisit } from "./types";
 
@@ -52,8 +52,10 @@ const hindiTranslations: Record<string, string> = {
   "Operations Backlog": "ऑपरेशंस बैकलॉग",
   Overview: "ओवरव्यू",
   "Platform Modules": "प्लेटफॉर्म मॉड्यूल",
+  Enquiries: "पूछताछ",
   Customers: "ग्राहक",
   "Offer Manager": "ऑफर मैनेजर",
+  "Costing Import": "कॉस्टिंग इम्पोर्ट",
   "Marketing Platform": "मार्केटिंग प्लेटफॉर्म",
   "Project Tickets": "प्रोजेक्ट टिकट",
   Projects: "प्रोजेक्ट",
@@ -312,8 +314,10 @@ type TabKey =
   | "backlog"
   | "overview"
   | "modules"
+  | "enquiries"
   | "customers"
   | "offerManager"
+  | "costingImport"
   | "marketing"
   | "tickets"
   | "projects"
@@ -360,9 +364,31 @@ type CostingSourceCell = {
 type CostingSource = {
   source_file: string;
   variant: string;
+  order_mode?: string;
+  size_bytes?: number;
+  size_kb?: number;
   sheets: Array<{ name: string; non_empty_cell_count: number }>;
+  sheets_matrix?: string[][][];
   non_empty_cell_count: number;
   cells: CostingSourceCell[];
+};
+
+type CostingImportResponse = {
+  ok: boolean;
+  artifact_id?: string;
+  artifact_path?: string;
+  order_decisions?: Record<string, string>;
+  source_count?: number;
+  sources: CostingSource[];
+  manifest?: {
+    source_count: number;
+    files: Array<{ source_file: string; size_bytes?: number; bytes?: number; size_kb?: number }>;
+  };
+  openclaw?: {
+    session_key?: string;
+    manifest_delivery?: { ok?: boolean; error?: string };
+    conversion_delivery?: { ok?: boolean; error?: string };
+  };
 };
 
 const operationsBacklog = [
@@ -488,6 +514,7 @@ const navItems: Array<{ key: TabKey; label: string; icon: string }> = [
   { key: "backlog", label: "Operations Backlog", icon: "★" },
   { key: "overview", label: "Overview", icon: "⌂" },
   { key: "modules", label: "Platform Modules", icon: "▦" },
+  { key: "enquiries", label: "Enquiries", icon: "?" },
   { key: "customers", label: "Customers", icon: "◉" },
   { key: "offerManager", label: "Offer Manager", icon: "▥" },
   { key: "marketing", label: "Marketing Platform", icon: "✦" },
@@ -501,6 +528,7 @@ const navItems: Array<{ key: TabKey; label: string; icon: string }> = [
   { key: "inventory", label: "Inventory", icon: "▣" },
   { key: "orgchart", label: "Staff & Attendance", icon: "◍" },
   { key: "siteVisits", label: "Site Visits", icon: "⌖" },
+  { key: "costingImport", label: "Costing Import", icon: "▧" },
   { key: "installation_dept", label: "Installation Dept", icon: "⚙" },
   { key: "breakdown", label: "Breakdown Portal", icon: "⚡" },
   { key: "service", label: "Service", icon: "✚" },
@@ -999,6 +1027,9 @@ const emptyOfferDraft = {
   source_inquiry_id: "",
   offer_source: "CRM",
   linked_customer_source: "",
+  costing_source_file: "",
+  expanded_costing_data: {},
+  expanded_costing_data_status: "",
   inventory_items: [],
   inventory_material_total: "",
   inventory_pricing_source: "",
@@ -1250,13 +1281,30 @@ function inventoryPrice(record: Record<string, unknown>) {
   return offerNumber(record.current_price || record.sale_price || record.unit_price || record.unit_cost || record.purchase_price);
 }
 
+const offerInventoryItemNames = ["Guide rail", "Bracket"];
+
+function normalizedOfferInventoryName(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isOfferInventoryItemAllowed(record: Record<string, unknown>) {
+  const name = normalizedOfferInventoryName(record.name || record.item || record.item_id);
+  return offerInventoryItemNames.some((allowed) => normalizedOfferInventoryName(allowed) === name);
+}
+
+function offerInventoryActualQuantity(line: Record<string, unknown>) {
+  const actual = String(line.actual ?? "").trim();
+  if (actual) return offerNumber(actual);
+  return offerNumber(line.qty, 1) || 1;
+}
+
 function offerInventoryLines(record: Record<string, unknown>) {
   return Array.isArray(record.inventory_items) ? record.inventory_items as Array<Record<string, unknown>> : [];
 }
 
 function offerInventoryTotal(record: Record<string, unknown>) {
-  return offerInventoryLines(record).reduce((sum, line) => {
-    const qty = offerNumber(line.qty, 1) || 1;
+  return offerInventoryLines(record).filter(isOfferInventoryItemAllowed).reduce((sum, line) => {
+    const qty = offerInventoryActualQuantity(line);
     const price = offerNumber(line.current_price || line.unit_price || line.sale_price || line.unit_cost);
     return sum + qty * price;
   }, 0);
@@ -1277,6 +1325,19 @@ const rawTransportKeys = new Set([
   "returned",
   "raw"
 ]);
+
+type PortalCachePayload = {
+  schemaVersion: number;
+  tokenKey: string;
+  savedAt: number;
+  data: PortalData;
+};
+
+type DesktopPortalCache = {
+  read: () => Promise<PortalCachePayload | null>;
+  write: (payload: PortalCachePayload) => Promise<{ ok?: boolean }>;
+  clear: () => Promise<{ ok?: boolean }>;
+};
 
 function stripRawTransportPayloads<T>(value: T, key = ""): T {
   if (rawTransportKeys.has(key)) return undefined as T;
@@ -1437,6 +1498,7 @@ export default function App() {
   const [offerCustomerSearch, setOfferCustomerSearch] = useState("");
   const [offerCustomerOfferFilter, setOfferCustomerOfferFilter] = useState("All");
   const [costingSources, setCostingSources] = useState<CostingSource[]>([]);
+  const [stagedCostingImport, setStagedCostingImport] = useState<Record<string, any> | null>(null);
   const [costingSourcesLoading, setCostingSourcesLoading] = useState(false);
   const [costingSourceIndex, setCostingSourceIndex] = useState(0);
   const [costingCellStep, setCostingCellStep] = useState(0);
@@ -1518,12 +1580,16 @@ export default function App() {
     const roleFiltered = navItems.filter((item) => item.key !== "internationalVendor" || isAdmin);
     if (!allowed?.length) return roleFiltered;
     const allowedSet = new Set(allowed);
-    return roleFiltered.filter((item) => allowedSet.has(item.key));
+    return roleFiltered.filter((item) => (
+      allowedSet.has(item.key) ||
+      (item.key === "enquiries" && (allowedSet.has("customers") || allowedSet.has("sales"))) ||
+      (item.key === "costingImport" && ["customers", "sales", "offerManager", "siteVisits"].some((key) => allowedSet.has(key)))
+    ));
   }, [data?.access, isAdmin]);
   const navGroups = useMemo(() => {
     const groupFor = (key: TabKey) => {
       if (["today", "intelligence", "backlog", "overview", "modules", "comms"].includes(key)) return "Command";
-      if (["customers", "sales", "offerManager", "marketing", "siteVisits"].includes(key)) return "CRM & Sales";
+      if (["enquiries", "customers", "sales", "offerManager", "marketing", "siteVisits", "costingImport"].includes(key)) return "CRM & Sales";
       if (["tickets", "projects", "installations", "installation_dept", "team", "commissioning", "factory", "engineer"].includes(key)) return "Projects & Installation";
       if (["breakdown", "service", "workorders", "renewals", "inventory", "documents"].includes(key)) return "Service Ops";
       return "Admin & Finance";
@@ -1663,11 +1729,27 @@ export default function App() {
   }, [selectedCostingSource]);
   const visibleCostingCells = costingCellChunks[Math.min(costingCellStep, Math.max(costingCellChunks.length - 1, 0))] || [];
 
-  useEffect(() => {
-    if (costingEditorOpen && token && !costingSources.length && !costingSourcesLoading) {
-      loadCostingSourceData();
-    }
-  }, [costingEditorOpen, token, costingSources.length, costingSourcesLoading]);
+  function costingTotalFromSource(source?: CostingSource) {
+    if (!source) return "";
+    const totalCell = source.cells.find((cell) => String(cell.cell).toUpperCase() === "R53") || source.cells.find((cell) => String(cell.cell).toUpperCase().endsWith("53"));
+    return typeof totalCell?.value === "number" ? String(totalCell.value) : "";
+  }
+
+  function offerCostingPayloadFromImport(importData: Record<string, any> | null | undefined, selectedSource?: CostingSource) {
+    const sources = Array.isArray(importData?.sources) ? importData?.sources as CostingSource[] : [];
+    const source = selectedSource || sources[0];
+    if (!source && !sources.length) return null;
+    const sourceFiles = sources.length ? sources.map((item) => item.source_file).filter(Boolean) : [source?.source_file || ""].filter(Boolean);
+    return {
+      offer_type: source?.variant || "",
+      total_cost: costingTotalFromSource(source),
+      costing_source_file: sourceFiles.join(", "),
+      expanded_costing_data: importData && sources.length ? importData : source,
+      expanded_costing_data_status: sources.length
+        ? `All converted costing data attached from ${sources.length} workbook${sources.length === 1 ? "" : "s"}`
+        : "All source values attached as user-entered costing data",
+    };
+  }
 
   useEffect(() => {
     if (Platform.OS === "web" && typeof globalThis.localStorage !== "undefined") {
@@ -1683,10 +1765,28 @@ export default function App() {
     if (!token) return;
     setCostingSourcesLoading(true);
     try {
-      const response = await apiFetch<{ ok: boolean; sources: CostingSource[] }>("/api/portal/costing-source-data", { token });
+      const response = await apiFetch<CostingImportResponse>("/api/portal/costing-source-data/openclaw-import", {
+        method: "POST",
+        token,
+        body: JSON.stringify({ default_order_mode: "A1" }),
+      });
       setCostingSources(response.sources || []);
+      const importData = {
+        artifact_id: response.artifact_id || "",
+        artifact_path: response.artifact_path || "",
+        order_decisions: response.order_decisions || {},
+        source_count: response.source_count || response.manifest?.source_count || response.sources?.length || 0,
+        manifest: response.manifest,
+        sources: response.sources || [],
+      };
+      setStagedCostingImport(importData);
       setCostingSourceIndex(0);
       setCostingCellStep(0);
+      const openClawOk = response.openclaw?.manifest_delivery?.ok || response.openclaw?.conversion_delivery?.ok;
+      const fileCount = response.manifest?.source_count || response.sources?.length || 0;
+      setMessage(openClawOk
+        ? `Sent ${fileCount} workbook names and sizes to OpenClaw and converted the selected order. OpenClaw must use the backend Save offer action to save it.`
+        : `Loaded ${fileCount} workbook sources. OpenClaw delivery will retry from the backend when the session is available.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Costing source data could not be loaded.");
     } finally {
@@ -1696,17 +1796,134 @@ export default function App() {
 
   function attachSelectedCostingSource() {
     if (!selectedCostingSource) return;
-    const totalCell = selectedCostingSource.cells.find((cell) => String(cell.cell).toUpperCase() === "R53") || selectedCostingSource.cells.find((cell) => String(cell.cell).toUpperCase().endsWith("53"));
-    const totalValue = typeof totalCell?.value === "number" ? String(totalCell.value) : offerDraft.total_cost;
+    const payload = offerCostingPayloadFromImport(stagedCostingImport || { sources: [selectedCostingSource] }, selectedCostingSource);
+    if (!payload) return;
     setOfferDraft((draft) => ({
       ...draft,
-      offer_type: draft.offer_type || selectedCostingSource.variant,
-      total_cost: totalValue || draft.total_cost,
-      costing_source_file: selectedCostingSource.source_file,
-      expanded_costing_data: selectedCostingSource,
-      expanded_costing_data_status: "All source values attached as user-entered costing data",
+      offer_type: draft.offer_type || payload.offer_type,
+      total_cost: payload.total_cost || draft.total_cost,
+      costing_source_file: payload.costing_source_file,
+      expanded_costing_data: payload.expanded_costing_data,
+      expanded_costing_data_status: payload.expanded_costing_data_status,
     }));
-    setMessage(`Attached all costing data from ${selectedCostingSource.source_file}. Review the step-by-step values before saving.`);
+    setMessage(`Attached converted costing data from ${payload.costing_source_file}. Save offer will keep it with the client offer.`);
+  }
+
+  function renderCostingWorkbookImportSection() {
+    const matrixPreview = selectedCostingSource?.sheets_matrix?.[0]?.slice(0, 18) || [];
+    return (
+      <View style={styles.costingSourcePanel}>
+        <View style={styles.sectionHeaderRow}>
+          <View>
+            <Text style={styles.sectionTitle}>Costing Workbook Import</Text>
+            <Text style={styles.muted}>Workbook names and sizes are sent to OpenClaw first, then the backend converts with the selected A1 or 1A order for offer preparation.</Text>
+          </View>
+          <Pressable style={styles.smallButton} onPress={loadCostingSourceData} disabled={loading || costingSourcesLoading}>
+            <Text style={styles.smallButtonText}>{costingSourcesLoading ? "Loading..." : "Refresh source data"}</Text>
+          </Pressable>
+        </View>
+        {selectedCostingSource ? (
+          <>
+            <View style={styles.costingStepper}>
+              <Pressable
+                style={styles.smallButton}
+                onPress={() => setCostingSourceIndex((index) => Math.max(0, index - 1))}
+                disabled={costingSourceIndex <= 0}
+              >
+                <Text style={styles.smallButtonText}>Previous source</Text>
+              </Pressable>
+              <View style={styles.costingStepMeta}>
+                <Text style={styles.cardTitle}>{selectedCostingSource.source_file}</Text>
+                <Text style={styles.muted}>
+                  Source {costingSourceIndex + 1} of {costingSources.length} - {selectedCostingSource.variant} - {selectedCostingSource.size_kb || 0} KB - {selectedCostingSource.non_empty_cell_count} values - order {selectedCostingSource.order_mode || "A1"}
+                </Text>
+              </View>
+              <Pressable
+                style={styles.smallButton}
+                onPress={() => setCostingSourceIndex((index) => Math.min(costingSources.length - 1, index + 1))}
+                disabled={costingSourceIndex >= costingSources.length - 1}
+              >
+                <Text style={styles.smallButtonText}>Next source</Text>
+              </Pressable>
+            </View>
+            <View style={styles.costingStepper}>
+              <Pressable
+                style={styles.smallButton}
+                onPress={() => setCostingCellStep((step) => Math.max(0, step - 1))}
+                disabled={costingCellStep <= 0}
+              >
+                <Text style={styles.smallButtonText}>Previous data step</Text>
+              </Pressable>
+              <Text style={styles.statusPill}>Data step {Math.min(costingCellStep + 1, Math.max(costingCellChunks.length, 1))} of {Math.max(costingCellChunks.length, 1)}</Text>
+              <Pressable
+                style={styles.smallButton}
+                onPress={() => setCostingCellStep((step) => Math.min(costingCellChunks.length - 1, step + 1))}
+                disabled={costingCellStep >= costingCellChunks.length - 1}
+              >
+                <Text style={styles.smallButtonText}>Next data step</Text>
+              </Pressable>
+              <Pressable style={styles.primaryButtonInline} onPress={attachSelectedCostingSource} disabled={loading}>
+                <Text style={styles.primaryButtonText}>Stage for next offer</Text>
+              </Pressable>
+            </View>
+            <View style={styles.costingCellList}>
+              {visibleCostingCells.map((cell, index) => (
+                <View key={`${selectedCostingSource.source_file}-${cell.sheet}-${cell.cell}-${index}`} style={styles.costingCellRow}>
+                  <Text style={styles.costingCellRef}>{cell.sheet}!{cell.cell}</Text>
+                  <Text style={styles.costingCellValue}>{cell.formula ? `=${cell.formula}` : String(cell.value ?? "")}</Text>
+                </View>
+              ))}
+            </View>
+            {!!matrixPreview.length && (
+              <View style={styles.linkedSystemsPanel}>
+                <Text style={styles.cardLabel}>Converted array sample</Text>
+                <Text style={styles.muted}>{JSON.stringify(matrixPreview)}</Text>
+              </View>
+            )}
+            <Text style={styles.muted}>Staged source: {offerDraft.costing_source_file || "none yet"}.</Text>
+          </>
+        ) : (
+          <View style={styles.emptyState}>
+            <Text style={styles.muted}>{costingSourcesLoading ? "Loading source values..." : "No costing source data loaded yet."}</Text>
+          </View>
+        )}
+      </View>
+    );
+  }
+
+  function renderCostingWorkbookImportPage() {
+    const sourceCount = costingSources.length;
+    const sheetCount = selectedCostingSource?.sheets_matrix?.length || 0;
+    const convertedCount = selectedCostingSource?.non_empty_cell_count || 0;
+    return (
+      <View>
+        <View style={styles.moduleHero}>
+          <Text style={styles.eyebrow}>CRM & Sales</Text>
+          <Text style={styles.moduleHeroTitle}>Costing Import</Text>
+          <Text style={styles.moduleHeroText}>OpenClaw prepares workbook costing data in its own import session, then stages the converted source for offer preparation.</Text>
+        </View>
+
+        <View style={styles.metricGrid}>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Workbook sources</Text>
+            <Text style={styles.metricValue}>{sourceCount}</Text>
+            <Text style={styles.muted}>Usable files loaded from the costing workbook folder.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Selected sheets</Text>
+            <Text style={styles.metricValue}>{sheetCount}</Text>
+            <Text style={styles.muted}>Worksheets converted to ordered cell arrays.</Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>Selected values</Text>
+            <Text style={styles.metricValue}>{convertedCount}</Text>
+            <Text style={styles.muted}>Non-empty cells available for the next saved offer.</Text>
+          </View>
+        </View>
+
+        {renderCostingWorkbookImportSection()}
+      </View>
+    );
   }
 
   function openingScheduleRows(draft: Partial<SiteVisit>) {
@@ -2304,7 +2521,7 @@ export default function App() {
     })).filter((item) => item.count > 0 || ["Inquiry Pending", "Site Visit Pending", "Offer Pending", "Order Received", "Work In Progress"].includes(item.status));
     const maxPipelineCount = Math.max(1, ...pipelineRows.map((item) => item.count));
     const attentionItems = [
-      { label: "Follow-ups due", value: dueFollowUps.length, detail: "Sales enquiries need action today", tab: "customers" as TabKey },
+      { label: "Follow-ups due", value: dueFollowUps.length, detail: "Sales enquiries need action today", tab: "enquiries" as TabKey },
       { label: "Active breakdowns", value: openBreakdowns.length, detail: `${trappedBreakdowns.length} trapped-passenger flags`, tab: "breakdown" as TabKey },
       { label: "Payment follow-up", value: duePayments.length, detail: "Milestones unpaid or due now", tab: "finance" as TabKey },
       { label: "Stock risk", value: lowStock.length, detail: "Inventory at reorder threshold", tab: "inventory" as TabKey },
@@ -4494,7 +4711,7 @@ export default function App() {
                   </View>
                 </View>
               )}
-              {!installInfo.installDate && <Text style={styles.muted}>Add the elevator installed date in CRM, or link this ticket to the install job, to calculate the seven service due dates.</Text>}
+              {!installInfo.installDate && <Text style={styles.muted}>Add the handover date in CRM, or link this ticket to the install job, to calculate the seven service due dates.</Text>}
               {!!(installInfo.warrantyStart || installInfo.warrantyEnd) && <Text style={styles.muted}>Warranty: {installInfo.warrantyStart || "-"} to {installInfo.warrantyEnd || "-"}</Text>}
               {!!installInfo.handoverBy && <Text style={styles.muted}>Installed/handover by: {installInfo.handoverBy}</Text>}
             </View>
@@ -7663,7 +7880,7 @@ export default function App() {
 
   function openCostingForCustomer(customer: Customer) {
     const siteMeasurements = offerMeasurementPayloadFromSiteVisit(siteVisitsForCustomerId(customer.id)[0]);
-    setOfferDraft({
+    const nextDraft = {
       ...emptyOfferDraft,
       ...siteMeasurements,
       customer_id: customer.id,
@@ -7674,7 +7891,8 @@ export default function App() {
       lead_status: "Offer Pending",
       elevator_type: customer.segment || "Passenger Elevator",
       createdbyname: data?.viewer?.display_name || username,
-    });
+    };
+    setOfferDraft(nextDraft);
     setActiveTab("offerManager");
     setCostingEditorOpen(true);
     setMessage(`Offer Manager opened for ${customer.name}. CRM and latest site visit data are filled into the offer draft.`);
@@ -7684,7 +7902,7 @@ export default function App() {
     const customerName = String(record.customer || record.lead_name || "");
     const customerId = String(record.customer_id || "");
     const siteMeasurements = offerMeasurementPayloadFromSiteVisit(siteVisitsForOfferRecord(record)[0]);
-    setOfferDraft({
+    const nextDraft = {
       ...emptyOfferDraft,
       ...siteMeasurements,
       customer_name: customerName,
@@ -7697,7 +7915,8 @@ export default function App() {
       source_inquiry_id: recordIdentity(record) || String(record.enquiry_no || ""),
       linked_customer_source: "CRM enquiry",
       notes: String(record.enquiry_remark || record.requirement || ""),
-    });
+    };
+    setOfferDraft(nextDraft);
     setActiveTab("offerManager");
     setCostingEditorOpen(true);
     setMessage(`Offer Manager opened for ${customerName}. CRM enquiry and linked site visit data are filled into the offer draft.`);
@@ -7828,9 +8047,11 @@ export default function App() {
             {
               item_id: id,
               name: String(item.name || item.item || id),
+              description: String(item.description || item.specification || item.notes || ""),
               category: String(item.category || ""),
               unit: String(item.unit || "pcs"),
               qty: "1",
+              actual: "",
               current_price: String(price || ""),
               purchase_price: String(item.purchase_price || item.unit_cost || ""),
               price_date: String(item.price_date || item.last_updated || item.updated_at || ""),
@@ -7866,11 +8087,14 @@ export default function App() {
 
   function renderOfferInventorySection() {
     const inventory = asRecords(data?.inventory);
-    const selectedLines = offerInventoryLines(offerDraft);
+    const selectedLineEntries = offerInventoryLines(offerDraft)
+      .map((line, originalIndex) => ({ line, originalIndex }))
+      .filter(({ line }) => isOfferInventoryItemAllowed(line));
+    const selectedLines = selectedLineEntries.map(({ line }) => line);
     const materialTotal = offerInventoryTotal(offerDraft);
-    const pricedInventory = inventory
+    const pricedInventory = offerInventoryItemNames
+      .map((name) => inventory.find((item) => normalizedOfferInventoryName(item.name || item.item || item.item_id) === normalizedOfferInventoryName(name)) || { id: name, name, unit: name === "Guide rail" ? "length" : "pcs" })
       .filter((item) => String(item.name || item.item || "").trim())
-      .sort((a, b) => String(a.category || "").localeCompare(String(b.category || "")) || String(a.name || a.item || "").localeCompare(String(b.name || b.item || "")));
     const offerInventoryPickerListKey = "offer-inventory-picker";
     const offerInventoryLinesListKey = "offer-inventory-lines";
     return (
@@ -7901,28 +8125,34 @@ export default function App() {
             <Text style={styles.muted}>Add inventory items with current prices first, then they can be used in Offer Manager costing.</Text>
           </View>
         )}
-        {limitedItems(offerInventoryLinesListKey, selectedLines).map((line, index) => {
-          const qty = offerNumber(line.qty, 1) || 1;
-          const price = offerNumber(line.current_price || line.unit_price || line.sale_price || line.unit_cost);
+        {limitedItems(offerInventoryLinesListKey, selectedLineEntries).map(({ line, originalIndex }) => {
           return (
-            <View key={`offer-inventory-line-${String(line.item_id || index)}`} style={styles.openingScheduleRow}>
+            <View key={`offer-inventory-line-${String(line.item_id || originalIndex)}`} style={styles.openingScheduleRow}>
               <View style={styles.openingScheduleField}>
                 <Text style={styles.label}>Item</Text>
-                <TextInput style={styles.input} value={String(line.name || "")} onChangeText={(value) => updateOfferInventoryLine(index, { name: value })} />
+                <TextInput style={styles.input} value={String(line.name || "")} onChangeText={(value) => updateOfferInventoryLine(originalIndex, { name: value })} />
               </View>
               <View style={styles.openingScheduleField}>
-                <Text style={styles.label}>Qty</Text>
-                <TextInput style={styles.input} value={String(line.qty || "1")} onChangeText={(value) => updateOfferInventoryLine(index, { qty: value })} keyboardType="numeric" />
+                <Text style={styles.label}>Description</Text>
+                <TextInput style={styles.input} value={String(line.description || "")} onChangeText={(value) => updateOfferInventoryLine(originalIndex, { description: value })} />
+              </View>
+              <View style={styles.openingScheduleField}>
+                <Text style={styles.label}>Unit</Text>
+                <TextInput style={styles.input} value={String(line.unit || "")} onChangeText={(value) => updateOfferInventoryLine(originalIndex, { unit: value })} />
+              </View>
+              <View style={styles.openingScheduleField}>
+                <Text style={styles.label}>QTY</Text>
+                <TextInput style={styles.input} value={String(line.qty || "1")} onChangeText={(value) => updateOfferInventoryLine(originalIndex, { qty: value })} keyboardType="numeric" />
               </View>
               <View style={styles.openingScheduleField}>
                 <Text style={styles.label}>Current price</Text>
-                <TextInput style={styles.input} value={String(line.current_price || "")} onChangeText={(value) => updateOfferInventoryLine(index, { current_price: value })} keyboardType="numeric" />
+                <TextInput style={styles.input} value={String(line.current_price || "")} onChangeText={(value) => updateOfferInventoryLine(originalIndex, { current_price: value })} keyboardType="numeric" />
               </View>
               <View style={styles.openingScheduleField}>
-                <Text style={styles.label}>Line total</Text>
-                <Text style={styles.bodyText}>{formatMoney(qty * price)}</Text>
+                <Text style={styles.label}>Actual</Text>
+                <TextInput style={styles.input} value={String(line.actual || "")} onChangeText={(value) => updateOfferInventoryLine(originalIndex, { actual: value })} keyboardType="numeric" />
               </View>
-              <Pressable style={styles.smallButton} onPress={() => removeOfferInventoryLine(index)} disabled={loading}>
+              <Pressable style={styles.smallButton} onPress={() => removeOfferInventoryLine(originalIndex)} disabled={loading}>
                 <Text style={styles.smallButtonText}>Remove</Text>
               </Pressable>
             </View>
@@ -8016,41 +8246,6 @@ export default function App() {
               <View style={styles.field}>
                 <Text style={styles.label}>Internal costing notes</Text>
                 <TextInput style={[styles.input, styles.textarea]} value={offerDraft.notes} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, notes: value }))} multiline />
-              </View>
-              <View style={styles.costingSourcePanel}>
-                <View style={styles.sectionHeaderRow}>
-                  <View>
-                    <Text style={styles.sectionTitle}>Complete .xlsx costing data</Text>
-                    <Text style={styles.muted}>Attach an internal costing source so the saved offer keeps the source data used to prepare the client letter.</Text>
-                  </View>
-                  <Pressable style={styles.smallButton} onPress={loadCostingSourceData} disabled={loading || costingSourcesLoading}>
-                    <Text style={styles.smallButtonText}>{costingSourcesLoading ? "Loading..." : "Refresh source data"}</Text>
-                  </Pressable>
-                </View>
-                {selectedCostingSource ? (
-                  <>
-                    <View style={styles.costingStepper}>
-                      <Pressable style={styles.smallButton} onPress={() => setCostingSourceIndex((index) => Math.max(0, index - 1))} disabled={costingSourceIndex <= 0}>
-                        <Text style={styles.smallButtonText}>Previous source</Text>
-                      </Pressable>
-                      <View style={styles.costingStepMeta}>
-                        <Text style={styles.cardTitle}>{selectedCostingSource.source_file}</Text>
-                        <Text style={styles.muted}>Source {costingSourceIndex + 1} of {costingSources.length} - {selectedCostingSource.non_empty_cell_count} values</Text>
-                      </View>
-                      <Pressable style={styles.smallButton} onPress={() => setCostingSourceIndex((index) => Math.min(costingSources.length - 1, index + 1))} disabled={costingSourceIndex >= costingSources.length - 1}>
-                        <Text style={styles.smallButtonText}>Next source</Text>
-                      </Pressable>
-                      <Pressable style={styles.primaryButtonInline} onPress={attachSelectedCostingSource} disabled={loading}>
-                        <Text style={styles.primaryButtonText}>Attach source data</Text>
-                      </Pressable>
-                    </View>
-                    <Text style={styles.muted}>Attached source: {offerDraft.costing_source_file || "none yet"}.</Text>
-                  </>
-                ) : (
-                  <View style={styles.emptyState}>
-                    <Text style={styles.muted}>{costingSourcesLoading ? "Loading source values..." : "No costing source data loaded yet."}</Text>
-                  </View>
-                )}
               </View>
             </ScrollView>
             <View style={styles.modalActions}>
@@ -8268,7 +8463,7 @@ export default function App() {
     const add = (action: { id: string; priority: number; label: string; title: string; detail: string; tab: TabKey; date?: string }) => actions.push(action);
     asRecords(data?.sales_inquiries).forEach((item, index) => {
       const due = followupDate(item);
-      if (due && due <= todayDate && !recordIsClosed(item)) add({ id: `followup-${index}`, priority: 2, label: "Follow-up", title: fieldText(item, ["customer", "lead_name", "name"]), detail: `Due ${due} - ${fieldText(item, ["assigned_to", "account_owner"])}`, tab: "customers", date: due });
+      if (due && due <= todayDate && !recordIsClosed(item)) add({ id: `followup-${index}`, priority: 2, label: "Follow-up", title: fieldText(item, ["customer", "lead_name", "name"]), detail: `Due ${due} - ${fieldText(item, ["assigned_to", "account_owner"])}`, tab: "enquiries", date: due });
       if (/site visit/i.test(`${item.status || ""} ${item.lead_status || ""}`) && !recordIsClosed(item)) add({ id: `site-pending-${index}`, priority: 3, label: "Site visit", title: fieldText(item, ["customer", "lead_name", "name"]), detail: `Pending visit - ${fieldText(item, ["phone", "whatsapp_no"])}`, tab: "siteVisits" });
     });
     asRecords(data?.site_visits).forEach((item, index) => {
@@ -8355,7 +8550,7 @@ export default function App() {
     const stalledInstalls = asRecords(data?.install_jobs).filter((item) => !recordIsClosed(item) && recordDate(item, ["handover_date", "target_date", "due_date", "next_action_date"]) <= todayDate);
     const pendingApprovals = asRecords(data?.approvals).filter((item) => !/approved|rejected/i.test(statusText(item)));
     const roleMetrics = [
-      { label: "Sales", count: asRecords(data?.sales_inquiries).filter((item) => !recordIsClosed(item)).length, tab: "customers" as TabKey, detail: "Open enquiries and follow-ups" },
+      { label: "Sales", count: asRecords(data?.sales_inquiries).filter((item) => !recordIsClosed(item)).length, tab: "enquiries" as TabKey, detail: "Open enquiries and follow-ups" },
       { label: "Accounts", count: overduePayments.length, tab: "finance" as TabKey, detail: "Payment reminders due" },
       { label: "Breakdown", count: openBreakdowns.length, tab: "breakdown" as TabKey, detail: "Active breakdown calls" },
       { label: "Installation", count: stalledInstalls.length, tab: "installations" as TabKey, detail: "Install jobs due or stalled" },
@@ -9488,7 +9683,7 @@ export default function App() {
                 </View>
               ))}
               <View style={styles.installDatePanel}>
-                <Text style={styles.cardLabel}>Elevator installed</Text>
+                <Text style={styles.cardLabel}>Handover date</Text>
                 <TextInput
                   style={styles.input}
                   value={customerInstalledDateDraft}
@@ -9496,7 +9691,7 @@ export default function App() {
                   commitOnBlur
                   placeholder="YYYY-MM-DD or leave blank"
                 />
-                <Text style={styles.muted}>If this customer already has an installed elevator, enter the date here to classify the account as a current customer.</Text>
+                <Text style={styles.muted}>If this customer already has a handover date, enter it here to classify the account as a current customer.</Text>
               </View>
               <Pressable style={styles.primaryButton} onPress={() => saveCustomer()} disabled={loading}>
                 <Text style={styles.primaryButtonText}>Save customer</Text>
@@ -9599,7 +9794,7 @@ export default function App() {
           </View>
           {!!salesInquiryDraft.id && (
             <View style={styles.installDatePanel}>
-              <Text style={styles.cardLabel}>Elevator installed</Text>
+              <Text style={styles.cardLabel}>Handover date</Text>
               <TextInput
                 style={styles.input}
                 value={salesInquiryInstalledDateDraft}
@@ -9607,7 +9802,7 @@ export default function App() {
                 commitOnBlur
                 placeholder="YYYY-MM-DD or leave blank"
               />
-              <Text style={styles.muted}>Saving an installed date converts this enquiry into a current customer and links the installation date.</Text>
+              <Text style={styles.muted}>Saving a handover date converts this enquiry into a current customer and links the handover date.</Text>
             </View>
           )}
           <Pressable style={styles.primaryButton} onPress={() => saveSalesInquiry()} disabled={loading || !salesInquiryDraft.customer.trim()}>
@@ -9635,7 +9830,7 @@ export default function App() {
           <View style={styles.sectionHeaderRow}>
             <View>
               <Text style={styles.cardLabel}>CRM view</Text>
-              <Text style={styles.muted}>Enquiries are leads. Customers are saved accounts or enquiries with an installed elevator.</Text>
+              <Text style={styles.muted}>Enquiries are leads. Customers are saved accounts or enquiries with a handover date.</Text>
             </View>
             <View style={styles.inlineActions}>
               {(["Enquiries", "Customers"] as const).map((view) => (
@@ -9644,6 +9839,7 @@ export default function App() {
                   style={[styles.smallButton, crmRecordView === view && styles.selectorPillActive]}
                   onPress={() => {
                     setCrmRecordView(view);
+                    setActiveTab(view === "Customers" ? "customers" : "enquiries");
                     setEnquiryPage(1);
                   }}
                   disabled={loading}
@@ -9813,7 +10009,7 @@ export default function App() {
         {!crmRows.length && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{crmRecordView === "Customers" ? "No CRM customers found" : "No enquiries found"}</Text>
-            <Text style={styles.muted}>{crmRecordView === "Customers" ? "Customers appear here after they are saved as accounts or an enquiry is converted/has an installed elevator." : "New sales enquiries stay here until they are converted to a CRM customer or linked to an installed elevator."}</Text>
+            <Text style={styles.muted}>{crmRecordView === "Customers" ? "Customers appear here after they are saved as accounts or an enquiry is converted/has a handover date." : "New sales enquiries stay here until they are converted to a CRM customer or linked to a handover date."}</Text>
           </View>
         )}
         {pagedCrmRows.map((row, index) => {
@@ -9855,8 +10051,8 @@ export default function App() {
                 <Text style={styles.bodyText}>Offers: {customerEstimates.length}{latestEstimate ? ` - Latest ${String(latestEstimate.job_no || latestEstimate.id || "-")} - ${String(latestEstimate.offer_date || latestEstimate.created_at || "-")} - ${formatMoney(offerCostSummary(latestEstimate).totalCost)}` : ""}</Text>
                 <Text style={styles.bodyText}>Site visits: {customerSiteVisits.length}{customerSiteVisits[0] ? ` - Latest ${String(customerSiteVisits[0].id || "-")} ${String(customerSiteVisits[0].site_visit_date || "")}` : ""}</Text>
                 <View style={styles.installDatePanel}>
-                  <Text style={styles.cardLabel}>Elevator installed</Text>
-                  <Text style={styles.bodyText}>{latestInstalledDate || "Not installed yet"}{latestInstalledJob ? ` - Job ${String(latestInstalledJob.job_id || latestInstalledJob.id || "-")} - ${String(latestInstalledJob.status || "-")}` : ""}</Text>
+                  <Text style={styles.cardLabel}>Handover date</Text>
+                  <Text style={styles.bodyText}>{latestInstalledDate || "No handover date"}{latestInstalledJob ? ` - Job ${String(latestInstalledJob.job_id || latestInstalledJob.id || "-")} - ${String(latestInstalledJob.status || "-")}` : ""}</Text>
                   <Text style={styles.muted}>Service end date: {String(customer.service_end_date || customer.service_contract_end_date || "Active / not set")} - Years purchased: {String((customer as Record<string, unknown>).service_years_purchased || "Not set")}</Text>
                 </View>
                 <Text style={styles.bodyText}>Services done: {serviceCount}{liveServiceCount !== serviceCount ? ` - live linked ${liveServiceCount}` : ""}</Text>
@@ -9926,7 +10122,7 @@ export default function App() {
                       ))}
                     </View>
                     <View style={styles.installDatePanel}>
-                      <Text style={styles.cardLabel}>Elevator installed</Text>
+                      <Text style={styles.cardLabel}>Handover date</Text>
                       <TextInput
                         style={styles.input}
                         value={inlineInstalledDate}
@@ -9934,7 +10130,7 @@ export default function App() {
                         commitOnBlur
                         placeholder="YYYY-MM-DD or leave blank"
                       />
-                      <Text style={styles.muted}>Changing this updates the customer-linked installation date used by CRM and service schedules.</Text>
+                      <Text style={styles.muted}>Changing this updates the customer-linked handover date used by CRM and service schedules.</Text>
                     </View>
                     {renderCustomerAssignmentManager(inlineDraft as Customer)}
                     <View style={styles.inlineActions}>
@@ -10080,7 +10276,7 @@ export default function App() {
                     <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.enquiry_remark} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, enquiry_remark: value }))} commitOnBlur multiline />
                   </View>
                   <View style={styles.installDatePanel}>
-                    <Text style={styles.cardLabel}>Elevator installed</Text>
+                    <Text style={styles.cardLabel}>Handover date</Text>
                     <TextInput
                       style={styles.input}
                       value={salesInquiryInstalledDateDraft}
@@ -10088,7 +10284,7 @@ export default function App() {
                       commitOnBlur
                       placeholder="YYYY-MM-DD or leave blank"
                     />
-                    <Text style={styles.muted}>Saving an installed date converts this enquiry into a current customer and links the installation date.</Text>
+                    <Text style={styles.muted}>Saving a handover date converts this enquiry into a current customer and links the handover date.</Text>
                   </View>
                   <View style={styles.inlineActions}>
                     <Pressable
@@ -10130,8 +10326,8 @@ export default function App() {
                   <Text style={styles.bodyText}>Referral: {String(item.referral_by || "-")} - Created by: {String(item.createdbyname || "-")} - Last modified by: {String(item.lastmodifiedbyname || "-")}</Text>
                   <Text style={styles.bodyText}>Follow-up: {followupDate(item) || "-"} - {String(item.followup_channel || "WhatsApp")} - Every {followupFrequency(item)}d - {String(item.followup_status || "Open")}</Text>
                   <View style={styles.installDatePanel}>
-                    <Text style={styles.cardLabel}>Elevator installed</Text>
-                    <Text style={styles.bodyText}>{latestInquiryInstalledDate || "Not installed yet"}{latestInquiryInstalledJob ? ` - Job ${String(latestInquiryInstalledJob.job_id || latestInquiryInstalledJob.id || "-")} - ${String(latestInquiryInstalledJob.status || "-")}` : ""}</Text>
+                    <Text style={styles.cardLabel}>Handover date</Text>
+                    <Text style={styles.bodyText}>{latestInquiryInstalledDate || "No handover date"}{latestInquiryInstalledJob ? ` - Job ${String(latestInquiryInstalledJob.job_id || latestInquiryInstalledJob.id || "-")} - ${String(latestInquiryInstalledJob.status || "-")}` : ""}</Text>
                   </View>
                   <Text style={styles.bodyText}>Offer: {latestEstimate ? `${String(latestEstimate.job_no || latestEstimate.id || "-")} - ${String(latestEstimate.offer_type || latestEstimate.elevator_type || "-")} - ${String(latestEstimate.offer_date || latestEstimate.created_at || "-")} - ${formatMoney(offerCostSummary(latestEstimate).totalCost)}` : "No offer yet"}</Text>
                   <Text style={styles.bodyText}>Site visits: {inquirySiteVisits.length}{inquirySiteVisits[0] ? ` - Latest ${String(inquirySiteVisits[0].id || "-")} ${String(inquirySiteVisits[0].site_visit_date || "")}` : ""}</Text>
@@ -10274,79 +10470,6 @@ export default function App() {
                   <Text style={styles.label}>Internal costing notes</Text>
                   <TextInput style={[styles.input, styles.textarea]} value={offerDraft.notes} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, notes: value }))} multiline />
                 </View>
-                <View style={styles.costingSourcePanel}>
-                  <View style={styles.sectionHeaderRow}>
-                    <View>
-                      <Text style={styles.sectionTitle}>Complete .xlsx costing data</Text>
-                      <Text style={styles.muted}>All extracted source values are shown step by step as normal app data. This is not an upload/import control.</Text>
-                    </View>
-                    <Pressable style={styles.smallButton} onPress={loadCostingSourceData} disabled={loading || costingSourcesLoading}>
-                      <Text style={styles.smallButtonText}>{costingSourcesLoading ? "Loading..." : "Refresh source data"}</Text>
-                    </Pressable>
-                  </View>
-                  {selectedCostingSource ? (
-                    <>
-                      <View style={styles.costingStepper}>
-                        <Pressable
-                          style={styles.smallButton}
-                          onPress={() => setCostingSourceIndex((index) => Math.max(0, index - 1))}
-                          disabled={costingSourceIndex <= 0}
-                        >
-                          <Text style={styles.smallButtonText}>Previous source</Text>
-                        </Pressable>
-                        <View style={styles.costingStepMeta}>
-                          <Text style={styles.cardTitle}>{selectedCostingSource.source_file}</Text>
-                          <Text style={styles.muted}>
-                            Source {costingSourceIndex + 1} of {costingSources.length} - {selectedCostingSource.variant} - {selectedCostingSource.non_empty_cell_count} values
-                          </Text>
-                        </View>
-                        <Pressable
-                          style={styles.smallButton}
-                          onPress={() => setCostingSourceIndex((index) => Math.min(costingSources.length - 1, index + 1))}
-                          disabled={costingSourceIndex >= costingSources.length - 1}
-                        >
-                          <Text style={styles.smallButtonText}>Next source</Text>
-                        </Pressable>
-                      </View>
-                      <View style={styles.costingStepper}>
-                        <Pressable
-                          style={styles.smallButton}
-                          onPress={() => setCostingCellStep((step) => Math.max(0, step - 1))}
-                          disabled={costingCellStep <= 0}
-                        >
-                          <Text style={styles.smallButtonText}>Previous data step</Text>
-                        </Pressable>
-                        <Text style={styles.statusPill}>Data step {Math.min(costingCellStep + 1, Math.max(costingCellChunks.length, 1))} of {Math.max(costingCellChunks.length, 1)}</Text>
-                        <Pressable
-                          style={styles.smallButton}
-                          onPress={() => setCostingCellStep((step) => Math.min(costingCellChunks.length - 1, step + 1))}
-                          disabled={costingCellStep >= costingCellChunks.length - 1}
-                        >
-                          <Text style={styles.smallButtonText}>Next data step</Text>
-                        </Pressable>
-                        <Pressable style={styles.primaryButtonInline} onPress={attachSelectedCostingSource} disabled={loading}>
-                          <Text style={styles.primaryButtonText}>Attach all source data</Text>
-                        </Pressable>
-                      </View>
-                      <View style={styles.costingCellList}>
-                        {visibleCostingCells.map((cell, index) => (
-                          <View key={`${selectedCostingSource.source_file}-${cell.sheet}-${cell.cell}-${index}`} style={styles.costingCellRow}>
-                            <Text style={styles.costingCellRef}>{cell.sheet}!{cell.cell}</Text>
-                            <Text style={styles.costingCellValue}>{String(cell.value ?? "")}</Text>
-                            {cell.formula ? <Text style={styles.costingCellFormula}>Formula: {cell.formula}</Text> : null}
-                          </View>
-                        ))}
-                      </View>
-                      <Text style={styles.muted}>
-                        Attached source: {offerDraft.costing_source_file || "none yet"}. Saving will store the selected source's complete extracted data with this costing.
-                      </Text>
-                    </>
-                  ) : (
-                    <View style={styles.emptyState}>
-                      <Text style={styles.muted}>{costingSourcesLoading ? "Loading source values..." : "No costing source data loaded yet."}</Text>
-                    </View>
-                  )}
-                </View>
               </ScrollView>
               <View style={styles.modalActions}>
                 <Pressable style={styles.secondaryButton} onPress={() => setCostingEditorOpen(false)} disabled={loading}>
@@ -10462,6 +10585,7 @@ export default function App() {
         })}
         {renderListControls("site-visit-modal-saved", asRecords(data?.site_visits).length)}
         </View>
+
       </View>
     );
   }
@@ -12314,6 +12438,7 @@ export default function App() {
         })}
         {renderListControls(salesListKey, inquiries.length)}
         </View>
+
       </View>
     );
   }
@@ -12690,6 +12815,8 @@ export default function App() {
         return renderStaffManagementPage();
       case "siteVisits":
         return renderSiteVisitReportsPage();
+      case "costingImport":
+        return renderCostingWorkbookImportPage();
       case "offerManager":
         return renderOfferManagerPage();
       case "marketing":
@@ -12731,53 +12858,86 @@ export default function App() {
     return nextToken ? nextToken.slice(-16) : "";
   }
 
+  function desktopPortalCache(): DesktopPortalCache | null {
+    const runtime = globalThis as typeof globalThis & { FUZI_DESKTOP_CACHE?: DesktopPortalCache };
+    return runtime.FUZI_DESKTOP_CACHE || null;
+  }
+
   function isUsablePortalData(value: unknown): value is PortalData {
     if (!value || typeof value !== "object") return false;
     const candidate = value as PortalData;
     return Array.isArray(candidate.metrics) && !!candidate.viewer && !!candidate.access;
   }
 
-  function readCachedPortal(nextToken = token) {
+  function validCachedPortal(cached: unknown, nextToken = token) {
+    const payload = cached as Partial<PortalCachePayload> | null;
+    if (!payload || payload.schemaVersion !== portalCacheSchemaVersion) return null;
+    if (payload.tokenKey !== portalCacheTokenKey(nextToken)) return null;
+    if (!desktopPortalCache() && Date.now() - Number(payload.savedAt || 0) > portalCacheMaxAgeMs) return null;
+    if (!isUsablePortalData(payload.data)) return null;
+    return payload.data as PortalData;
+  }
+
+  async function readCachedPortal(nextToken = token) {
+    const desktopCache = desktopPortalCache();
+    if (desktopCache) {
+      try {
+        const cached = validCachedPortal(await desktopCache.read(), nextToken);
+        if (cached) return cached;
+      } catch {
+        // Fall through to browser storage.
+      }
+    }
     if (Platform.OS !== "web" || typeof globalThis.localStorage === "undefined") return null;
     try {
       const cached = JSON.parse(globalThis.localStorage.getItem(portalCacheKey) || "null");
-      if (!cached || cached.schemaVersion !== portalCacheSchemaVersion) return null;
-      if (!cached || cached.tokenKey !== portalCacheTokenKey(nextToken)) return null;
-      if (Date.now() - Number(cached.savedAt || 0) > portalCacheMaxAgeMs) return null;
-      if (!isUsablePortalData(cached.data)) return null;
-      return cached.data as PortalData;
+      return validCachedPortal(cached, nextToken);
     } catch {
       return null;
     }
   }
 
-  function writeCachedPortal(nextToken: string, portalData: PortalData) {
+  async function writeCachedPortal(nextToken: string, portalData: PortalData) {
+    const payload = {
+      schemaVersion: portalCacheSchemaVersion,
+      tokenKey: portalCacheTokenKey(nextToken),
+      savedAt: Date.now(),
+      data: portalData,
+    };
+    const desktopCache = desktopPortalCache();
+    if (desktopCache) {
+      try {
+        await desktopCache.write(payload);
+      } catch {
+        // Browser storage remains a fallback.
+      }
+    }
     if (Platform.OS !== "web" || typeof globalThis.localStorage === "undefined") return;
     try {
-      globalThis.localStorage.setItem(portalCacheKey, JSON.stringify({
-        schemaVersion: portalCacheSchemaVersion,
-        tokenKey: portalCacheTokenKey(nextToken),
-        savedAt: Date.now(),
-        data: portalData,
-      }));
+      globalThis.localStorage.setItem(portalCacheKey, JSON.stringify(payload));
     } catch {
       // Storage can be full or disabled; the live network response still drives the app.
     }
   }
 
   async function loadPortal(nextToken = token) {
-    const cachedPortalData = readCachedPortal(nextToken);
+    const cachedPortalData = await readCachedPortal(nextToken);
     if (!data && cachedPortalData) {
       setData(stripRawTransportPayloads(cachedPortalData));
       setMessage("Showing cached data while refreshing live records.");
     }
     try {
+      const offlineSync = await syncQueuedOfflineWrites();
       const portalData = await apiFetch<PortalData>("/api/portal/data", { token: nextToken });
       // WARNING: Frontend state stores FUZI domain records only. Never store raw Discord/OpenClaw message history or transport payloads here.
       const sanitizedPortalData = stripRawTransportPayloads(portalData);
       setData(sanitizedPortalData);
-      writeCachedPortal(nextToken, sanitizedPortalData);
-      if (cachedPortalData) setMessage("");
+      await writeCachedPortal(nextToken, sanitizedPortalData);
+      if (offlineSync.synced) {
+        setMessage(`Synced ${offlineSync.synced} offline change${offlineSync.synced === 1 ? "" : "s"} to the server.`);
+      } else if (cachedPortalData) {
+        setMessage("");
+      }
     } catch (error) {
       if (cachedPortalData) {
         setMessage(error instanceof Error ? `Showing cached data. Live refresh failed: ${error.message}` : "Showing cached data. Live refresh failed.");
@@ -12816,6 +12976,8 @@ export default function App() {
       globalThis.localStorage.removeItem("fuzi_portal_token");
       globalThis.localStorage.removeItem(portalCacheKey);
     }
+    desktopPortalCache()?.clear().catch(() => {});
+    clearQueuedOfflineWrites().catch(() => {});
   }
 
   async function signIn(nextUsername = username, nextPassword = password) {
@@ -13347,9 +13509,10 @@ export default function App() {
       setSalesInquiryDraft(emptySalesInquiryDraft);
       setSalesInquiryInstalledDateDraft("");
       setSalesInquiryEditorOpen(false);
-      if (shouldConvertToCustomer) setCrmRecordView("Customers");
+      setCrmRecordView(shouldConvertToCustomer ? "Customers" : "Enquiries");
+      setActiveTab(shouldConvertToCustomer ? "customers" : "enquiries");
       await loadPortal();
-      setMessage(shouldConvertToCustomer ? "Saved to CRM customer and installation date updated." : (id ? "Enquiry record updated." : "Sales enquiry intake saved."));
+      setMessage(shouldConvertToCustomer ? "Saved to CRM customer and handover date updated." : (id ? "Enquiry record updated." : "Sales enquiry intake saved."));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Sales enquiry could not be saved.");
     } finally {
@@ -13390,6 +13553,7 @@ export default function App() {
     setSiteVisitDraft((draft) => ({ ...draft, customer_id: customerId, site_enquiry_no: enquiryNo || draft.site_enquiry_no }));
     setSiteVisitEditorOpen(false);
     setSalesInquiryEditorOpen(true);
+    setActiveTab("enquiries");
     setMessage(`Editing enquiry ${String(record.enquiry_no || record.id || "")}. Site visit entry is ready for this customer.`);
   }
 
@@ -13466,7 +13630,7 @@ export default function App() {
     const customerName = String(record.customer || record.lead_name || "");
     const customerId = String(record.customer_id || "");
     const siteMeasurements = offerMeasurementPayloadFromSiteVisit(siteVisitsForCustomerId(customerId)[0]);
-    setOfferDraft({
+    const nextDraft = {
       ...emptyOfferDraft,
       ...siteMeasurements,
       customer_name: customerName,
@@ -13478,7 +13642,8 @@ export default function App() {
       source_inquiry_id: recordIdentity(record) || String(record.enquiry_no || ""),
       linked_customer_source: "CRM enquiry",
       notes: String(record.enquiry_remark || record.requirement || ""),
-    });
+    };
+    setOfferDraft(nextDraft);
     setActiveTab("offerManager");
     setCostingEditorOpen(true);
     setMessage(`Offer Manager opened for ${customerName}. CRM enquiry and linked site visit data are filled into the offer draft.`);
@@ -13497,23 +13662,24 @@ export default function App() {
     }
     setLoading(true);
     try {
+      const draftForSave = offerDraft;
       const payload = {
-        ...offerDraft,
-        offer_name: offerDraft.offer_name || offerDraft.customer_name,
-        offer_number: offerDraft.offer_number || offerDraft.job_no || "",
-        status: offerDraft.lead_status || "Offer Pending",
-        total_cost: offerCostSummary(offerDraft).totalCost,
-        calculated_total_cost: offerCostSummary(offerDraft).totalCost,
+        ...draftForSave,
+        offer_name: draftForSave.offer_name || draftForSave.customer_name,
+        offer_number: draftForSave.offer_number || draftForSave.job_no || "",
+        status: draftForSave.lead_status || "Offer Pending",
+        total_cost: offerCostSummary(draftForSave).totalCost,
+        calculated_total_cost: offerCostSummary(draftForSave).totalCost,
         source: "CRM Offer Manager",
-        offer_source: offerDraft.offer_source || "CRM",
+        offer_source: draftForSave.offer_source || "CRM",
         source_snapshot: {
-          customer_id: offerDraft.customer_id,
-          customer_name: offerDraft.customer_name,
-          source_inquiry_id: offerDraft.source_inquiry_id,
-          site_visit_id: offerDraft.site_visit_id,
-          site_measurements_source: offerDraft.site_measurements_source,
-          costing_source_file: offerDraft.costing_source_file,
-          linked_customer_source: offerDraft.linked_customer_source,
+          customer_id: draftForSave.customer_id,
+          customer_name: draftForSave.customer_name,
+          source_inquiry_id: draftForSave.source_inquiry_id,
+          site_visit_id: draftForSave.site_visit_id,
+          site_measurements_source: draftForSave.site_measurements_source,
+          costing_source_file: draftForSave.costing_source_file,
+          linked_customer_source: draftForSave.linked_customer_source,
         },
         offer_letter_status: "Prepared",
       };
@@ -13522,11 +13688,11 @@ export default function App() {
         token,
         body: JSON.stringify(payload),
       });
-      if (offerDraft.source_inquiry_id) {
-        await apiFetch(`/api/portal/sales/inquiries/${encodeURIComponent(offerDraft.source_inquiry_id)}`, {
+      if (draftForSave.source_inquiry_id) {
+        await apiFetch(`/api/portal/sales/inquiries/${encodeURIComponent(draftForSave.source_inquiry_id)}`, {
           method: "PATCH",
           token,
-          body: JSON.stringify({ lead_status: offerDraft.lead_status, status: offerDraft.lead_status }),
+          body: JSON.stringify({ lead_status: draftForSave.lead_status, status: draftForSave.lead_status }),
         });
       }
       setOfferDraft(emptyOfferDraft);
@@ -13794,7 +13960,7 @@ export default function App() {
     const id = String(result.id || result.customer_id || "");
     const target: Partial<Record<string, TabKey>> = {
       customers: "customers",
-      sales_inquiries: "customers",
+      sales_inquiries: "enquiries",
       install_jobs: "installations",
       breakdowns: "breakdown",
       service_records: "service",
@@ -13806,7 +13972,10 @@ export default function App() {
     setActiveTab(nextTab);
     setGlobalSearchOpen(false);
     if (collection === "customers") setCrmSearch(id || String(result.title || ""));
-    if (collection === "sales_inquiries") setCrmSearch(id || String(result.title || ""));
+    if (collection === "sales_inquiries") {
+      setCrmRecordView("Enquiries");
+      setCrmSearch(id || String(result.title || ""));
+    }
     if (collection === "install_jobs") setInstallationSearch(id || String(result.title || ""));
     if (collection === "breakdowns") setBreakdownCustomerSearch(String(result.title || id));
     setMessage(`Opened ${String(result.title || id || collection)}.`);
@@ -14756,8 +14925,15 @@ export default function App() {
   }, [globalSearch, token]);
 
   useEffect(() => {
+    if (activeTab === "enquiries" || activeTab === "sales") setCrmRecordView("Enquiries");
+    if (activeTab === "customers") setCrmRecordView("Customers");
+  }, [activeTab]);
+
+  useEffect(() => {
     const allowed = data?.access?.allowed_views;
-    if (allowed?.length && !allowed.includes(activeTab)) {
+    const hasCostingImportAccess = activeTab === "costingImport" && ["customers", "sales", "offerManager", "siteVisits"].some((key) => allowed?.includes(key));
+    const hasEnquiriesAccess = activeTab === "enquiries" && ["enquiries", "customers", "sales"].some((key) => allowed?.includes(key));
+    if (allowed?.length && !allowed.includes(activeTab) && !hasCostingImportAccess && !hasEnquiriesAccess) {
       setActiveTab((data?.access?.default_view as TabKey) || (allowed[0] as TabKey) || "overview");
     }
   }, [activeTab, data?.access]);
@@ -15226,7 +15402,7 @@ export default function App() {
               {activeTab === "overview" && renderOverviewAnalytics()}
               {activeTab === "today" && renderTodayActionQueue()}
 
-              {activeTab === "customers" && (
+              {(activeTab === "enquiries" || activeTab === "customers") && (
                 renderCustomerCrmPage()
               )}
 
@@ -15239,7 +15415,7 @@ export default function App() {
               {activeTab === "overview" && renderOverviewAnalytics()}
               {activeTab === "today" && renderTodayActionQueue()}
 
-              {activeTab === "customers" && (
+              {(activeTab === "enquiries" || activeTab === "customers") && (
                 renderCustomerCrmPage()
               )}
 

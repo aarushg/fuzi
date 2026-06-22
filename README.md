@@ -52,6 +52,50 @@ Seeded staff accounts are stored in `fuzi.sqlite3`. Staff portal accounts use th
 
 ---
 
+## Installable Apps
+
+The Windows and Android apps are clients for the FUZI server. Login, CRM, offers, inventory, site visits, and reports stay synced through the Node API.
+
+The Windows app also keeps local desktop data in the app data folder:
+
+- `portal-data-cache.json` stores the last synced full portal snapshot so the app opens quickly and can show records if the network is unavailable.
+- `local-data/` stores the same synced server data split into per-section JSON files, such as customers, estimates, inventory, site visits, service records, payments, users, and other portal collections.
+- `offline-write-queue.json` stores saves made while the server is unreachable. When the network comes back, the desktop app replays those writes to the server in order, then refreshes from the server.
+
+The desktop local data is a mirror and offline working copy. The server remains the source of truth after sync completes.
+
+### Windows
+
+The Windows desktop app uses Electron as a shell around the same Expo web export that the browser version uses. The website stays available through `npm run web`, `npm run web:export`, and the Node API static server; Electron only adds the desktop window, preload bridge, local cache, and offline write queue.
+
+1. Set the server URL in `fuzi-desktop.config.json` beside the app, or set `FUZI_API_URL`.
+2. Run `npm install` after pulling packaging dependencies.
+3. Run `npm run desktop` for local desktop testing.
+4. Run `npm run desktop:build` or `npm run windows:build` to create the Windows NSIS installer.
+   Use `npm run desktop:package` only when `expo-app/dist` is already current.
+5. Share the generated installer from `release/`.
+
+For local testing, copy `fuzi-desktop.config.example.json` to `fuzi-desktop.config.json` and set:
+
+```json
+{
+  "apiUrl": "https://your-fuzi-server.example.com"
+}
+```
+
+### Android
+
+Set `EXPO_PUBLIC_FUZI_API_URL` in `eas.json` to the FUZI server URL, then build:
+
+```powershell
+npm run android:build
+npm run android:build:production
+```
+
+`android:build` creates an APK for direct testing. `android:build:production` creates an Android App Bundle.
+
+---
+
 ## Docker
 
 FUZI production runs as one Node service on port `5000`. The production image builds the Expo single-page web bundle and serves it from the same API container, so `http://127.0.0.1:5000` is both the production app and API origin.
@@ -148,6 +192,9 @@ Development scripts:
 - `npm run web:dev` is an explicit alias for the same live Expo dev server.
 - `npm run web:export` refreshes `expo-app/dist/index.html`, which production serves from port `5000`.
 - `npm run web:preview` exports and previews the single-page production file on port `8083`.
+- `npm run desktop` refreshes the Expo web export and opens it inside the Electron desktop shell.
+- `npm run desktop:build` refreshes the Expo web export and packages the Windows desktop app with electron-builder.
+- `npm run desktop:package` packages the current `expo-app/dist` desktop bundle without re-exporting it.
 
 API base URL:
 - Web and local development default to `http://127.0.0.1:5000`, so the latest UI on `8082` sends API calls to `5000`.
@@ -508,7 +555,7 @@ Build professional customer-linked elevator costing records and send bid reports
 - Passenger mode uses passenger-capacity options, while Goods and Dumbwaiter switch to the load-capacity options automatically.
 - Fixed rupee margin mirrors the Excel costing sheets and recalculates price live.
 - Recipient email, valid-until date, free-text notes, and add-ons remain available.
-- The **Complete .xlsx costing data** panel reads every non-empty cell from workbooks in `docs/costing`, shows values step by step, shows formulas where present, and lets staff attach the complete extracted source data to the costing as normal user-entered app data. This is a review/attach workflow, not a dashboard upload/import control.
+- The **Costing Import** module under CRM & Sales reads every usable workbook in `docs/6-passenger-costing`, converts sheets to ordered cell arrays, shows formulas where present, and stages the selected source for the next saved offer.
 
 **Live pricing:** Cost engine reads workbook-style component costs, applies capacity/specification selections, and adds the approved rupee margin in real time.
 
@@ -935,12 +982,7 @@ The main routing targets are:
 - `FUZI_OPENCLAW_TARGET_WORK_ORDERS` → `#site-work-orders`
 - `FUZI_OPENCLAW_TARGET_INSTALLATIONS` → `#field-installations`
 
-Also set `FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL` for Discord `#fuzi-breakdown`. The reusable helper in `../fuzicommands` can create/use an OpenClaw session named `fuzidiscordchannel` and run a read-only shell tool call to discover the current target without changing the FUZI breakdown target:
-
-```sh
-cd ../fuzicommands
-npm run fuzidiscordchannel -- --openclaw-dir "../dockeropenclaw/data/config"
-```
+Also set `FUZI_OPENCLAW_TARGET_BREAKDOWN_CHANNEL` for Discord `#fuzi-breakdown`. Use the external OpenClaw command helper to create/use an OpenClaw session named `fuzidiscordchannel` and run a read-only shell tool call to discover the current target without changing the FUZI breakdown target.
 
 ### `#fuzi-breakdown` Chat Input And Output
 

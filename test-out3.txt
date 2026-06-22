@@ -1,0 +1,3 @@
+type: browser
+e-type: object
+e: nativeImage,shell,app,autoUpdater,BaseWindow

@@ -232,3 +232,4 @@ fuzi-password*.env
 app_run*.log
 fuzi-api*.log
 docs/.~lock.*#
+release/
