@@ -1,5 +1,5 @@
-﻿import { StatusBar } from "expo-status-bar";
-import { ComponentProps, createContext, memo, ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { StatusBar } from "expo-status-bar";
+import { ComponentProps, createContext, memo, MutableRefObject, ReactNode, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -22,7 +22,21 @@ import type { Customer, PortalData, SiteVisit } from "./types";
 type PortalLanguage = "en" | "hi";
 type NativeTextProps = ComponentProps<typeof NativeText>;
 type NativeTextInputProps = ComponentProps<typeof NativeTextInput>;
-type BufferedTextInputProps = NativeTextInputProps & { commitDelayMs?: number; commitOnBlur?: boolean };
+type BufferedTextInputProps = NativeTextInputProps & {
+  commitDelayMs?: number;
+  commitOnBlur?: boolean;
+  controlled?: boolean;
+  onInput?: (event: unknown) => void;
+};
+type ListLimitSnapshot = {
+  listStepInput: string;
+  listVisibleCounts: Record<string, number>;
+};
+type ListLimitController = {
+  stateRef: MutableRefObject<ListLimitSnapshot>;
+  setListStepInput: LocalStateSetter<string>;
+  setListCount: (key: string, total: number, nextCount: number) => void;
+};
 
 const LanguageContext = createContext<PortalLanguage>("en");
 const DEFAULT_LIST_STEP = 3;
@@ -250,14 +264,29 @@ const Text = memo(function Text(props: NativeTextProps) {
   const language = useContext(LanguageContext);
   return <NativeText {...props}>{translateChildren(props.children, language)}</NativeText>;
 });
-
 const TextInput = memo(function TextInput(props: BufferedTextInputProps) {
   const language = useContext(LanguageContext);
-  const { commitDelayMs, commitOnBlur, onBlur, onChangeText, onFocus, placeholder, value, ...rest } = props;
+  const {
+    commitDelayMs,
+    commitOnBlur,
+    controlled,
+    defaultValue,
+    onBlur,
+    onChange,
+    onChangeText,
+    onFocus,
+    onInput,
+    onSubmitEditing,
+    placeholder,
+    value,
+    ...rest
+  } = props;
   const translatedPlaceholder = typeof placeholder === "string" ? translateString(placeholder, language) : placeholder;
-  const externalValue = typeof value === "string" ? value : value == null ? "" : String(value);
-  const syncDelayMs = Number.isFinite(commitDelayMs) ? Math.max(0, Number(commitDelayMs)) : 250;
-  const [localValue, setLocalValue] = useState(externalValue);
+  const rawExternalValue = value ?? defaultValue ?? "";
+  const externalValue =
+    typeof rawExternalValue === "string" ? rawExternalValue : rawExternalValue == null ? "" : String(rawExternalValue);
+  const syncDelayMs = Number.isFinite(commitDelayMs) ? Math.max(0, Number(commitDelayMs)) : 0;
+  const shouldControl = controlled || value !== undefined;
   const focusedRef = useRef(false);
   const pendingValueRef = useRef(externalValue);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -273,10 +302,26 @@ const TextInput = memo(function TextInput(props: BufferedTextInputProps) {
     if (onChangeText && nextValue !== externalValue) onChangeText(nextValue);
   }
 
+  function handleChangedText(text: string) {
+    pendingValueRef.current = text;
+    if (!onChangeText) return;
+    if (commitOnBlur) return;
+    if (!syncDelayMs) {
+      onChangeText(text);
+      return;
+    }
+    clearSyncTimer();
+    syncTimerRef.current = setTimeout(() => flushValue(text), syncDelayMs);
+  }
+
+  function textFromInputEvent(event: unknown) {
+    const inputEvent = event as { nativeEvent?: { text?: string; target?: { value?: string } }; target?: { value?: string } };
+    return inputEvent.nativeEvent?.text ?? inputEvent.nativeEvent?.target?.value ?? inputEvent.target?.value;
+  }
+
   useEffect(() => {
     if (!focusedRef.current) {
       pendingValueRef.current = externalValue;
-      setLocalValue(externalValue);
     }
   }, [externalValue]);
 
@@ -285,7 +330,7 @@ const TextInput = memo(function TextInput(props: BufferedTextInputProps) {
   return (
     <NativeTextInput
       {...rest}
-      value={localValue}
+      {...(shouldControl ? { value: externalValue } : { defaultValue: externalValue })}
       placeholder={translatedPlaceholder}
       onFocus={(event) => {
         focusedRef.current = true;
@@ -293,20 +338,353 @@ const TextInput = memo(function TextInput(props: BufferedTextInputProps) {
       }}
       onBlur={(event) => {
         focusedRef.current = false;
-        flushValue();
+        if (!shouldControl || commitOnBlur) flushValue();
         onBlur?.(event);
       }}
+      onSubmitEditing={(event) => {
+        if (!shouldControl || commitOnBlur) flushValue();
+        onSubmitEditing?.(event);
+      }}
+      onChange={(event) => {
+        const text = textFromInputEvent(event);
+        if (typeof text === "string") handleChangedText(text);
+        onChange?.(event);
+      }}
+      {...(Platform.OS === "web" ? {
+        onInput: (event: unknown) => {
+          const text = textFromInputEvent(event);
+          if (typeof text === "string") handleChangedText(text);
+          onInput?.(event);
+        },
+      } as Record<string, unknown> : {})}
       onChangeText={(text) => {
-        pendingValueRef.current = text;
-        setLocalValue(text);
-        if (!onChangeText) return;
-        if (commitOnBlur) return;
-        clearSyncTimer();
-        syncTimerRef.current = setTimeout(() => flushValue(text), syncDelayMs);
+        handleChangedText(text);
       }}
     />
   );
 });
+
+function PortalStatus({
+  loading,
+  message,
+  statusRef,
+}: {
+  loading: boolean;
+  message: string;
+  statusRef: MutableRefObject<((next: { loading?: boolean; message?: string }) => void) | null>;
+}) {
+  const [status, setStatus] = useState({ loading, message });
+
+  useEffect(() => {
+    setStatus({ loading, message });
+  }, [loading, message]);
+
+  useEffect(() => {
+    statusRef.current = (next) => setStatus((current) => ({ ...current, ...next }));
+    return () => {
+      statusRef.current = null;
+    };
+  }, [statusRef]);
+
+  return (
+    <View pointerEvents="none" style={Platform.OS === "web" ? styles.portalStatusOverlay : undefined}>
+      {status.loading && <ActivityIndicator style={styles.loader} />}
+      {!!status.message && <Text style={styles.banner}>{status.message}</Text>}
+    </View>
+  );
+}
+
+function ListLimitBoundary({
+  children,
+  controllerRef,
+}: {
+  children: ReactNode | ((state: ListLimitSnapshot) => ReactNode);
+  controllerRef: MutableRefObject<ListLimitController | null>;
+}) {
+  const stateRef = useRef<ListLimitSnapshot>({ listStepInput: String(DEFAULT_LIST_STEP), listVisibleCounts: {} });
+  const [state, setState] = useState<ListLimitSnapshot>(() => ({ ...stateRef.current, listVisibleCounts: { ...stateRef.current.listVisibleCounts } }));
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
+    controllerRef.current = {
+      stateRef,
+      setListStepInput: (next) => {
+        const nextValue = resolveLocalState(next, stateRef.current.listStepInput);
+        const cleanValue = nextValue.replace(/[^0-9]/g, "") || String(DEFAULT_LIST_STEP);
+        stateRef.current = { ...stateRef.current, listStepInput: cleanValue };
+        setState(stateRef.current);
+      },
+      setListCount: (key, total, nextCount) => {
+        const safeCount = Math.min(total, Math.max(Math.min(DEFAULT_LIST_STEP, total), nextCount));
+        stateRef.current = {
+          ...stateRef.current,
+          listVisibleCounts: { ...stateRef.current.listVisibleCounts, [key]: safeCount },
+        };
+        setState(stateRef.current);
+      },
+    };
+    return () => {
+      controllerRef.current = null;
+    };
+  }, [controllerRef]);
+
+  return <>{typeof children === "function" ? children(state) : children}</>;
+}
+
+function LocalDisclosure({
+  activeStyle,
+  buttonStyle,
+  children,
+  closedLabel,
+  disabled,
+  forceOpen,
+  openLabel,
+  textStyle,
+}: {
+  activeStyle?: any;
+  buttonStyle: any;
+  children: ReactNode;
+  closedLabel: string;
+  disabled?: boolean;
+  forceOpen?: boolean;
+  openLabel?: string;
+  textStyle?: any;
+}) {
+  const [open, setOpen] = useState(false);
+  const visible = open || Boolean(forceOpen);
+  return (
+    <>
+      <Pressable
+        style={[buttonStyle, visible && activeStyle]}
+        onPress={() => setOpen((current) => !current)}
+        disabled={disabled}
+      >
+        <Text style={textStyle}>{visible && openLabel ? openLabel : closedLabel}</Text>
+        <Text style={styles.dropdownChevron}>{visible ? "^" : "v"}</Text>
+      </Pressable>
+      {visible && children}
+    </>
+  );
+}
+
+function LocalToggle({
+  children,
+  initialOpen = false,
+}: {
+  children: (open: boolean, setOpen: (next: boolean | ((current: boolean) => boolean)) => void) => ReactNode;
+  initialOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(initialOpen);
+  return <>{children(open, setOpen)}</>;
+}
+
+function LocalStringToggle({
+  children,
+  initialOpen = "",
+}: {
+  children: (open: string, setOpen: (next: string | ((current: string) => string)) => void) => ReactNode;
+  initialOpen?: string;
+}) {
+  const [open, setOpen] = useState(initialOpen);
+  return <>{children(open, setOpen)}</>;
+}
+
+function LocalValue<T>({
+  children,
+  initialValue,
+}: {
+  children: (value: T, setValue: (next: T | ((current: T) => T)) => void) => ReactNode;
+  initialValue: T;
+}) {
+  const [value, setValue] = useState(initialValue);
+  return <>{children(value, setValue)}</>;
+}
+
+function LocalRecordToggle({
+  children,
+}: {
+  children: (open: Record<string, boolean>, setOpen: (next: Record<string, boolean> | ((current: Record<string, boolean>) => Record<string, boolean>)) => void) => ReactNode;
+}) {
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  return <>{children(open, setOpen)}</>;
+}
+
+type LocalBooleanSetter = (next: boolean | ((current: boolean) => boolean)) => void;
+type LocalStateSetter<T> = (next: T | ((current: T) => T)) => void;
+type CustomerInlineEditorController = {
+  close: () => void;
+  open: (draft: Partial<Customer>, installedDate: string) => void;
+};
+
+function LocalImperativeToggle({
+  children,
+  controllerRef,
+  initialOpen = false,
+}: {
+  children: (open: boolean, setOpen: LocalBooleanSetter) => ReactNode;
+  controllerRef: React.MutableRefObject<LocalBooleanSetter | null>;
+  initialOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(initialOpen);
+  useEffect(() => {
+    controllerRef.current = setOpen;
+    return () => {
+      if (controllerRef.current === setOpen) controllerRef.current = null;
+    };
+  }, [controllerRef]);
+  return <>{children(open, setOpen)}</>;
+}
+
+function CustomerInlineEditorSlot({
+  children,
+  controllerMapRef,
+  customerId,
+  initialDraft,
+  initialInstalledDate,
+}: {
+  children: (state: { inlineDraft: Partial<Customer> | null; inlineInstalledDate: string }) => ReactNode;
+  controllerMapRef: MutableRefObject<Record<string, CustomerInlineEditorController | undefined>>;
+  customerId: string;
+  initialDraft?: Partial<Customer>;
+  initialInstalledDate?: string;
+}) {
+  const [state, setState] = useState<{ inlineDraft: Partial<Customer> | null; inlineInstalledDate: string }>(() => ({
+    inlineDraft: initialDraft || null,
+    inlineInstalledDate: initialInstalledDate || "",
+  }));
+
+  useEffect(() => {
+    controllerMapRef.current[customerId] = {
+      close: () => setState((current) => ({ ...current, inlineDraft: null })),
+      open: (draft, installedDate) => setState({ inlineDraft: draft, inlineInstalledDate: installedDate }),
+    };
+    return () => {
+      if (controllerMapRef.current[customerId]) delete controllerMapRef.current[customerId];
+    };
+  }, [controllerMapRef, customerId]);
+
+  return <>{children(state)}</>;
+}
+
+type CsvImportDraft = { filename: string; csvText: string };
+
+function CsvImportEditor({
+  disabled,
+  importTypes,
+  onImport,
+  onOpenTemplate,
+  onSelectImportType,
+  selectedImportType,
+  setMessage,
+  templates,
+}: {
+  disabled?: boolean;
+  importTypes: Array<{ key: string; label: string }>;
+  onImport: (draft: CsvImportDraft) => void;
+  onOpenTemplate: (fileName: string) => void;
+  onSelectImportType: (key: string, label: string) => void;
+  selectedImportType: string;
+  setMessage: (message: string) => void;
+  templates: ReadonlyArray<readonly [string, string]>;
+}) {
+  const draftRef = useRef<CsvImportDraft>({ filename: "crm-import.csv", csvText: "" });
+  const [displayDraft, setDisplayDraft] = useState<CsvImportDraft>(() => ({ ...draftRef.current }));
+
+  const updateDisplayedDraft = (patch: Partial<CsvImportDraft>) => {
+    draftRef.current = { ...draftRef.current, ...patch };
+    setDisplayDraft({ ...draftRef.current });
+  };
+
+  const chooseCsvFile = () => {
+    if (Platform.OS !== "web" || typeof document === "undefined") {
+      setMessage("CSV import is available from the web portal.");
+      return;
+    }
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".csv,text/csv";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) {
+        setMessage("No CSV file selected.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        updateDisplayedDraft({ filename: file.name || "crm-import.csv", csvText: String(reader.result || "") });
+        setMessage("CSV loaded. Review or edit it before importing.");
+      };
+      reader.onerror = () => setMessage("CSV file could not be read.");
+      reader.readAsText(file);
+    };
+    input.click();
+  };
+
+  return (
+    <>
+      <View style={styles.inlineActions}>
+        {importTypes.map((item) => (
+          <Pressable
+            key={item.key}
+            style={[styles.selectorPill, selectedImportType === item.key && styles.selectorPillActive]}
+            onPress={() => onSelectImportType(item.key, item.label)}
+            disabled={disabled}
+          >
+            <Text style={[styles.selectorText, selectedImportType === item.key && styles.selectorTextActive]}>{item.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <View style={styles.inlineActions}>
+        <Pressable style={styles.primaryButtonInline} onPress={chooseCsvFile} disabled={disabled}>
+          <Text style={styles.primaryButtonText}>Choose CSV</Text>
+        </Pressable>
+        <Pressable style={styles.secondaryButton} onPress={() => onImport(draftRef.current)} disabled={disabled || !draftRef.current.csvText.trim()}>
+          <Text style={styles.secondaryButtonText}>Import edited CSV</Text>
+        </Pressable>
+        <Pressable style={styles.smallButton} onPress={() => updateDisplayedDraft({ filename: "crm-import.csv", csvText: "" })} disabled={disabled}>
+          <Text style={styles.smallButtonText}>Clear draft</Text>
+        </Pressable>
+      </View>
+      <View style={styles.formGrid}>
+        <View style={styles.field}>
+          <Text style={styles.label}>CSV file name</Text>
+          <TextInput
+            key={`crm-csv-file-${displayDraft.filename}`}
+            style={styles.input}
+            defaultValue={displayDraft.filename}
+            onChangeText={(value) => {
+              draftRef.current = { ...draftRef.current, filename: value };
+            }}
+            placeholder="crm-import.csv"
+          />
+        </View>
+        <View style={styles.field}>
+          <Text style={styles.label}>Editable CSV data</Text>
+          <TextInput
+            key={`crm-csv-text-${displayDraft.filename}-${displayDraft.csvText.length}`}
+            style={[styles.input, styles.textarea]}
+            defaultValue={displayDraft.csvText}
+            onChangeText={(value) => {
+              draftRef.current = { ...draftRef.current, csvText: value };
+            }}
+            placeholder="Paste CSV rows here or choose a CSV file."
+            multiline
+          />
+        </View>
+      </View>
+      <View style={styles.inlineActions}>
+        {templates.map(([label, fileName]) => (
+          <Pressable key={fileName} style={styles.smallButton} onPress={() => onOpenTemplate(fileName)} disabled={disabled}>
+            <Text style={styles.smallButtonText}>{label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </>
+  );
+}
 
 type TabKey =
   | "today"
@@ -345,6 +723,1329 @@ type TabKey =
   | "engineer"
   | "comms"
   | "siteVisits";
+
+type LocalTabSetter = (next: TabKey | ((current: TabKey) => TabKey)) => void;
+
+type CrmRecordView = "Enquiries" | "Customers";
+type CrmPageState = {
+  crmSearch: string;
+  crmRecordView: CrmRecordView;
+  crmStageFilter: string;
+  crmStaffFilter: string;
+  crmDepartmentFilter: string;
+  crmTeamFilter: string;
+  crmImportType: string;
+  customerPage: number;
+  enquiryPage: number;
+  offerPage: number;
+};
+type CrmController = {
+  setCrmSearch: LocalStateSetter<string>;
+  setCrmRecordView: LocalStateSetter<CrmRecordView>;
+  setCrmStageFilter: LocalStateSetter<string>;
+  setCrmStaffFilter: LocalStateSetter<string>;
+  setCrmDepartmentFilter: LocalStateSetter<string>;
+  setCrmTeamFilter: LocalStateSetter<string>;
+  setCrmImportType: LocalStateSetter<string>;
+  setCustomerPage: LocalStateSetter<number>;
+  setEnquiryPage: LocalStateSetter<number>;
+  setOfferPage: LocalStateSetter<number>;
+};
+type CrmState = CrmPageState & CrmController;
+type ServicePageState = {
+  serviceCustomerSearch: string;
+  serviceRecordSearch: string;
+  servicePage: number;
+  serviceNotice: string;
+  serviceActionLoading: boolean;
+};
+type ServiceController = {
+  setServiceCustomerSearch: LocalStateSetter<string>;
+  setServiceRecordSearch: LocalStateSetter<string>;
+  setServicePage: LocalStateSetter<number>;
+  setServiceNotice: LocalStateSetter<string>;
+  setServiceActionLoading: LocalStateSetter<boolean>;
+  setServiceRows: LocalStateSetter<Record<string, unknown>[]>;
+  setServiceAttendanceRows: LocalStateSetter<Record<string, unknown>[]>;
+  patchServiceRow: (id: string, patch: Record<string, unknown>) => void;
+  prependServiceRow: (record: Record<string, unknown>) => void;
+};
+type ServiceState = ServicePageState & { serviceRows: Record<string, unknown>[]; serviceAttendanceRows: Record<string, unknown>[] } & ServiceController;
+type ServiceSelectionState = {
+  serviceSelectedYears: Record<string, number>;
+  serviceSelectedSlots: Record<string, number>;
+  setServiceSelectedYears: LocalStateSetter<Record<string, number>>;
+  setServiceSelectedSlots: LocalStateSetter<Record<string, number>>;
+};
+type InstallationPageState = {
+  installationCustomerSearch: string;
+  installationSearch: string;
+  installationStatusFilter: string;
+  installationReportStart: string;
+  installationReportEnd: string;
+};
+type InstallationController = {
+  setInstallationCustomerSearch: LocalStateSetter<string>;
+  setInstallationSearch: LocalStateSetter<string>;
+  setInstallationStatusFilter: LocalStateSetter<string>;
+  setInstallationReportStart: LocalStateSetter<string>;
+  setInstallationReportEnd: LocalStateSetter<string>;
+  setInstallationJobs: LocalStateSetter<Record<string, unknown>[]>;
+  patchInstallationJob: (id: string, patch: Record<string, unknown>) => void;
+  prependInstallationJob: (record: Record<string, unknown>) => void;
+  setInstallationRowOverride: (id: string, patch: Record<string, unknown>) => void;
+};
+type InstallationState = InstallationPageState & { installationJobs: Record<string, unknown>[]; installationRowOverrides: Record<string, Record<string, unknown>> } & InstallationController;
+type BreakdownPageState = {
+  breakdownCustomerSearch: string;
+  breakdownPage: number;
+  breakdownStatusFilter: string;
+  breakdownHistorySearch: string;
+  breakdownNotice: string;
+  breakdownActionLoading: boolean;
+};
+type BreakdownController = {
+  setBreakdownCustomerSearch: LocalStateSetter<string>;
+  setBreakdownPage: LocalStateSetter<number>;
+  setBreakdownStatusFilter: LocalStateSetter<string>;
+  setBreakdownHistorySearch: LocalStateSetter<string>;
+  setBreakdownNotice: LocalStateSetter<string>;
+  setBreakdownActionLoading: LocalStateSetter<boolean>;
+  setBreakdownRows: LocalStateSetter<Record<string, unknown>[]>;
+  patchBreakdownRow: (id: string, patch: Record<string, unknown>) => void;
+  prependBreakdownRow: (record: Record<string, unknown>) => void;
+};
+type BreakdownState = BreakdownPageState & { breakdownRows: Record<string, unknown>[] } & BreakdownController;
+type BacklogPageState = {
+  backlogSearch: string;
+  backlogCategory: string;
+};
+type BacklogState = BacklogPageState & {
+  setBacklogSearch: LocalStateSetter<string>;
+  setBacklogCategory: LocalStateSetter<string>;
+};
+type TenderPageState = {
+  tenderSearch: string;
+  tenderStatusFilter: string;
+};
+type TenderState = TenderPageState & {
+  setTenderSearch: LocalStateSetter<string>;
+  setTenderStatusFilter: LocalStateSetter<string>;
+};
+type HrPageState = {
+  hrSearch: string;
+  hrDepartmentFilter: string;
+  hrNotice: string;
+  hrActionLoading: boolean;
+};
+type HrState = HrPageState & {
+  hrAttendanceRows: Record<string, unknown>[];
+  hrLeaveRows: Record<string, unknown>[];
+  setHrSearch: LocalStateSetter<string>;
+  setHrDepartmentFilter: LocalStateSetter<string>;
+  setHrNotice: LocalStateSetter<string>;
+  setHrActionLoading: LocalStateSetter<boolean>;
+  setHrAttendanceRows: LocalStateSetter<Record<string, unknown>[]>;
+  setHrLeaveRows: LocalStateSetter<Record<string, unknown>[]>;
+  upsertHrAttendanceRow: (record: Record<string, unknown>) => void;
+  patchHrLeaveRow: (id: string, patch: Record<string, unknown>) => void;
+  prependHrLeaveRow: (record: Record<string, unknown>) => void;
+};
+type InventoryEditDraft = { reorder_point: string; target_stock: string; current_price: string; purchase_price: string; price_date: string };
+type InventoryPageState = {
+  inventorySearch: string;
+  inventoryEdits: Record<string, InventoryEditDraft>;
+};
+type InventoryState = InventoryPageState & {
+  inventoryRows: Record<string, unknown>[];
+  inventoryEditsRef: MutableRefObject<Record<string, InventoryEditDraft>>;
+  setInventorySearch: LocalStateSetter<string>;
+  setInventoryEdits: LocalStateSetter<Record<string, InventoryEditDraft>>;
+  setInventoryEditsRefOnly: LocalStateSetter<Record<string, InventoryEditDraft>>;
+  setInventoryRows: LocalStateSetter<Record<string, unknown>[]>;
+  patchInventoryRow: (id: string, patch: Record<string, unknown>) => void;
+  prependInventoryRow: (record: Record<string, unknown>) => void;
+};
+type InternationalVendorPageState = {
+  internationalVendorSearch: string;
+  internationalVendorFilter: string;
+  internationalVendorPage: number;
+};
+type InternationalVendorState = InternationalVendorPageState & {
+  setInternationalVendorSearch: LocalStateSetter<string>;
+  setInternationalVendorFilter: LocalStateSetter<string>;
+  setInternationalVendorPage: LocalStateSetter<number>;
+};
+type MarketingPageState = {
+  marketingSearch: string;
+};
+type MarketingState = MarketingPageState & {
+  setMarketingSearch: LocalStateSetter<string>;
+};
+type OfferManagerState = {
+  offerCustomerSearch: string;
+  offerCustomerOfferFilter: string;
+  setOfferCustomerSearch: LocalStateSetter<string>;
+  setOfferCustomerOfferFilter: LocalStateSetter<string>;
+};
+type OverviewFilterState = {
+  overviewStartDate: string;
+  overviewEndDate: string;
+  setOverviewStartDate: LocalStateSetter<string>;
+  setOverviewEndDate: LocalStateSetter<string>;
+};
+type SiteVisitReportsState = {
+  siteVisitCustomerSearch: string;
+  setSiteVisitCustomerSearch: LocalStateSetter<string>;
+};
+type SiteVisitDraftState = {
+  siteVisitDraft: Partial<SiteVisit>;
+  siteVisitDraftRef: MutableRefObject<Partial<SiteVisit>>;
+  setSiteVisitDraft: LocalStateSetter<Partial<SiteVisit>>;
+  setSiteVisitDraftRefOnly: LocalStateSetter<Partial<SiteVisit>>;
+};
+type CustomerDraftPageState = {
+  customerDraft: Partial<Customer>;
+  customerInstalledDateDraft: string;
+  customerInlineDrafts: Record<string, Partial<Customer>>;
+  customerInlineInstalledDates: Record<string, string>;
+  customerDraftVersion: number;
+};
+type CustomerDraftState = CustomerDraftPageState & {
+  setCustomerDraft: LocalStateSetter<Partial<Customer>>;
+  setCustomerInstalledDateDraft: LocalStateSetter<string>;
+  setCustomerInlineDrafts: LocalStateSetter<Record<string, Partial<Customer>>>;
+  setCustomerInlineInstalledDates: LocalStateSetter<Record<string, string>>;
+};
+type SalesInquiryDraftPageState = {
+  salesInquiryDraft: typeof emptySalesInquiryDraft;
+  salesInquiryInstalledDateDraft: string;
+  salesInquiryDraftVersion: number;
+};
+type SalesInquiryDraftState = SalesInquiryDraftPageState & {
+  setSalesInquiryDraft: LocalStateSetter<typeof emptySalesInquiryDraft>;
+  setSalesInquiryDraftRefOnly: LocalStateSetter<typeof emptySalesInquiryDraft>;
+  setSalesInquiryInstalledDateDraft: LocalStateSetter<string>;
+  setSalesInquiryInstalledDateDraftRefOnly: LocalStateSetter<string>;
+};
+type OfferDraft = Record<string, any>;
+type OfferDraftState = {
+  offerDraft: OfferDraft;
+  offerDraftRef: MutableRefObject<OfferDraft>;
+  setOfferDraft: LocalStateSetter<OfferDraft>;
+  setOfferDraftRefOnly: LocalStateSetter<OfferDraft>;
+  setOfferDraftDelayed?: LocalStateSetter<OfferDraft>;
+};
+
+const defaultCrmPageState: CrmPageState = {
+  crmSearch: "",
+  crmRecordView: "Enquiries",
+  crmStageFilter: "All",
+  crmStaffFilter: "",
+  crmDepartmentFilter: "All",
+  crmTeamFilter: "All",
+  crmImportType: "auto",
+  customerPage: 1,
+  enquiryPage: 1,
+  offerPage: 1,
+};
+const defaultServicePageState: ServicePageState = {
+  serviceCustomerSearch: "",
+  serviceRecordSearch: "",
+  servicePage: 1,
+  serviceNotice: "",
+  serviceActionLoading: false,
+};
+const defaultInstallationPageState: InstallationPageState = {
+  installationCustomerSearch: "",
+  installationSearch: "",
+  installationStatusFilter: "All",
+  installationReportStart: "",
+  installationReportEnd: "",
+};
+const defaultBreakdownPageState: BreakdownPageState = {
+  breakdownCustomerSearch: "",
+  breakdownPage: 1,
+  breakdownStatusFilter: "Open",
+  breakdownHistorySearch: "",
+  breakdownNotice: "",
+  breakdownActionLoading: false,
+};
+const defaultBacklogPageState: BacklogPageState = { backlogSearch: "", backlogCategory: "All" };
+const defaultTenderPageState: TenderPageState = { tenderSearch: "", tenderStatusFilter: "All" };
+const defaultHrPageState: HrPageState = { hrSearch: "", hrDepartmentFilter: "All", hrNotice: "", hrActionLoading: false };
+const defaultInventoryPageState: InventoryPageState = { inventorySearch: "", inventoryEdits: {} };
+const defaultInternationalVendorPageState: InternationalVendorPageState = {
+  internationalVendorSearch: "",
+  internationalVendorFilter: "All",
+  internationalVendorPage: 1,
+};
+const defaultMarketingPageState: MarketingPageState = { marketingSearch: "" };
+
+function resolveLocalState<T>(next: T | ((current: T) => T), current: T) {
+  return typeof next === "function" ? (next as (current: T) => T)(current) : next;
+}
+
+function CrmStateBoundary({
+  children,
+  controllerRef,
+  stateRef,
+}: {
+  children: (crmState: CrmState) => ReactNode;
+  controllerRef: MutableRefObject<CrmController | null>;
+  stateRef: MutableRefObject<CrmPageState>;
+}) {
+  recordComponentRender("CrmStateBoundary");
+  const [state, setState] = useState<CrmPageState>(() => ({ ...defaultCrmPageState, ...stateRef.current }));
+
+  const setCrmStateField = <K extends keyof CrmPageState>(
+    key: K,
+    next: CrmPageState[K] | ((current: CrmPageState[K]) => CrmPageState[K]),
+    resetPages = false
+  ) => {
+    setState((current) => {
+      const resolved = {
+        ...current,
+        [key]: resolveLocalState(next, current[key]),
+      };
+      const nextState = resetPages
+        ? { ...resolved, customerPage: 1, enquiryPage: 1, offerPage: 1 }
+        : resolved;
+      stateRef.current = nextState;
+      return nextState;
+    });
+  };
+
+  const controller: CrmController = {
+    setCrmSearch: (next) => setCrmStateField("crmSearch", next, true),
+    setCrmRecordView: (next) => setCrmStateField("crmRecordView", next, true),
+    setCrmStageFilter: (next) => setCrmStateField("crmStageFilter", next, true),
+    setCrmStaffFilter: (next) => setCrmStateField("crmStaffFilter", next, true),
+    setCrmDepartmentFilter: (next) => setCrmStateField("crmDepartmentFilter", next, true),
+    setCrmTeamFilter: (next) => setCrmStateField("crmTeamFilter", next, true),
+    setCrmImportType: (next) => setCrmStateField("crmImportType", next),
+    setCustomerPage: (next) => setCrmStateField("customerPage", next),
+    setEnquiryPage: (next) => setCrmStateField("enquiryPage", next),
+    setOfferPage: (next) => setCrmStateField("offerPage", next),
+  };
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state, stateRef]);
+
+  useEffect(() => {
+    controllerRef.current = controller;
+    return () => {
+      if (controllerRef.current === controller) controllerRef.current = null;
+    };
+  });
+
+  return <>{children({ ...state, ...controller })}</>;
+}
+
+function ServiceStateBoundary({
+  children,
+  controllerRef,
+  initialAttendanceRecords,
+  initialServiceRecords,
+  serviceRecordCount,
+  stateRef,
+}: {
+  children: (serviceState: ServiceState) => ReactNode;
+  controllerRef: MutableRefObject<ServiceController | null>;
+  initialAttendanceRecords: Record<string, unknown>[];
+  initialServiceRecords: Record<string, unknown>[];
+  serviceRecordCount: number;
+  stateRef: MutableRefObject<ServicePageState>;
+}) {
+  recordComponentRender("ServiceStateBoundary");
+  const [state, setState] = useState<ServicePageState>(() => ({ ...defaultServicePageState, ...stateRef.current }));
+  const [serviceRows, setServiceRowsState] = useState<Record<string, unknown>[]>(() => initialServiceRecords);
+  const [serviceAttendanceRows, setServiceAttendanceRowsState] = useState<Record<string, unknown>[]>(() => initialAttendanceRecords);
+
+  const serviceRowIdentity = (record: Record<string, unknown>) => String(
+    record.id ||
+    record.job_number ||
+    record.job_no ||
+    record.service_number ||
+    record.breakdown_number ||
+    ""
+  );
+
+  const setServiceStateField = <K extends keyof ServicePageState>(
+    key: K,
+    next: ServicePageState[K] | ((current: ServicePageState[K]) => ServicePageState[K]),
+    resetPage = false
+  ) => {
+    setState((current) => {
+      const resolved = {
+        ...current,
+        [key]: resolveLocalState(next, current[key]),
+      };
+      const nextState = resetPage ? { ...resolved, servicePage: 1 } : resolved;
+      stateRef.current = nextState;
+      return nextState;
+    });
+  };
+
+  const controller: ServiceController = {
+    setServiceCustomerSearch: (next) => setServiceStateField("serviceCustomerSearch", next),
+    setServiceRecordSearch: (next) => setServiceStateField("serviceRecordSearch", next, true),
+    setServicePage: (next) => setServiceStateField("servicePage", next),
+    setServiceNotice: (next) => setServiceStateField("serviceNotice", next),
+    setServiceActionLoading: (next) => setServiceStateField("serviceActionLoading", next),
+    setServiceRows: (next) => {
+      setServiceRowsState((current) => resolveLocalState(next, current));
+    },
+    setServiceAttendanceRows: (next) => {
+      setServiceAttendanceRowsState((current) => resolveLocalState(next, current));
+    },
+    patchServiceRow: (id, patch) => {
+      if (!id) return;
+      setServiceRowsState((current) => current.map((record) => serviceRowIdentity(record) === id ? { ...record, ...patch } : record));
+    },
+    prependServiceRow: (record) => {
+      setServiceRowsState((current) => {
+        const id = serviceRowIdentity(record);
+        if (!id) return [record, ...current];
+        return [record, ...current.filter((item) => serviceRowIdentity(item) !== id)];
+      });
+    },
+  };
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state, stateRef]);
+
+  useEffect(() => {
+    controllerRef.current = controller;
+    return () => {
+      if (controllerRef.current === controller) controllerRef.current = null;
+    };
+  });
+
+  useEffect(() => {
+    const pageCount = Math.max(1, Math.ceil(serviceRecordCount / 10));
+    setServiceStateField("servicePage", (page) => Math.min(page, pageCount));
+  }, [serviceRecordCount]);
+
+  useEffect(() => {
+    setServiceRowsState(initialServiceRecords);
+  }, [initialServiceRecords]);
+
+  useEffect(() => {
+    setServiceAttendanceRowsState(initialAttendanceRecords);
+  }, [initialAttendanceRecords]);
+
+  return <>{children({ ...state, serviceRows, serviceAttendanceRows, ...controller })}</>;
+}
+
+function ServiceSelectionBoundary({ children }: { children: (state: ServiceSelectionState) => ReactNode }) {
+  recordComponentRender("ServiceSelectionBoundary");
+  const [serviceSelectedYears, setServiceSelectedYears] = useState<Record<string, number>>({});
+  const [serviceSelectedSlots, setServiceSelectedSlots] = useState<Record<string, number>>({});
+  return <>{children({
+    serviceSelectedYears,
+    serviceSelectedSlots,
+    setServiceSelectedYears,
+    setServiceSelectedSlots,
+  })}</>;
+}
+
+function InstallationStateBoundary({
+  children,
+  controllerRef,
+  jobs,
+  stateRef,
+}: {
+  children: (installationState: InstallationState) => ReactNode;
+  controllerRef: MutableRefObject<InstallationController | null>;
+  jobs: Record<string, unknown>[];
+  stateRef: MutableRefObject<InstallationPageState>;
+}) {
+  recordComponentRender("InstallationStateBoundary");
+  const [state, setState] = useState<InstallationPageState>(() => ({ ...defaultInstallationPageState, ...stateRef.current }));
+  const [installationJobs, setInstallationJobsState] = useState<Record<string, unknown>[]>(() => jobs);
+  const [installationRowOverrides, setInstallationRowOverrides] = useState<Record<string, Record<string, unknown>>>({});
+  const installationRecordId = (record: Record<string, unknown>) => String(record.id || record.job_id || "");
+
+  const setInstallationStateField = <K extends keyof InstallationPageState>(
+    key: K,
+    next: InstallationPageState[K] | ((current: InstallationPageState[K]) => InstallationPageState[K])
+  ) => {
+    setState((current) => {
+      const base = { ...current, ...stateRef.current };
+      const nextState = {
+        ...base,
+        [key]: resolveLocalState(next, base[key]),
+      };
+      stateRef.current = nextState;
+      return nextState;
+    });
+  };
+
+  const controller: InstallationController = {
+    setInstallationCustomerSearch: (next) => setInstallationStateField("installationCustomerSearch", next),
+    setInstallationSearch: (next) => setInstallationStateField("installationSearch", next),
+    setInstallationStatusFilter: (next) => setInstallationStateField("installationStatusFilter", next),
+    setInstallationReportStart: (next) => setInstallationStateField("installationReportStart", next),
+    setInstallationReportEnd: (next) => setInstallationStateField("installationReportEnd", next),
+    setInstallationJobs: (next) => setInstallationJobsState((current) => resolveLocalState(next, current)),
+    patchInstallationJob: (id, patch) => {
+      const patchId = installationRecordId(patch);
+      setInstallationJobsState((current) => {
+        let changed = false;
+        const nextRows = current.map((record) => {
+          const rowId = installationRecordId(record);
+          const rowJobId = String(record.job_id || "");
+          const matchesRow = rowId === id || rowJobId === id || (patchId ? rowId === patchId || rowJobId === patchId : false);
+          if (!matchesRow) return record;
+          changed = true;
+          return { ...record, ...patch };
+        });
+        return changed ? nextRows : current;
+      });
+    },
+    prependInstallationJob: (record) => {
+      setInstallationJobsState((current) => {
+        const id = installationRecordId(record);
+        if (!id) return [record, ...current];
+        return [
+          record,
+          ...current.filter((item) => installationRecordId(item) !== id),
+        ];
+      });
+    },
+    setInstallationRowOverride: (id, patch) => {
+      setInstallationRowOverrides((current) => ({
+        ...current,
+        [id]: { ...(current[id] || {}), ...patch },
+      }));
+    },
+  };
+
+  useEffect(() => {
+    controllerRef.current = controller;
+    return () => {
+      if (controllerRef.current === controller) controllerRef.current = null;
+    };
+  });
+
+  return <>{children({ ...state, installationJobs, installationRowOverrides, ...controller })}</>;
+}
+
+function BreakdownStateBoundary({
+  breakdownCount,
+  initialBreakdowns,
+  children,
+  controllerRef,
+  stateRef,
+}: {
+  breakdownCount: number;
+  initialBreakdowns: Record<string, unknown>[];
+  children: (breakdownState: BreakdownState) => ReactNode;
+  controllerRef: MutableRefObject<BreakdownController | null>;
+  stateRef: MutableRefObject<BreakdownPageState>;
+}) {
+  recordComponentRender("BreakdownStateBoundary");
+  const [state, setState] = useState<BreakdownPageState>(() => ({ ...defaultBreakdownPageState, ...stateRef.current }));
+  const [breakdownRows, setBreakdownRows] = useState<Record<string, unknown>[]>(initialBreakdowns);
+  const breakdownRowId = (record: Record<string, unknown>) => String(record.id || record.job_id || record.breakdown_number || record.job_number || "");
+
+  const setBreakdownStateField = <K extends keyof BreakdownPageState>(
+    key: K,
+    next: BreakdownPageState[K] | ((current: BreakdownPageState[K]) => BreakdownPageState[K]),
+    resetPage = false
+  ) => {
+    setState((current) => {
+      const resolved = {
+        ...current,
+        [key]: resolveLocalState(next, current[key]),
+      };
+      const nextState = resetPage ? { ...resolved, breakdownPage: 1 } : resolved;
+      stateRef.current = nextState;
+      return nextState;
+    });
+  };
+
+  const controller: BreakdownController = {
+    setBreakdownCustomerSearch: (next) => setBreakdownStateField("breakdownCustomerSearch", next),
+    setBreakdownPage: (next) => setBreakdownStateField("breakdownPage", next),
+    setBreakdownStatusFilter: (next) => setBreakdownStateField("breakdownStatusFilter", next, true),
+    setBreakdownHistorySearch: (next) => setBreakdownStateField("breakdownHistorySearch", next, true),
+    setBreakdownNotice: (next) => setBreakdownStateField("breakdownNotice", next),
+    setBreakdownActionLoading: (next) => setBreakdownStateField("breakdownActionLoading", next),
+    setBreakdownRows,
+    patchBreakdownRow: (id, patch) => {
+      setBreakdownRows((current) => current.map((record) => (
+        breakdownRowId(record) === id || String(record.id || "") === id ? { ...record, ...patch } : record
+      )));
+    },
+    prependBreakdownRow: (record) => {
+      setBreakdownRows((current) => {
+        const id = breakdownRowId(record) || String(record.id || "");
+        if (!id) return [record, ...current];
+        return [record, ...current.filter((item) => breakdownRowId(item) !== id && String(item.id || "") !== id)];
+      });
+    },
+  };
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state, stateRef]);
+
+  useEffect(() => {
+    controllerRef.current = controller;
+    return () => {
+      if (controllerRef.current === controller) controllerRef.current = null;
+    };
+  });
+
+  useEffect(() => {
+    const pageCount = Math.max(1, Math.ceil(breakdownCount / 10));
+    setBreakdownStateField("breakdownPage", (page) => Math.min(page, pageCount));
+  }, [breakdownCount]);
+
+  useEffect(() => {
+    setBreakdownRows(initialBreakdowns);
+  }, [initialBreakdowns]);
+
+  return <>{children({ ...state, breakdownRows, ...controller })}</>;
+}
+
+function BacklogStateBoundary({ children }: { children: (state: BacklogState) => ReactNode }) {
+  recordComponentRender("BacklogStateBoundary");
+  const [state, setState] = useState<BacklogPageState>(defaultBacklogPageState);
+  return <>{children({
+    ...state,
+    setBacklogSearch: (next) => setState((current) => ({ ...current, backlogSearch: resolveLocalState(next, current.backlogSearch) })),
+    setBacklogCategory: (next) => setState((current) => ({ ...current, backlogCategory: resolveLocalState(next, current.backlogCategory) })),
+  })}</>;
+}
+
+function TenderStateBoundary({ children }: { children: (state: TenderState) => ReactNode }) {
+  recordComponentRender("TenderStateBoundary");
+  const [state, setState] = useState<TenderPageState>(defaultTenderPageState);
+  return <>{children({
+    ...state,
+    setTenderSearch: (next) => setState((current) => ({ ...current, tenderSearch: resolveLocalState(next, current.tenderSearch) })),
+    setTenderStatusFilter: (next) => setState((current) => ({ ...current, tenderStatusFilter: resolveLocalState(next, current.tenderStatusFilter) })),
+  })}</>;
+}
+
+function HrStateBoundary({
+  attendanceRows,
+  children,
+  leaveRows,
+}: {
+  attendanceRows: Record<string, unknown>[];
+  children: (state: HrState) => ReactNode;
+  leaveRows: Record<string, unknown>[];
+}) {
+  recordComponentRender("HrStateBoundary");
+  const [state, setState] = useState<HrPageState>(defaultHrPageState);
+  const [hrAttendanceRows, setHrAttendanceRowsState] = useState<Record<string, unknown>[]>(() => attendanceRows);
+  const [hrLeaveRows, setHrLeaveRowsState] = useState<Record<string, unknown>[]>(() => leaveRows);
+  const attendanceIdentity = (record: Record<string, unknown>) => `${String(record.date || "")}:${String(record.person_id || record.staff_id || record.person_name || record.staff_name || "")}`;
+  const leaveIdentity = (record: Record<string, unknown>) => String(record.id || record.leave_request_id || "");
+  useEffect(() => {
+    setHrAttendanceRowsState(attendanceRows);
+  }, [attendanceRows]);
+  useEffect(() => {
+    setHrLeaveRowsState(leaveRows);
+  }, [leaveRows]);
+  const upsertHrAttendanceRow = (record: Record<string, unknown>) => {
+    const id = attendanceIdentity(record);
+    if (!id.trim() || id === ":") return;
+    setHrAttendanceRowsState((current) => {
+      const found = current.some((item) => attendanceIdentity(item) === id);
+      return found ? current.map((item) => attendanceIdentity(item) === id ? { ...item, ...record } : item) : [record, ...current];
+    });
+  };
+  const patchHrLeaveRow = (id: string, patch: Record<string, unknown>) => {
+    if (!id) return;
+    const patchId = leaveIdentity(patch);
+    setHrLeaveRowsState((current) => current.map((record) => {
+      const rowId = leaveIdentity(record);
+      return rowId === id || (patchId && rowId === patchId) ? { ...record, ...patch } : record;
+    }));
+  };
+  const prependHrLeaveRow = (record: Record<string, unknown>) => {
+    const id = leaveIdentity(record);
+    setHrLeaveRowsState((current) => id ? [record, ...current.filter((item) => leaveIdentity(item) !== id)] : [record, ...current]);
+  };
+  return <>{children({
+    ...state,
+    hrAttendanceRows,
+    hrLeaveRows,
+    setHrSearch: (next) => setState((current) => ({ ...current, hrSearch: resolveLocalState(next, current.hrSearch) })),
+    setHrDepartmentFilter: (next) => setState((current) => ({ ...current, hrDepartmentFilter: resolveLocalState(next, current.hrDepartmentFilter) })),
+    setHrNotice: (next) => setState((current) => ({ ...current, hrNotice: resolveLocalState(next, current.hrNotice) })),
+    setHrActionLoading: (next) => setState((current) => ({ ...current, hrActionLoading: resolveLocalState(next, current.hrActionLoading) })),
+    setHrAttendanceRows: (next) => setHrAttendanceRowsState((current) => resolveLocalState(next, current)),
+    setHrLeaveRows: (next) => setHrLeaveRowsState((current) => resolveLocalState(next, current)),
+    upsertHrAttendanceRow,
+    patchHrLeaveRow,
+    prependHrLeaveRow,
+  })}</>;
+}
+
+function InventoryStateBoundary({ children, rows }: { children: (state: InventoryState) => ReactNode; rows: Record<string, unknown>[] }) {
+  recordComponentRender("InventoryStateBoundary");
+  const inventoryEditsRef = useRef<Record<string, InventoryEditDraft>>({});
+  const [state, setState] = useState<InventoryPageState>(defaultInventoryPageState);
+  const [inventoryRows, setInventoryRowsState] = useState<Record<string, unknown>[]>(() => rows);
+  const rowsSignature = rows.map((record, index) => `${String(record.id || record.item_id || record.name || index)}:${String(record.updated_at || record.last_updated || "")}:${String(record.qty_on_hand ?? record.stock ?? "")}:${String(record.po_number || "")}`).join("|");
+  useEffect(() => {
+    setInventoryRowsState(rows);
+  }, [rowsSignature]);
+  const setInventoryEditsWithRef: LocalStateSetter<Record<string, InventoryEditDraft>> = (next) => {
+    const value = resolveLocalState(next, inventoryEditsRef.current);
+    inventoryEditsRef.current = value;
+    setState((current) => ({ ...current, inventoryEdits: value }));
+  };
+  const setInventoryEditsRefOnly: LocalStateSetter<Record<string, InventoryEditDraft>> = (next) => {
+    inventoryEditsRef.current = resolveLocalState(next, inventoryEditsRef.current);
+  };
+  const inventoryRowIdentity = (record: Record<string, unknown>) => String(record.id || record.item_id || record.name || record.item || "");
+  const patchInventoryRow = (id: string, patch: Record<string, unknown>) => {
+    const patchId = inventoryRowIdentity(patch);
+    setInventoryRowsState((current) => current.map((record) => {
+      const rowId = inventoryRowIdentity(record);
+      return rowId === id || (patchId && rowId === patchId) ? { ...record, ...patch } : record;
+    }));
+  };
+  const prependInventoryRow = (record: Record<string, unknown>) => {
+    const id = inventoryRowIdentity(record);
+    setInventoryRowsState((current) => [record, ...current.filter((item) => inventoryRowIdentity(item) !== id)]);
+  };
+  return <>{children({
+    ...state,
+    inventoryRows,
+    inventoryEditsRef,
+    setInventorySearch: (next) => setState((current) => ({ ...current, inventorySearch: resolveLocalState(next, current.inventorySearch) })),
+    setInventoryEdits: setInventoryEditsWithRef,
+    setInventoryEditsRefOnly,
+    setInventoryRows: (next) => setInventoryRowsState((current) => resolveLocalState(next, current)),
+    patchInventoryRow,
+    prependInventoryRow,
+  })}</>;
+}
+
+function InternationalVendorStateBoundary({ children, vendorCount }: { children: (state: InternationalVendorState) => ReactNode; vendorCount: number }) {
+  recordComponentRender("InternationalVendorStateBoundary");
+  const [state, setState] = useState<InternationalVendorPageState>(defaultInternationalVendorPageState);
+  const setInternationalVendorPage: LocalStateSetter<number> = (next) => setState((current) => ({ ...current, internationalVendorPage: resolveLocalState(next, current.internationalVendorPage) }));
+
+  useEffect(() => {
+    setInternationalVendorPage(1);
+  }, [vendorCount]);
+
+  return <>{children({
+    ...state,
+    setInternationalVendorSearch: (next) => setState((current) => ({ ...current, internationalVendorSearch: resolveLocalState(next, current.internationalVendorSearch), internationalVendorPage: 1 })),
+    setInternationalVendorFilter: (next) => setState((current) => ({ ...current, internationalVendorFilter: resolveLocalState(next, current.internationalVendorFilter), internationalVendorPage: 1 })),
+    setInternationalVendorPage,
+  })}</>;
+}
+
+function MarketingStateBoundary({ children }: { children: (state: MarketingState) => ReactNode }) {
+  recordComponentRender("MarketingStateBoundary");
+  const [state, setState] = useState<MarketingPageState>(defaultMarketingPageState);
+  return <>{children({
+    ...state,
+    setMarketingSearch: (next) => setState((current) => ({ ...current, marketingSearch: resolveLocalState(next, current.marketingSearch) })),
+  })}</>;
+}
+
+function OfferManagerStateBoundary({ children }: { children: (state: OfferManagerState) => ReactNode }) {
+  recordComponentRender("OfferManagerStateBoundary");
+  const [offerCustomerSearch, setOfferCustomerSearch] = useState("");
+  const [offerCustomerOfferFilter, setOfferCustomerOfferFilter] = useState("All");
+  return <>{children({
+    offerCustomerSearch,
+    offerCustomerOfferFilter,
+    setOfferCustomerSearch,
+    setOfferCustomerOfferFilter,
+  })}</>;
+}
+
+function OverviewFilterBoundary({ children }: { children: (state: OverviewFilterState) => ReactNode }) {
+  recordComponentRender("OverviewFilterBoundary");
+  const fiscalRange = currentFiscalYearRange();
+  const [overviewStartDate, setOverviewStartDate] = useState(fiscalRange.start);
+  const [overviewEndDate, setOverviewEndDate] = useState(fiscalRange.end);
+  return <>{children({ overviewStartDate, overviewEndDate, setOverviewStartDate, setOverviewEndDate })}</>;
+}
+
+function SiteVisitReportsStateBoundary({
+  children,
+  searchControllerRef,
+}: {
+  children: (state: SiteVisitReportsState) => ReactNode;
+  searchControllerRef: MutableRefObject<LocalStateSetter<string> | null>;
+}) {
+  recordComponentRender("SiteVisitReportsStateBoundary");
+  const [siteVisitCustomerSearch, setSiteVisitCustomerSearch] = useState("");
+
+  useEffect(() => {
+    searchControllerRef.current = setSiteVisitCustomerSearch;
+    return () => {
+      if (searchControllerRef.current === setSiteVisitCustomerSearch) searchControllerRef.current = null;
+    };
+  }, [searchControllerRef]);
+
+  return <>{children({ siteVisitCustomerSearch, setSiteVisitCustomerSearch })}</>;
+}
+
+function SiteVisitDraftBoundary({
+  children,
+  controllerRef,
+  draftRef,
+}: {
+  children: (state: SiteVisitDraftState) => ReactNode;
+  controllerRef: MutableRefObject<LocalStateSetter<Partial<SiteVisit>> | null>;
+  draftRef: MutableRefObject<Partial<SiteVisit>>;
+}) {
+  recordComponentRender("SiteVisitDraftBoundary");
+  const [, setSiteVisitDraftVersion] = useState(0);
+  const setSiteVisitDraft: LocalStateSetter<Partial<SiteVisit>> = (next) => {
+    draftRef.current = resolveLocalState(next, draftRef.current);
+    setSiteVisitDraftVersion((version) => version + 1);
+  };
+  const setSiteVisitDraftRefOnly: LocalStateSetter<Partial<SiteVisit>> = (next) => {
+    draftRef.current = resolveLocalState(next, draftRef.current);
+  };
+
+  useEffect(() => {
+    controllerRef.current = setSiteVisitDraft;
+    return () => {
+      if (controllerRef.current === setSiteVisitDraft) controllerRef.current = null;
+    };
+  }, [controllerRef]);
+
+  return <>{children({ siteVisitDraft: draftRef.current, siteVisitDraftRef: draftRef, setSiteVisitDraft, setSiteVisitDraftRefOnly })}</>;
+}
+
+function CustomerDraftBoundary({
+  children,
+  controllerRef,
+  stateRef,
+}: {
+  children: (state: CustomerDraftState) => ReactNode;
+  controllerRef: MutableRefObject<Omit<CustomerDraftState, keyof CustomerDraftPageState> | null>;
+  stateRef: MutableRefObject<CustomerDraftPageState>;
+}) {
+  recordComponentRender("CustomerDraftBoundary");
+  const [state, setState] = useState<CustomerDraftPageState>(() => ({
+    customerDraft: { ...emptyCustomer, ...stateRef.current.customerDraft },
+    customerInstalledDateDraft: stateRef.current.customerInstalledDateDraft,
+    customerInlineDrafts: { ...stateRef.current.customerInlineDrafts },
+    customerInlineInstalledDates: { ...stateRef.current.customerInlineInstalledDates },
+    customerDraftVersion: stateRef.current.customerDraftVersion || 0,
+  }));
+  const setCustomerDraftStateField = <K extends keyof CustomerDraftPageState>(
+    key: K,
+    next: CustomerDraftPageState[K] | ((current: CustomerDraftPageState[K]) => CustomerDraftPageState[K])
+  ) => {
+    setState((current) => {
+      const nextState = {
+        ...current,
+        [key]: resolveLocalState(next, current[key]),
+        customerDraftVersion: (current.customerDraftVersion || 0) + 1,
+      };
+      stateRef.current = nextState;
+      return nextState;
+    });
+  };
+  const controller = {
+    setCustomerDraft: (next: Partial<Customer> | ((current: Partial<Customer>) => Partial<Customer>)) => setCustomerDraftStateField("customerDraft", next),
+    setCustomerInstalledDateDraft: (next: string | ((current: string) => string)) => setCustomerDraftStateField("customerInstalledDateDraft", next),
+    setCustomerInlineDrafts: (next: Record<string, Partial<Customer>> | ((current: Record<string, Partial<Customer>>) => Record<string, Partial<Customer>>)) => setCustomerDraftStateField("customerInlineDrafts", next),
+    setCustomerInlineInstalledDates: (next: Record<string, string> | ((current: Record<string, string>) => Record<string, string>)) => setCustomerDraftStateField("customerInlineInstalledDates", next),
+  };
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state, stateRef]);
+
+  useEffect(() => {
+    controllerRef.current = controller;
+    return () => {
+      if (controllerRef.current === controller) controllerRef.current = null;
+    };
+  });
+
+  return <>{children({ ...state, ...controller })}</>;
+}
+
+function SalesInquiryDraftBoundary({
+  children,
+  controllerRef,
+  stateRef,
+}: {
+  children: (state: SalesInquiryDraftState) => ReactNode;
+  controllerRef: MutableRefObject<Omit<SalesInquiryDraftState, keyof SalesInquiryDraftPageState> | null>;
+  stateRef: MutableRefObject<SalesInquiryDraftPageState>;
+}) {
+  recordComponentRender("SalesInquiryDraftBoundary");
+  const [state, setState] = useState<SalesInquiryDraftPageState>(() => ({
+    salesInquiryDraft: { ...stateRef.current.salesInquiryDraft },
+    salesInquiryInstalledDateDraft: stateRef.current.salesInquiryInstalledDateDraft,
+    salesInquiryDraftVersion: stateRef.current.salesInquiryDraftVersion || 0,
+  }));
+  const setSalesInquiryField = <K extends keyof SalesInquiryDraftPageState>(
+    key: K,
+    next: SalesInquiryDraftPageState[K] | ((current: SalesInquiryDraftPageState[K]) => SalesInquiryDraftPageState[K])
+  ) => {
+    setState((current) => {
+      const base = { ...current, ...stateRef.current };
+      const nextState = {
+        ...base,
+        [key]: resolveLocalState(next, base[key]),
+        ...(key === "salesInquiryDraft" || key === "salesInquiryInstalledDateDraft"
+          ? { salesInquiryDraftVersion: (base.salesInquiryDraftVersion || 0) + 1 }
+          : {}),
+      };
+      stateRef.current = nextState;
+      return nextState;
+    });
+  };
+  const setSalesInquiryFieldRefOnly = <K extends keyof SalesInquiryDraftPageState>(
+    key: K,
+    next: SalesInquiryDraftPageState[K] | ((current: SalesInquiryDraftPageState[K]) => SalesInquiryDraftPageState[K])
+  ) => {
+    stateRef.current = { ...stateRef.current, [key]: resolveLocalState(next, stateRef.current[key]) };
+  };
+  const controller = {
+    setSalesInquiryDraft: (next: typeof emptySalesInquiryDraft | ((current: typeof emptySalesInquiryDraft) => typeof emptySalesInquiryDraft)) => setSalesInquiryField("salesInquiryDraft", next),
+    setSalesInquiryDraftRefOnly: (next: typeof emptySalesInquiryDraft | ((current: typeof emptySalesInquiryDraft) => typeof emptySalesInquiryDraft)) => setSalesInquiryFieldRefOnly("salesInquiryDraft", next),
+    setSalesInquiryInstalledDateDraft: (next: string | ((current: string) => string)) => setSalesInquiryField("salesInquiryInstalledDateDraft", next),
+    setSalesInquiryInstalledDateDraftRefOnly: (next: string | ((current: string) => string)) => setSalesInquiryFieldRefOnly("salesInquiryInstalledDateDraft", next),
+  };
+
+  useEffect(() => {
+    controllerRef.current = controller;
+    return () => {
+      if (controllerRef.current === controller) controllerRef.current = null;
+    };
+  });
+
+  return <>{children({ ...state, ...controller })}</>;
+}
+
+function OfferDraftBoundary({
+  children,
+  controllerRef,
+  draftRef,
+}: {
+  children: (state: OfferDraftState) => ReactNode;
+  controllerRef: MutableRefObject<LocalStateSetter<OfferDraft> | null>;
+  draftRef: MutableRefObject<OfferDraft>;
+}) {
+  recordComponentRender("OfferDraftBoundary");
+  const setOfferDraft: LocalStateSetter<OfferDraft> = (next) => {
+    draftRef.current = resolveLocalState(next, draftRef.current);
+    controllerRef.current?.(draftRef.current);
+  };
+  const setOfferDraftRefOnly: LocalStateSetter<OfferDraft> = (next) => {
+    draftRef.current = resolveLocalState(next, draftRef.current);
+  };
+
+  return <>{children({ offerDraft: draftRef.current, offerDraftRef: draftRef, setOfferDraft, setOfferDraftRefOnly })}</>;
+}
+
+function OfferDraftModalRenderBoundary({
+  children,
+  controllerRef,
+  draftRef,
+}: {
+  children: (state: OfferDraftState) => ReactNode;
+  controllerRef: MutableRefObject<LocalStateSetter<OfferDraft> | null>;
+  draftRef: MutableRefObject<OfferDraft>;
+}) {
+  recordComponentRender("OfferDraftModalRenderBoundary");
+  const [, setDraftVersion] = useState(0);
+  const draftRenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushDraftRender = () => {
+    if (draftRenderTimerRef.current) {
+      clearTimeout(draftRenderTimerRef.current);
+      draftRenderTimerRef.current = null;
+    }
+    setDraftVersion((version) => version + 1);
+  };
+  const setOfferDraft: LocalStateSetter<OfferDraft> = (next) => {
+    draftRef.current = resolveLocalState(next, draftRef.current);
+    flushDraftRender();
+  };
+  const setOfferDraftRefOnly: LocalStateSetter<OfferDraft> = (next) => {
+    draftRef.current = resolveLocalState(next, draftRef.current);
+  };
+  const setOfferDraftDelayed: LocalStateSetter<OfferDraft> = (next) => {
+    draftRef.current = resolveLocalState(next, draftRef.current);
+    if (draftRenderTimerRef.current) clearTimeout(draftRenderTimerRef.current);
+    draftRenderTimerRef.current = setTimeout(() => {
+      draftRenderTimerRef.current = null;
+      setDraftVersion((version) => version + 1);
+    }, 600);
+  };
+
+  useEffect(() => {
+    controllerRef.current = setOfferDraft;
+    return () => {
+      if (controllerRef.current === setOfferDraft) controllerRef.current = null;
+    };
+  }, [controllerRef]);
+
+  useEffect(() => () => {
+    if (draftRenderTimerRef.current) clearTimeout(draftRenderTimerRef.current);
+  }, []);
+
+  return <>{children({ offerDraft: draftRef.current, offerDraftRef: draftRef, setOfferDraft, setOfferDraftRefOnly, setOfferDraftDelayed })}</>;
+}
+
+function PortalNavigationBoundary({
+  activeTabControllerRef,
+  activeTabRef,
+  allowedViews,
+  children,
+  defaultView,
+  onProjectMinute,
+  onRefreshBreakdown,
+  onTabChange,
+  token,
+}: {
+  activeTabControllerRef: MutableRefObject<LocalTabSetter | null>;
+  activeTabRef: MutableRefObject<TabKey>;
+  allowedViews?: string[];
+  children: (activeTab: TabKey) => ReactNode;
+  defaultView?: TabKey;
+  onProjectMinute: () => void;
+  onRefreshBreakdown: () => void;
+  onTabChange: (activeTab: TabKey) => void;
+  token: string;
+}) {
+  recordComponentRender("PortalNavigationBoundary");
+  const [activeTab, setActiveTabState] = useState<TabKey>(() => activeTabRef.current || "overview");
+  activeTabRef.current = activeTab;
+
+  useEffect(() => {
+    activeTabControllerRef.current = (nextTab) => {
+      setActiveTabState((current) => {
+        const resolvedTab = typeof nextTab === "function" ? nextTab(current) : nextTab;
+        activeTabRef.current = resolvedTab;
+        return resolvedTab;
+      });
+    };
+    return () => {
+      if (activeTabControllerRef.current) activeTabControllerRef.current = null;
+    };
+  }, [activeTabControllerRef, activeTabRef]);
+
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+    onTabChange(activeTab);
+  }, [activeTab, activeTabRef, onTabChange]);
+
+  useEffect(() => {
+    const hasCostingImportAccess = activeTab === "costingImport" && ["customers", "sales", "offerManager", "siteVisits"].some((key) => allowedViews?.includes(key));
+    const hasEnquiriesAccess = activeTab === "enquiries" && ["enquiries", "customers", "sales"].some((key) => allowedViews?.includes(key));
+    if (allowedViews?.length && !allowedViews.includes(activeTab) && !hasCostingImportAccess && !hasEnquiriesAccess) {
+      setActiveTabState(defaultView || (allowedViews[0] as TabKey) || "overview");
+    }
+  }, [activeTab, allowedViews, defaultView]);
+
+  useEffect(() => {
+    if (!token || activeTab !== "breakdown") return;
+    const interval = setInterval(onRefreshBreakdown, 15000);
+    return () => clearInterval(interval);
+  }, [activeTab, onRefreshBreakdown, token]);
+
+  useEffect(() => {
+    if (!token || activeTab !== "projects") return;
+    const interval = setInterval(onProjectMinute, 60000);
+    return () => clearInterval(interval);
+  }, [activeTab, onProjectMinute, token]);
+
+  return <>{children(activeTab)}</>;
+}
+
+function recordComponentRender(name: string) {
+  if (Platform.OS !== "web") return;
+  const runtime = globalThis as typeof globalThis & { __fuziRenderCounts?: Record<string, number> };
+  runtime.__fuziRenderCounts = runtime.__fuziRenderCounts || {};
+  runtime.__fuziRenderCounts[name] = (runtime.__fuziRenderCounts[name] || 0) + 1;
+}
+
+type NavGroup = { group: string; items: Array<{ key: TabKey; label: string; icon: string }> };
+
+function groupedNavItems(
+  visibleNavItems: Array<{ key: TabKey; label: string; icon: string }>,
+  portalLanguage: PortalLanguage,
+  navSearch: string
+): NavGroup[] {
+  const groupFor = (key: TabKey) => {
+    if (["today", "intelligence", "backlog", "overview", "modules", "comms"].includes(key)) return "Command";
+    if (["enquiries", "customers", "offerManager", "marketing", "siteVisits", "costingImport"].includes(key)) return "CRM & Sales";
+    if (["tickets", "projects", "installations", "installation_dept", "team", "commissioning", "factory", "engineer"].includes(key)) return "Projects & Installation";
+    if (["breakdown", "service", "workorders", "renewals", "inventory", "documents"].includes(key)) return "Service Ops";
+    return "Admin & Finance";
+  };
+  const query = navSearch.trim().toLowerCase();
+  return ["Command", "CRM & Sales", "Projects & Installation", "Service Ops", "Admin & Finance"]
+    .map((group) => ({
+      group,
+      items: visibleNavItems.filter((item) => groupFor(item.key) === group && (!query || `${item.label} ${translateString(item.label, portalLanguage)} ${item.key}`.toLowerCase().includes(query)))
+    }))
+    .filter((section) => section.items.length);
+}
+
+function PortalNav({
+  activeTab,
+  isPhone,
+  isWide,
+  onSelectTab,
+  portalLanguage,
+  setMessage,
+  visibleNavItems,
+}: {
+  activeTab: TabKey;
+  isPhone: boolean;
+  isWide: boolean;
+  onSelectTab: (tab: TabKey) => void;
+  portalLanguage: PortalLanguage;
+  setMessage?: (message: string) => void;
+  visibleNavItems: Array<{ key: TabKey; label: string; icon: string }>;
+}) {
+  recordComponentRender("PortalNav");
+  const [navSearch, setNavSearch] = useState("");
+  const navGroups = useMemo(() => groupedNavItems(visibleNavItems, portalLanguage, navSearch), [navSearch, portalLanguage, visibleNavItems]);
+  const activeNavItem = visibleNavItems.find((item) => item.key === activeTab) || navItems.find((item) => item.key === activeTab);
+
+  if (isWide) {
+    return (
+      <ScrollView style={styles.sideNav} contentContainerStyle={styles.sideNavContent} showsVerticalScrollIndicator={false}>
+        <TextInput style={styles.navSearchInput} value={navSearch} onChangeText={setNavSearch} placeholder="Find module" placeholderTextColor="#7f8798" />
+        {navGroups.map((section) => (
+          <View key={section.group} style={styles.navGroup}>
+            <Text style={styles.navGroupLabel}>{section.group}</Text>
+            {section.items.map((item) => (
+              <Pressable
+                key={item.key}
+                style={[styles.sideLink, activeTab === item.key && styles.sideLinkActive]}
+                onPress={() => {
+                  onSelectTab(item.key);
+                  setMessage?.(activeTab === item.key ? `Already viewing ${item.label}.` : `Opening ${item.label}.`);
+                }}
+              >
+                <Text style={[styles.navIcon, activeTab === item.key && styles.navIconActive]}>{item.icon}</Text>
+                <Text style={[styles.sideLinkText, activeTab === item.key && styles.sideLinkTextActive]}>{item.label}</Text>
+                {activeTab === item.key && <Text style={styles.sideLinkCurrent}>Current</Text>}
+              </Pressable>
+            ))}
+          </View>
+        ))}
+      </ScrollView>
+    );
+  }
+
+  if (isPhone) {
+    return (
+      <LocalToggle>
+        {(mobileNavOpen, setMobileNavOpen) => (
+          <View style={styles.mobileMenuWrap}>
+            <Pressable
+              style={[styles.mobileMenuButton, mobileNavOpen && styles.selectorPillActive]}
+              onPress={() => {
+                setMobileNavOpen((open) => {
+                  setMessage?.(open ? "Module menu closed." : "Module menu opened.");
+                  return !open;
+                });
+              }}
+            >
+              <View style={styles.mobileMenuCurrent}>
+                <Text style={styles.mobileMenuIcon}>{activeNavItem?.icon || "*"}</Text>
+                <View style={styles.mobileMenuTextBlock}>
+                  <Text style={styles.mobileMenuLabel}>Current module</Text>
+                  <Text style={styles.mobileMenuTitle} numberOfLines={1}>{activeNavItem?.label || "Operations"}</Text>
+                </View>
+              </View>
+              <Text style={styles.dropdownChevron}>{mobileNavOpen ? "^" : "v"}</Text>
+            </Pressable>
+            {mobileNavOpen && (
+              <View style={styles.mobileMenuPanel}>
+                <TextInput
+                  style={styles.mobileMenuSearch}
+                  value={navSearch}
+                  onChangeText={setNavSearch}
+                  placeholder="Find module"
+                  placeholderTextColor="#7f8798"
+                  commitDelayMs={250}
+                />
+                <ScrollView style={styles.mobileMenuScroll} nestedScrollEnabled>
+                  {navGroups.map((section) => (
+                    <View key={`mobile-${section.group}`} style={styles.mobileMenuGroup}>
+                      <Text style={styles.mobileMenuGroupLabel}>{section.group}</Text>
+                      <View style={styles.mobileMenuGrid}>
+                        {section.items.map((item) => (
+                          <Pressable
+                            key={`mobile-${item.key}`}
+                            style={[styles.mobileMenuItem, activeTab === item.key && styles.mobileMenuItemActive]}
+                            onPress={() => {
+                              onSelectTab(item.key);
+                              setMobileNavOpen(false);
+                              setMessage?.(`Opening ${item.label}.`);
+                            }}
+                          >
+                            <Text style={[styles.mobileMenuItemIcon, activeTab === item.key && styles.activeTabText]}>{item.icon}</Text>
+                            <Text style={[styles.mobileMenuItemText, activeTab === item.key && styles.activeTabText]} numberOfLines={2}>{item.label}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+          </View>
+        )}
+      </LocalToggle>
+    );
+  }
+
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      showsVerticalScrollIndicator={false}
+      style={[styles.tabs, isPhone && styles.tabsPhone]}
+      contentContainerStyle={[styles.mobileNavRail, isPhone && styles.mobileNavRailPhone]}
+    >
+      {navGroups.flatMap((section) => section.items).map((item) => (
+        <Pressable
+          key={item.key}
+          style={[styles.tab, isPhone && styles.tabPhone, activeTab === item.key && styles.activeTab]}
+          onPress={() => { onSelectTab(item.key); setMessage?.(`Opening ${item.label}.`); }}
+        >
+          <Text style={[styles.tabIcon, isPhone && styles.tabIconPhone, activeTab === item.key && styles.activeTabText]}>{item.icon}</Text>
+          <Text style={[styles.tabText, isPhone && styles.tabTextPhone, activeTab === item.key && styles.activeTabText]} numberOfLines={1}>{item.label}</Text>
+        </Pressable>
+      ))}
+    </ScrollView>
+  );
+}
+
+function PortalGlobalSearch({
+  containerStyle,
+  onOpenResult,
+  setMessage,
+  token,
+}: {
+  containerStyle?: any;
+  onOpenResult: (result: Record<string, unknown>) => void;
+  setMessage?: (message: string) => void;
+  token: string;
+}) {
+  recordComponentRender("PortalGlobalSearch");
+  const [globalSearch, setGlobalSearch] = useState("");
+  const [globalSearchResults, setGlobalSearchResults] = useState<Array<Record<string, unknown>>>([]);
+  const [visibleCount, setVisibleCount] = useState(DEFAULT_LIST_STEP);
+  const globalSearchOpen = globalSearch.trim().length >= 2;
+
+  useEffect(() => {
+    if (!token || globalSearch.trim().length < 2) {
+      setGlobalSearchResults([]);
+      return;
+    }
+    const handle = setTimeout(() => {
+      apiFetch<{ results?: Array<Record<string, unknown>> }>(`/api/portal/global-search?q=${encodeURIComponent(globalSearch.trim())}`, { token })
+        .then((result) => setGlobalSearchResults(result.results || []))
+        .catch(() => setGlobalSearchResults([]));
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [globalSearch, token]);
+
+  const visibleSearchResults: Array<Record<string, unknown>> = [];
+  for (let index = 0; index < globalSearchResults.length && visibleSearchResults.length < visibleCount; index += 1) {
+    visibleSearchResults.push(globalSearchResults[index]);
+  }
+  const hasGlobalSearchPaging = globalSearchResults.length > DEFAULT_LIST_STEP;
+  const canShowMoreSearchResults = visibleCount < globalSearchResults.length;
+  const canShowLessSearchResults = visibleCount > DEFAULT_LIST_STEP;
+
+  return (
+    <>
+      <View style={[styles.globalSearchBox, containerStyle]}>
+        <TextInput
+          style={styles.globalSearchInput}
+          value={globalSearch}
+          onChangeText={setGlobalSearch}
+          placeholder="Search CRM, service, jobs"
+        />
+      </View>
+      {globalSearchOpen && (
+        <View style={styles.quickPanel}>
+          <View style={styles.cardHeaderRow}>
+            <Text style={styles.cardLabel}>Global search</Text>
+            <Pressable style={styles.smallButton} onPress={() => { setGlobalSearch(""); setMessage?.("Global search closed."); }}>
+              <Text style={styles.smallButtonText}>Close</Text>
+            </Pressable>
+          </View>
+          {globalSearchResults.length ? visibleSearchResults.map((result, index) => (
+            <Pressable
+              key={`global-result-${String(result.collection)}-${String(result.id)}-${index}`}
+              style={styles.quickPanelRow}
+              onPress={() => {
+                onOpenResult(result);
+                setGlobalSearch("");
+                setMessage?.(`Opened ${String(result.title || result.id || "search result")}.`);
+              }}
+            >
+              <Text style={styles.cardTitle}>{String(result.title || "-")}</Text>
+              <Text style={styles.muted}>{String(result.collection || "-")} - {String(result.subtitle || result.status || "")}</Text>
+            </Pressable>
+          )) : <Text style={styles.muted}>{globalSearch.trim().length < 2 ? "Type at least 2 characters." : "No matching records found."}</Text>}
+          {hasGlobalSearchPaging && (
+            <View style={styles.listControls}>
+              <View style={styles.listControlLine}>
+                <Text style={styles.listStepEcho}>{DEFAULT_LIST_STEP}</Text>
+                <Pressable
+                  style={styles.listControlButton}
+                  onPress={() => {
+                    if (!canShowMoreSearchResults) return;
+                    setVisibleCount((count) => {
+                      const nextCount = Math.min(globalSearchResults.length, count + DEFAULT_LIST_STEP);
+                      setMessage?.(`Showing ${nextCount} global search results.`);
+                      return nextCount;
+                    });
+                  }}
+                >
+                  <Text style={styles.smallButtonText}>show more</Text>
+                </Pressable>
+              </View>
+              <View style={styles.listControlLine}>
+                <Text style={styles.listStepEcho}>{DEFAULT_LIST_STEP}</Text>
+                <Pressable
+                  style={styles.listControlButton}
+                  onPress={() => {
+                    if (!canShowLessSearchResults) return;
+                    setVisibleCount((count) => {
+                      const nextCount = Math.max(DEFAULT_LIST_STEP, count - DEFAULT_LIST_STEP);
+                      setMessage?.(`Showing ${nextCount} global search results.`);
+                      return nextCount;
+                    });
+                  }}
+                >
+                  <Text style={styles.smallButtonText}>show less</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+        </View>
+      )}
+    </>
+  );
+}
 
 type ModuleConfig = {
   route: string;
@@ -390,6 +2091,61 @@ type CostingImportResponse = {
     conversion_delivery?: { ok?: boolean; error?: string };
   };
 };
+type CostingWorkbookState = {
+  costingSources: CostingSource[];
+  stagedCostingImport: Record<string, any> | null;
+  costingSourcesLoading: boolean;
+  costingSourceIndex: number;
+  costingCellStep: number;
+  selectedCostingSource?: CostingSource;
+  costingCellChunks: CostingSourceCell[][];
+  visibleCostingCells: CostingSourceCell[];
+  setCostingSources: LocalStateSetter<CostingSource[]>;
+  setStagedCostingImport: LocalStateSetter<Record<string, any> | null>;
+  setCostingSourcesLoading: LocalStateSetter<boolean>;
+  setCostingSourceIndex: LocalStateSetter<number>;
+  setCostingCellStep: LocalStateSetter<number>;
+};
+const COSTING_CELLS_PER_STEP = 80;
+
+function CostingWorkbookBoundary({ children }: { children: (costingState: CostingWorkbookState) => ReactNode }) {
+  recordComponentRender("CostingWorkbookBoundary");
+  const [costingSources, setCostingSources] = useState<CostingSource[]>([]);
+  const [stagedCostingImport, setStagedCostingImport] = useState<Record<string, any> | null>(null);
+  const [costingSourcesLoading, setCostingSourcesLoading] = useState(false);
+  const [costingSourceIndex, setCostingSourceIndex] = useState(0);
+  const [costingCellStep, setCostingCellStep] = useState(0);
+  const selectedCostingSource = costingSources[Math.min(costingSourceIndex, Math.max(costingSources.length - 1, 0))];
+  const costingCellChunks = useMemo(() => {
+    const cells = selectedCostingSource?.cells || [];
+    const chunks: CostingSourceCell[][] = [];
+    for (let index = 0; index < cells.length; index += COSTING_CELLS_PER_STEP) {
+      chunks.push(cells.slice(index, index + COSTING_CELLS_PER_STEP));
+    }
+    return chunks;
+  }, [selectedCostingSource]);
+  const visibleCostingCells = costingCellChunks[Math.min(costingCellStep, Math.max(costingCellChunks.length - 1, 0))] || [];
+
+  useEffect(() => {
+    setCostingCellStep(0);
+  }, [costingSourceIndex]);
+
+  return <>{children({
+    costingSources,
+    stagedCostingImport,
+    costingSourcesLoading,
+    costingSourceIndex,
+    costingCellStep,
+    selectedCostingSource,
+    costingCellChunks,
+    visibleCostingCells,
+    setCostingSources,
+    setStagedCostingImport,
+    setCostingSourcesLoading,
+    setCostingSourceIndex,
+    setCostingCellStep,
+  })}</>;
+}
 
 const operationsBacklog = [
   "Lead scoring for sales enquiries",
@@ -509,40 +2265,40 @@ const operationsBacklog = [
 });
 
 const navItems: Array<{ key: TabKey; label: string; icon: string }> = [
-  { key: "today", label: "Today", icon: "!" },
-  { key: "intelligence", label: "Command Intelligence", icon: "#" },
-  { key: "backlog", label: "Operations Backlog", icon: "★" },
-  { key: "overview", label: "Overview", icon: "⌂" },
-  { key: "modules", label: "Platform Modules", icon: "▦" },
-  { key: "enquiries", label: "Enquiries", icon: "?" },
-  { key: "customers", label: "Customers", icon: "◉" },
-  { key: "offerManager", label: "Offer Manager", icon: "▥" },
-  { key: "marketing", label: "Marketing Platform", icon: "✦" },
-  { key: "tickets", label: "Project Tickets", icon: "✓" },
-  { key: "projects", label: "Projects", icon: "◇" },
-  { key: "installations", label: "Installations", icon: "⇧" },
-  { key: "team", label: "Install Team", icon: "☷" },
-  { key: "accounts", label: "Team Accounts", icon: "◌" },
-  { key: "renewals", label: "Renewals", icon: "↻" },
-  { key: "workorders", label: "Work Orders", icon: "▤" },
-  { key: "inventory", label: "Inventory", icon: "▣" },
-  { key: "orgchart", label: "Staff & Attendance", icon: "◍" },
-  { key: "siteVisits", label: "Site Visits", icon: "⌖" },
-  { key: "costingImport", label: "Costing Import", icon: "▧" },
-  { key: "installation_dept", label: "Installation Dept", icon: "⚙" },
-  { key: "breakdown", label: "Breakdown Portal", icon: "⚡" },
-  { key: "service", label: "Service", icon: "✚" },
-  { key: "gad", label: "GAD Drawings", icon: "⌖" },
-  { key: "finance", label: "Accounts", icon: "₹" },
-  { key: "commissioning", label: "Commissioning", icon: "◎" },
-  { key: "backoffice", label: "Back Office", icon: "◫" },
-  { key: "tender", label: "Tender", icon: "◈" },
-  { key: "factory", label: "Factory", icon: "▧" },
-  { key: "internationalVendor", label: "International Vendor", icon: "⇄" },
-  { key: "approvals", label: "Approvals", icon: "✓" },
-  { key: "documents", label: "Documents", icon: "▨" },
-  { key: "engineer", label: "Engineer Jobs", icon: "⌁" },
-  { key: "comms", label: "Dept Comms", icon: "☰" },
+  { key: "today", label: "Today", icon: "TD" },
+  { key: "intelligence", label: "Command Intelligence", icon: "CI" },
+  { key: "backlog", label: "Operations Backlog", icon: "OB" },
+  { key: "overview", label: "Overview", icon: "OV" },
+  { key: "modules", label: "Platform Modules", icon: "PM" },
+  { key: "enquiries", label: "Enquiries", icon: "EN" },
+  { key: "customers", label: "Customers", icon: "CU" },
+  { key: "offerManager", label: "Offer Manager", icon: "OF" },
+  { key: "marketing", label: "Marketing Platform", icon: "MK" },
+  { key: "tickets", label: "Project Tickets", icon: "PT" },
+  { key: "projects", label: "Projects", icon: "PR" },
+  { key: "installations", label: "Installations", icon: "IN" },
+  { key: "team", label: "Install Team", icon: "IT" },
+  { key: "accounts", label: "Team Accounts", icon: "TA" },
+  { key: "renewals", label: "Renewals", icon: "RN" },
+  { key: "workorders", label: "Work Orders", icon: "WO" },
+  { key: "inventory", label: "Inventory", icon: "IV" },
+  { key: "orgchart", label: "Staff & Attendance", icon: "SA" },
+  { key: "siteVisits", label: "Site Visits", icon: "SV" },
+  { key: "costingImport", label: "Costing Import", icon: "CO" },
+  { key: "installation_dept", label: "Installation Dept", icon: "ID" },
+  { key: "breakdown", label: "Breakdown Portal", icon: "BD" },
+  { key: "service", label: "Service", icon: "SE" },
+  { key: "gad", label: "GAD Drawings", icon: "GD" },
+  { key: "finance", label: "Accounts", icon: "AC" },
+  { key: "commissioning", label: "Commissioning", icon: "CM" },
+  { key: "backoffice", label: "Back Office", icon: "BO" },
+  { key: "tender", label: "Tender", icon: "TN" },
+  { key: "factory", label: "Factory", icon: "FA" },
+  { key: "internationalVendor", label: "International Vendor", icon: "VN" },
+  { key: "approvals", label: "Approvals", icon: "AP" },
+  { key: "documents", label: "Documents", icon: "DC" },
+  { key: "engineer", label: "Engineer Jobs", icon: "EJ" },
+  { key: "comms", label: "Dept Comms", icon: "DM" },
 ];
 
 const moduleConfigs: Partial<Record<TabKey, ModuleConfig>> = {
@@ -557,6 +2313,7 @@ const moduleConfigs: Partial<Record<TabKey, ModuleConfig>> = {
   installation_dept: { route: "/api/portal/install-jobs", titleLabel: "Department job", titleKey: "job_id", customerKey: "customer", notesKey: "site" },
   breakdown: { route: "/api/portal/breakdown", titleLabel: "Breakdown unit", titleKey: "unit", customerKey: "customer", notesKey: "issue" },
   service: { route: "/api/portal/service", titleLabel: "Service job number", titleKey: "job_number", customerKey: "customer", notesKey: "notes" },
+  workorders: { route: "/api/portal/work-orders", titleLabel: "Work order title", titleKey: "title", customerKey: "customer", notesKey: "body" },
   gad: { route: "/api/portal/gad", titleLabel: "Drawing number", titleKey: "drawing_no", customerKey: "customer", notesKey: "unit" },
   finance: { route: "/api/portal/payments", titleLabel: "Payment reference", titleKey: "payment_id", customerKey: "customer_name", notesKey: "notes" },
   commissioning: { route: "/api/portal/commissioning", titleLabel: "Commissioning unit", titleKey: "unit", customerKey: "customer", notesKey: "notes" },
@@ -571,6 +2328,26 @@ const moduleConfigs: Partial<Record<TabKey, ModuleConfig>> = {
 };
 
 const emptyModuleDraft = { title: "", customer: "", customer_id: "", status: "Open", notes: "" };
+
+type ModuleDraftState = {
+  moduleDraft: typeof emptyModuleDraft;
+  moduleDraftRef: MutableRefObject<[typeof emptyModuleDraft]>;
+  setModuleDraft: LocalStateSetter<typeof emptyModuleDraft>;
+  setModuleDraftRefOnly: LocalStateSetter<typeof emptyModuleDraft>;
+};
+
+function ModuleDraftBoundary({ children }: { children: (drafts: ModuleDraftState) => ReactNode }) {
+  recordComponentRender("ModuleDraftBoundary");
+  const moduleDraftRef = useRef<[typeof emptyModuleDraft]>([{ ...emptyModuleDraft }]);
+  const setModuleDraft: LocalStateSetter<typeof emptyModuleDraft> = (next) => {
+    moduleDraftRef.current[0] = resolveLocalState(next, moduleDraftRef.current[0]);
+  };
+  const setModuleDraftRefOnly: LocalStateSetter<typeof emptyModuleDraft> = (next) => {
+    moduleDraftRef.current[0] = resolveLocalState(next, moduleDraftRef.current[0]);
+  };
+  return <>{children({ moduleDraft: moduleDraftRef.current[0], moduleDraftRef, setModuleDraft, setModuleDraftRefOnly })}</>;
+}
+
 const serviceIssueCategories = [
   "Scheduled preventive service",
   "Door not opening / closing",
@@ -608,10 +2385,110 @@ const emptyServiceDraft = {
   customer_comments: "",
   status: "Open",
 };
+
+type ServiceDraftState = {
+  serviceDraft: typeof emptyServiceDraft;
+  serviceDraftRef: MutableRefObject<[typeof emptyServiceDraft]>;
+  serviceEditDrafts: Record<string, Record<string, string>>;
+  serviceEditDraftsRef: MutableRefObject<Record<string, Record<string, string>>>;
+  setServiceDraft: LocalStateSetter<typeof emptyServiceDraft>;
+  setServiceDraftRefOnly: LocalStateSetter<typeof emptyServiceDraft>;
+  setServiceEditDrafts: LocalStateSetter<Record<string, Record<string, string>>>;
+  setServiceEditDraftsRefOnly: LocalStateSetter<Record<string, Record<string, string>>>;
+};
+
+function ServiceDraftBoundary({ children }: { children: (drafts: ServiceDraftState) => ReactNode }) {
+  recordComponentRender("ServiceDraftBoundary");
+  const serviceDraftRef = useRef<[typeof emptyServiceDraft]>([{ ...emptyServiceDraft }]);
+  const serviceEditDraftsRef = useRef<Record<string, Record<string, string>>>({});
+  const [, refreshServiceDraftUi] = useState(0);
+  const setServiceDraftRefOnly: LocalStateSetter<typeof emptyServiceDraft> = (next) => {
+    serviceDraftRef.current[0] = resolveLocalState(next, serviceDraftRef.current[0]);
+  };
+  const setServiceDraftWithRef: LocalStateSetter<typeof emptyServiceDraft> = (next) => {
+    serviceDraftRef.current[0] = resolveLocalState(next, serviceDraftRef.current[0]);
+    refreshServiceDraftUi((version) => version + 1);
+  };
+  const setServiceEditDraftsRefOnly: LocalStateSetter<Record<string, Record<string, string>>> = (next) => {
+    serviceEditDraftsRef.current = resolveLocalState(next, serviceEditDraftsRef.current);
+  };
+  const setServiceEditDraftsWithRef: LocalStateSetter<Record<string, Record<string, string>>> = (next) => {
+    serviceEditDraftsRef.current = resolveLocalState(next, serviceEditDraftsRef.current);
+    refreshServiceDraftUi((version) => version + 1);
+  };
+  return <>{children({
+    serviceDraft: serviceDraftRef.current[0],
+    serviceDraftRef,
+    serviceEditDrafts: serviceEditDraftsRef.current,
+    serviceEditDraftsRef,
+    setServiceDraft: setServiceDraftWithRef,
+    setServiceDraftRefOnly,
+    setServiceEditDrafts: setServiceEditDraftsWithRef,
+    setServiceEditDraftsRefOnly,
+  })}</>;
+}
+
 const emptyApprovalDraft = { type: "Offer", reference: "", customer: "", amount: "", status: "Pending", notes: "" };
 const emptyDocumentDraft = { title: "", linked_type: "Customer", linked_id: "", customer: "", document_type: "General", url: "", notes: "" };
 const emptyEscalationDraft = { name: "Breakdown unassigned", module: "Breakdown", condition: "Unassigned over 30 minutes", threshold_minutes: "30", manager: "", active: "true" };
 const emptyConversationDraft = { customer: "", customer_id: "", channel: "WhatsApp", subject: "", message: "", linked_type: "Customer", linked_id: "", status: "Open" };
+
+type CommandCommunicationDraftState = {
+  escalationDraftRef: MutableRefObject<[typeof emptyEscalationDraft]>;
+  conversationDraftRef: MutableRefObject<[typeof emptyConversationDraft]>;
+  savedEscalationRules: Record<string, unknown>[];
+  savedConversations: Record<string, unknown>[];
+  escalationSaveNotice: string;
+  addSavedEscalationRule: (record: Record<string, unknown>) => void;
+  addSavedConversation: (record: Record<string, unknown>) => void;
+  setEscalationSaveNotice: LocalStateSetter<string>;
+  setConversationDraft: LocalStateSetter<typeof emptyConversationDraft>;
+  setConversationDraftRefOnly: LocalStateSetter<typeof emptyConversationDraft>;
+};
+
+function CommandCommunicationDraftBoundary({ children }: { children: (drafts: CommandCommunicationDraftState) => ReactNode }) {
+  recordComponentRender("CommandCommunicationDraftBoundary");
+  const escalationDraftRef = useRef<[typeof emptyEscalationDraft]>([{ ...emptyEscalationDraft }]);
+  const conversationDraftRef = useRef<[typeof emptyConversationDraft]>([{ ...emptyConversationDraft }]);
+  const [savedEscalationRules, setSavedEscalationRules] = useState<Record<string, unknown>[]>([]);
+  const [savedConversations, setSavedConversations] = useState<Record<string, unknown>[]>([]);
+  const [escalationSaveNotice, setEscalationSaveNotice] = useState("");
+  const [, refreshCommunicationDraftUi] = useState(0);
+  const addSavedEscalationRule = (record: Record<string, unknown>) => {
+    setSavedEscalationRules((current) => {
+      const id = String(record.id || "");
+      if (!id) return [record, ...current];
+      return [record, ...current.filter((item) => String(item.id || "") !== id)];
+    });
+  };
+  const addSavedConversation = (record: Record<string, unknown>) => {
+    setSavedConversations((current) => {
+      const id = String(record.id || "");
+      if (!id) return [record, ...current];
+      return [record, ...current.filter((item) => String(item.id || "") !== id)];
+    });
+  };
+  const setConversationDraftRefOnly: LocalStateSetter<typeof emptyConversationDraft> = (next) => {
+    conversationDraftRef.current[0] = resolveLocalState(next, conversationDraftRef.current[0]);
+  };
+  const setConversationDraftWithRef: LocalStateSetter<typeof emptyConversationDraft> = (next) => {
+    conversationDraftRef.current[0] = resolveLocalState(next, conversationDraftRef.current[0]);
+    refreshCommunicationDraftUi((version) => version + 1);
+  };
+  return <>{children({
+    escalationDraftRef,
+    conversationDraftRef,
+    savedEscalationRules,
+    savedConversations,
+    escalationSaveNotice,
+    addSavedEscalationRule,
+    addSavedConversation,
+    setEscalationSaveNotice,
+    setConversationDraft: setConversationDraftWithRef,
+    setConversationDraftRefOnly,
+  })}</>;
+}
+
 const emptyWarrantyDraft = { customer: "", customer_id: "", unit: "", install_job_id: "", warranty_start: "", warranty_end: "", status: "Active", notes: "" };
 const emptyDispatchDraft = { job_id: "", customer: "", material: "", status: "Packed", transporter: "", lr_number: "", delivered_at: "", shortage_notes: "" };
 const emptyReadinessDraft = { job_id: "", customer: "", pit_ready: "No", shaft_ready: "No", power_ready: "No", storage_ready: "No", access_ready: "No", safety_ready: "No", notes: "" };
@@ -624,6 +2501,85 @@ const emptyTenderChecklistDraft = { tender_id: "", tender_title: "", emd: "Pendi
 const emptyAmcContractDraft = { customer: "", customer_id: "", lift_count: "1", service_frequency: "Monthly", parts_included: "No", warranty_status: "", annual_price: "", terms: "", status: "Draft" };
 const emptyServiceReportDraft = { job_id: "", customer: "", unit: "", engineer: "", checklist: "", parts_used: "", notes: "", voice_note_url: "", voice_transcript: "", next_visit_date: "", customer_signature: "", status: "Draft" };
 const emptyDailyBriefDraft = { date: new Date().toISOString().slice(0, 10), audience: "Management", summary: "", status: "Draft" };
+
+type ApprovalDraftState = {
+  approvalDraftRef: MutableRefObject<[typeof emptyApprovalDraft]>;
+};
+
+function ApprovalDraftBoundary({ children }: { children: (drafts: ApprovalDraftState) => ReactNode }) {
+  recordComponentRender("ApprovalDraftBoundary");
+  const approvalDraftRef = useRef<[typeof emptyApprovalDraft]>([{ ...emptyApprovalDraft }]);
+  return <>{children({ approvalDraftRef })}</>;
+}
+
+type DocumentDraftState = {
+  documentDraftRef: MutableRefObject<[typeof emptyDocumentDraft]>;
+};
+
+function DocumentDraftBoundary({ children }: { children: (drafts: DocumentDraftState) => ReactNode }) {
+  recordComponentRender("DocumentDraftBoundary");
+  const documentDraftRef = useRef<[typeof emptyDocumentDraft]>([{ ...emptyDocumentDraft }]);
+  return <>{children({ documentDraftRef })}</>;
+}
+
+type IntelligenceDraftState = {
+  warrantyDraftRef: MutableRefObject<[typeof emptyWarrantyDraft]>;
+  dispatchDraftRef: MutableRefObject<[typeof emptyDispatchDraft]>;
+  readinessDraftRef: MutableRefObject<[typeof emptyReadinessDraft]>;
+  skillDraftRef: MutableRefObject<[typeof emptySkillDraft]>;
+  handoverDraftRef: MutableRefObject<[typeof emptyHandoverDraft]>;
+  liftAssetDraftRef: MutableRefObject<[typeof emptyLiftAssetDraft]>;
+  partsUsageDraftRef: MutableRefObject<[typeof emptyPartsUsageDraft]>;
+  safetyIncidentDraftRef: MutableRefObject<[typeof emptySafetyIncidentDraft]>;
+  tenderChecklistDraftRef: MutableRefObject<[typeof emptyTenderChecklistDraft]>;
+  amcContractDraftRef: MutableRefObject<[typeof emptyAmcContractDraft]>;
+  serviceReportDraftRef: MutableRefObject<[typeof emptyServiceReportDraft]>;
+  dailyBriefDraftRef: MutableRefObject<[typeof emptyDailyBriefDraft]>;
+  savedIntelligenceRecords: Record<string, Record<string, unknown>[]>;
+  addSavedIntelligenceRecord: (route: string, record: Record<string, unknown>) => void;
+};
+type IntelligenceDrafts = IntelligenceDraftState;
+
+function IntelligenceDraftBoundary({ children }: { children: (drafts: IntelligenceDrafts) => ReactNode }) {
+  recordComponentRender("IntelligenceDraftBoundary");
+  const warrantyDraftRef = useRef<[typeof emptyWarrantyDraft]>([{ ...emptyWarrantyDraft }]);
+  const dispatchDraftRef = useRef<[typeof emptyDispatchDraft]>([{ ...emptyDispatchDraft }]);
+  const readinessDraftRef = useRef<[typeof emptyReadinessDraft]>([{ ...emptyReadinessDraft }]);
+  const skillDraftRef = useRef<[typeof emptySkillDraft]>([{ ...emptySkillDraft }]);
+  const handoverDraftRef = useRef<[typeof emptyHandoverDraft]>([{ ...emptyHandoverDraft }]);
+  const liftAssetDraftRef = useRef<[typeof emptyLiftAssetDraft]>([{ ...emptyLiftAssetDraft }]);
+  const partsUsageDraftRef = useRef<[typeof emptyPartsUsageDraft]>([{ ...emptyPartsUsageDraft }]);
+  const safetyIncidentDraftRef = useRef<[typeof emptySafetyIncidentDraft]>([{ ...emptySafetyIncidentDraft }]);
+  const tenderChecklistDraftRef = useRef<[typeof emptyTenderChecklistDraft]>([{ ...emptyTenderChecklistDraft }]);
+  const amcContractDraftRef = useRef<[typeof emptyAmcContractDraft]>([{ ...emptyAmcContractDraft }]);
+  const serviceReportDraftRef = useRef<[typeof emptyServiceReportDraft]>([{ ...emptyServiceReportDraft }]);
+  const dailyBriefDraftRef = useRef<[typeof emptyDailyBriefDraft]>([{ ...emptyDailyBriefDraft }]);
+  const [savedIntelligenceRecords, setSavedIntelligenceRecords] = useState<Record<string, Record<string, unknown>[]>>({});
+  const addSavedIntelligenceRecord = (route: string, record: Record<string, unknown>) => {
+    setSavedIntelligenceRecords((current) => {
+      const records = current[route] || [];
+      const id = String(record.id || "");
+      const nextRecords = id ? [record, ...records.filter((item) => String(item.id || "") !== id)] : [record, ...records];
+      return { ...current, [route]: nextRecords };
+    });
+  };
+  return <>{children({
+    warrantyDraftRef,
+    dispatchDraftRef,
+    readinessDraftRef,
+    skillDraftRef,
+    handoverDraftRef,
+    liftAssetDraftRef,
+    partsUsageDraftRef,
+    safetyIncidentDraftRef,
+    tenderChecklistDraftRef,
+    amcContractDraftRef,
+    serviceReportDraftRef,
+    dailyBriefDraftRef,
+    savedIntelligenceRecords,
+    addSavedIntelligenceRecord,
+  })}</>;
+}
 const emptyPaymentDraft = {
   payment_type: "Contract",
   customer_id: "",
@@ -651,6 +2607,26 @@ const emptyPaymentDraft = {
   reference: "",
   notes: "",
 };
+
+type PaymentDraftState = {
+  paymentDraft: typeof emptyPaymentDraft;
+  paymentDraftRef: MutableRefObject<[typeof emptyPaymentDraft]>;
+  setPaymentDraft: LocalStateSetter<typeof emptyPaymentDraft>;
+  setPaymentDraftRefOnly: LocalStateSetter<typeof emptyPaymentDraft>;
+};
+
+function PaymentDraftBoundary({ children }: { children: (drafts: PaymentDraftState) => ReactNode }) {
+  recordComponentRender("PaymentDraftBoundary");
+  const paymentDraftRef = useRef<[typeof emptyPaymentDraft]>([{ ...emptyPaymentDraft }]);
+  const setPaymentDraftRefOnly: LocalStateSetter<typeof emptyPaymentDraft> = (next) => {
+    paymentDraftRef.current[0] = resolveLocalState(next, paymentDraftRef.current[0]);
+  };
+  const setPaymentDraft: LocalStateSetter<typeof emptyPaymentDraft> = (next) => {
+    paymentDraftRef.current[0] = resolveLocalState(next, paymentDraftRef.current[0]);
+  };
+  return <>{children({ paymentDraft: paymentDraftRef.current[0], paymentDraftRef, setPaymentDraft, setPaymentDraftRefOnly })}</>;
+}
+
 const emptyInventoryDraft = {
   name: "",
   category: "",
@@ -675,6 +2651,26 @@ const emptyInventoryDraft = {
   bin_location: "",
   notes: "",
 };
+type InventoryDraft = typeof emptyInventoryDraft;
+type InventoryDraftState = {
+  inventoryDraft: InventoryDraft;
+  inventoryDraftRef: MutableRefObject<[InventoryDraft]>;
+  setInventoryDraft: LocalStateSetter<InventoryDraft>;
+  setInventoryDraftRefOnly: LocalStateSetter<InventoryDraft>;
+};
+
+function InventoryDraftBoundary({ children }: { children: (draftState: InventoryDraftState) => ReactNode }) {
+  recordComponentRender("InventoryDraftBoundary");
+  const inventoryDraftRef = useRef<[InventoryDraft]>([{ ...emptyInventoryDraft }]);
+  const setInventoryDraftRefOnly: LocalStateSetter<InventoryDraft> = (next) => {
+    inventoryDraftRef.current[0] = resolveLocalState(next, inventoryDraftRef.current[0]);
+  };
+  const setInventoryDraftWithRef: LocalStateSetter<InventoryDraft> = (next) => {
+    inventoryDraftRef.current[0] = resolveLocalState(next, inventoryDraftRef.current[0]);
+  };
+  return <>{children({ inventoryDraft: inventoryDraftRef.current[0], inventoryDraftRef, setInventoryDraft: setInventoryDraftWithRef, setInventoryDraftRefOnly })}</>;
+}
+
 const emptyInternationalVendorDraft = {
   company: "",
   country: "Canada",
@@ -717,6 +2713,25 @@ const emptyInternationalVendorDraft = {
   openclaw_target: "",
   notes: "",
 };
+type InternationalVendorDraft = typeof emptyInternationalVendorDraft;
+type InternationalVendorDraftState = {
+  internationalVendorDraft: InternationalVendorDraft;
+  internationalVendorDraftRef: MutableRefObject<[InternationalVendorDraft]>;
+  setInternationalVendorDraft: LocalStateSetter<InternationalVendorDraft>;
+  setInternationalVendorDraftRefOnly: LocalStateSetter<InternationalVendorDraft>;
+};
+
+function InternationalVendorDraftBoundary({ children }: { children: (draftState: InternationalVendorDraftState) => ReactNode }) {
+  recordComponentRender("InternationalVendorDraftBoundary");
+  const internationalVendorDraftRef = useRef<[InternationalVendorDraft]>([{ ...emptyInternationalVendorDraft }]);
+  const setInternationalVendorDraftWithRef: LocalStateSetter<InternationalVendorDraft> = (next) => {
+    internationalVendorDraftRef.current[0] = resolveLocalState(next, internationalVendorDraftRef.current[0]);
+  };
+  const setInternationalVendorDraftRefOnly: LocalStateSetter<InternationalVendorDraft> = (next) => {
+    internationalVendorDraftRef.current[0] = resolveLocalState(next, internationalVendorDraftRef.current[0]);
+  };
+  return <>{children({ internationalVendorDraft: internationalVendorDraftRef.current[0], internationalVendorDraftRef, setInternationalVendorDraft: setInternationalVendorDraftWithRef, setInternationalVendorDraftRefOnly })}</>;
+}
 
 const emptyMarketingDraft = {
   campaign_name: "FUZI elevator campaign",
@@ -735,6 +2750,25 @@ const emptyMarketingDraft = {
   openclaw_target: "",
   notes: "",
 };
+
+type MarketingDraftState = {
+  marketingDraft: typeof emptyMarketingDraft;
+  marketingDraftRef: MutableRefObject<[typeof emptyMarketingDraft]>;
+  setMarketingDraft: LocalStateSetter<typeof emptyMarketingDraft>;
+  setMarketingDraftRefOnly: LocalStateSetter<typeof emptyMarketingDraft>;
+};
+
+function MarketingDraftBoundary({ children }: { children: (drafts: MarketingDraftState) => ReactNode }) {
+  recordComponentRender("MarketingDraftBoundary");
+  const marketingDraftRef = useRef<[typeof emptyMarketingDraft]>([{ ...emptyMarketingDraft }]);
+  const setMarketingDraft: LocalStateSetter<typeof emptyMarketingDraft> = (next) => {
+    marketingDraftRef.current[0] = resolveLocalState(next, marketingDraftRef.current[0]);
+  };
+  const setMarketingDraftRefOnly: LocalStateSetter<typeof emptyMarketingDraft> = (next) => {
+    marketingDraftRef.current[0] = resolveLocalState(next, marketingDraftRef.current[0]);
+  };
+  return <>{children({ marketingDraft: marketingDraftRef.current[0], marketingDraftRef, setMarketingDraft, setMarketingDraftRefOnly })}</>;
+}
 
 const internationalVendorPipelineStages = [
   "Lead identified",
@@ -774,6 +2808,79 @@ const emptyBreakdownDraft = {
   scheduled_at: "",
   status: "Open",
 };
+type BreakdownDraft = typeof emptyBreakdownDraft;
+type BreakdownDraftState = {
+  breakdownDraft: BreakdownDraft;
+  breakdownDraftRef: MutableRefObject<[BreakdownDraft]>;
+  setBreakdownDraft: LocalStateSetter<BreakdownDraft>;
+  setBreakdownDraftRefOnly: LocalStateSetter<BreakdownDraft>;
+};
+type BreakdownInnerDraftState = {
+  breakdownScheduleDrafts: Record<string, string>;
+  breakdownScheduleDraftsRef: MutableRefObject<Record<string, string>>;
+  breakdownEngineerTaskDrafts: Record<string, string>;
+  breakdownEngineerTaskDraftsRef: MutableRefObject<Record<string, string>>;
+  breakdownRepairDrafts: Record<string, Record<string, string>>;
+  breakdownRepairDraftsRef: MutableRefObject<Record<string, Record<string, string>>>;
+  setBreakdownScheduleDrafts: LocalStateSetter<Record<string, string>>;
+  setBreakdownScheduleDraftsRefOnly: LocalStateSetter<Record<string, string>>;
+  setBreakdownEngineerTaskDrafts: LocalStateSetter<Record<string, string>>;
+  setBreakdownEngineerTaskDraftsRefOnly: LocalStateSetter<Record<string, string>>;
+  setBreakdownRepairDrafts: LocalStateSetter<Record<string, Record<string, string>>>;
+  setBreakdownRepairDraftsRefOnly: LocalStateSetter<Record<string, Record<string, string>>>;
+};
+
+function BreakdownDraftBoundary({ children }: { children: (draftState: BreakdownDraftState) => ReactNode }) {
+  recordComponentRender("BreakdownDraftBoundary");
+  const breakdownDraftRef = useRef<[BreakdownDraft]>([{ ...emptyBreakdownDraft }]);
+  const setBreakdownDraftRefOnly: LocalStateSetter<BreakdownDraft> = (next) => {
+    breakdownDraftRef.current[0] = resolveLocalState(next, breakdownDraftRef.current[0]);
+  };
+  const setBreakdownDraftWithRef: LocalStateSetter<BreakdownDraft> = (next) => {
+    breakdownDraftRef.current[0] = resolveLocalState(next, breakdownDraftRef.current[0]);
+  };
+  return <>{children({ breakdownDraft: breakdownDraftRef.current[0], breakdownDraftRef, setBreakdownDraft: setBreakdownDraftWithRef, setBreakdownDraftRefOnly })}</>;
+}
+
+function BreakdownInnerDraftBoundary({ children }: { children: (draftState: BreakdownInnerDraftState) => ReactNode }) {
+  recordComponentRender("BreakdownInnerDraftBoundary");
+  const breakdownScheduleDraftsRef = useRef<Record<string, string>>({});
+  const breakdownEngineerTaskDraftsRef = useRef<Record<string, string>>({});
+  const breakdownRepairDraftsRef = useRef<Record<string, Record<string, string>>>({});
+  const setBreakdownScheduleDraftsWithRef: LocalStateSetter<Record<string, string>> = (next) => {
+    breakdownScheduleDraftsRef.current = resolveLocalState(next, breakdownScheduleDraftsRef.current);
+  };
+  const setBreakdownScheduleDraftsRefOnly: LocalStateSetter<Record<string, string>> = (next) => {
+    breakdownScheduleDraftsRef.current = resolveLocalState(next, breakdownScheduleDraftsRef.current);
+  };
+  const setBreakdownEngineerTaskDraftsWithRef: LocalStateSetter<Record<string, string>> = (next) => {
+    breakdownEngineerTaskDraftsRef.current = resolveLocalState(next, breakdownEngineerTaskDraftsRef.current);
+  };
+  const setBreakdownEngineerTaskDraftsRefOnly: LocalStateSetter<Record<string, string>> = (next) => {
+    breakdownEngineerTaskDraftsRef.current = resolveLocalState(next, breakdownEngineerTaskDraftsRef.current);
+  };
+  const setBreakdownRepairDraftsWithRef: LocalStateSetter<Record<string, Record<string, string>>> = (next) => {
+    breakdownRepairDraftsRef.current = resolveLocalState(next, breakdownRepairDraftsRef.current);
+  };
+  const setBreakdownRepairDraftsRefOnly: LocalStateSetter<Record<string, Record<string, string>>> = (next) => {
+    breakdownRepairDraftsRef.current = resolveLocalState(next, breakdownRepairDraftsRef.current);
+  };
+  return <>{children({
+    breakdownScheduleDrafts: breakdownScheduleDraftsRef.current,
+    breakdownScheduleDraftsRef,
+    breakdownEngineerTaskDrafts: breakdownEngineerTaskDraftsRef.current,
+    breakdownEngineerTaskDraftsRef,
+    breakdownRepairDrafts: breakdownRepairDraftsRef.current,
+    breakdownRepairDraftsRef,
+    setBreakdownScheduleDrafts: setBreakdownScheduleDraftsWithRef,
+    setBreakdownScheduleDraftsRefOnly,
+    setBreakdownEngineerTaskDrafts: setBreakdownEngineerTaskDraftsWithRef,
+    setBreakdownEngineerTaskDraftsRefOnly,
+    setBreakdownRepairDrafts: setBreakdownRepairDraftsWithRef,
+    setBreakdownRepairDraftsRefOnly,
+  })}</>;
+}
+
 const emptyInstallationDraft = {
   id: "",
   customer_id: "",
@@ -841,6 +2948,28 @@ const emptyInstallationDraft = {
   contractor_payment_method: "",
   contractor_payment_remarks: "",
 };
+
+type InstallationDraftState = {
+  installationDraft: typeof emptyInstallationDraft;
+  installationDraftRef: MutableRefObject<[typeof emptyInstallationDraft]>;
+  setInstallationDraft: LocalStateSetter<typeof emptyInstallationDraft>;
+  setInstallationDraftRefOnly: LocalStateSetter<typeof emptyInstallationDraft>;
+};
+
+function InstallationDraftBoundary({ children }: { children: (drafts: InstallationDraftState) => ReactNode }) {
+  recordComponentRender("InstallationDraftBoundary");
+  const installationDraftRef = useRef<[typeof emptyInstallationDraft]>([{ ...emptyInstallationDraft }]);
+  const [, setInstallationDraftVersion] = useState(0);
+  const setInstallationDraftRefOnly: LocalStateSetter<typeof emptyInstallationDraft> = (next) => {
+    installationDraftRef.current[0] = resolveLocalState(next, installationDraftRef.current[0]);
+  };
+  const setInstallationDraft: LocalStateSetter<typeof emptyInstallationDraft> = (next) => {
+    installationDraftRef.current[0] = resolveLocalState(next, installationDraftRef.current[0]);
+    setInstallationDraftVersion((version) => version + 1);
+  };
+  return <>{children({ installationDraft: installationDraftRef.current[0], installationDraftRef, setInstallationDraft, setInstallationDraftRefOnly })}</>;
+}
+
 const emptyInstallTeamDraft = {
   name: "",
   role: "Technician",
@@ -851,6 +2980,65 @@ const emptyInstallTeamDraft = {
   shift: "",
   notes: "",
 };
+
+type InstallTeamDraftState = {
+  installTeamDraft: typeof emptyInstallTeamDraft;
+  installTeamDraftRef: MutableRefObject<[typeof emptyInstallTeamDraft]>;
+  installTeamRows: Record<string, unknown>[];
+  installTeamRowOverrides: Record<string, Record<string, unknown>>;
+  setInstallTeamDraft: LocalStateSetter<typeof emptyInstallTeamDraft>;
+  setInstallTeamDraftRefOnly: LocalStateSetter<typeof emptyInstallTeamDraft>;
+  setInstallTeamRows: LocalStateSetter<Record<string, unknown>[]>;
+  patchInstallTeamRow: (id: string, patch: Record<string, unknown>) => void;
+  prependInstallTeamRow: (record: Record<string, unknown>) => void;
+  setInstallTeamRowOverride: (id: string, patch: Record<string, unknown>) => void;
+};
+
+function InstallTeamDraftBoundary({ children, teamRows }: { children: (drafts: InstallTeamDraftState) => ReactNode; teamRows: Record<string, unknown>[] }) {
+  recordComponentRender("InstallTeamDraftBoundary");
+  const installTeamDraftRef = useRef<[typeof emptyInstallTeamDraft]>([{ ...emptyInstallTeamDraft }]);
+  const [installTeamRows, setInstallTeamRowsState] = useState<Record<string, unknown>[]>(() => teamRows);
+  const [installTeamRowOverrides, setInstallTeamRowOverrides] = useState<Record<string, Record<string, unknown>>>({});
+  const [, setInstallTeamDraftVersion] = useState(0);
+  const setInstallTeamDraftRefOnly: LocalStateSetter<typeof emptyInstallTeamDraft> = (next) => {
+    installTeamDraftRef.current[0] = resolveLocalState(next, installTeamDraftRef.current[0]);
+  };
+  const setInstallTeamDraft: LocalStateSetter<typeof emptyInstallTeamDraft> = (next) => {
+    installTeamDraftRef.current[0] = resolveLocalState(next, installTeamDraftRef.current[0]);
+    setInstallTeamDraftVersion((version) => version + 1);
+  };
+  const installTeamRowId = (record: Record<string, unknown>) => String(record.id || record.staff_id || record.name || "");
+  const patchInstallTeamRow = (id: string, patch: Record<string, unknown>) => {
+    const patchId = installTeamRowId(patch);
+    setInstallTeamRowsState((current) => current.map((record) => {
+      const rowId = installTeamRowId(record);
+      if (rowId !== id && rowId !== patchId) return record;
+      return { ...record, ...patch };
+    }));
+  };
+  const prependInstallTeamRow = (record: Record<string, unknown>) => {
+    const id = installTeamRowId(record);
+    setInstallTeamRowsState((current) => [record, ...current.filter((item) => installTeamRowId(item) !== id)]);
+  };
+  return <>{children({
+    installTeamDraft: installTeamDraftRef.current[0],
+    installTeamDraftRef,
+    installTeamRows,
+    installTeamRowOverrides,
+    setInstallTeamDraft,
+    setInstallTeamDraftRefOnly,
+    setInstallTeamRows: (next) => setInstallTeamRowsState((current) => resolveLocalState(next, current)),
+    patchInstallTeamRow,
+    prependInstallTeamRow,
+    setInstallTeamRowOverride: (id, patch) => {
+      setInstallTeamRowOverrides((current) => ({
+        ...current,
+        [id]: { ...(current[id] || {}), ...patch },
+      }));
+    },
+  })}</>;
+}
+
 const emptyCommissioningDraft = {
   installation_ref: "",
   unit: "",
@@ -874,6 +3062,64 @@ const emptyCommissioningDraft = {
   status: "Pending",
   notes: "",
 };
+
+type CommissioningDraftState = {
+  commissioningDraft: typeof emptyCommissioningDraft;
+  commissioningDraftRef: MutableRefObject<[typeof emptyCommissioningDraft]>;
+  commissioningRows: Record<string, unknown>[];
+  commissioningRowOverrides: Record<string, Record<string, unknown>>;
+  setCommissioningDraft: LocalStateSetter<typeof emptyCommissioningDraft>;
+  setCommissioningDraftRefOnly: LocalStateSetter<typeof emptyCommissioningDraft>;
+  setCommissioningRows: LocalStateSetter<Record<string, unknown>[]>;
+  patchCommissioningRow: (id: string, patch: Record<string, unknown>) => void;
+  prependCommissioningRow: (record: Record<string, unknown>) => void;
+  setCommissioningRowOverride: (id: string, patch: Record<string, unknown>) => void;
+};
+
+function CommissioningDraftBoundary({ children, rows }: { children: (drafts: CommissioningDraftState) => ReactNode; rows: Record<string, unknown>[] }) {
+  recordComponentRender("CommissioningDraftBoundary");
+  const commissioningDraftRef = useRef<[typeof emptyCommissioningDraft]>([{ ...emptyCommissioningDraft }]);
+  const [commissioningRows, setCommissioningRowsState] = useState<Record<string, unknown>[]>(() => rows);
+  const [commissioningRowOverrides, setCommissioningRowOverrides] = useState<Record<string, Record<string, unknown>>>({});
+  const [, setCommissioningDraftVersion] = useState(0);
+  const setCommissioningDraftRefOnly: LocalStateSetter<typeof emptyCommissioningDraft> = (next) => {
+    commissioningDraftRef.current[0] = resolveLocalState(next, commissioningDraftRef.current[0]);
+  };
+  const setCommissioningDraft: LocalStateSetter<typeof emptyCommissioningDraft> = (next) => {
+    commissioningDraftRef.current[0] = resolveLocalState(next, commissioningDraftRef.current[0]);
+    setCommissioningDraftVersion((version) => version + 1);
+  };
+  const commissioningRowId = (record: Record<string, unknown>) => String(record.id || record.installation_ref || record.job_ref || record.unit || "");
+  const patchCommissioningRow = (id: string, patch: Record<string, unknown>) => {
+    const patchId = commissioningRowId(patch);
+    setCommissioningRowsState((current) => current.map((record) => {
+      const rowId = commissioningRowId(record);
+      return rowId === id || (patchId && rowId === patchId) ? { ...record, ...patch } : record;
+    }));
+  };
+  const prependCommissioningRow = (record: Record<string, unknown>) => {
+    const id = commissioningRowId(record);
+    setCommissioningRowsState((current) => [record, ...current.filter((item) => commissioningRowId(item) !== id)]);
+  };
+  return <>{children({
+    commissioningDraft: commissioningDraftRef.current[0],
+    commissioningDraftRef,
+    commissioningRows,
+    commissioningRowOverrides,
+    setCommissioningDraft,
+    setCommissioningDraftRefOnly,
+    setCommissioningRows: (next) => setCommissioningRowsState((current) => resolveLocalState(next, current)),
+    patchCommissioningRow,
+    prependCommissioningRow,
+    setCommissioningRowOverride: (id, patch) => {
+      setCommissioningRowOverrides((current) => ({
+        ...current,
+        [id]: { ...(current[id] || {}), ...patch },
+      }));
+    },
+  })}</>;
+}
+
 const emptyAttendanceDraft = {
   person_id: "",
   person_name: "",
@@ -893,6 +3139,64 @@ const emptyLeaveDraft = {
   end_date: new Date().toISOString().slice(0, 10),
   reason: "",
 };
+
+type HrDraftState = {
+  attendanceDraft: typeof emptyAttendanceDraft;
+  attendanceDraftRef: MutableRefObject<[typeof emptyAttendanceDraft]>;
+  leaveDraft: typeof emptyLeaveDraft;
+  leaveDraftRef: MutableRefObject<[typeof emptyLeaveDraft]>;
+  setAttendanceDraft: LocalStateSetter<typeof emptyAttendanceDraft>;
+  setAttendanceDraftRefOnly: LocalStateSetter<typeof emptyAttendanceDraft>;
+  setLeaveDraft: LocalStateSetter<typeof emptyLeaveDraft>;
+  setLeaveDraftRefOnly: LocalStateSetter<typeof emptyLeaveDraft>;
+};
+
+function HrDraftBoundary({ children, viewerStaff }: { children: (drafts: HrDraftState) => ReactNode; viewerStaff: Record<string, unknown> | null }) {
+  recordComponentRender("HrDraftBoundary");
+  const draftText = (record: Record<string, unknown>, keys: string[]) => {
+    for (const key of keys) {
+      const value = record[key];
+      if (value !== undefined && value !== null && String(value).trim()) return String(value);
+    }
+    return "";
+  };
+  const initialLeaveDraft = {
+    ...emptyLeaveDraft,
+    ...(viewerStaff ? {
+      person_id: draftText(viewerStaff, ["id"]),
+      person_name: draftText(viewerStaff, ["name"]),
+      department: draftText(viewerStaff, ["department"]),
+    } : {}),
+  };
+  const attendanceDraftRef = useRef<[typeof emptyAttendanceDraft]>([{ ...emptyAttendanceDraft }]);
+  const leaveDraftRef = useRef<[typeof emptyLeaveDraft]>([initialLeaveDraft]);
+  const [, setHrDraftVersion] = useState(0);
+  const setAttendanceDraft: LocalStateSetter<typeof emptyAttendanceDraft> = (next) => {
+    attendanceDraftRef.current[0] = resolveLocalState(next, attendanceDraftRef.current[0]);
+    setHrDraftVersion((version) => version + 1);
+  };
+  const setAttendanceDraftRefOnly: LocalStateSetter<typeof emptyAttendanceDraft> = (next) => {
+    attendanceDraftRef.current[0] = resolveLocalState(next, attendanceDraftRef.current[0]);
+  };
+  const setLeaveDraft: LocalStateSetter<typeof emptyLeaveDraft> = (next) => {
+    leaveDraftRef.current[0] = resolveLocalState(next, leaveDraftRef.current[0]);
+    setHrDraftVersion((version) => version + 1);
+  };
+  const setLeaveDraftRefOnly: LocalStateSetter<typeof emptyLeaveDraft> = (next) => {
+    leaveDraftRef.current[0] = resolveLocalState(next, leaveDraftRef.current[0]);
+  };
+  useEffect(() => {
+    if (!viewerStaff || leaveDraftRef.current[0].person_id) return;
+    setLeaveDraft((draft) => ({
+      ...draft,
+      person_id: draftText(viewerStaff, ["id"]),
+      person_name: draftText(viewerStaff, ["name"]),
+      department: draftText(viewerStaff, ["department"]),
+    }));
+  }, [viewerStaff]);
+  return <>{children({ attendanceDraft: attendanceDraftRef.current[0], attendanceDraftRef, leaveDraft: leaveDraftRef.current[0], leaveDraftRef, setAttendanceDraft, setAttendanceDraftRefOnly, setLeaveDraft, setLeaveDraftRefOnly })}</>;
+}
+
 const emptyTenderDraft = {
   id: "",
   job_number: "",
@@ -949,6 +3253,29 @@ const emptyTenderDraft = {
   sd_deposited_by: "DD",
   sd_deposit_date: "",
 };
+type TenderDraft = typeof emptyTenderDraft;
+type TenderDraftState = {
+  tenderDraft: TenderDraft;
+  tenderDraftRef: MutableRefObject<[TenderDraft]>;
+  setTenderDraft: LocalStateSetter<TenderDraft>;
+  setTenderDraftRefOnly: LocalStateSetter<TenderDraft>;
+};
+
+function TenderDraftBoundary({ children }: { children: (draftState: TenderDraftState) => ReactNode }) {
+  recordComponentRender("TenderDraftBoundary");
+  const tenderDraftRef = useRef<[TenderDraft]>([{ ...emptyTenderDraft }]);
+  const [tenderDraft, setTenderDraft] = useState<TenderDraft>(() => ({ ...emptyTenderDraft }));
+  const setTenderDraftRefOnly: LocalStateSetter<TenderDraft> = (next) => {
+    tenderDraftRef.current[0] = resolveLocalState(next, tenderDraftRef.current[0]);
+  };
+  const setTenderDraftWithRef: LocalStateSetter<TenderDraft> = (next) => {
+    const value = resolveLocalState(next, tenderDraftRef.current[0]);
+    tenderDraftRef.current[0] = value;
+    setTenderDraft(value);
+  };
+  return <>{children({ tenderDraft, tenderDraftRef, setTenderDraft: setTenderDraftWithRef, setTenderDraftRefOnly })}</>;
+}
+
 const emptyAccountDraft = {
   id: "",
   username: "",
@@ -959,6 +3286,129 @@ const emptyAccountDraft = {
   password: "",
   active: "Y",
 };
+type AccountDraft = typeof emptyAccountDraft;
+type AccountPageState = {
+  accountDraft: AccountDraft;
+  accountSearch: string;
+  accountEditDrafts: Record<string, AccountDraft>;
+  accountPasswordDrafts: Record<string, string>;
+  accountNotice: string;
+  accountActionLoading: boolean;
+};
+type AccountController = {
+  setAccountDraft: LocalStateSetter<AccountDraft>;
+  setAccountDraftRefOnly: LocalStateSetter<AccountDraft>;
+  setAccountSearch: LocalStateSetter<string>;
+  setAccountEditDrafts: LocalStateSetter<Record<string, AccountDraft>>;
+  setAccountEditDraftsRefOnly: LocalStateSetter<Record<string, AccountDraft>>;
+  setAccountPasswordDrafts: LocalStateSetter<Record<string, string>>;
+  setAccountPasswordDraftsRefOnly: LocalStateSetter<Record<string, string>>;
+  setAccountNotice: LocalStateSetter<string>;
+  setAccountActionLoading: LocalStateSetter<boolean>;
+  setAccountRows: LocalStateSetter<Record<string, unknown>[]>;
+  patchAccountRow: (id: string, patch: Record<string, unknown>) => void;
+  prependAccountRow: (record: Record<string, unknown>) => void;
+};
+type AccountState = AccountPageState & { accountRows: Record<string, unknown>[] } & AccountController;
+
+function accountDefaultState(): AccountPageState {
+  return {
+    accountDraft: { ...emptyAccountDraft },
+    accountSearch: "",
+    accountEditDrafts: {},
+    accountPasswordDrafts: {},
+    accountNotice: "",
+    accountActionLoading: false,
+  };
+}
+
+function AccountStateBoundary({
+  children,
+  controllerRef,
+  initialUsers,
+  stateRef,
+}: {
+  children: (accountState: AccountState) => ReactNode;
+  controllerRef: MutableRefObject<AccountController | null>;
+  initialUsers: Record<string, unknown>[];
+  stateRef: MutableRefObject<AccountPageState>;
+}) {
+  recordComponentRender("AccountStateBoundary");
+  const [state, setState] = useState<AccountPageState>(() => ({ ...accountDefaultState(), ...stateRef.current }));
+  const [accountRows, setAccountRowsState] = useState<Record<string, unknown>[]>(() => initialUsers);
+
+  const accountRowIdentity = (record: Record<string, unknown>) => String(record.id || record.username || "");
+
+  const setAccountStateField = <K extends keyof AccountPageState>(
+    key: K,
+    next: AccountPageState[K] | ((current: AccountPageState[K]) => AccountPageState[K])
+  ) => {
+    setState((current) => {
+      const nextState = {
+        ...current,
+        [key]: resolveLocalState(next, current[key]),
+      };
+      stateRef.current = nextState;
+      return nextState;
+    });
+  };
+  const setAccountStateFieldRefOnly = <K extends keyof AccountPageState>(
+    key: K,
+    next: AccountPageState[K] | ((current: AccountPageState[K]) => AccountPageState[K])
+  ) => {
+    stateRef.current = {
+      ...stateRef.current,
+      [key]: resolveLocalState(next, stateRef.current[key]),
+    };
+  };
+
+  const controller: AccountController = {
+    setAccountDraft: (next) => setAccountStateField("accountDraft", next),
+    setAccountDraftRefOnly: (next) => setAccountStateFieldRefOnly("accountDraft", next),
+    setAccountSearch: (next) => setAccountStateField("accountSearch", next),
+    setAccountEditDrafts: (next) => setAccountStateField("accountEditDrafts", next),
+    setAccountEditDraftsRefOnly: (next) => setAccountStateFieldRefOnly("accountEditDrafts", next),
+    setAccountPasswordDrafts: (next) => setAccountStateField("accountPasswordDrafts", next),
+    setAccountPasswordDraftsRefOnly: (next) => setAccountStateFieldRefOnly("accountPasswordDrafts", next),
+    setAccountNotice: (next) => setAccountStateField("accountNotice", next),
+    setAccountActionLoading: (next) => setAccountStateField("accountActionLoading", next),
+    setAccountRows: (next) => {
+      setAccountRowsState((current) => resolveLocalState(next, current));
+    },
+    patchAccountRow: (id, patch) => {
+      if (!id) return;
+      setAccountRowsState((current) => current.map((record) => accountRowIdentity(record) === id ? { ...record, ...patch } : record));
+    },
+    prependAccountRow: (record) => {
+      setAccountRowsState((current) => {
+        const id = accountRowIdentity(record);
+        return id ? [record, ...current.filter((item) => accountRowIdentity(item) !== id)] : [record, ...current];
+      });
+    },
+  };
+
+  useEffect(() => {
+    stateRef.current = {
+      ...state,
+      accountDraft: stateRef.current.accountDraft,
+      accountEditDrafts: stateRef.current.accountEditDrafts,
+      accountPasswordDrafts: stateRef.current.accountPasswordDrafts,
+    };
+  }, [state, stateRef]);
+
+  useEffect(() => {
+    controllerRef.current = controller;
+    return () => {
+      if (controllerRef.current === controller) controllerRef.current = null;
+    };
+  });
+
+  useEffect(() => {
+    setAccountRowsState(initialUsers);
+  }, [initialUsers]);
+
+  return <>{children({ ...state, accountRows, ...controller })}</>;
+}
 const accountRoleOptions = ["ceo", "manager", "staff", "technician"];
 const emptyRenewalDraft = {
   customer_id: "",
@@ -969,6 +3419,52 @@ const emptyRenewalDraft = {
   contact_email: "",
   notes: "",
 };
+
+type RenewalDraftState = {
+  renewalDraft: typeof emptyRenewalDraft;
+  renewalDraftRef: MutableRefObject<[typeof emptyRenewalDraft]>;
+  renewalRows: Record<string, unknown>[];
+  setRenewalDraft: LocalStateSetter<typeof emptyRenewalDraft>;
+  setRenewalDraftRefOnly: LocalStateSetter<typeof emptyRenewalDraft>;
+  setRenewalRows: LocalStateSetter<Record<string, unknown>[]>;
+  patchRenewalRow: (id: string, patch: Record<string, unknown>) => void;
+  prependRenewalRow: (record: Record<string, unknown>) => void;
+};
+
+function RenewalDraftBoundary({ children, rows }: { children: (drafts: RenewalDraftState) => ReactNode; rows: Record<string, unknown>[] }) {
+  recordComponentRender("RenewalDraftBoundary");
+  const renewalDraftRef = useRef<[typeof emptyRenewalDraft]>([{ ...emptyRenewalDraft }]);
+  const [renewalRows, setRenewalRowsState] = useState<Record<string, unknown>[]>(() => rows);
+  const setRenewalDraft: LocalStateSetter<typeof emptyRenewalDraft> = (next) => {
+    renewalDraftRef.current[0] = resolveLocalState(next, renewalDraftRef.current[0]);
+  };
+  const setRenewalDraftRefOnly: LocalStateSetter<typeof emptyRenewalDraft> = (next) => {
+    renewalDraftRef.current[0] = resolveLocalState(next, renewalDraftRef.current[0]);
+  };
+  const renewalRowIdentity = (record: Record<string, unknown>) => String(record.id || record.renewal_id || record.customer_id || record.customer || "");
+  const patchRenewalRow = (id: string, patch: Record<string, unknown>) => {
+    const patchId = renewalRowIdentity(patch);
+    setRenewalRowsState((current) => current.map((record) => {
+      const rowId = renewalRowIdentity(record);
+      return rowId === id || (patchId && rowId === patchId) ? { ...record, ...patch } : record;
+    }));
+  };
+  const prependRenewalRow = (record: Record<string, unknown>) => {
+    const id = renewalRowIdentity(record);
+    setRenewalRowsState((current) => [record, ...current.filter((item) => renewalRowIdentity(item) !== id)]);
+  };
+  return <>{children({
+    renewalDraft: renewalDraftRef.current[0],
+    renewalDraftRef,
+    renewalRows,
+    setRenewalDraft,
+    setRenewalDraftRefOnly,
+    setRenewalRows: (next) => setRenewalRowsState((current) => resolveLocalState(next, current)),
+    patchRenewalRow,
+    prependRenewalRow,
+  })}</>;
+}
+
 const emptySalesInquiryDraft = {
   id: "",
   customer_id: "",
@@ -1361,11 +3857,39 @@ function currentFiscalYearRange() {
   return { start: `${year}-04-01`, end: `${year + 1}-03-31` };
 }
 
-export default function App() {
+const PortalApp = memo(function PortalApp() {
+  recordComponentRender("PortalApp");
   const { width } = useWindowDimensions();
   const isPhone = width < 560;
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof globalThis.location === "undefined") return;
+    const params = new URLSearchParams(globalThis.location.search || "");
+    if (params.get("clearFuziCache") !== "1") return;
+    try {
+      if (typeof globalThis.localStorage !== "undefined") globalThis.localStorage.clear();
+      if (typeof globalThis.sessionStorage !== "undefined") globalThis.sessionStorage.clear();
+    } catch {
+      // Browser storage can be unavailable in hardened contexts.
+    }
+    const runtime = globalThis as typeof globalThis & { FUZI_DESKTOP_CACHE?: DesktopPortalCache };
+    runtime.FUZI_DESKTOP_CACHE?.clear().catch(() => {});
+    params.delete("clearFuziCache");
+    const nextSearch = params.toString();
+    const nextUrl = `${globalThis.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${globalThis.location.hash || ""}`;
+    globalThis.history?.replaceState?.(null, "", nextUrl);
+  }, []);
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
+  const loginUsernameRef = useRef("admin");
+  const loginPasswordRef = useRef("");
+  function updateLoginUsername(nextUsername: string) {
+    loginUsernameRef.current = nextUsername;
+    setUsername(nextUsername);
+  }
+  function updateLoginPassword(nextPassword: string) {
+    loginPasswordRef.current = nextPassword;
+    setPassword(nextPassword);
+  }
   const [token, setToken] = useState("");
   const [data, setData] = useState<PortalData | null>(null);
   const [portalLanguage, setPortalLanguage] = useState<PortalLanguage>(() => {
@@ -1377,180 +3901,446 @@ export default function App() {
   });
   const [loginDirectory, setLoginDirectory] = useState<Array<Record<string, unknown>>>([]);
   const [loginDepartment, setLoginDepartment] = useState("");
-  const [loginDepartmentOpen, setLoginDepartmentOpen] = useState(false);
-  const [loginUserOpen, setLoginUserOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const activeTabRef = useRef<TabKey>("overview");
+  const activeTabControllerRef = useRef<LocalTabSetter | null>(null);
+  const activeTabTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setActiveTab = (nextTab: TabKey | ((current: TabKey) => TabKey)) => {
+    const resolvedTab = typeof nextTab === "function" ? nextTab(activeTabRef.current) : nextTab;
+    activeTabRef.current = resolvedTab;
+    if (resolvedTab === "customers" || resolvedTab === "enquiries" || resolvedTab === "sales") {
+      const nextCrmRecordView: CrmRecordView = resolvedTab === "customers" ? "Customers" : "Enquiries";
+      crmStateRef.current = { ...crmStateRef.current, crmRecordView: nextCrmRecordView, customerPage: 1, enquiryPage: 1, offerPage: 1 };
+      crmControllerRef.current?.setCrmRecordView(nextCrmRecordView);
+    }
+    if (Platform.OS === "web") {
+      if (activeTabTimerRef.current) clearTimeout(activeTabTimerRef.current);
+      activeTabTimerRef.current = setTimeout(() => {
+        activeTabTimerRef.current = null;
+        activeTabControllerRef.current?.(resolvedTab);
+      }, 120);
+      return;
+    }
+    activeTabControllerRef.current?.(resolvedTab);
+  };
   const [showPortalLogin, setShowPortalLogin] = useState(
     () => Platform.OS === "web" && typeof window !== "undefined" && window.location.pathname.startsWith("/portal")
   );
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
-  const [crmImportOpen, setCrmImportOpen] = useState(false);
-  const [crmImportType, setCrmImportType] = useState("auto");
-  const [listStepInput, setListStepInput] = useState(String(DEFAULT_LIST_STEP));
-  const [listVisibleCounts, setListVisibleCounts] = useState<Record<string, number>>({});
-  const [overviewStartDate, setOverviewStartDate] = useState(currentFiscalYearRange().start);
-  const [overviewEndDate, setOverviewEndDate] = useState(currentFiscalYearRange().end);
-  const [projectNow, setProjectNow] = useState(() => Date.now());
-  const [customerDraft, setCustomerDraft] = useState<Partial<Customer>>(emptyCustomer);
-  const [customerInstalledDateDraft, setCustomerInstalledDateDraft] = useState("");
-  const [customerInlineDrafts, setCustomerInlineDrafts] = useState<Record<string, Partial<Customer>>>({});
-  const [customerInlineInstalledDates, setCustomerInlineInstalledDates] = useState<Record<string, string>>({});
-  const [customerEditorOpen, setCustomerEditorOpen] = useState(false);
-  const [siteVisitDraft, setSiteVisitDraft] = useState<Partial<SiteVisit>>(emptySiteVisit);
-  const [siteVisitEditorOpen, setSiteVisitEditorOpen] = useState(false);
-  const [siteVisitCustomerSearch, setSiteVisitCustomerSearch] = useState("");
-  const [moduleDraft, setModuleDraft] = useState(emptyModuleDraft);
-  const [serviceDraft, setServiceDraft] = useState(emptyServiceDraft);
-  const [serviceNewVisitOpen, setServiceNewVisitOpen] = useState(false);
-  const [serviceIssueDropdownOpen, setServiceIssueDropdownOpen] = useState(false);
-  const [serviceEngineerDropdownOpen, setServiceEngineerDropdownOpen] = useState(false);
-  const [serviceEditEngineerDropdownOpen, setServiceEditEngineerDropdownOpen] = useState("");
-  const [serviceEditDrafts, setServiceEditDrafts] = useState<Record<string, Record<string, string>>>({});
-  const [serviceSlotDropdownOpen, setServiceSlotDropdownOpen] = useState("");
-  const [serviceYearDropdownOpen, setServiceYearDropdownOpen] = useState("");
-  const [serviceQuickAssignOpen, setServiceQuickAssignOpen] = useState("");
-  const [serviceSelectedYears, setServiceSelectedYears] = useState<Record<string, number>>({});
-  const [serviceSelectedSlots, setServiceSelectedSlots] = useState<Record<string, number>>({});
-  const [serviceCustomerDropdownOpen, setServiceCustomerDropdownOpen] = useState(false);
-  const [serviceCustomerSearch, setServiceCustomerSearch] = useState("");
-  const [serviceRecordSearch, setServiceRecordSearch] = useState("");
-  const [servicePage, setServicePage] = useState(1);
+  const [loadingState, setLoadingState] = useState(false);
+  const [messageState, setMessageState] = useState("");
+  const dataRef = useRef([data]);
+  const showPortalLoginRef = useRef([showPortalLogin]);
+  const loadingRef = useRef([loadingState]);
+  const messageRef = useRef([messageState]);
+  const portalStatusRef = useRef<((next: { loading?: boolean; message?: string }) => void) | null>(null);
+  const actionScrollRef = useRef({ x: 0, y: 0, restore: false });
+  const loading = loadingRef.current[0];
+  const message = messageRef.current[0];
+  function setLoading(nextLoading: boolean | ((current: boolean) => boolean)) {
+    const nextValue = typeof nextLoading === "function" ? nextLoading(loadingRef.current[0]) : nextLoading;
+    loadingRef.current[0] = Boolean(nextValue);
+    if (!dataRef.current[0] || showPortalLoginRef.current[0]) {
+      setLoadingState(loadingRef.current[0]);
+      return;
+    }
+    portalStatusRef.current?.({ loading: loadingRef.current[0] });
+  }
+  function setMessage(nextMessage: string | ((current: string) => string)) {
+    const nextValue = typeof nextMessage === "function" ? nextMessage(messageRef.current[0]) : nextMessage;
+    messageRef.current[0] = nextValue;
+    if (!dataRef.current[0] || showPortalLoginRef.current[0]) {
+      setMessageState(nextValue);
+      return;
+    }
+    portalStatusRef.current?.({ message: nextValue });
+  }
+  function patchDisplayedPortalRecord(collectionKey: keyof PortalData, id: string, patch: Record<string, unknown>) {
+    const currentData = dataRef.current[0];
+    const currentCollection = currentData?.[collectionKey];
+    if (!currentData || !Array.isArray(currentCollection)) return;
+    let changed = false;
+    const nextCollection = currentCollection.map((record) => {
+      if (recordIdentity(record) !== id && String((record as Record<string, unknown>).id || "") !== id) return record;
+      changed = true;
+      return { ...record, ...patch };
+    });
+    if (!changed) return;
+    const nextData = { ...currentData, [collectionKey]: nextCollection };
+    dataRef.current[0] = nextData;
+    setData(nextData);
+  }
+  function prependDisplayedPortalRecord(collectionKey: keyof PortalData, record: Record<string, unknown>) {
+    const currentData = dataRef.current[0];
+    const currentCollection = currentData?.[collectionKey];
+    if (!currentData || !Array.isArray(currentCollection)) return;
+    const nextData = {
+      ...currentData,
+      [collectionKey]: [record, ...currentCollection],
+    };
+    dataRef.current[0] = nextData;
+    setData(nextData);
+  }
+  function patchDisplayedPortalRecordRefOnly(collectionKey: keyof PortalData, id: string, patch: Record<string, unknown>) {
+    const currentData = dataRef.current[0];
+    const currentCollection = currentData?.[collectionKey];
+    if (!currentData || !Array.isArray(currentCollection)) return;
+    let changed = false;
+    const nextCollection = currentCollection.map((record) => {
+      if (recordIdentity(record) !== id && String((record as Record<string, unknown>).id || "") !== id) return record;
+      changed = true;
+      return { ...record, ...patch };
+    });
+    if (!changed) return;
+    dataRef.current[0] = { ...currentData, [collectionKey]: nextCollection };
+  }
+  function prependDisplayedPortalRecordRefOnly(collectionKey: keyof PortalData, record: Record<string, unknown>) {
+    const currentData = dataRef.current[0];
+    const currentCollection = currentData?.[collectionKey];
+    if (!currentData || !Array.isArray(currentCollection)) return;
+    const id = recordIdentity(record) || String(record.id || "");
+    dataRef.current[0] = {
+      ...currentData,
+      [collectionKey]: id ? [record, ...currentCollection.filter((item) => recordIdentity(item) !== id && String((item as Record<string, unknown>).id || "") !== id)] : [record, ...currentCollection],
+    };
+  }
+  function removeDisplayedPortalRecord(collectionKey: keyof PortalData, id: string) {
+    const currentData = dataRef.current[0];
+    const currentCollection = currentData?.[collectionKey];
+    if (!currentData || !Array.isArray(currentCollection)) return;
+    const nextCollection = currentCollection.filter((record) => recordIdentity(record) !== id && String((record as Record<string, unknown>).id || "") !== id);
+    if (nextCollection.length === currentCollection.length) return;
+    const nextData = { ...currentData, [collectionKey]: nextCollection };
+    dataRef.current[0] = nextData;
+    setData(nextData);
+  }
+  function applyDisplayedProjectDepartmentMove(customerId: string, assignment: Record<string, unknown>, history: Record<string, unknown>[]) {
+    const currentData = dataRef.current[0];
+    if (!currentData) return;
+    const currentAssignments = asRecords(currentData.department_assignments);
+    const currentHistory = asRecords(currentData.department_history);
+    const nextAssignments = [
+      assignment,
+      ...currentAssignments
+        .filter((record) => recordIdentity(record) !== recordIdentity(assignment))
+        .filter((record) => {
+          if (String(record.customer_id || "") !== customerId) return true;
+          return record.active_status === false || String(record.active_status || "").toLowerCase() === "false";
+        }),
+    ];
+    const historyIds = new Set(history.map((record) => recordIdentity(record)).filter(Boolean));
+    const nextHistory = [
+      ...history,
+      ...currentHistory.filter((record) => String(record.customer_id || "") !== customerId || !historyIds.has(recordIdentity(record))),
+    ];
+    const nextData = {
+      ...currentData,
+      department_assignments: nextAssignments,
+      department_history: nextHistory,
+    };
+    dataRef.current[0] = nextData;
+    setData(nextData);
+  }
+  const listLimitControllerRef = useRef<ListLimitController | null>(null);
+  const projectNowRef = useRef(Date.now());
+  const customerDraftStateRef = useRef<CustomerDraftPageState>({
+    customerDraft: { ...emptyCustomer },
+    customerInstalledDateDraft: "",
+    customerInlineDrafts: {},
+    customerInlineInstalledDates: {},
+    customerDraftVersion: 0,
+  });
+  const customerInlineEditorControllersRef = useRef<Record<string, CustomerInlineEditorController | undefined>>({});
+  const customerDraftControllerRef = useRef<Omit<CustomerDraftState, keyof CustomerDraftPageState> | null>(null);
+  const setCustomerDraft: LocalStateSetter<Partial<Customer>> = (next) => {
+    const value = resolveLocalState(next, customerDraftStateRef.current.customerDraft);
+    customerDraftStateRef.current = { ...customerDraftStateRef.current, customerDraft: value };
+    customerDraftControllerRef.current?.setCustomerDraft(value);
+  };
+  const setCustomerInstalledDateDraft: LocalStateSetter<string> = (next) => {
+    const value = resolveLocalState(next, customerDraftStateRef.current.customerInstalledDateDraft);
+    customerDraftStateRef.current = { ...customerDraftStateRef.current, customerInstalledDateDraft: value };
+    customerDraftControllerRef.current?.setCustomerInstalledDateDraft(value);
+  };
+  const setCustomerInlineDrafts: LocalStateSetter<Record<string, Partial<Customer>>> = (next) => {
+    const value = resolveLocalState(next, customerDraftStateRef.current.customerInlineDrafts);
+    customerDraftStateRef.current = { ...customerDraftStateRef.current, customerInlineDrafts: value };
+    customerDraftControllerRef.current?.setCustomerInlineDrafts(value);
+  };
+  const setCustomerInlineInstalledDates: LocalStateSetter<Record<string, string>> = (next) => {
+    const value = resolveLocalState(next, customerDraftStateRef.current.customerInlineInstalledDates);
+    customerDraftStateRef.current = { ...customerDraftStateRef.current, customerInlineInstalledDates: value };
+    customerDraftControllerRef.current?.setCustomerInlineInstalledDates(value);
+  };
+  const siteVisitDraftRef = useRef<Partial<SiteVisit>>({ ...emptySiteVisit });
+  const siteVisitDraftControllerRef = useRef<LocalStateSetter<Partial<SiteVisit>> | null>(null);
+  const setSiteVisitDraftRefOnly: LocalStateSetter<Partial<SiteVisit>> = (next) => {
+    siteVisitDraftRef.current = resolveLocalState(next, siteVisitDraftRef.current);
+  };
+  const setSiteVisitDraft: LocalStateSetter<Partial<SiteVisit>> = (next) => {
+    const value = resolveLocalState(next, siteVisitDraftRef.current);
+    siteVisitDraftRef.current = value;
+    siteVisitDraftControllerRef.current?.(value);
+  };
+  const siteVisitEditorOpenRef = useRef<LocalBooleanSetter | null>(null);
+  const setSiteVisitEditorOpen: LocalBooleanSetter = (next) => siteVisitEditorOpenRef.current?.(next);
+  const siteVisitCustomerSearchRef = useRef<LocalStateSetter<string> | null>(null);
+  const setSiteVisitCustomerSearch: LocalStateSetter<string> = (next) => siteVisitCustomerSearchRef.current?.(next);
+  const serviceStateRef = useRef<ServicePageState>({ ...defaultServicePageState });
+  const serviceControllerRef = useRef<ServiceController | null>(null);
+  const setServiceField = <K extends keyof ServicePageState>(
+    key: K,
+    setterName: keyof ServiceController,
+    next: ServicePageState[K] | ((current: ServicePageState[K]) => ServicePageState[K]),
+    resetPage = false
+  ) => {
+    const value = resolveLocalState(next, serviceStateRef.current[key]);
+    serviceStateRef.current = {
+      ...serviceStateRef.current,
+      [key]: value,
+      ...(resetPage ? { servicePage: 1 } : {}),
+    };
+    (serviceControllerRef.current?.[setterName] as LocalStateSetter<ServicePageState[K]> | undefined)?.(value);
+  };
+  const setServiceCustomerSearch: LocalStateSetter<string> = (next) => setServiceField("serviceCustomerSearch", "setServiceCustomerSearch", next);
+  const setServiceRecordSearch: LocalStateSetter<string> = (next) => setServiceField("serviceRecordSearch", "setServiceRecordSearch", next, true);
+  const setServicePage: LocalStateSetter<number> = (next) => setServiceField("servicePage", "setServicePage", next);
   const activeServiceCheckInRecordRef = useRef<Record<string, unknown> | null>(null);
-  const [paymentDraft, setPaymentDraft] = useState(emptyPaymentDraft);
-  const [approvalDraft, setApprovalDraft] = useState(emptyApprovalDraft);
-  const [documentDraft, setDocumentDraft] = useState(emptyDocumentDraft);
-  const [escalationDraft, setEscalationDraft] = useState(emptyEscalationDraft);
-  const [conversationDraft, setConversationDraft] = useState(emptyConversationDraft);
-  const [warrantyDraft, setWarrantyDraft] = useState(emptyWarrantyDraft);
-  const [dispatchDraft, setDispatchDraft] = useState(emptyDispatchDraft);
-  const [readinessDraft, setReadinessDraft] = useState(emptyReadinessDraft);
-  const [skillDraft, setSkillDraft] = useState(emptySkillDraft);
-  const [handoverDraft, setHandoverDraft] = useState(emptyHandoverDraft);
-  const [liftAssetDraft, setLiftAssetDraft] = useState(emptyLiftAssetDraft);
-  const [partsUsageDraft, setPartsUsageDraft] = useState(emptyPartsUsageDraft);
-  const [safetyIncidentDraft, setSafetyIncidentDraft] = useState(emptySafetyIncidentDraft);
-  const [tenderChecklistDraft, setTenderChecklistDraft] = useState(emptyTenderChecklistDraft);
-  const [amcContractDraft, setAmcContractDraft] = useState(emptyAmcContractDraft);
-  const [serviceReportDraft, setServiceReportDraft] = useState(emptyServiceReportDraft);
-  const [dailyBriefDraft, setDailyBriefDraft] = useState(emptyDailyBriefDraft);
-  const [breakdownDraft, setBreakdownDraft] = useState(emptyBreakdownDraft);
-  const [installationDraft, setInstallationDraft] = useState<Record<string, string>>(emptyInstallationDraft);
-  const [installationEditorOpen, setInstallationEditorOpen] = useState(false);
-  const [installationCustomerSearch, setInstallationCustomerSearch] = useState("");
-  const [installationSearch, setInstallationSearch] = useState("");
-  const [installationStatusFilter, setInstallationStatusFilter] = useState("All");
-  const [installationReportStart, setInstallationReportStart] = useState("");
-  const [installationReportEnd, setInstallationReportEnd] = useState("");
-  const [installTeamDraft, setInstallTeamDraft] = useState(emptyInstallTeamDraft);
-  const [commissioningDraft, setCommissioningDraft] = useState(emptyCommissioningDraft);
-  const [attendanceDraft, setAttendanceDraft] = useState(emptyAttendanceDraft);
-  const [leaveDraft, setLeaveDraft] = useState(emptyLeaveDraft);
-  const [tenderDraft, setTenderDraft] = useState<Record<string, string>>(emptyTenderDraft);
-  const [tenderSearch, setTenderSearch] = useState("");
-  const [tenderStatusFilter, setTenderStatusFilter] = useState("All");
-  const [hrSearch, setHrSearch] = useState("");
-  const [hrDepartmentFilter, setHrDepartmentFilter] = useState("All");
-  const [crmSearch, setCrmSearch] = useState("");
-  const [crmRecordView, setCrmRecordView] = useState<"Enquiries" | "Customers">("Enquiries");
-  const [crmStageFilter, setCrmStageFilter] = useState("All");
-  const [crmStaffFilter, setCrmStaffFilter] = useState("");
-  const [crmDepartmentFilter, setCrmDepartmentFilter] = useState("All");
-  const [crmTeamFilter, setCrmTeamFilter] = useState("All");
-  const [crmDepartmentDropdownOpen, setCrmDepartmentDropdownOpen] = useState(false);
-  const [crmTeamDropdownOpen, setCrmTeamDropdownOpen] = useState(false);
-  const [crmStageDropdownOpen, setCrmStageDropdownOpen] = useState(false);
-  const [globalSearch, setGlobalSearch] = useState("");
-  const [globalSearchResults, setGlobalSearchResults] = useState<Array<Record<string, unknown>>>([]);
-  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
-  const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
-  const [navSearch, setNavSearch] = useState("");
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [backlogSearch, setBacklogSearch] = useState("");
-  const [backlogCategory, setBacklogCategory] = useState("All");
-  const [compactLists, setCompactLists] = useState(true);
-  const [customerPage, setCustomerPage] = useState(1);
-  const [enquiryPage, setEnquiryPage] = useState(1);
-  const [offerPage, setOfferPage] = useState(1);
-  const [offerCustomerPage, setOfferCustomerPage] = useState(1);
-  const [accountDraft, setAccountDraft] = useState(emptyAccountDraft);
-  const [accountCreateOpen, setAccountCreateOpen] = useState(false);
-  const [accountCreateRoleOpen, setAccountCreateRoleOpen] = useState(false);
-  const [accountEditRoleOpen, setAccountEditRoleOpen] = useState("");
-  const [accountSearch, setAccountSearch] = useState("");
-  const [accountEditDrafts, setAccountEditDrafts] = useState<Record<string, typeof emptyAccountDraft>>({});
-  const [accountPasswordDrafts, setAccountPasswordDrafts] = useState<Record<string, string>>({});
-  const [renewalDraft, setRenewalDraft] = useState(emptyRenewalDraft);
-  const [inventoryDraft, setInventoryDraft] = useState(emptyInventoryDraft);
-  const [inventorySearch, setInventorySearch] = useState("");
-  const [inventoryEdits, setInventoryEdits] = useState<Record<string, { reorder_point: string; target_stock: string; current_price: string; purchase_price: string; price_date: string }>>({});
-  const [internationalVendorDraft, setInternationalVendorDraft] = useState(emptyInternationalVendorDraft);
-  const [internationalVendorSearch, setInternationalVendorSearch] = useState("");
-  const [internationalVendorFilter, setInternationalVendorFilter] = useState("All");
-  const [internationalVendorPage, setInternationalVendorPage] = useState(1);
-  const [marketingDraft, setMarketingDraft] = useState(emptyMarketingDraft);
-  const [marketingSearch, setMarketingSearch] = useState("");
-  const [salesInquiryDraft, setSalesInquiryDraft] = useState(emptySalesInquiryDraft);
-  const [salesInquiryInstalledDateDraft, setSalesInquiryInstalledDateDraft] = useState("");
-  const [salesInquiryEditorOpen, setSalesInquiryEditorOpen] = useState(false);
-  const [offerDraft, setOfferDraft] = useState<Record<string, any>>(emptyOfferDraft);
-  const [costingEditorOpen, setCostingEditorOpen] = useState(false);
-  const [offerCustomerSearch, setOfferCustomerSearch] = useState("");
-  const [offerCustomerOfferFilter, setOfferCustomerOfferFilter] = useState("All");
-  const [costingSources, setCostingSources] = useState<CostingSource[]>([]);
-  const [stagedCostingImport, setStagedCostingImport] = useState<Record<string, any> | null>(null);
-  const [costingSourcesLoading, setCostingSourcesLoading] = useState(false);
-  const [costingSourceIndex, setCostingSourceIndex] = useState(0);
-  const [costingCellStep, setCostingCellStep] = useState(0);
-  const [breakdownScheduleDrafts, setBreakdownScheduleDrafts] = useState<Record<string, string>>({});
-  const [breakdownEngineerTaskDrafts, setBreakdownEngineerTaskDrafts] = useState<Record<string, string>>({});
-  const [breakdownCustomerDropdownOpen, setBreakdownCustomerDropdownOpen] = useState(false);
-  const [breakdownEngineerDropdownOpen, setBreakdownEngineerDropdownOpen] = useState(false);
-  const [breakdownCustomerSearch, setBreakdownCustomerSearch] = useState("");
-  const [breakdownRepairIssueDropdownOpen, setBreakdownRepairIssueDropdownOpen] = useState("");
-  const [breakdownRepairDrafts, setBreakdownRepairDrafts] = useState<Record<string, Record<string, string>>>({});
-  const [breakdownRepairOpen, setBreakdownRepairOpen] = useState<Record<string, boolean>>({});
-  const [breakdownScheduleRosterOpen, setBreakdownScheduleRosterOpen] = useState(false);
-  const [breakdownCallEngineerDropdownOpen, setBreakdownCallEngineerDropdownOpen] = useState("");
-  const [breakdownNewCallOpen, setBreakdownNewCallOpen] = useState(false);
-  const [breakdownPage, setBreakdownPage] = useState(1);
-  const [breakdownStatusFilter, setBreakdownStatusFilter] = useState("Open");
-  const [breakdownHistorySearch, setBreakdownHistorySearch] = useState("");
+  const installationEditorOpenRef = useRef<LocalBooleanSetter | null>(null);
+  const setInstallationEditorOpen: LocalBooleanSetter = (next) => installationEditorOpenRef.current?.(next);
+  const installationStateRef = useRef<InstallationPageState>({ ...defaultInstallationPageState });
+  const installationControllerRef = useRef<InstallationController | null>(null);
+  const setInstallationField = <K extends keyof InstallationPageState>(
+    key: K,
+    setterName: keyof InstallationController,
+    next: InstallationPageState[K] | ((current: InstallationPageState[K]) => InstallationPageState[K])
+  ) => {
+    const value = resolveLocalState(next, installationStateRef.current[key]);
+    installationStateRef.current = { ...installationStateRef.current, [key]: value };
+    (installationControllerRef.current?.[setterName] as LocalStateSetter<InstallationPageState[K]> | undefined)?.(value);
+  };
+  const setInstallationCustomerSearch: LocalStateSetter<string> = (next) => setInstallationField("installationCustomerSearch", "setInstallationCustomerSearch", next);
+  const setInstallationSearch: LocalStateSetter<string> = (next) => setInstallationField("installationSearch", "setInstallationSearch", next);
+  const setInstallationStatusFilter: LocalStateSetter<string> = (next) => setInstallationField("installationStatusFilter", "setInstallationStatusFilter", next);
+  const crmStateRef = useRef<CrmPageState>({ ...defaultCrmPageState });
+  const crmControllerRef = useRef<CrmController | null>(null);
+  const setCrmField = <K extends keyof CrmPageState>(
+    key: K,
+    setterName: keyof CrmController,
+    next: CrmPageState[K] | ((current: CrmPageState[K]) => CrmPageState[K]),
+    resetPages = false
+  ) => {
+    const value = resolveLocalState(next, crmStateRef.current[key]);
+    const nextPages = resetPages ? { customerPage: 1, enquiryPage: 1, offerPage: 1 } : {};
+    const pagesAlreadyReset = !resetPages || (crmStateRef.current.customerPage === 1 && crmStateRef.current.enquiryPage === 1 && crmStateRef.current.offerPage === 1);
+    if (Object.is(value, crmStateRef.current[key]) && pagesAlreadyReset) return;
+    crmStateRef.current = {
+      ...crmStateRef.current,
+      [key]: value,
+      ...nextPages,
+    };
+    (crmControllerRef.current?.[setterName] as LocalStateSetter<CrmPageState[K]> | undefined)?.(value);
+  };
+  const setCrmSearch: LocalStateSetter<string> = (next) => setCrmField("crmSearch", "setCrmSearch", next, true);
+  const setCrmRecordView: LocalStateSetter<CrmRecordView> = (next) => setCrmField("crmRecordView", "setCrmRecordView", next, true);
+  const setCrmStageFilter: LocalStateSetter<string> = (next) => setCrmField("crmStageFilter", "setCrmStageFilter", next, true);
+  const setCrmStaffFilter: LocalStateSetter<string> = (next) => setCrmField("crmStaffFilter", "setCrmStaffFilter", next, true);
+  const setCrmDepartmentFilter: LocalStateSetter<string> = (next) => setCrmField("crmDepartmentFilter", "setCrmDepartmentFilter", next, true);
+  const setCrmTeamFilter: LocalStateSetter<string> = (next) => setCrmField("crmTeamFilter", "setCrmTeamFilter", next, true);
+  const setCrmImportType: LocalStateSetter<string> = (next) => setCrmField("crmImportType", "setCrmImportType", next);
+  const compactListsRef = useRef(true);
+  const accountStateRef = useRef<AccountPageState>(accountDefaultState());
+  const accountControllerRef = useRef<AccountController | null>(null);
+  const setAccountField = <K extends keyof AccountPageState>(
+    key: K,
+    setterName: keyof AccountController,
+    next: AccountPageState[K] | ((current: AccountPageState[K]) => AccountPageState[K])
+  ) => {
+    const value = resolveLocalState(next, accountStateRef.current[key]);
+    accountStateRef.current = { ...accountStateRef.current, [key]: value };
+    (accountControllerRef.current?.[setterName] as LocalStateSetter<AccountPageState[K]> | undefined)?.(value);
+  };
+  const setAccountDraft: LocalStateSetter<AccountDraft> = (next) => setAccountField("accountDraft", "setAccountDraft", next);
+  const setAccountDraftRefOnly: LocalStateSetter<AccountDraft> = (next) => setAccountField("accountDraft", "setAccountDraftRefOnly", next);
+  const setAccountSearch: LocalStateSetter<string> = (next) => setAccountField("accountSearch", "setAccountSearch", next);
+  const setAccountEditDrafts: LocalStateSetter<Record<string, AccountDraft>> = (next) => setAccountField("accountEditDrafts", "setAccountEditDrafts", next);
+  const setAccountEditDraftsRefOnly: LocalStateSetter<Record<string, AccountDraft>> = (next) => setAccountField("accountEditDrafts", "setAccountEditDraftsRefOnly", next);
+  const setAccountPasswordDrafts: LocalStateSetter<Record<string, string>> = (next) => setAccountField("accountPasswordDrafts", "setAccountPasswordDrafts", next);
+  const setAccountPasswordDraftsRefOnly: LocalStateSetter<Record<string, string>> = (next) => setAccountField("accountPasswordDrafts", "setAccountPasswordDraftsRefOnly", next);
+  const salesInquiryDraftStateRef = useRef<SalesInquiryDraftPageState>({
+    salesInquiryDraft: { ...emptySalesInquiryDraft },
+    salesInquiryInstalledDateDraft: "",
+    salesInquiryDraftVersion: 0,
+  });
+  const salesInquiryDraftControllerRef = useRef<Omit<SalesInquiryDraftState, keyof SalesInquiryDraftPageState> | null>(null);
+  const setSalesInquiryDraft: LocalStateSetter<typeof emptySalesInquiryDraft> = (next) => {
+    const value = resolveLocalState(next, salesInquiryDraftStateRef.current.salesInquiryDraft);
+    salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: value };
+    salesInquiryDraftControllerRef.current?.setSalesInquiryDraft(value);
+  };
+  const setSalesInquiryDraftRefOnly: LocalStateSetter<typeof emptySalesInquiryDraft> = (next) => {
+    const value = resolveLocalState(next, salesInquiryDraftStateRef.current.salesInquiryDraft);
+    salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: value };
+    salesInquiryDraftControllerRef.current?.setSalesInquiryDraftRefOnly(value);
+  };
+  const setSalesInquiryInstalledDateDraft: LocalStateSetter<string> = (next) => {
+    const value = resolveLocalState(next, salesInquiryDraftStateRef.current.salesInquiryInstalledDateDraft);
+    salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryInstalledDateDraft: value };
+    salesInquiryDraftControllerRef.current?.setSalesInquiryInstalledDateDraft(value);
+  };
+  const setSalesInquiryInstalledDateDraftRefOnly: LocalStateSetter<string> = (next) => {
+    const value = resolveLocalState(next, salesInquiryDraftStateRef.current.salesInquiryInstalledDateDraft);
+    salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryInstalledDateDraft: value };
+    salesInquiryDraftControllerRef.current?.setSalesInquiryInstalledDateDraftRefOnly(value);
+  };
+  const offerDraftRef = useRef<OfferDraft>({ ...emptyOfferDraft });
+  const offerDraftControllerRef = useRef<LocalStateSetter<OfferDraft> | null>(null);
+  const setOfferDraftRefOnly: LocalStateSetter<OfferDraft> = (next) => {
+    offerDraftRef.current = resolveLocalState(next, offerDraftRef.current);
+  };
+  const setOfferDraft: LocalStateSetter<OfferDraft> = (next) => {
+    const value = resolveLocalState(next, offerDraftRef.current);
+    offerDraftRef.current = value;
+    offerDraftControllerRef.current?.(value);
+  };
+  const costingEditorOpenRef = useRef<LocalBooleanSetter | null>(null);
+  const setCostingEditorOpen: LocalBooleanSetter = (next) => costingEditorOpenRef.current?.(next);
+  const breakdownStateRef = useRef<BreakdownPageState>({ ...defaultBreakdownPageState });
+  const breakdownControllerRef = useRef<BreakdownController | null>(null);
+  const setBreakdownField = <K extends keyof BreakdownPageState>(
+    key: K,
+    setterName: keyof BreakdownController,
+    next: BreakdownPageState[K] | ((current: BreakdownPageState[K]) => BreakdownPageState[K]),
+    resetPage = false
+  ) => {
+    const value = resolveLocalState(next, breakdownStateRef.current[key]);
+    breakdownStateRef.current = {
+      ...breakdownStateRef.current,
+      [key]: value,
+      ...(resetPage ? { breakdownPage: 1 } : {}),
+    };
+    (breakdownControllerRef.current?.[setterName] as LocalStateSetter<BreakdownPageState[K]> | undefined)?.(value);
+  };
+  const setBreakdownCustomerSearch: LocalStateSetter<string> = (next) => setBreakdownField("breakdownCustomerSearch", "setBreakdownCustomerSearch", next);
+  const setBreakdownPage: LocalStateSetter<number> = (next) => setBreakdownField("breakdownPage", "setBreakdownPage", next);
+  const setBreakdownStatusFilter: LocalStateSetter<string> = (next) => setBreakdownField("breakdownStatusFilter", "setBreakdownStatusFilter", next, true);
+  const setBreakdownHistorySearch: LocalStateSetter<string> = (next) => setBreakdownField("breakdownHistorySearch", "setBreakdownHistorySearch", next, true);
+  useEffect(() => {
+    dataRef.current[0] = data;
+  }, [data]);
+
+  useEffect(() => {
+    showPortalLoginRef.current[0] = showPortalLogin;
+  }, [showPortalLogin]);
+
+  useEffect(() => {
+    loadingRef.current[0] = loadingState;
+  }, [loadingState]);
+
+  useEffect(() => {
+    messageRef.current[0] = messageState;
+  }, [messageState]);
+
+  useEffect(() => () => {
+    if (activeTabTimerRef.current) clearTimeout(activeTabTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    const captureScroll = () => {
+      if (!dataRef.current[0] || showPortalLoginRef.current[0]) return;
+      actionScrollRef.current = { x: window.scrollX, y: window.scrollY, restore: true };
+    };
+    window.addEventListener("pointerdown", captureScroll, true);
+    window.addEventListener("keydown", captureScroll, true);
+    return () => {
+      window.removeEventListener("pointerdown", captureScroll, true);
+      window.removeEventListener("keydown", captureScroll, true);
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    if (!actionScrollRef.current.restore) return;
+    const { x, y } = actionScrollRef.current;
+    actionScrollRef.current.restore = false;
+    window.scrollTo(x, y);
+  });
 
   const isSignedIn = Boolean(token);
   const isWide = width >= 920;
+  const projectNow = projectNowRef.current;
   const t = (value: string) => translateString(value, portalLanguage);
   const asRecords = (value: unknown): Array<Record<string, unknown>> => (Array.isArray(value) ? (value as Array<Record<string, unknown>>) : []);
   const isAdmin = ["admin", "ceo"].includes(String(data?.viewer?.role || "").trim().toLowerCase());
   const normalizedKey = (value: unknown) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
   const listsLimitedAfterLogin = Boolean(data?.viewer);
-  const listStep = Math.max(1, Number.parseInt(listStepInput, 10) || DEFAULT_LIST_STEP);
-  const listVisibleCount = (key: string, total: number) => listsLimitedAfterLogin ? Math.min(total, Math.max(0, listVisibleCounts[key] ?? Math.min(DEFAULT_LIST_STEP, total))) : total;
-  const limitedItems = <T,>(key: string, items: T[]) => items.slice(0, listVisibleCount(key, items.length));
+  const listLimitSnapshot = () => listLimitControllerRef.current?.stateRef.current ?? { listStepInput: String(DEFAULT_LIST_STEP), listVisibleCounts: {} };
+  const listStep = () => Math.max(1, Number.parseInt(listLimitSnapshot().listStepInput, 10) || DEFAULT_LIST_STEP);
+  const listVisibleCount = (key: string, total: number) => {
+    if (!listsLimitedAfterLogin) return total;
+    const visibleCounts = listLimitSnapshot().listVisibleCounts;
+    return Math.min(total, Math.max(0, visibleCounts[key] ?? Math.min(DEFAULT_LIST_STEP, total)));
+  };
+  const visibleListLimit = (key: string) => {
+    if (!listsLimitedAfterLogin) return Number.POSITIVE_INFINITY;
+    const visibleCounts = listLimitSnapshot().listVisibleCounts;
+    return Math.max(0, visibleCounts[key] ?? DEFAULT_LIST_STEP);
+  };
+  const collectVisibleItems = <T,>(key: string, items: T[], matches: (item: T, index: number) => boolean = () => true) => {
+    const limit = visibleListLimit(key);
+    const visible: T[] = [];
+    let total = 0;
+    items.forEach((item, index) => {
+      if (!matches(item, index)) return;
+      total += 1;
+      if (visible.length < limit) visible.push(item);
+    });
+    return { total, visible };
+  };
+  const limitedItems = <T,>(key: string, items: T[]) => collectVisibleItems(key, items).visible;
   function setListCount(key: string, total: number, nextCount: number) {
-    setListVisibleCounts((counts) => ({ ...counts, [key]: Math.min(total, Math.max(Math.min(DEFAULT_LIST_STEP, total), nextCount)) }));
+    listLimitControllerRef.current?.setListCount(key, total, nextCount);
   }
   function renderListControls(key: string, total: number) {
     if (!listsLimitedAfterLogin) return null;
     if (total <= DEFAULT_LIST_STEP) return null;
     const visibleCount = listVisibleCount(key, total);
+    const minimumCount = Math.min(DEFAULT_LIST_STEP, total);
+    const canShowMore = visibleCount < total;
+    const canShowLess = visibleCount > minimumCount;
+    const step = listStep();
     return (
       <View style={styles.listControls}>
         <View style={styles.listControlLine}>
           <TextInput
             style={styles.listStepInput}
-            value={listStepInput}
-            onChangeText={(value) => setListStepInput(value.replace(/[^0-9]/g, "") || String(DEFAULT_LIST_STEP))}
+            value={listLimitSnapshot().listStepInput}
+            onChangeText={(value) => listLimitControllerRef.current?.setListStepInput(value)}
             keyboardType="number-pad"
             commitDelayMs={0}
           />
-          <Pressable style={styles.listControlButton} onPress={() => setListCount(key, total, visibleCount + listStep)} disabled={visibleCount >= total}>
+          <Pressable
+            style={styles.listControlButton}
+            onPress={() => {
+              if (!canShowMore) return;
+              const nextCount = Math.min(total, visibleCount + step);
+              setListCount(key, total, nextCount);
+              setMessage(`Showing ${nextCount} of ${total}.`);
+            }}
+          >
             <Text style={styles.smallButtonText}>show more</Text>
           </Pressable>
         </View>
         <View style={styles.listControlLine}>
-          <Text style={styles.listStepEcho}>{listStep}</Text>
-          <Pressable style={styles.listControlButton} onPress={() => setListCount(key, total, visibleCount - listStep)} disabled={visibleCount <= Math.min(DEFAULT_LIST_STEP, total)}>
+          <Text style={styles.listStepEcho}>{step}</Text>
+          <Pressable
+            style={styles.listControlButton}
+            onPress={() => {
+              if (!canShowLess) return;
+              const nextCount = Math.max(minimumCount, visibleCount - step);
+              setListCount(key, total, nextCount);
+              setMessage(`Showing ${nextCount} of ${total}.`);
+            }}
+          >
             <Text style={styles.smallButtonText}>show less</Text>
           </Pressable>
         </View>
@@ -1586,25 +4376,8 @@ export default function App() {
       (item.key === "costingImport" && ["customers", "sales", "offerManager", "siteVisits"].some((key) => allowedSet.has(key)))
     ));
   }, [data?.access, isAdmin]);
-  const navGroups = useMemo(() => {
-    const groupFor = (key: TabKey) => {
-      if (["today", "intelligence", "backlog", "overview", "modules", "comms"].includes(key)) return "Command";
-      if (["enquiries", "customers", "sales", "offerManager", "marketing", "siteVisits", "costingImport"].includes(key)) return "CRM & Sales";
-      if (["tickets", "projects", "installations", "installation_dept", "team", "commissioning", "factory", "engineer"].includes(key)) return "Projects & Installation";
-      if (["breakdown", "service", "workorders", "renewals", "inventory", "documents"].includes(key)) return "Service Ops";
-      return "Admin & Finance";
-    };
-    const query = navSearch.trim().toLowerCase();
-    return ["Command", "CRM & Sales", "Projects & Installation", "Service Ops", "Admin & Finance"]
-      .map((group) => ({
-        group,
-        items: visibleNavItems.filter((item) => groupFor(item.key) === group && (!query || `${item.label} ${t(item.label)} ${item.key}`.toLowerCase().includes(query)))
-      }))
-      .filter((section) => section.items.length);
-  }, [navSearch, visibleNavItems, portalLanguage]);
-  const activeNavItem = visibleNavItems.find((item) => item.key === activeTab) || navItems.find((item) => item.key === activeTab);
+  const activeNavItemFor = (activeTab: TabKey) => visibleNavItems.find((item) => item.key === activeTab) || navItems.find((item) => item.key === activeTab);
   const unreadNotifications = asRecords(data?.dept_comms).filter((item) => item.read !== true && String(item.status || "").toLowerCase() !== "read");
-  const globalSearchListKey = "global-search-results";
   const notificationListKey = "notifications-unread";
   const lowStock = useMemo(
     () => (data?.inventory || []).filter((item) => {
@@ -1717,18 +4490,6 @@ export default function App() {
       teams: ["All", ...[...teams].sort()],
     };
   }, [customerStaffDirectory, data?.customer_assignments]);
-  const costingCellsPerStep = 80;
-  const selectedCostingSource = costingSources[Math.min(costingSourceIndex, Math.max(costingSources.length - 1, 0))];
-  const costingCellChunks = useMemo(() => {
-    const cells = selectedCostingSource?.cells || [];
-    const chunks: CostingSourceCell[][] = [];
-    for (let index = 0; index < cells.length; index += costingCellsPerStep) {
-      chunks.push(cells.slice(index, index + costingCellsPerStep));
-    }
-    return chunks;
-  }, [selectedCostingSource]);
-  const visibleCostingCells = costingCellChunks[Math.min(costingCellStep, Math.max(costingCellChunks.length - 1, 0))] || [];
-
   function costingTotalFromSource(source?: CostingSource) {
     if (!source) return "";
     const totalCell = source.cells.find((cell) => String(cell.cell).toUpperCase() === "R53") || source.cells.find((cell) => String(cell.cell).toUpperCase().endsWith("53"));
@@ -1757,12 +4518,12 @@ export default function App() {
     }
   }, [portalLanguage]);
 
-  useEffect(() => {
-    setCostingCellStep(0);
-  }, [costingSourceIndex]);
-
-  async function loadCostingSourceData() {
-    if (!token) return;
+  async function loadCostingSourceData(costingState: CostingWorkbookState) {
+    const { setCostingCellStep, setCostingSourceIndex, setCostingSources, setCostingSourcesLoading, setStagedCostingImport } = costingState;
+    if (!token) {
+      setMessage("Sign in before refreshing costing source data.");
+      return;
+    }
     setCostingSourcesLoading(true);
     try {
       const response = await apiFetch<CostingImportResponse>("/api/portal/costing-source-data/openclaw-import", {
@@ -1794,10 +4555,17 @@ export default function App() {
     }
   }
 
-  function attachSelectedCostingSource() {
-    if (!selectedCostingSource) return;
+  function attachSelectedCostingSource(costingState: CostingWorkbookState) {
+    const { selectedCostingSource, stagedCostingImport } = costingState;
+    if (!selectedCostingSource) {
+      setMessage("Select a costing source before staging it for an offer.");
+      return;
+    }
     const payload = offerCostingPayloadFromImport(stagedCostingImport || { sources: [selectedCostingSource] }, selectedCostingSource);
-    if (!payload) return;
+    if (!payload) {
+      setMessage("Selected costing source could not be converted into offer data.");
+      return;
+    }
     setOfferDraft((draft) => ({
       ...draft,
       offer_type: draft.offer_type || payload.offer_type,
@@ -1809,7 +4577,18 @@ export default function App() {
     setMessage(`Attached converted costing data from ${payload.costing_source_file}. Save offer will keep it with the client offer.`);
   }
 
-  function renderCostingWorkbookImportSection() {
+  function renderCostingWorkbookImportSection(costingState: CostingWorkbookState) {
+    const {
+      costingSources,
+      costingSourcesLoading,
+      costingSourceIndex,
+      costingCellStep,
+      selectedCostingSource,
+      costingCellChunks,
+      visibleCostingCells,
+      setCostingSourceIndex,
+      setCostingCellStep,
+    } = costingState;
     const matrixPreview = selectedCostingSource?.sheets_matrix?.[0]?.slice(0, 18) || [];
     return (
       <View style={styles.costingSourcePanel}>
@@ -1818,7 +4597,7 @@ export default function App() {
             <Text style={styles.sectionTitle}>Costing Workbook Import</Text>
             <Text style={styles.muted}>Workbook names and sizes are sent to OpenClaw first, then the backend converts with the selected A1 or 1A order for offer preparation.</Text>
           </View>
-          <Pressable style={styles.smallButton} onPress={loadCostingSourceData} disabled={loading || costingSourcesLoading}>
+          <Pressable style={styles.smallButton} onPress={() => loadCostingSourceData(costingState)} disabled={loading || costingSourcesLoading}>
             <Text style={styles.smallButtonText}>{costingSourcesLoading ? "Loading..." : "Refresh source data"}</Text>
           </Pressable>
         </View>
@@ -1827,7 +4606,13 @@ export default function App() {
             <View style={styles.costingStepper}>
               <Pressable
                 style={styles.smallButton}
-                onPress={() => setCostingSourceIndex((index) => Math.max(0, index - 1))}
+                onPress={() => {
+                  setCostingSourceIndex((index) => {
+                    const next = Math.max(0, index - 1);
+                    setMessage(`Costing source ${next + 1} selected.`);
+                    return next;
+                  });
+                }}
                 disabled={costingSourceIndex <= 0}
               >
                 <Text style={styles.smallButtonText}>Previous source</Text>
@@ -1840,7 +4625,13 @@ export default function App() {
               </View>
               <Pressable
                 style={styles.smallButton}
-                onPress={() => setCostingSourceIndex((index) => Math.min(costingSources.length - 1, index + 1))}
+                onPress={() => {
+                  setCostingSourceIndex((index) => {
+                    const next = Math.min(costingSources.length - 1, index + 1);
+                    setMessage(`Costing source ${next + 1} selected.`);
+                    return next;
+                  });
+                }}
                 disabled={costingSourceIndex >= costingSources.length - 1}
               >
                 <Text style={styles.smallButtonText}>Next source</Text>
@@ -1849,7 +4640,13 @@ export default function App() {
             <View style={styles.costingStepper}>
               <Pressable
                 style={styles.smallButton}
-                onPress={() => setCostingCellStep((step) => Math.max(0, step - 1))}
+                onPress={() => {
+                  setCostingCellStep((step) => {
+                    const next = Math.max(0, step - 1);
+                    setMessage(`Costing data step ${next + 1} selected.`);
+                    return next;
+                  });
+                }}
                 disabled={costingCellStep <= 0}
               >
                 <Text style={styles.smallButtonText}>Previous data step</Text>
@@ -1857,12 +4654,18 @@ export default function App() {
               <Text style={styles.statusPill}>Data step {Math.min(costingCellStep + 1, Math.max(costingCellChunks.length, 1))} of {Math.max(costingCellChunks.length, 1)}</Text>
               <Pressable
                 style={styles.smallButton}
-                onPress={() => setCostingCellStep((step) => Math.min(costingCellChunks.length - 1, step + 1))}
+                onPress={() => {
+                  setCostingCellStep((step) => {
+                    const next = Math.min(costingCellChunks.length - 1, step + 1);
+                    setMessage(`Costing data step ${next + 1} selected.`);
+                    return next;
+                  });
+                }}
                 disabled={costingCellStep >= costingCellChunks.length - 1}
               >
                 <Text style={styles.smallButtonText}>Next data step</Text>
               </Pressable>
-              <Pressable style={styles.primaryButtonInline} onPress={attachSelectedCostingSource} disabled={loading}>
+              <Pressable style={styles.primaryButtonInline} onPress={() => attachSelectedCostingSource(costingState)} disabled={loading}>
                 <Text style={styles.primaryButtonText}>Stage for next offer</Text>
               </Pressable>
             </View>
@@ -1880,7 +4683,7 @@ export default function App() {
                 <Text style={styles.muted}>{JSON.stringify(matrixPreview)}</Text>
               </View>
             )}
-            <Text style={styles.muted}>Staged source: {offerDraft.costing_source_file || "none yet"}.</Text>
+            <Text style={styles.muted}>Staged source: {offerDraftRef.current.costing_source_file || "none yet"}.</Text>
           </>
         ) : (
           <View style={styles.emptyState}>
@@ -1891,7 +4694,8 @@ export default function App() {
     );
   }
 
-  function renderCostingWorkbookImportPage() {
+  function renderCostingWorkbookImportPage(costingState: CostingWorkbookState) {
+    const { costingSources, selectedCostingSource } = costingState;
     const sourceCount = costingSources.length;
     const sheetCount = selectedCostingSource?.sheets_matrix?.length || 0;
     const convertedCount = selectedCostingSource?.non_empty_cell_count || 0;
@@ -1904,25 +4708,51 @@ export default function App() {
         </View>
 
         <View style={styles.metricGrid}>
-          <View style={styles.card}>
+          <Pressable
+            style={styles.card}
+            onPress={() => {
+              setMessage(`Showing ${sourceCount} costing workbook source${sourceCount === 1 ? "" : "s"}.`);
+            }}
+            disabled={loading}
+          >
             <Text style={styles.cardLabel}>Workbook sources</Text>
             <Text style={styles.metricValue}>{sourceCount}</Text>
             <Text style={styles.muted}>Usable files loaded from the costing workbook folder.</Text>
-          </View>
-          <View style={styles.card}>
+          </Pressable>
+          <Pressable
+            style={styles.card}
+            onPress={() => {
+              setMessage(`Showing ${sheetCount} selected costing worksheet${sheetCount === 1 ? "" : "s"}.`);
+            }}
+            disabled={loading}
+          >
             <Text style={styles.cardLabel}>Selected sheets</Text>
             <Text style={styles.metricValue}>{sheetCount}</Text>
             <Text style={styles.muted}>Worksheets converted to ordered cell arrays.</Text>
-          </View>
-          <View style={styles.card}>
+          </Pressable>
+          <Pressable
+            style={styles.card}
+            onPress={() => {
+              setMessage(`Showing ${convertedCount} selected costing value${convertedCount === 1 ? "" : "s"}.`);
+            }}
+            disabled={loading}
+          >
             <Text style={styles.cardLabel}>Selected values</Text>
             <Text style={styles.metricValue}>{convertedCount}</Text>
             <Text style={styles.muted}>Non-empty cells available for the next saved offer.</Text>
-          </View>
+          </Pressable>
         </View>
 
-        {renderCostingWorkbookImportSection()}
+        {renderCostingWorkbookImportSection(costingState)}
       </View>
+    );
+  }
+
+  function renderCostingWorkbookImportBoundary() {
+    return (
+      <CostingWorkbookBoundary>
+        {(costingState) => renderCostingWorkbookImportPage(costingState)}
+      </CostingWorkbookBoundary>
     );
   }
 
@@ -1946,21 +4776,20 @@ export default function App() {
   }
 
   function updateSiteVisitField(key: keyof SiteVisit, value: string) {
-    setSiteVisitDraft((draft) => {
-      const next: Partial<SiteVisit> = { ...draft, [key]: value };
-      if (key === "site_stops" || key === "site_number_of_openings") {
-        next.opening_schedule = ensureOpeningSchedule(next, desiredOpeningCount(next));
-      }
-      return next;
-    });
+    const next: Partial<SiteVisit> = { ...siteVisitDraftRef.current, [key]: value };
+    if (key === "site_stops" || key === "site_number_of_openings") {
+      next.opening_schedule = ensureOpeningSchedule(next, desiredOpeningCount(next));
+      setSiteVisitDraft(next);
+      return;
+    }
+    setSiteVisitDraftRefOnly(next);
   }
 
   function updateOpeningScheduleRow(index: number, key: "floor" | "ff_height_mm" | "lintel_height_mm", value: string) {
-    setSiteVisitDraft((draft) => {
-      const rows = ensureOpeningSchedule(draft, Math.max(desiredOpeningCount(draft), index + 1));
-      rows[index] = { ...rows[index], [key]: value };
-      return { ...draft, opening_schedule: rows, floor_height_profile: rows.map((row) => `${row.floor}: FF ${row.ff_height_mm || "-"} mm, lintel ${row.lintel_height_mm || "-"} mm`).join("\n") };
-    });
+    const draft = siteVisitDraftRef.current;
+    const rows = ensureOpeningSchedule(draft, Math.max(desiredOpeningCount(draft), index + 1));
+    rows[index] = { ...rows[index], [key]: value };
+    setSiteVisitDraftRefOnly({ ...draft, opening_schedule: rows, floor_height_profile: rows.map((row) => `${row.floor}: FF ${row.ff_height_mm || "-"} mm, lintel ${row.lintel_height_mm || "-"} mm`).join("\n") });
   }
 
   function fieldText(record: Record<string, unknown>, keys: string[]) {
@@ -2181,7 +5010,8 @@ export default function App() {
   function inventoryDisplayStatus(record: Record<string, unknown>) {
     const available = inventoryAvailable(record);
     const reorderPoint = inventoryQuantity(record, "reorder_point", inventoryQuantity(record, "min_stock"));
-    const hasOpenPo = Boolean(record.po_number || String(record.po_status || "").toLowerCase().includes("raised") || String(record.status || "").toLowerCase().includes("order"));
+    const status = String(record.status || "").toLowerCase();
+    const hasOpenPo = Boolean(record.po_number || String(record.po_status || "").toLowerCase().includes("raised") || status.includes("on order") || status.includes("order raised") || status.includes("po raised"));
     if (available <= 0) return hasOpenPo ? "On Order" : "Out of Stock";
     if (available <= reorderPoint) return hasOpenPo ? "On Order" : "Reorder Needed";
     return "In Stock";
@@ -2263,7 +5093,9 @@ export default function App() {
           <Pressable
             style={styles.smallButton}
             onPress={() => {
-              setSiteVisitCustomerSearch(customerContext.id || customerContext.name);
+              const linkedCustomer = customerContext.id || customerContext.name;
+              setSiteVisitCustomerSearch(linkedCustomer);
+              setMessage(`Showing site visits linked to customer ${linkedCustomer}.`);
               setActiveTab("siteVisits");
             }}
             disabled={loading}
@@ -2275,7 +5107,17 @@ export default function App() {
     );
   }
 
-  function renderRecordCards(records: Array<Record<string, unknown>>, titleKeys: string[], detailKeys: string[][], config?: ModuleConfig, listKey = "records") {
+  function renderRecordCards(
+    records: Array<Record<string, unknown>>,
+    titleKeys: string[],
+    detailKeys: string[][],
+    config?: ModuleConfig,
+    listKey = "records",
+    setRecords?: LocalStateSetter<Record<string, unknown>[]>,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading,
+    actionLoading = loading,
+  ) {
     if (!records.length) {
       return (
         <View style={styles.card}>
@@ -2284,10 +5126,19 @@ export default function App() {
         </View>
       );
     }
-    const visibleCount = listVisibleCount(listKey, records.length);
+    const { visible: visibleRecords } = collectVisibleItems(listKey, records);
     return (
       <View style={styles.limitedList}>
-        {records.slice(0, visibleCount).map((record, index) => {
+        {visibleRecords.map((record, index) => {
+          const patchRenderedRecord = (updated: Record<string, unknown>) => {
+            setRecords?.((current) => current.map((item) => {
+              if (item === record) return { ...item, ...updated };
+              const itemId = recordIdentity(item);
+              const updatedId = recordIdentity(updated);
+              if (itemId && updatedId && itemId === updatedId) return { ...item, ...updated };
+              return item;
+            }));
+          };
           return (
             <View key={String(record.id || record.name || index)} style={styles.card}>
               <Text style={styles.cardTitle}>{fieldText(record, titleKeys)}</Text>
@@ -2295,12 +5146,25 @@ export default function App() {
                 <Text key={keys.join("-")} style={styles.bodyText}>{fieldText(record, keys)}</Text>
               ))}
               {renderLinkedSystems(record)}
-              {!!config && !!recordIdentity(record) && (
+              {!!config && !!recordIdentity(record) && config.route === "/api/portal/comms" && (
                 <View style={styles.inlineActions}>
-                  <Pressable style={styles.smallButton} onPress={() => updateModuleRecord(record, "In Progress")} disabled={loading}>
+                  {record.read === true || String(record.status || "").toLowerCase() === "read" ? (
+                    <Pressable style={styles.smallButton} onPress={() => updateCommsReadStatus(record, false)} disabled={loading}>
+                      <Text style={styles.smallButtonText}>Mark unread</Text>
+                    </Pressable>
+                  ) : (
+                    <Pressable style={styles.smallButton} onPress={() => updateCommsReadStatus(record, true)} disabled={loading}>
+                      <Text style={styles.smallButtonText}>Mark read</Text>
+                    </Pressable>
+                  )}
+                </View>
+              )}
+              {!!config && !!recordIdentity(record) && config.route !== "/api/portal/comms" && (
+                <View style={styles.inlineActions}>
+                  <Pressable style={styles.smallButton} onPress={() => updateModuleRecord(record, "In Progress", patchRenderedRecord, onNotice, onLoading)} disabled={actionLoading}>
                     <Text style={styles.smallButtonText}>Start</Text>
                   </Pressable>
-                  <Pressable style={styles.smallButton} onPress={() => updateModuleRecord(record, "Closed")} disabled={loading}>
+                  <Pressable style={styles.smallButton} onPress={() => updateModuleRecord(record, "Closed", patchRenderedRecord, onNotice, onLoading)} disabled={actionLoading}>
                     <Text style={styles.smallButtonText}>Close</Text>
                   </Pressable>
                 </View>
@@ -2320,21 +5184,38 @@ export default function App() {
     titleKeys: string[],
     detailKeys: string[][],
   ) {
+    const activeTab = activeTabRef.current;
     const config = moduleConfigs[activeTab];
+    const recordsSignature = records.map((record, index) => `${recordIdentity(record) || index}:${String(record.status || record.state || "")}:${String(record.updated_at || "")}`).join("|");
     return (
-      <View>
-        <View style={styles.moduleHero}>
-          <Text style={styles.eyebrow}>FUZI Ops Module</Text>
-          <Text style={styles.moduleHeroTitle}>{title}</Text>
-          <Text style={styles.moduleHeroText}>{subtitle}</Text>
-        </View>
-        {config && renderModuleForm(config)}
-        {renderRecordCards(records, titleKeys, detailKeys, config, `feature-${activeTab}`)}
-      </View>
+      <LocalValue key={`feature-records-${activeTab}-${recordsSignature}`} initialValue={records}>
+        {(localRecords, setLocalRecords) => (
+          <LocalValue initialValue={{ loading: false, notice: "" }}>
+            {(featureStatus, setFeatureStatus) => {
+              const setFeatureNotice: LocalStateSetter<string> = (next) => setFeatureStatus((current) => ({ ...current, notice: resolveLocalState(next, current.notice) }));
+              const setFeatureLoading: LocalStateSetter<boolean> = (next) => setFeatureStatus((current) => ({ ...current, loading: resolveLocalState(next, current.loading) }));
+              return (
+                <View>
+                  <View style={styles.moduleHero}>
+                    <Text style={styles.eyebrow}>FUZI Ops Module</Text>
+                    <Text style={styles.moduleHeroTitle}>{title}</Text>
+                    <Text style={styles.moduleHeroText}>{subtitle}</Text>
+                  </View>
+                  {featureStatus.loading && <ActivityIndicator style={styles.loader} />}
+                  {!!featureStatus.notice && <Text style={styles.banner}>{featureStatus.notice}</Text>}
+                  {config && renderModuleFormWithLocalState(config, (record) => setLocalRecords((current) => [record, ...current]), setFeatureNotice, setFeatureLoading, featureStatus.loading)}
+                  {renderRecordCards(localRecords, titleKeys, detailKeys, config, `feature-${activeTab}`, setLocalRecords, setFeatureNotice, setFeatureLoading, featureStatus.loading)}
+                </View>
+              );
+            }}
+          </LocalValue>
+        )}
+      </LocalValue>
     );
   }
 
-  function renderOverviewAnalytics() {
+  function renderOverviewAnalytics(overviewFilterState: OverviewFilterState) {
+    const { overviewStartDate, overviewEndDate, setOverviewStartDate, setOverviewEndDate } = overviewFilterState;
     const records = {
       inquiries: asRecords(data?.sales_inquiries),
       estimates: asRecords(data?.estimates),
@@ -2536,6 +5417,11 @@ export default function App() {
     const fiscalMetricsListKey = "overview-fiscal-metrics";
     const executiveMetricsListKey = "overview-executive-metrics";
     const executiveMetrics = data?.metrics || [];
+    const executiveMetricActions: Record<string, { tab: TabKey; message: string }> = {
+      "Work Orders": { tab: "workorders", message: "Opening Work Orders from executive snapshot." },
+      "Open Tickets": { tab: "tickets", message: "Opening Project Tickets from executive snapshot." },
+      "Parts Stockouts": { tab: "inventory", message: "Opening Inventory from executive snapshot." },
+    };
     return (
       <View>
         <View style={styles.commandBand}>
@@ -2553,11 +5439,11 @@ export default function App() {
           <View style={styles.formGrid}>
             <View style={styles.field}>
               <Text style={styles.label}>Start date YYYY-MM-DD</Text>
-              <TextInput style={styles.input} value={overviewStartDate} onChangeText={setOverviewStartDate} />
+              <TextInput controlled style={styles.input} value={overviewStartDate} onChangeText={setOverviewStartDate} />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>End date YYYY-MM-DD</Text>
-              <TextInput style={styles.input} value={overviewEndDate} onChangeText={setOverviewEndDate} />
+              <TextInput controlled style={styles.input} value={overviewEndDate} onChangeText={setOverviewEndDate} />
             </View>
           </View>
           <View style={styles.inlineActions}>
@@ -2565,6 +5451,7 @@ export default function App() {
               const fiscalRange = currentFiscalYearRange();
               setOverviewStartDate(fiscalRange.start);
               setOverviewEndDate(fiscalRange.end);
+              setMessage(`Fiscal year set to ${fiscalRange.start} through ${fiscalRange.end}.`);
             }}>
               <Text style={styles.smallButtonText}>Current fiscal year</Text>
             </Pressable>
@@ -2583,13 +5470,32 @@ export default function App() {
 
         <Text style={styles.sectionTitle}>Executive Snapshot</Text>
         <View style={styles.metricGrid}>
-          {limitedItems(executiveMetricsListKey, executiveMetrics).map((metric) => (
-            <View key={metric.label} style={styles.card}>
-              <Text style={styles.cardLabel}>{metric.label}</Text>
-              <Text style={styles.metricValue}>{metric.value}</Text>
-              <Text style={styles.muted}>{metric.delta}</Text>
-            </View>
-          ))}
+          {limitedItems(executiveMetricsListKey, executiveMetrics).map((metric) => {
+            const action = executiveMetricActions[String(metric.label || "")];
+            if (!action) {
+              return (
+                <View key={metric.label} style={styles.card}>
+                  <Text style={styles.cardLabel}>{metric.label}</Text>
+                  <Text style={styles.metricValue}>{metric.value}</Text>
+                  <Text style={styles.muted}>{metric.delta}</Text>
+                </View>
+              );
+            }
+            return (
+              <Pressable
+                key={metric.label}
+                style={styles.card}
+                onPress={() => {
+                  setActiveTab(action.tab);
+                  setMessage(action.message);
+                }}
+              >
+                <Text style={styles.cardLabel}>{metric.label}</Text>
+                <Text style={styles.metricValue}>{metric.value}</Text>
+                <Text style={styles.muted}>{metric.delta}</Text>
+              </Pressable>
+            );
+          })}
           {renderListControls(executiveMetricsListKey, executiveMetrics.length)}
           <View style={styles.card}>
             <Text style={styles.cardLabel}>Estimate value</Text>
@@ -2649,8 +5555,10 @@ export default function App() {
                 style={styles.smallButton}
                 onPress={() => {
                   const customer = item.customer;
-                  setCrmSearch(String(customer?.id || customer?.name || item.assignment.customer_id || ""));
+                  const nextSearch = String(customer?.id || customer?.name || item.assignment.customer_id || "");
+                  setCrmSearch(nextSearch);
                   setActiveTab("customers");
+                  setMessage(nextSearch ? `Opening CRM for ${nextSearch}.` : "Opening Customer CRM.");
                 }}
                 disabled={loading}
               >
@@ -2698,32 +5606,32 @@ export default function App() {
 
         <Text style={styles.sectionTitle}>Workload Analytics</Text>
         <View style={styles.metricGrid}>
-          <View style={styles.card}>
+          <Pressable style={styles.card} onPress={() => { setActiveTab("service"); setMessage("Opening Service from workload analytics."); }}>
             <Text style={styles.cardLabel}>Open service</Text>
             <Text style={styles.metricValue}>{openService.length}</Text>
             <Text style={styles.muted}>Service records that are not closed.</Text>
-          </View>
-          <View style={styles.card}>
+          </Pressable>
+          <Pressable style={styles.card} onPress={() => { setActiveTab("breakdown"); setMessage("Opening Breakdown Portal from workload analytics."); }}>
             <Text style={styles.cardLabel}>Breakdowns active</Text>
             <Text style={styles.metricValue}>{openBreakdowns.length}</Text>
             <Text style={styles.muted}>{trappedBreakdowns.length} trapped-passenger priority flags.</Text>
-          </View>
-          <View style={styles.card}>
+          </Pressable>
+          <Pressable style={styles.card} onPress={() => { setActiveTab("siteVisits"); setMessage("Opening Site Visits from workload analytics."); }}>
             <Text style={styles.cardLabel}>Site visits</Text>
             <Text style={styles.metricValue}>{records.siteVisits.length}</Text>
             <Text style={styles.muted}>Customer-linked site reports captured.</Text>
-          </View>
-          <View style={styles.card}>
+          </Pressable>
+          <Pressable style={styles.card} onPress={() => { setActiveTab("workorders"); setMessage("Opening Work Orders from workload analytics."); }}>
             <Text style={styles.cardLabel}>Work orders</Text>
             <Text style={styles.metricValue}>{records.workOrders.filter((item) => !isClosed(item.status)).length}</Text>
             <Text style={styles.muted}>Open work-order execution records.</Text>
-          </View>
+          </Pressable>
         </View>
 
         <Text style={styles.sectionTitle}>Attention Needed</Text>
         <View style={styles.limitedList}>
         {attentionItems.length ? limitedItems(attentionListKey, attentionItems).map((item) => (
-          <Pressable key={`attention-${item.label}`} style={styles.alertCard} onPress={() => setActiveTab(item.tab)}>
+          <Pressable key={`attention-${item.label}`} style={styles.alertCard} onPress={() => { setActiveTab(item.tab); setMessage(`Opening ${item.label}.`); }}>
             <View style={styles.cardHeaderRow}>
               <View style={styles.cardTitleBlock}>
                 <Text style={styles.cardLabel}>{item.label}</Text>
@@ -2741,12 +5649,20 @@ export default function App() {
         {renderListControls(attentionListKey, attentionItems.length)}
         </View>
 
-        <Pressable style={styles.portalShortcut} onPress={() => setActiveTab("breakdown")}>
+        <Pressable style={styles.portalShortcut} onPress={() => { setActiveTab("breakdown"); setMessage("Opening Breakdown Portal."); }}>
           <Text style={styles.cardLabel}>Emergency access</Text>
           <Text style={styles.cardTitle}>Open Breakdown Portal</Text>
           <Text style={styles.muted}>Log a call, mark trapped-passenger priority, dispatch an engineer, and close the case.</Text>
         </Pressable>
       </View>
+    );
+  }
+
+  function renderOverviewAnalyticsBoundary() {
+    return (
+      <OverviewFilterBoundary>
+        {(overviewFilterState) => renderOverviewAnalytics(overviewFilterState)}
+      </OverviewFilterBoundary>
     );
   }
 
@@ -2801,7 +5717,7 @@ export default function App() {
             <Text style={styles.muted}>Installation, handover, warranty, AMC, and service.</Text>
           </View>
         </View>
-        {config && renderModuleForm(config)}
+        {config && renderModuleFormWithLocalState(config)}
         <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.kanbanBoard}>
           {statuses.map((status) => {
             const columnRecords = records.filter((record) => {
@@ -2959,7 +5875,7 @@ export default function App() {
   async function moveCustomerDepartment(customer: Customer, department: string) {
     setLoading(true);
     try {
-      await apiFetch(`/api/portal/projects/customers/${encodeURIComponent(customer.id)}/department`, {
+      const result = await apiFetch<{ assignment?: Record<string, unknown>; history?: Record<string, unknown>[] }>(`/api/portal/projects/customers/${encodeURIComponent(customer.id)}/department`, {
         method: "PUT",
         token,
         body: JSON.stringify({
@@ -2969,7 +5885,11 @@ export default function App() {
           priority: "Normal",
         }),
       });
-      await loadPortal();
+      if (result.assignment) {
+        applyDisplayedProjectDepartmentMove(String(customer.id || ""), result.assignment, result.history || []);
+      } else {
+        refreshPortalCache();
+      }
       setMessage(`${customer.name} moved to ${department}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Department move could not be saved.");
@@ -2982,7 +5902,7 @@ export default function App() {
     const staff = customerAssignmentRecords(customer.id)[0];
     setLoading(true);
     try {
-      await apiFetch("/api/portal/projects/time-tracking", {
+      const result = await apiFetch<{ record?: Record<string, unknown> }>("/api/portal/projects/time-tracking", {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -2996,7 +5916,11 @@ export default function App() {
           notes: "Manual one-hour project work entry",
         }),
       });
-      await loadPortal();
+      if (result.record) {
+        prependDisplayedPortalRecord("time_tracking", result.record);
+      } else {
+        refreshPortalCache();
+      }
       setMessage(`Logged 1 hour for ${customer.name}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Time entry could not be saved.");
@@ -3139,12 +6063,13 @@ export default function App() {
 
   function openCrmForCustomerNumber(customerId: string) {
     const nextSearch = String(customerId || "").trim();
-    if (!nextSearch) return;
+    if (!nextSearch) {
+      setMessage("No linked customer was found for this CRM action.");
+      return;
+    }
     setCrmSearch(nextSearch);
-    setCustomerPage(1);
-    setEnquiryPage(1);
-    setActiveTab("customers");
     setMessage(`Showing CRM records linked to customer ${nextSearch}.`);
+    setActiveTab("customers");
   }
 
   function crmCustomerOptions() {
@@ -3196,9 +6121,12 @@ export default function App() {
     return inquiry ? { type: "inquiry" as const, record: inquiry } : null;
   }
 
-  function startServiceEdit(record: Record<string, unknown>) {
+  function startServiceEdit(record: Record<string, unknown>, setServiceEditDrafts: LocalStateSetter<Record<string, Record<string, string>>>) {
     const id = recordIdentity(record);
-    if (!id) return;
+    if (!id) {
+      setMessage("This service record cannot be edited because it has no saved record ID.");
+      return;
+    }
     setServiceEditDrafts((drafts) => ({
       ...drafts,
       [id]: {
@@ -3262,13 +6190,18 @@ export default function App() {
     }).map(({ name, department }) => ({ name, department }));
   }
 
-  async function saveNewServiceRecord() {
+  async function saveNewServiceRecord(
+    serviceDraft: typeof emptyServiceDraft,
+    onLocalCreate?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     if (!serviceDraft.customer_id.trim()) {
       const text = "Select a CRM customer before creating a service record.";
-      Platform.OS === "web" ? setMessage(text) : Alert.alert("Customer required", text);
+      Platform.OS === "web" ? onNotice(text) : Alert.alert("Customer required", text);
       return;
     }
-    setLoading(true);
+    onLoading(true);
     try {
       const response = await apiFetch<{ record?: Record<string, unknown> }>("/api/portal/service", {
         method: "POST",
@@ -3282,95 +6215,103 @@ export default function App() {
           notes: serviceDraft.customer_comments,
         }),
       });
-      setServiceDraft(emptyServiceDraft);
-      await loadPortal();
+      if (response.record) {
+        onLocalCreate?.(response.record);
+        prependDisplayedPortalRecordRefOnly("service_records", response.record);
+      }
       const assignedEngineer = String(response.record?.assigned_engineer || response.record?.technician || "").trim();
-      setMessage(assignedEngineer ? `Service record created and assigned to ${assignedEngineer}.` : "Service record created. No service engineer was available, so assign it manually.");
+      onNotice(assignedEngineer ? `Service record created and assigned to ${assignedEngineer}.` : "Service record created. No service engineer was available, so assign it manually.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Service record could not be created.");
+      onNotice(error instanceof Error ? error.message : "Service record could not be created.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function updateServiceVisitPoint(record: Record<string, unknown>, point: "check_in" | "check_out") {
+  async function updateServiceVisitPoint(
+    record: Record<string, unknown>,
+    point: "check_in" | "check_out",
+    onLocalUpdate?: (id: string, patch: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     const id = recordIdentity(record);
-    if (!id) return;
+    if (!id) {
+      onNotice("This service visit cannot be updated because it has no saved record ID.");
+      return;
+    }
     if (point === "check_in" && String(record.check_in_at || "").trim()) {
-      setMessage("Service check-in is already captured for this record.");
+      onNotice("Service check-in is already captured for this record.");
       return;
     }
     if (point === "check_in" && activeServiceCheckInRecordRef.current && recordIdentity(activeServiceCheckInRecordRef.current) !== id) {
-      setMessage("Check out from your current service before checking in to another service.");
+      onNotice("Check out from your current service before checking in to another service.");
       return;
     }
     if (point === "check_out" && !String(record.check_in_at || "").trim()) {
-      setMessage("Service check-in is required before check-out.");
+      onNotice("Service check-in is required before check-out.");
       return;
     }
     if (point === "check_out" && String(record.check_out_at || "").trim()) {
-      setMessage("Service check-out is already captured for this record.");
+      onNotice("Service check-out is already captured for this record.");
       return;
     }
     const location = await captureAttendanceLocation();
-    if (!location) return;
+    if (!location) {
+      onNotice("Location was not available, so the service visit point was not saved.");
+      return;
+    }
     const now = new Date().toISOString();
-    setLoading(true);
+    const payload = point === "check_in"
+      ? { check_in_at: now, check_in_location: location, status: "In Progress" }
+      : { check_out_at: now, check_out_location: location, status: "Completed", completed_date: now.slice(0, 10) };
+    onLoading(true);
+    onLocalUpdate?.(id, payload);
     try {
-      await apiFetch(`/api/portal/service/${encodeURIComponent(id)}`, {
+      const response = await apiFetch<{ record?: Record<string, unknown> }>(`/api/portal/service/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
-        body: JSON.stringify(point === "check_in"
-          ? { check_in_at: now, check_in_location: location, status: "In Progress" }
-          : { check_out_at: now, check_out_location: location, status: "Completed", completed_date: now.slice(0, 10) }),
+        body: JSON.stringify(payload),
       });
-      await loadPortal();
-      setMessage(point === "check_in" ? "Service check-in captured." : "Service check-out captured.");
+      const updatedRecord = response.record || payload;
+      onLocalUpdate?.(id, updatedRecord);
+      patchDisplayedPortalRecordRefOnly("service_records", id, updatedRecord);
+      onNotice(point === "check_in" ? "Service check-in captured." : "Service check-out captured.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Service location update could not be saved.");
+      onNotice(error instanceof Error ? error.message : "Service location update could not be saved.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function saveServiceRecord(id: string) {
-    const draft = serviceEditDrafts[id];
+  async function saveServiceRecord(
+    id: string,
+    draft: Record<string, string> | undefined,
+    onLocalUpdate?: (id: string, patch: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     if (!draft) return;
     if (!String(draft.customer_id || "").trim()) {
-      setMessage("Customer number is required before saving a service record.");
+      onNotice("Customer number is required before saving a service record.");
       return;
     }
-    setLoading(true);
+    onLoading(true);
+    onLocalUpdate?.(id, draft);
     try {
-      await apiFetch(`/api/portal/service/${encodeURIComponent(id)}`, {
+      const response = await apiFetch<{ record?: Record<string, unknown> }>(`/api/portal/service/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
         body: JSON.stringify(draft),
       });
-      setServiceEditDrafts((drafts) => {
-        const next = { ...drafts };
-        delete next[id];
-        return next;
-      });
-      setServiceSlotDropdownOpen((openId) => openId === id ? "" : openId);
-      setServiceYearDropdownOpen((openId) => openId === id ? "" : openId);
-      setServiceEditEngineerDropdownOpen((openId) => openId === id ? "" : openId);
-      setServiceSelectedYears((years) => {
-        const next = { ...years };
-        delete next[id];
-        return next;
-      });
-      setServiceSelectedSlots((slots) => {
-        const next = { ...slots };
-        delete next[id];
-        return next;
-      });
-      await loadPortal();
-      setMessage(`Service record ${id} updated and linked to customer ${draft.customer_id}.`);
+      const updatedRecord = response.record || draft;
+      onLocalUpdate?.(id, updatedRecord);
+      patchDisplayedPortalRecordRefOnly("service_records", id, updatedRecord);
+      onNotice(`Service record ${id} updated and linked to customer ${draft.customer_id}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Service record could not be saved.");
+      onNotice(error instanceof Error ? error.message : "Service record could not be saved.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
@@ -3379,16 +6320,16 @@ export default function App() {
     customerName: string;
     installDate: string;
     serviceEndDate: string;
-  }, yearsToAdd: number) {
+  }, yearsToAdd: number, onNotice: LocalStateSetter<string> = setMessage, onLoading: LocalStateSetter<boolean> = setLoading) {
     const customerId = String(schedule.customerId || "").trim();
     if (!customerId) {
-      setMessage("CRM customer number is required before extending service years.");
+      onNotice("CRM customer number is required before extending service years.");
       return;
     }
     const baseDateText = schedule.serviceEndDate || schedule.installDate || new Date().toISOString().slice(0, 10);
     const baseDate = new Date(baseDateText);
     if (Number.isNaN(baseDate.getTime())) {
-      setMessage("Add a valid CRM install date or service end date before extending service years.");
+      onNotice("Add a valid CRM install date or service end date before extending service years.");
       return;
     }
     const nextDate = new Date(baseDate);
@@ -3398,30 +6339,58 @@ export default function App() {
     const serviceYearsPurchased = Number.isNaN(installedDate.getTime())
       ? yearsToAdd
       : Math.max(yearsToAdd, Math.ceil((nextDate.getTime() - installedDate.getTime()) / (365 * 24 * 60 * 60 * 1000)));
-    setLoading(true);
+    onLoading(true);
+    const payload = {
+      service_end_date: serviceEndDate,
+      service_contract_end_date: serviceEndDate,
+      service_years_purchased: String(serviceYearsPurchased),
+    };
     try {
       await apiFetch(`/api/portal/customers/${encodeURIComponent(customerId)}`, {
         method: "PATCH",
         token,
-        body: JSON.stringify({
-          service_end_date: serviceEndDate,
-          service_contract_end_date: serviceEndDate,
-          service_years_purchased: String(serviceYearsPurchased),
-        }),
+        body: JSON.stringify(payload),
       });
-      await loadPortal();
-      setMessage(`${schedule.customerName || customerId} service contract extended to ${serviceEndDate}.`);
+      patchDisplayedPortalRecordRefOnly("customers", customerId, payload);
+      onNotice(`${schedule.customerName || customerId} service contract extended to ${serviceEndDate}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Service years could not be extended in CRM.");
+      onNotice(error instanceof Error ? error.message : "Service years could not be extended in CRM.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  function renderServicePage() {
-    const rawServiceRecords = asRecords((data as Record<string, unknown> | null)?.service_records);
+  function renderServicePage(serviceState: ServiceState, serviceDraftState: ServiceDraftState, serviceSelectionState: ServiceSelectionState) {
+    const { serviceDraft, serviceDraftRef, serviceEditDraftsRef, setServiceDraft, setServiceDraftRefOnly, setServiceEditDrafts, setServiceEditDraftsRefOnly } = serviceDraftState;
+    const serviceEditDrafts = serviceEditDraftsRef.current;
+    const updateServiceEditDraftRef = (id: string, updater: (draft: Record<string, string>) => Record<string, string>) => {
+      serviceEditDraftsRef.current = {
+        ...serviceEditDraftsRef.current,
+        [id]: updater(serviceEditDraftsRef.current[id] || {}),
+      };
+    };
+    const { serviceSelectedYears, serviceSelectedSlots, setServiceSelectedYears, setServiceSelectedSlots } = serviceSelectionState;
+    const {
+      serviceCustomerSearch,
+      setServiceCustomerSearch,
+      serviceRecordSearch,
+      setServiceRecordSearch,
+      setServicePage,
+      serviceNotice,
+      serviceActionLoading,
+      serviceRows,
+      serviceAttendanceRows,
+      setServiceNotice,
+      setServiceActionLoading,
+      setServiceRows,
+      setServiceAttendanceRows,
+      patchServiceRow,
+      prependServiceRow,
+    } = serviceState;
+    const rawServiceRecords = serviceRows;
+    const serviceBusy = loading || serviceActionLoading;
     const viewer = (data?.viewer || {}) as Record<string, unknown>;
-    const viewerStaff = viewerStaffRecord(asRecords(data?.org_chart));
+    const viewerStaff = viewerStaffRecord(asRecords(data?.org_chart)) || null;
     const viewerRole = String(viewer.role || "").trim().toLowerCase();
     const viewerDepartment = normalizedKey(viewer.department || fieldText(viewerStaff || {}, ["department"]));
     const viewerTitle = normalizedKey(`${viewer.title || ""} ${viewer.position || ""} ${viewer.role || ""} ${fieldText(viewerStaff || {}, ["title", "position", "role"])}`);
@@ -3478,12 +6447,12 @@ export default function App() {
           ) : anotherServiceIsActive ? (
             <Text style={styles.statusPill}>Check out current service first</Text>
           ) : (
-            <Pressable style={styles.smallButton} onPress={() => updateServiceVisitPoint(record, "check_in")} disabled={loading}>
+            <Pressable style={styles.smallButton} onPress={() => updateServiceVisitPoint(record, "check_in", patchServiceRow, setServiceNotice, setServiceActionLoading)} disabled={serviceBusy}>
               <Text style={styles.smallButtonText}>Check in</Text>
             </Pressable>
           )}
           {canCheckOut && (
-            <Pressable style={styles.smallButton} onPress={() => updateServiceVisitPoint(record, "check_out")} disabled={loading}>
+            <Pressable style={styles.smallButton} onPress={() => updateServiceVisitPoint(record, "check_out", patchServiceRow, setServiceNotice, setServiceActionLoading)} disabled={serviceBusy}>
               <Text style={styles.smallButtonText}>Check out</Text>
             </Pressable>
           )}
@@ -3500,7 +6469,24 @@ export default function App() {
     const engineerOptions = serviceEngineerOptions();
     const todayDate = new Date().toISOString().slice(0, 10);
     const viewerStaffId = fieldText(viewerStaff || {}, ["id"]);
-    const viewerAttendance = viewerStaffId ? asRecords(data?.attendance_today).find((item) => (
+    const upsertServiceAttendanceRow = (record: Record<string, unknown>) => {
+      const savedDate = fieldText(record, ["date"]) || todayDate;
+      const savedPersonId = fieldText(record, ["person_id", "staff_id"]);
+      setServiceAttendanceRows((current) => {
+        const found = current.some((item) => fieldText(item, ["date"]) === savedDate && fieldText(item, ["person_id", "staff_id"]) === savedPersonId);
+        return found
+          ? current.map((item) => fieldText(item, ["date"]) === savedDate && fieldText(item, ["person_id", "staff_id"]) === savedPersonId ? { ...item, ...record } : item)
+          : [record, ...current];
+      });
+      const currentData = dataRef.current[0];
+      const rows = asRecords((currentData as Record<string, unknown> | null)?.attendance_today);
+      const found = rows.some((item) => fieldText(item, ["date"]) === savedDate && fieldText(item, ["person_id", "staff_id"]) === savedPersonId);
+      const nextRows = found
+        ? rows.map((item) => fieldText(item, ["date"]) === savedDate && fieldText(item, ["person_id", "staff_id"]) === savedPersonId ? { ...item, ...record } : item)
+        : [record, ...rows];
+      dataRef.current[0] = { ...(currentData || {}), attendance_today: nextRows } as PortalData;
+    };
+    const viewerAttendance = viewerStaffId ? serviceAttendanceRows.find((item) => (
       fieldText(item, ["date"]) === todayDate && fieldText(item, ["person_id", "staff_id"]) === viewerStaffId
     )) : undefined;
     const officeAttendanceEntries = Array.isArray(viewerAttendance?.entries)
@@ -3509,7 +6495,7 @@ export default function App() {
         .sort((a, b) => String(b.timestamp || b.marked_at || "").localeCompare(String(a.timestamp || a.marked_at || "")))
       : [];
     const officeAttendanceHistoryRows = viewerStaffId
-      ? asRecords(data?.attendance_today)
+      ? serviceAttendanceRows
         .filter((item) => fieldText(item, ["person_id", "staff_id"]) === viewerStaffId)
         .sort((a, b) => fieldText(b, ["date"]).localeCompare(fieldText(a, ["date"])))
       : [];
@@ -3703,72 +6689,82 @@ export default function App() {
       .filter((item) => item.id);
     async function assignNearbyServiceToEngineer(serviceId: string, engineerName: string) {
       if (!serviceId || !engineerName) return;
-      setLoading(true);
+      const payload = {
+        assigned_engineer: engineerName,
+        technician: engineerName,
+        assignment_source: "nearest-live-location",
+        assignment_reset_at: new Date().toISOString(),
+      };
+      setServiceActionLoading(true);
+      patchServiceRow(serviceId, payload);
       try {
-        await apiFetch(`/api/portal/service/${encodeURIComponent(serviceId)}`, {
+        const response = await apiFetch<{ record?: Record<string, unknown> }>(`/api/portal/service/${encodeURIComponent(serviceId)}`, {
           method: "PATCH",
           token,
-          body: JSON.stringify({
-            assigned_engineer: engineerName,
-            technician: engineerName,
-            assignment_source: "nearest-live-location",
-            assignment_reset_at: new Date().toISOString(),
-          }),
+          body: JSON.stringify(payload),
         });
-        await loadPortal();
-        setMessage(`Assigned nearest service to ${engineerName}.`);
+        const updatedRecord = response.record || payload;
+        patchServiceRow(serviceId, updatedRecord);
+        patchDisplayedPortalRecordRefOnly("service_records", serviceId, updatedRecord);
+        setServiceNotice(`Assigned nearest service to ${engineerName}.`);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Nearest service could not be assigned.");
+        setServiceNotice(error instanceof Error ? error.message : "Nearest service could not be assigned.");
       } finally {
-        setLoading(false);
+        setServiceActionLoading(false);
       }
     }
     async function assignServiceToEngineer(serviceId: string, engineerName: string) {
       if (!serviceId || !engineerName) return;
-      setLoading(true);
+      const payload = {
+        assigned_engineer: engineerName,
+        technician: engineerName,
+        assignment_source: "manager-direct",
+        assignment_reset_at: new Date().toISOString(),
+      };
+      setServiceActionLoading(true);
+      patchServiceRow(serviceId, payload);
       try {
-        await apiFetch(`/api/portal/service/${encodeURIComponent(serviceId)}`, {
+        const response = await apiFetch<{ record?: Record<string, unknown> }>(`/api/portal/service/${encodeURIComponent(serviceId)}`, {
           method: "PATCH",
           token,
-          body: JSON.stringify({
-            assigned_engineer: engineerName,
-            technician: engineerName,
-            assignment_source: "manager-direct",
-            assignment_reset_at: new Date().toISOString(),
-          }),
+          body: JSON.stringify(payload),
         });
-        setServiceQuickAssignOpen("");
-        await loadPortal();
-        setMessage(`Assigned service to ${engineerName}.`);
+        const updatedRecord = response.record || payload;
+        patchServiceRow(serviceId, updatedRecord);
+        patchDisplayedPortalRecordRefOnly("service_records", serviceId, updatedRecord);
+        setServiceNotice(`Assigned service to ${engineerName}.`);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Service could not be assigned.");
+        setServiceNotice(error instanceof Error ? error.message : "Service could not be assigned.");
       } finally {
-        setLoading(false);
+        setServiceActionLoading(false);
       }
     }
     async function unassignServiceEngineer(serviceId: string) {
       if (!serviceId) return;
-      setLoading(true);
+      const payload = {
+        assigned_engineer: "",
+        technician: "",
+        engineer: "",
+        assigned_to: "",
+        assignment_source: "manager-unassigned",
+        assignment_reset_at: new Date().toISOString(),
+      };
+      setServiceActionLoading(true);
+      patchServiceRow(serviceId, payload);
       try {
-        await apiFetch(`/api/portal/service/${encodeURIComponent(serviceId)}`, {
+        const response = await apiFetch<{ record?: Record<string, unknown> }>(`/api/portal/service/${encodeURIComponent(serviceId)}`, {
           method: "PATCH",
           token,
-          body: JSON.stringify({
-            assigned_engineer: "",
-            technician: "",
-            engineer: "",
-            assigned_to: "",
-            assignment_source: "manager-unassigned",
-            assignment_reset_at: new Date().toISOString(),
-          }),
+          body: JSON.stringify(payload),
         });
-        setServiceQuickAssignOpen("");
-        await loadPortal();
-        setMessage("Service engineer unassigned.");
+        const updatedRecord = response.record || payload;
+        patchServiceRow(serviceId, updatedRecord);
+        patchDisplayedPortalRecordRefOnly("service_records", serviceId, updatedRecord);
+        setServiceNotice("Service engineer unassigned.");
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Service engineer could not be unassigned.");
+        setServiceNotice(error instanceof Error ? error.message : "Service engineer could not be unassigned.");
       } finally {
-        setLoading(false);
+        setServiceActionLoading(false);
       }
     }
     const serviceEngineerRoster = engineerOptions.map((engineer) => {
@@ -3846,7 +6842,7 @@ export default function App() {
           checkInLocation: record.check_in_location,
           checkOutLocation: record.check_out_location,
         }));
-      const attendanceLocationRecords = asRecords(data?.attendance_today)
+      const attendanceLocationRecords = serviceAttendanceRows
         .filter((record) => engineerMatchesAssignment(engineer.name, record, ["person_name", "name", "staff_name"]))
         .filter((record) => String(record.check_in || record.time_in || record.check_out || record.time_out || "").replace("-", "").trim())
         .map((record) => {
@@ -3926,43 +6922,43 @@ export default function App() {
     };
     const resetServiceAssignmentsFromTeam = async () => {
       if (!canViewAllService) {
-        setMessage("Only Service Manager, CEO, or Admin can reset service assignments.");
+        setServiceNotice("Only Service Manager, CEO, or Admin can reset service assignments.");
         return;
       }
       if (!engineerOptions.length) {
-        setMessage("Add active Service staff in Team Accounts before resetting service assignments.");
+        setServiceNotice("Add active Service staff in Team Accounts before resetting service assignments.");
         return;
       }
       const openRecords = records
         .filter((record) => !recordIsClosed(record))
         .sort((a, b) => String(a.scheduled_date || a.service_date || a.next_service_date || a.created_at || "").localeCompare(String(b.scheduled_date || b.service_date || b.next_service_date || b.created_at || "")));
       if (!openRecords.length) {
-        setMessage("No open service records need reassignment.");
+        setServiceNotice("No open service records need reassignment.");
         return;
       }
-      setLoading(true);
+      setServiceActionLoading(true);
       try {
-        await Promise.all(openRecords.map((record, index) => {
-          const id = recordIdentity(record);
-          const engineer = engineerOptions[index % engineerOptions.length];
-          if (!id || !engineer?.name) return Promise.resolve();
-          return apiFetch(`/api/portal/service/${encodeURIComponent(id)}`, {
-            method: "PATCH",
-            token,
-            body: JSON.stringify({
-              assigned_engineer: engineer.name,
-              technician: engineer.name,
-              assignment_source: "team-account-reset",
-              assignment_reset_at: new Date().toISOString(),
-            }),
+        const result = await apiFetch<{ updated?: number; engineers?: number; message?: string; records?: Record<string, unknown>[] }>("/api/portal/service/reset-assignments", {
+          method: "POST",
+          token,
+          body: JSON.stringify({}),
+        });
+        const updatedRecords = asRecords(result.records);
+        if (updatedRecords.length) {
+          setServiceRows((current) => {
+            const byId = new Map(updatedRecords.map((record) => [recordIdentity(record), record]));
+            return current.map((record) => byId.get(recordIdentity(record)) || record);
           });
-        }));
-        await loadPortal();
-        setMessage(`Reset ${openRecords.length} open service assignments across ${engineerOptions.length} active service staff.`);
+          updatedRecords.forEach((record) => {
+            const id = recordIdentity(record);
+            if (id) patchDisplayedPortalRecordRefOnly("service_records", id, record);
+          });
+        }
+        setServiceNotice(result.message || `Reset ${result.updated || 0} open service assignments across ${result.engineers || engineerOptions.length} active service staff.`);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Service assignments could not be reset.");
+        setServiceNotice(error instanceof Error ? error.message : "Service assignments could not be reset.");
       } finally {
-        setLoading(false);
+        setServiceActionLoading(false);
       }
     };
     const installInfoForServiceRecord = (record: Record<string, unknown>) => {
@@ -4039,7 +7035,8 @@ export default function App() {
       };
     };
     const query = serviceRecordSearch.trim().toLowerCase();
-    const filteredRecords = records.filter((record) => {
+    const serviceListKey = "service-records";
+    const serviceRecordMatches = (record: Record<string, unknown>) => {
       if (!canViewAllService && recordIsClosed(record)) return false;
       if (!query) return true;
       return [
@@ -4066,9 +7063,8 @@ export default function App() {
         record.service_number,
         record.next_service_number,
       ].some((value) => String(value || "").toLowerCase().includes(query));
-    });
-    const serviceListKey = "service-records";
-    const visibleRecords = filteredRecords.slice(0, listVisibleCount(serviceListKey, filteredRecords.length));
+    };
+    const { total: filteredRecordsCount, visible: visibleRecords } = collectVisibleItems(serviceListKey, records, serviceRecordMatches);
     const checkedOutServiceVisitRecords = records
       .filter((record) => String(record.check_in_at || "").trim())
       .filter((record) => String(record.check_out_at || "").trim())
@@ -4082,12 +7078,28 @@ export default function App() {
     const officeAttendanceHistoryListKey = "service-office-attendance-history";
     const serviceEngineerRosterListKey = "service-engineer-roster";
     return (
+      <LocalStringToggle>
+        {(serviceQuickAssignOpen, setServiceQuickAssignOpen) => (
+          <LocalStringToggle>
+            {(serviceYearDropdownOpen, setServiceYearDropdownOpen) => (
+              <LocalStringToggle>
+                {(serviceSlotDropdownOpen, setServiceSlotDropdownOpen) => (
+                  <LocalStringToggle>
+                    {(serviceEditEngineerDropdownOpen, setServiceEditEngineerDropdownOpen) => (
+                      <LocalToggle>
+                        {(serviceCustomerDropdownOpen, setServiceCustomerDropdownOpen) => (
+                          <LocalToggle>
+                            {(serviceEngineerDropdownOpen, setServiceEngineerDropdownOpen) => (
+                              <LocalToggle>
+                                {(serviceIssueDropdownOpen, setServiceIssueDropdownOpen) => (
       <View>
         <View style={styles.moduleHero}>
           <Text style={styles.eyebrow}>FUZI Ops Module</Text>
           <Text style={styles.moduleHeroTitle}>Service</Text>
           <Text style={styles.moduleHeroText}>Service records scheduled from elevator installation dates, engineer check-in/out, customer comments, parts usage, and linked CRM service counts.</Text>
         </View>
+        {serviceActionLoading && <ActivityIndicator style={styles.loader} />}
+        {!!serviceNotice && <Text style={styles.banner}>{serviceNotice}</Text>}
         <View style={styles.formCard}>
           <View style={styles.sectionHeaderRow}>
             <View>
@@ -4105,8 +7117,12 @@ export default function App() {
                   <Pressable
                     key={`service-check-${recordId}`}
                     style={styles.scheduleServiceRow}
-                    onPress={() => setServiceRecordSearch(String(record.job_number || record.job_no || record.id || record.customer_id || record.customer || ""))}
-                    disabled={loading}
+                    onPress={() => {
+                      const nextSearch = String(record.job_number || record.job_no || record.id || record.customer_id || record.customer || "");
+                      setServiceRecordSearch(nextSearch);
+                      setServiceNotice(`Service record search set to ${nextSearch || "selected record"}.`);
+                    }}
+                    disabled={serviceBusy}
                   >
                     <View style={styles.scheduleServiceMain}>
                       <View style={styles.dispatchRosterTitleRow}>
@@ -4160,10 +7176,10 @@ export default function App() {
               </View>
             )}
             <View style={styles.inlineActions}>
-              <Pressable style={styles.primaryButton} onPress={() => markSelfAttendance("check_in")} disabled={loading || !viewerStaff}>
+              <Pressable style={styles.primaryButton} onPress={() => markSelfAttendance("check_in", upsertServiceAttendanceRow, serviceAttendanceRows, setServiceNotice, setServiceActionLoading)} disabled={serviceBusy || !viewerStaff}>
                 <Text style={styles.primaryButtonText}>Check in to office</Text>
               </Pressable>
-              <Pressable style={styles.secondaryButton} onPress={() => markSelfAttendance("check_out")} disabled={loading || !viewerStaff}>
+              <Pressable style={styles.secondaryButton} onPress={() => markSelfAttendance("check_out", upsertServiceAttendanceRow, serviceAttendanceRows, setServiceNotice, setServiceActionLoading)} disabled={serviceBusy || !viewerStaff}>
                 <Text style={styles.secondaryButtonText}>Check out</Text>
               </Pressable>
             </View>
@@ -4250,9 +7266,10 @@ export default function App() {
                       style={styles.serviceJobRow}
                       onPress={() => {
                         if (assignment.tab === "service" && assignment.search) setServiceRecordSearch(assignment.search);
-                        setActiveTab(assignment.tab);
+                        if (assignment.tab !== "service") setActiveTab(assignment.tab);
+                        setServiceNotice(`Opening ${assignment.type} assignment.`);
                       }}
-                      disabled={loading}
+                      disabled={serviceBusy}
                     >
                       <View style={styles.serviceJobTopLine}>
                         <Text style={styles.serviceJobType}>{assignment.type}</Text>
@@ -4281,11 +7298,11 @@ export default function App() {
             </View>
             <View style={styles.inlineActions}>
               <Text style={styles.statusPill}>{assignedServiceEngineers}/{serviceEngineerRoster.length} assigned</Text>
-              <Pressable style={styles.smallButton} onPress={() => setActiveTab("accounts")} disabled={loading}>
+              <Pressable style={styles.smallButton} onPress={() => { setActiveTab("accounts"); setMessage("Opening Team Accounts."); }} disabled={serviceBusy}>
                 <Text style={styles.smallButtonText}>Team Accounts</Text>
               </Pressable>
               {canViewAllService && (
-                <Pressable style={styles.smallButton} onPress={resetServiceAssignmentsFromTeam} disabled={loading || !serviceEngineerRoster.length}>
+                <Pressable style={styles.smallButton} onPress={resetServiceAssignmentsFromTeam} disabled={serviceBusy || !serviceEngineerRoster.length}>
                   <Text style={styles.smallButtonText}>Reset assignments</Text>
                 </Pressable>
               )}
@@ -4352,7 +7369,7 @@ export default function App() {
                         <Pressable
                           style={styles.smallButton}
                           onPress={() => assignNearbyServiceToEngineer(row.nearestService?.id || "", row.engineer.name)}
-                          disabled={loading || !row.nearestService.id}
+                          disabled={serviceBusy || !row.nearestService.id}
                         >
                           <Text style={styles.smallButtonText}>Assign nearest</Text>
                         </Pressable>
@@ -4369,9 +7386,10 @@ export default function App() {
                       style={styles.serviceJobRow}
                       onPress={() => {
                         if (assignment.tab === "service" && assignment.search) setServiceRecordSearch(assignment.search);
-                        setActiveTab(assignment.tab);
+                        if (assignment.tab !== "service") setActiveTab(assignment.tab);
+                        setServiceNotice(`Opening ${assignment.type} assignment.`);
                       }}
-                      disabled={loading}
+                      disabled={serviceBusy}
                     >
                       <View style={styles.serviceJobTopLine}>
                         <Text style={styles.serviceJobType}>{assignment.type}</Text>
@@ -4384,18 +7402,25 @@ export default function App() {
                         <View style={styles.field}>
                           <Pressable
                             style={[styles.dropdownButton, serviceQuickAssignOpen === `${row.engineer.name}-${assignment.search || assignmentIndex}` && styles.selectorPillActive]}
-                            onPress={() => setServiceQuickAssignOpen((openId) => openId === `${row.engineer.name}-${assignment.search || assignmentIndex}` ? "" : `${row.engineer.name}-${assignment.search || assignmentIndex}`)}
-                            disabled={loading || !engineerOptions.length}
+                            onPress={() => {
+                              const nextId = `${row.engineer.name}-${assignment.search || assignmentIndex}`;
+                              setServiceQuickAssignOpen((openId) => {
+                                const opening = openId !== nextId;
+                                setServiceNotice(opening ? "Engineer assignment options opened." : "Engineer assignment options closed.");
+                                return opening ? nextId : "";
+                              });
+                            }}
+                            disabled={serviceBusy || !engineerOptions.length}
                           >
                             <Text style={styles.selectorText}>Assign to engineer</Text>
-                            <Text style={styles.dropdownChevron}>{serviceQuickAssignOpen === `${row.engineer.name}-${assignment.search || assignmentIndex}` ? "▲" : "▼"}</Text>
+                            <Text style={styles.dropdownChevron}>{serviceQuickAssignOpen === `${row.engineer.name}-${assignment.search || assignmentIndex}` ? "^" : "v"}</Text>
                           </Pressable>
                           {serviceQuickAssignOpen === `${row.engineer.name}-${assignment.search || assignmentIndex}` && (
                             <View style={styles.dropdownPanel}>
                               <Pressable
                                 style={styles.dropdownOption}
                                 onPress={() => unassignServiceEngineer(recordIdentity(assignment.record as Record<string, unknown>))}
-                                disabled={loading}
+                                disabled={serviceBusy}
                               >
                                 <Text style={styles.selectorText}>Unassign engineer</Text>
                                 <Text style={styles.muted}>Clear this service job assignment.</Text>
@@ -4405,7 +7430,7 @@ export default function App() {
                                   key={`quick-assign-${row.engineer.name}-${assignment.search || assignmentIndex}-${engineer.name}`}
                                   style={[styles.dropdownOption, engineerMatchesAssignment(engineer.name, assignment.record as Record<string, unknown>, ["assigned_engineer", "technician", "engineer", "assigned_to"]) && styles.selectorPillActive]}
                                   onPress={() => assignServiceToEngineer(recordIdentity(assignment.record as Record<string, unknown>), engineer.name)}
-                                  disabled={loading}
+                                  disabled={serviceBusy}
                                 >
                                   <Text style={styles.selectorText}>{engineer.name}</Text>
                                   {!!engineer.department && <Text style={styles.muted}>{engineer.department}</Text>}
@@ -4431,34 +7456,45 @@ export default function App() {
           </View>
         </View>}
         <View style={styles.formCard}>
-          <Pressable
-            style={[styles.dropdownButton, serviceNewVisitOpen && styles.selectorPillActive]}
-            onPress={() => setServiceNewVisitOpen((open) => !open)}
-            disabled={loading}
+          <LocalDisclosure
+            buttonStyle={styles.dropdownButton}
+            activeStyle={styles.selectorPillActive}
+            closedLabel="New service visit"
+            textStyle={styles.cardLabel}
+            disabled={serviceBusy}
           >
-            <View>
-              <Text style={styles.cardLabel}>New service visit</Text>
-              <Text style={styles.muted}>{serviceDraft.customer ? `${serviceDraft.customer} - ${serviceDraft.scheduled_date || "No date selected"}` : "Open to create a service ticket"}</Text>
-            </View>
-            <Text style={styles.dropdownChevron}>{serviceNewVisitOpen ? "▲" : "▼"}</Text>
-          </Pressable>
-          {serviceNewVisitOpen && (
-            <>
+          <LocalValue initialValue={serviceDraftRef.current[0]}>
+            {(localServiceDraft, setLocalServiceDraft) => {
+              const localSelectedServiceCustomer = customerOptions.find((customer) => customer.id === localServiceDraft.customer_id);
+              const localDefaultServiceSchedule = localSelectedServiceCustomer ? defaultServiceScheduleForCustomer(localSelectedServiceCustomer) : undefined;
+              const setLocalServiceDraftAndRef: LocalStateSetter<typeof emptyServiceDraft> = (next) => {
+                const resolved = resolveLocalState(next, serviceDraftRef.current[0]);
+                serviceDraftRef.current[0] = resolved;
+                setLocalServiceDraft(resolved);
+              };
+              return (
+          <>
+          <Text style={styles.muted}>{localServiceDraft.customer ? `${localServiceDraft.customer} - ${localServiceDraft.scheduled_date || "No date selected"}` : "Open to create a service ticket"}</Text>
           <Text style={styles.muted}>Breakdown/service number, date, and time are generated by the system when this record is saved.</Text>
           <View style={styles.formGrid}>
             <View style={styles.field}>
               <Text style={styles.label}>CRM customer</Text>
               <Pressable
                 style={[styles.dropdownButton, serviceCustomerDropdownOpen && styles.selectorPillActive]}
-                onPress={() => setServiceCustomerDropdownOpen((open) => !open)}
-                disabled={loading || !customerOptions.length}
+                onPress={() => {
+                  setServiceCustomerDropdownOpen((open) => {
+                    setServiceNotice(open ? "Service customer selector closed." : "Service customer selector opened.");
+                    return !open;
+                  });
+                }}
+                disabled={serviceBusy || !customerOptions.length}
               >
                 <Text style={styles.selectorText}>
-                  {selectedServiceCustomer
-                    ? `${selectedServiceCustomer.id} - ${selectedServiceCustomer.name}${selectedServiceCustomer.phone ? ` - ${selectedServiceCustomer.phone}` : ""}`
+                  {localSelectedServiceCustomer
+                    ? `${localSelectedServiceCustomer.id} - ${localSelectedServiceCustomer.name}${localSelectedServiceCustomer.phone ? ` - ${localSelectedServiceCustomer.phone}` : ""}`
                     : "Select CRM customer"}
                 </Text>
-                <Text style={styles.dropdownChevron}>{serviceCustomerDropdownOpen ? "▲" : "▼"}</Text>
+                <Text style={styles.dropdownChevron}>{serviceCustomerDropdownOpen ? "^" : "v"}</Text>
               </Pressable>
               {serviceCustomerDropdownOpen && (
                 <View style={styles.dropdownPanel}>
@@ -4467,10 +7503,10 @@ export default function App() {
                     {limitedItems(serviceNewVisitCustomerListKey, visibleServiceCustomers).map((customer, index) => (
                       <Pressable
                         key={`new-service-customer-${customer.id}-${customer.source_inquiry_id}-${index}`}
-                        style={[styles.dropdownOption, serviceDraft.customer_id === customer.id && styles.selectorPillActive]}
+                        style={[styles.dropdownOption, localServiceDraft.customer_id === customer.id && styles.selectorPillActive]}
                         onPress={() => {
                           const defaultSchedule = defaultServiceScheduleForCustomer(customer);
-                          setServiceDraft((draft) => ({
+                          setLocalServiceDraftAndRef((draft) => ({
                             ...draft,
                             customer_id: customer.id,
                             customer: customer.name,
@@ -4486,6 +7522,7 @@ export default function App() {
                           }));
                           setServiceCustomerDropdownOpen(false);
                           setServiceCustomerSearch("");
+                          setServiceNotice(`Service customer selected: ${customer.id} - ${customer.name}.`);
                         }}
                       >
                         <Text style={styles.selectorText}>{customer.id} - {customer.name}</Text>
@@ -4502,11 +7539,16 @@ export default function App() {
               <Text style={styles.label}>Engineer assignment</Text>
               <Pressable
                 style={[styles.dropdownButton, serviceEngineerDropdownOpen && styles.selectorPillActive]}
-                onPress={() => setServiceEngineerDropdownOpen((open) => !open)}
-                disabled={loading || !engineerOptions.length}
+                onPress={() => {
+                  setServiceEngineerDropdownOpen((open) => {
+                    setServiceNotice(open ? "Service engineer selector closed." : "Service engineer selector opened.");
+                    return !open;
+                  });
+                }}
+                disabled={serviceBusy || !engineerOptions.length}
               >
-                <Text style={styles.selectorText}>{serviceDraft.assigned_engineer || "System will auto-assign"}</Text>
-                <Text style={styles.dropdownChevron}>{serviceEngineerDropdownOpen ? "▲" : "▼"}</Text>
+                <Text style={styles.selectorText}>{localServiceDraft.assigned_engineer || "System will auto-assign"}</Text>
+                <Text style={styles.dropdownChevron}>{serviceEngineerDropdownOpen ? "^" : "v"}</Text>
               </Pressable>
               {!!engineerOptions.length && (
                 serviceEngineerDropdownOpen && (
@@ -4515,10 +7557,11 @@ export default function App() {
                       {limitedItems("service-new-visit-engineers", engineerOptions).map((engineer) => (
                         <Pressable
                           key={`svc-eng-${engineer.name}`}
-                          style={[styles.dropdownOption, serviceDraft.assigned_engineer === engineer.name && styles.selectorPillActive]}
+                          style={[styles.dropdownOption, localServiceDraft.assigned_engineer === engineer.name && styles.selectorPillActive]}
                           onPress={() => {
-                            setServiceDraft((draft) => ({ ...draft, assigned_engineer: engineer.name }));
+                            setLocalServiceDraftAndRef((draft) => ({ ...draft, assigned_engineer: engineer.name }));
                             setServiceEngineerDropdownOpen(false);
+                            setServiceNotice(`Service engineer selected: ${engineer.name}.`);
                           }}
                         >
                           <Text style={styles.selectorText}>{engineer.name}</Text>
@@ -4539,67 +7582,87 @@ export default function App() {
               <Text style={styles.label}>Scheduled service date</Text>
               <TextInput
                 style={styles.input}
-                value={serviceDraft.scheduled_date}
-                onChangeText={(value) => setServiceDraft((draft) => ({ ...draft, scheduled_date: value }))}
+                defaultValue={serviceDraftRef.current[0].scheduled_date}
+                onChangeText={(value) => { serviceDraftRef.current[0] = { ...serviceDraftRef.current[0], scheduled_date: value }; }}
                 placeholder="YYYY-MM-DD"
               />
               <Text style={styles.muted}>Defaults from the CRM/install date service schedule. You can manually change it before saving.</Text>
-              {!!selectedDefaultServiceSchedule && (
+              {!!localDefaultServiceSchedule && (
                 <View style={styles.inlineActions}>
                   <Pressable
                     style={styles.smallButton}
-                    onPress={() => setServiceDraft((draft) => ({
-                      ...draft,
-                      scheduled_date: selectedDefaultServiceSchedule.nextDue,
-                      install_job_id: selectedDefaultServiceSchedule.jobId || draft.install_job_id,
-                      service_number: String(selectedDefaultServiceSchedule.nextServiceNumber),
-                      next_service_number: String(selectedDefaultServiceSchedule.nextServiceNumber),
-                      installation_date: selectedDefaultServiceSchedule.installDate,
-                    }))}
-                    disabled={loading}
+                    onPress={() => {
+                      setLocalServiceDraftAndRef((draft) => ({
+                        ...draft,
+                        scheduled_date: localDefaultServiceSchedule.nextDue,
+                        install_job_id: localDefaultServiceSchedule.jobId || draft.install_job_id,
+                        service_number: String(localDefaultServiceSchedule.nextServiceNumber),
+                        next_service_number: String(localDefaultServiceSchedule.nextServiceNumber),
+                        installation_date: localDefaultServiceSchedule.installDate,
+                      }));
+                      setServiceNotice(`Service date set to ${localDefaultServiceSchedule.nextDue}.`);
+                    }}
+                    disabled={serviceBusy}
                   >
                     <Text style={styles.smallButtonText}>Use install-date default</Text>
                   </Pressable>
-                  <Text style={styles.muted}>Default: service #{selectedDefaultServiceSchedule.nextServiceNumber} on {selectedDefaultServiceSchedule.nextDue}</Text>
+                  <Text style={styles.muted}>Default: service #{localDefaultServiceSchedule.nextServiceNumber} on {localDefaultServiceSchedule.nextDue}</Text>
                 </View>
               )}
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Common elevator issue</Text>
-              <Pressable style={[styles.dropdownButton, serviceIssueDropdownOpen && styles.selectorPillActive]} onPress={() => setServiceIssueDropdownOpen((open) => !open)}>
-                <Text style={styles.selectorText}>{serviceDraft.issue_category}</Text>
-                <Text style={styles.dropdownChevron}>{serviceIssueDropdownOpen ? "▲" : "▼"}</Text>
-              </Pressable>
-              {serviceIssueDropdownOpen && (
-                <View style={styles.dropdownPanel}>
-                  {serviceIssueCategories.map((issue) => (
-                    <Pressable key={issue} style={[styles.dropdownOption, serviceDraft.issue_category === issue && styles.selectorPillActive]} onPress={() => { setServiceDraft((draft) => ({ ...draft, issue_category: issue })); setServiceIssueDropdownOpen(false); }}>
-                      <Text style={styles.selectorText}>{issue}</Text>
+              <LocalValue initialValue={serviceDraftRef.current[0].issue_category}>
+                {(selectedIssue, setSelectedIssue) => (
+                  <>
+                    <Pressable
+                      style={[styles.dropdownButton, serviceIssueDropdownOpen && styles.selectorPillActive]}
+                      onPress={() => {
+                        setServiceIssueDropdownOpen((open) => {
+                          setServiceNotice(open ? "Service issue selector closed." : "Service issue selector opened.");
+                          return !open;
+                        });
+                      }}
+                    >
+                      <Text style={styles.selectorText}>{selectedIssue}</Text>
+                      <Text style={styles.dropdownChevron}>{serviceIssueDropdownOpen ? "^" : "v"}</Text>
                     </Pressable>
-                  ))}
-                </View>
-              )}
+                    {serviceIssueDropdownOpen && (
+                      <View style={styles.dropdownPanel}>
+                        {serviceIssueCategories.map((issue) => (
+                          <Pressable key={issue} style={[styles.dropdownOption, selectedIssue === issue && styles.selectorPillActive]} onPress={() => { setSelectedIssue(issue); setLocalServiceDraftAndRef((draft) => ({ ...draft, issue_category: issue })); setServiceIssueDropdownOpen(false); setServiceNotice(`Service issue set to ${issue}.`); }}>
+                            <Text style={styles.selectorText}>{issue}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
+                  </>
+                )}
+              </LocalValue>
             </View>
-            <View style={styles.field}><Text style={styles.label}>Parts used</Text><TextInput style={styles.input} value={serviceDraft.parts_used} onChangeText={(value) => setServiceDraft((draft) => ({ ...draft, parts_used: value }))} placeholder="Part names / item IDs" /></View>
-            <View style={styles.field}><Text style={styles.label}>Parts quantity</Text><TextInput style={styles.input} value={serviceDraft.parts_quantity} onChangeText={(value) => setServiceDraft((draft) => ({ ...draft, parts_quantity: value.replace(/[^\d.]/g, "") }))} keyboardType="numeric" /></View>
-            <View style={styles.field}><Text style={styles.label}>Status</Text><TextInput style={styles.input} value={serviceDraft.status} onChangeText={(value) => setServiceDraft((draft) => ({ ...draft, status: value }))} /></View>
+            <View style={styles.field}><Text style={styles.label}>Parts used</Text><TextInput style={styles.input} defaultValue={serviceDraftRef.current[0].parts_used} onChangeText={(value) => { serviceDraftRef.current[0] = { ...serviceDraftRef.current[0], parts_used: value }; }} placeholder="Part names / item IDs" /></View>
+            <View style={styles.field}><Text style={styles.label}>Parts quantity</Text><TextInput style={styles.input} defaultValue={serviceDraftRef.current[0].parts_quantity} onChangeText={(value) => { serviceDraftRef.current[0] = { ...serviceDraftRef.current[0], parts_quantity: value.replace(/[^\d.]/g, "") }; }} keyboardType="numeric" /></View>
+            <View style={styles.field}><Text style={styles.label}>Status</Text><TextInput style={styles.input} defaultValue={serviceDraftRef.current[0].status} onChangeText={(value) => { serviceDraftRef.current[0] = { ...serviceDraftRef.current[0], status: value }; }} /></View>
           </View>
-          <View style={styles.field}><Text style={styles.label}>Action taken</Text><TextInput style={[styles.input, styles.textarea]} value={serviceDraft.action_taken} onChangeText={(value) => setServiceDraft((draft) => ({ ...draft, action_taken: value }))} multiline /></View>
-          <View style={styles.field}><Text style={styles.label}>Customer comments</Text><TextInput style={[styles.input, styles.textarea]} value={serviceDraft.customer_comments} onChangeText={(value) => setServiceDraft((draft) => ({ ...draft, customer_comments: value }))} multiline /></View>
-          <Pressable style={styles.primaryButton} onPress={saveNewServiceRecord} disabled={loading || !serviceDraft.customer_id}>
+          <View style={styles.field}><Text style={styles.label}>Action taken</Text><TextInput style={[styles.input, styles.textarea]} defaultValue={serviceDraftRef.current[0].action_taken} onChangeText={(value) => { serviceDraftRef.current[0] = { ...serviceDraftRef.current[0], action_taken: value }; }} multiline /></View>
+          <View style={styles.field}><Text style={styles.label}>Customer comments</Text><TextInput style={[styles.input, styles.textarea]} defaultValue={serviceDraftRef.current[0].customer_comments} onChangeText={(value) => { serviceDraftRef.current[0] = { ...serviceDraftRef.current[0], customer_comments: value }; }} multiline /></View>
+          <Pressable style={styles.primaryButton} onPress={() => saveNewServiceRecord(serviceDraftRef.current[0], prependServiceRow, setServiceNotice, setServiceActionLoading)} disabled={serviceBusy}>
             <Text style={styles.primaryButtonText}>Create service record</Text>
           </Pressable>
-            </>
-          )}
+          </>
+              );
+            }}
+          </LocalValue>
+          </LocalDisclosure>
         </View>
         <View style={styles.formCard}>
           <View style={styles.sectionHeaderRow}>
             <View>
               <Text style={styles.cardLabel}>Search service records</Text>
-              <Text style={styles.muted}>{filteredRecords.length} matching records. Customer name and customer number are searchable.</Text>
+              <Text style={styles.muted}>{filteredRecordsCount} matching records. Customer name and customer number are searchable.</Text>
             </View>
             {!!serviceRecordSearch && (
-              <Pressable style={styles.smallButton} onPress={() => { setServiceRecordSearch(""); setServicePage(1); }} disabled={loading}>
+              <Pressable style={styles.smallButton} onPress={() => { setServiceRecordSearch(""); setServicePage(1); setServiceNotice("Service search cleared."); }} disabled={serviceBusy}>
                 <Text style={styles.smallButtonText}>Clear</Text>
               </Pressable>
             )}
@@ -4614,7 +7677,7 @@ export default function App() {
             placeholder="Search customer name, customer number, CRM ID, job no, phone, site, technician, status"
           />
         </View>
-        {!!filteredRecords.length && <Text style={styles.muted}>Showing {visibleRecords.length} of {filteredRecords.length}</Text>}
+        {!!filteredRecordsCount && <Text style={styles.muted}>Showing {visibleRecords.length} of {filteredRecordsCount}</Text>}
         <View style={styles.limitedList}>
         {!visibleRecords.length && (
           <View style={styles.card}>
@@ -4701,8 +7764,8 @@ export default function App() {
                           customerName: String((draft || record).customer || record.customer || ""),
                           installDate: installInfo.installDate,
                           serviceEndDate: installInfo.serviceEndDate,
-                        }, years)}
-                        disabled={loading || !customerId}
+                        }, years, setServiceNotice, setServiceActionLoading)}
+                        disabled={serviceBusy || !customerId}
                       >
                         <Text style={styles.smallButtonText}>+{years} yr{years === 1 ? "" : "s"}</Text>
                       </Pressable>
@@ -4724,7 +7787,7 @@ export default function App() {
                   <View style={styles.serviceRecordChips}>
                     <Text style={styles.serviceRecordChip}>Job {serviceJobNumber}</Text>
                     {customerId ? (
-                      <Pressable onPress={() => openCrmForCustomerNumber(customerId)} disabled={loading}>
+                      <Pressable onPress={() => openCrmForCustomerNumber(customerId)} disabled={serviceBusy}>
                         <Text style={styles.serviceRecordChipLink}>Customer {customerId}</Text>
                       </Pressable>
                     ) : (
@@ -4742,11 +7805,17 @@ export default function App() {
                     <Text style={styles.label}>Select service year</Text>
                     <Pressable
                       style={[styles.dropdownButton, serviceYearDropdownOpen === id && styles.selectorPillActive]}
-                      onPress={() => setServiceYearDropdownOpen((openId) => openId === id ? "" : id)}
-                      disabled={loading || !serviceYears.length}
+                      onPress={() => {
+                        setServiceYearDropdownOpen((openId) => {
+                          const opening = openId !== id;
+                          setServiceNotice(opening ? `Service year selector opened for ${id}.` : `Service year selector closed for ${id}.`);
+                          return opening ? id : "";
+                        });
+                      }}
+                      disabled={serviceBusy || !serviceYears.length}
                     >
                       <Text style={styles.selectorText}>Year {selectedServiceYear}</Text>
-                      <Text style={styles.dropdownChevron}>{serviceYearDropdownOpen === id ? "▲" : "▼"}</Text>
+                      <Text style={styles.dropdownChevron}>{serviceYearDropdownOpen === id ? "^" : "v"}</Text>
                     </Pressable>
                     {serviceYearDropdownOpen === id && (
                       <View style={styles.dropdownPanel}>
@@ -4763,23 +7832,21 @@ export default function App() {
                               setServiceSelectedYears((years) => ({ ...years, [id]: year }));
                               if (defaultSlotForYear) {
                                 setServiceSelectedSlots((slotsByRecord) => ({ ...slotsByRecord, [id]: defaultSlotForYear.serviceNumber }));
-                                setServiceEditDrafts((drafts) => ({
-                                  ...drafts,
-                                  [id]: {
-                                    ...drafts[id],
-                                    scheduled_date: defaultSlotForYear.dueDate || drafts[id].scheduled_date || "",
+                                updateServiceEditDraftRef(id, (current) => ({
+                                    ...current,
+                                    scheduled_date: defaultSlotForYear.dueDate || current.scheduled_date || "",
                                     service_number: String(defaultSlotForYear.serviceNumber),
                                     next_service_number: String(defaultSlotForYear.serviceNumber),
-                                    installation_date: installInfo.installDate || drafts[id].installation_date || "",
-                                    install_job_id: installInfo.jobId || drafts[id].install_job_id || "",
-                                    assigned_engineer: drafts[id].assigned_engineer || String(defaultSlotForYear.record?.assigned_engineer || defaultSlotForYear.record?.technician || installInfo.job?.service_engineer || installInfo.job?.assigned_engineer || installInfo.job?.engineer || ""),
-                                  },
+                                    installation_date: installInfo.installDate || current.installation_date || "",
+                                    install_job_id: installInfo.jobId || current.install_job_id || "",
+                                    assigned_engineer: current.assigned_engineer || String(defaultSlotForYear.record?.assigned_engineer || defaultSlotForYear.record?.technician || installInfo.job?.service_engineer || installInfo.job?.assigned_engineer || installInfo.job?.engineer || ""),
                                 }));
                               }
                               setServiceYearDropdownOpen("");
                               setServiceSlotDropdownOpen("");
+                              setServiceNotice(`Service year ${year} selected for ${id}.`);
                               }}
-                              disabled={loading}
+                              disabled={serviceBusy}
                             >
                               <Text style={styles.selectorText}>Year {year}</Text>
                               <Text style={styles.muted}>{slots.length} slots - {completed} completed - {overdue} overdue</Text>
@@ -4794,13 +7861,19 @@ export default function App() {
                     <Text style={styles.label}>Select service slot for year {selectedServiceYear}</Text>
                     <Pressable
                       style={[styles.dropdownButton, serviceSlotDropdownOpen === id && styles.selectorPillActive]}
-                      onPress={() => setServiceSlotDropdownOpen((openId) => openId === id ? "" : id)}
-                      disabled={loading || !selectedYearSlots.length}
+                      onPress={() => {
+                        setServiceSlotDropdownOpen((openId) => {
+                          const opening = openId !== id;
+                          setServiceNotice(opening ? `Service slot selector opened for ${id}.` : `Service slot selector closed for ${id}.`);
+                          return opening ? id : "";
+                        });
+                      }}
+                      disabled={serviceBusy || !selectedYearSlots.length}
                     >
                       <Text style={styles.selectorText}>
                         {selectedServiceSlot ? `Year ${selectedServiceYear} / Slot ${selectedServiceSlot.slotInYear} - ${selectedServiceSlot.dueDate || draft.scheduled_date || "manual date"}` : "Choose slot from selected year"}
                       </Text>
-                      <Text style={styles.dropdownChevron}>{serviceSlotDropdownOpen === id ? "▲" : "▼"}</Text>
+                      <Text style={styles.dropdownChevron}>{serviceSlotDropdownOpen === id ? "^" : "v"}</Text>
                     </Pressable>
                     {serviceSlotDropdownOpen === id && (
                       <View style={styles.dropdownPanel}>
@@ -4810,21 +7883,19 @@ export default function App() {
                             style={[styles.dropdownOption, String(draft.service_number || draft.next_service_number || "") === String(entry.serviceNumber) && styles.selectorPillActive]}
                             onPress={() => {
                               setServiceSelectedSlots((slots) => ({ ...slots, [id]: entry.serviceNumber }));
-                              setServiceEditDrafts((drafts) => ({
-                                ...drafts,
-                                [id]: {
-                                  ...drafts[id],
-                                  scheduled_date: entry.dueDate || drafts[id].scheduled_date || "",
+                              updateServiceEditDraftRef(id, (current) => ({
+                                  ...current,
+                                  scheduled_date: entry.dueDate || current.scheduled_date || "",
                                   service_number: String(entry.serviceNumber),
                                   next_service_number: String(entry.serviceNumber),
-                                  installation_date: installInfo.installDate || drafts[id].installation_date || "",
-                                  install_job_id: installInfo.jobId || drafts[id].install_job_id || "",
-                                  assigned_engineer: drafts[id].assigned_engineer || String(entry.record?.assigned_engineer || entry.record?.technician || installInfo.job?.service_engineer || installInfo.job?.assigned_engineer || installInfo.job?.engineer || ""),
-                                },
+                                  installation_date: installInfo.installDate || current.installation_date || "",
+                                  install_job_id: installInfo.jobId || current.install_job_id || "",
+                                  assigned_engineer: current.assigned_engineer || String(entry.record?.assigned_engineer || entry.record?.technician || installInfo.job?.service_engineer || installInfo.job?.assigned_engineer || installInfo.job?.engineer || ""),
                               }));
                               setServiceSlotDropdownOpen("");
+                              setServiceNotice(`Service slot ${entry.serviceNumber} selected for ${id}.`);
                             }}
-                            disabled={loading}
+                            disabled={serviceBusy}
                           >
                             <Text style={styles.selectorText}>Slot {entry.slotInYear} - {entry.dueDate || "CRM install date needed"}</Text>
                             <Text style={styles.muted}>{entry.status}. Selecting this sets the default date, but you can manually edit it below.</Text>
@@ -4846,11 +7917,17 @@ export default function App() {
                       <Text style={styles.label}>Assigned service engineer</Text>
                       <Pressable
                         style={[styles.dropdownButton, serviceEditEngineerDropdownOpen === id && styles.selectorPillActive]}
-                        onPress={() => setServiceEditEngineerDropdownOpen((openId) => openId === id ? "" : id)}
-                        disabled={loading || !engineerOptions.length}
+                        onPress={() => {
+                          setServiceEditEngineerDropdownOpen((openId) => {
+                            const opening = openId !== id;
+                            setServiceNotice(opening ? `Service engineer selector opened for ${id}.` : `Service engineer selector closed for ${id}.`);
+                            return opening ? id : "";
+                          });
+                        }}
+                        disabled={serviceBusy || !engineerOptions.length}
                       >
                         <Text style={styles.selectorText}>{draft.assigned_engineer || defaultSlotEngineer || "Select service engineer"}</Text>
-                        <Text style={styles.dropdownChevron}>{serviceEditEngineerDropdownOpen === id ? "▲" : "▼"}</Text>
+                        <Text style={styles.dropdownChevron}>{serviceEditEngineerDropdownOpen === id ? "^" : "v"}</Text>
                       </Pressable>
                       {serviceEditEngineerDropdownOpen === id && (
                         <View style={styles.dropdownPanel}>
@@ -4858,10 +7935,11 @@ export default function App() {
                             <Pressable
                               style={[styles.dropdownOption, draft.assigned_engineer === defaultSlotEngineer && styles.selectorPillActive]}
                               onPress={() => {
-                                setServiceEditDrafts((drafts) => ({ ...drafts, [id]: { ...drafts[id], assigned_engineer: defaultSlotEngineer, technician: defaultSlotEngineer } }));
+                                updateServiceEditDraftRef(id, (current) => ({ ...current, assigned_engineer: defaultSlotEngineer, technician: defaultSlotEngineer }));
                                 setServiceEditEngineerDropdownOpen("");
+                                setServiceNotice(`System engineer selected for ${id}.`);
                               }}
-                              disabled={loading}
+                              disabled={serviceBusy}
                             >
                               <Text style={styles.selectorText}>Use system engineer: {defaultSlotEngineer}</Text>
                               <Text style={styles.muted}>From the selected service slot or linked install job.</Text>
@@ -4873,10 +7951,11 @@ export default function App() {
                                 key={`${id}-edit-service-engineer-${engineer.name}`}
                                 style={[styles.dropdownOption, draft.assigned_engineer === engineer.name && styles.selectorPillActive]}
                                 onPress={() => {
-                                  setServiceEditDrafts((drafts) => ({ ...drafts, [id]: { ...drafts[id], assigned_engineer: engineer.name, technician: engineer.name } }));
+                                  updateServiceEditDraftRef(id, (current) => ({ ...current, assigned_engineer: engineer.name, technician: engineer.name }));
                                   setServiceEditEngineerDropdownOpen("");
+                                  setServiceNotice(`Service engineer ${engineer.name} selected for ${id}.`);
                                 }}
-                                disabled={loading}
+                                disabled={serviceBusy}
                               >
                                 <Text style={styles.selectorText}>{engineer.name}</Text>
                                 {!!engineer.department && <Text style={styles.muted}>{engineer.department}</Text>}
@@ -4909,8 +7988,13 @@ export default function App() {
                         <Text style={styles.label}>{label}</Text>
                         <TextInput
                           style={styles.input}
-                          value={String(draft[key] || "")}
-                          onChangeText={(value) => setServiceEditDrafts((drafts) => ({ ...drafts, [id]: { ...drafts[id], [key]: value } }))}
+                          defaultValue={String(draft[key] || "")}
+                          onChangeText={(value) => {
+                            serviceEditDraftsRef.current = {
+                              ...serviceEditDraftsRef.current,
+                              [id]: { ...serviceEditDraftsRef.current[id], [key]: value },
+                            };
+                          }}
                         />
                       </View>
                     ))}
@@ -4919,8 +8003,13 @@ export default function App() {
                     <Text style={styles.label}>Action taken</Text>
                     <TextInput
                       style={[styles.input, styles.textarea]}
-                      value={String(draft.action_taken || "")}
-                      onChangeText={(value) => setServiceEditDrafts((drafts) => ({ ...drafts, [id]: { ...drafts[id], action_taken: value, findings: value } }))}
+                      defaultValue={String(draft.action_taken || "")}
+                      onChangeText={(value) => {
+                        serviceEditDraftsRef.current = {
+                          ...serviceEditDraftsRef.current,
+                          [id]: { ...serviceEditDraftsRef.current[id], action_taken: value, findings: value },
+                        };
+                      }}
                       multiline
                     />
                   </View>
@@ -4928,13 +8017,18 @@ export default function App() {
                     <Text style={styles.label}>Customer comments</Text>
                     <TextInput
                       style={[styles.input, styles.textarea]}
-                      value={String(draft.customer_comments || "")}
-                      onChangeText={(value) => setServiceEditDrafts((drafts) => ({ ...drafts, [id]: { ...drafts[id], customer_comments: value } }))}
+                      defaultValue={String(draft.customer_comments || "")}
+                      onChangeText={(value) => {
+                        serviceEditDraftsRef.current = {
+                          ...serviceEditDraftsRef.current,
+                          [id]: { ...serviceEditDraftsRef.current[id], customer_comments: value },
+                        };
+                      }}
                       multiline
                     />
                   </View>
                   <View style={styles.inlineActions}>
-                    <Pressable style={styles.primaryButtonInline} onPress={() => saveServiceRecord(id)} disabled={loading || !customerId}>
+                    <Pressable style={styles.primaryButtonInline} onPress={() => saveServiceRecord(id, serviceEditDraftsRef.current[id], patchServiceRow, setServiceNotice, setServiceActionLoading)} disabled={serviceBusy || !customerId}>
                       <Text style={styles.primaryButtonText}>Save service record</Text>
                     </Pressable>
                     <Pressable
@@ -4958,8 +8052,9 @@ export default function App() {
                           delete next[id];
                           return next;
                         });
+                        setServiceNotice(`Service edit cancelled for ${id}.`);
                       }}
-                      disabled={loading}
+                      disabled={serviceBusy}
                     >
                       <Text style={styles.secondaryButtonText}>Cancel</Text>
                     </Pressable>
@@ -4989,11 +8084,18 @@ export default function App() {
                       <View style={styles.field}>
                         <Pressable
                           style={[styles.dropdownButton, serviceQuickAssignOpen === `record-${id}` && styles.selectorPillActive]}
-                          onPress={() => setServiceQuickAssignOpen((openId) => openId === `record-${id}` ? "" : `record-${id}`)}
+                          onPress={() => {
+                            setServiceQuickAssignOpen((openId) => {
+                              const nextId = `record-${id}`;
+                              const opening = openId !== nextId;
+                              setMessage(opening ? `Engineer assignment options opened for ${id}.` : `Engineer assignment options closed for ${id}.`);
+                              return opening ? nextId : "";
+                            });
+                          }}
                           disabled={loading || !engineerOptions.length}
                         >
                           <Text style={styles.selectorText}>Assign to engineer</Text>
-                          <Text style={styles.dropdownChevron}>{serviceQuickAssignOpen === `record-${id}` ? "▲" : "▼"}</Text>
+                      <Text style={styles.dropdownChevron}>{serviceQuickAssignOpen === `record-${id}` ? "^" : "v"}</Text>
                         </Pressable>
                         {serviceQuickAssignOpen === `record-${id}` && (
                           <View style={styles.dropdownPanel}>
@@ -5023,7 +8125,14 @@ export default function App() {
                     {canViewerCaptureServiceVisitPoint(record) && (
                       renderServiceVisitActions(record)
                     )}
-                    <Pressable style={styles.smallButton} onPress={() => startServiceEdit(record)} disabled={loading}>
+                    <Pressable
+                      style={styles.smallButton}
+                      onPress={() => {
+                        startServiceEdit(record, setServiceEditDrafts);
+                        setMessage(`Service editor opened for ${fieldText(record, ["id", "ticket_no", "customer"]) || "record"}.`);
+                      }}
+                      disabled={loading}
+                    >
                       <Text style={styles.smallButtonText}>Edit</Text>
                     </Pressable>
                     {customerId ? (
@@ -5037,13 +8146,94 @@ export default function App() {
             </View>
           );
         })}
-        {renderListControls(serviceListKey, filteredRecords.length)}
+        {renderListControls(serviceListKey, filteredRecordsCount)}
         </View>
       </View>
+                                )}
+                              </LocalToggle>
+                            )}
+                          </LocalToggle>
+                        )}
+                      </LocalToggle>
+                    )}
+                  </LocalStringToggle>
+                )}
+              </LocalStringToggle>
+            )}
+          </LocalStringToggle>
+        )}
+      </LocalStringToggle>
     );
   }
 
-  function renderModuleForm(config: ModuleConfig) {
+  function renderServiceBoundary() {
+    const serviceRecords = asRecords((data as Record<string, unknown> | null)?.service_records);
+    return (
+      <ServiceStateBoundary
+        controllerRef={serviceControllerRef}
+        initialAttendanceRecords={asRecords((data as Record<string, unknown> | null)?.attendance_today)}
+        initialServiceRecords={serviceRecords}
+        serviceRecordCount={serviceRecords.length}
+        stateRef={serviceStateRef}
+      >
+        {(serviceState) => (
+          <ServiceSelectionBoundary>
+            {(serviceSelectionState) => (
+              <ServiceDraftBoundary>
+                {(serviceDraftState) => renderServicePage(serviceState, serviceDraftState, serviceSelectionState)}
+              </ServiceDraftBoundary>
+            )}
+          </ServiceSelectionBoundary>
+        )}
+      </ServiceStateBoundary>
+    );
+  }
+
+  function renderModuleFormWithLocalState(
+    config: ModuleConfig,
+    onSavedRecord?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading,
+    actionLoading = loading
+  ) {
+    if (config.route !== "/api/portal/service") {
+      return (
+        <ModuleDraftBoundary>
+          {(moduleState) => renderModuleForm(config, moduleState, undefined, onSavedRecord, onNotice, onLoading, actionLoading)}
+        </ModuleDraftBoundary>
+      );
+    }
+    return (
+      <ServiceStateBoundary
+        controllerRef={serviceControllerRef}
+        initialAttendanceRecords={asRecords((data as Record<string, unknown> | null)?.attendance_today)}
+        initialServiceRecords={asRecords((data as Record<string, unknown> | null)?.service_records)}
+        serviceRecordCount={asRecords((data as Record<string, unknown> | null)?.service_records).length}
+        stateRef={serviceStateRef}
+      >
+        {(serviceState) => (
+          <ModuleDraftBoundary>
+            {(moduleState) => renderModuleForm(config, moduleState, serviceState, onSavedRecord, onNotice, onLoading, actionLoading)}
+          </ModuleDraftBoundary>
+        )}
+      </ServiceStateBoundary>
+    );
+  }
+
+  function renderModuleForm(
+    config: ModuleConfig,
+    { moduleDraft, moduleDraftRef, setModuleDraft, setModuleDraftRefOnly }: ModuleDraftState,
+    serviceState?: ServiceState,
+    onSavedRecord?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading,
+    actionLoading = loading
+  ) {
+    const serviceCustomerSearch = serviceState?.serviceCustomerSearch || serviceStateRef.current.serviceCustomerSearch;
+    const setServiceCustomerSearch = serviceState?.setServiceCustomerSearch || ((next: string | ((current: string) => string)) => {
+      const value = resolveLocalState(next, serviceStateRef.current.serviceCustomerSearch);
+      serviceStateRef.current = { ...serviceStateRef.current, serviceCustomerSearch: value };
+    });
     const needsCustomer = config.route === "/api/portal/install-jobs" || config.route === "/api/portal/service";
     const customerOptions = config.route === "/api/portal/service" ? crmCustomerOptions() : (data?.customers || []).map((customer) => ({ id: customer.id, name: customer.name, phone: customer.phone || "", source_inquiry_id: "" }));
     const selectedServiceCustomer = customerOptions.find((customer) => customer.id === moduleDraft.customer_id);
@@ -5052,9 +8242,21 @@ export default function App() {
       ? customerOptions
         .filter((customer) => !serviceCustomerQuery || `${customer.id} ${customer.name} ${customer.phone} ${customer.source_inquiry_id}`.toLowerCase().includes(serviceCustomerQuery))
       : customerOptions;
-    const moduleServiceCustomerListKey = `module-service-customers-${activeTab}`;
-    const moduleCustomerListKey = `module-customers-${activeTab}`;
+    const moduleServiceCustomerListKey = `module-service-customers-${activeTabRef.current}`;
+    const moduleCustomerListKey = `module-customers-${activeTabRef.current}`;
     return (
+      <LocalToggle>
+        {(serviceCustomerDropdownOpen, setServiceCustomerDropdownOpen) => (
+      <LocalValue initialValue={moduleDraftRef.current[0]}>
+        {(localModuleDraft, setLocalModuleDraft) => {
+          const localSelectedServiceCustomer = customerOptions.find((customer) => customer.id === localModuleDraft.customer_id);
+          const moduleDraftResetKey = `${activeTabRef.current}-${localModuleDraft.title}-${localModuleDraft.customer}-${localModuleDraft.status}-${localModuleDraft.notes}`;
+          const setLocalModuleDraftAndRef: LocalStateSetter<typeof emptyModuleDraft> = (next) => {
+            const resolved = resolveLocalState(next, moduleDraftRef.current[0]);
+            moduleDraftRef.current[0] = resolved;
+            setLocalModuleDraft(resolved);
+          };
+          return (
       <View style={styles.formCard}>
         <Text style={styles.cardLabel}>Add / update module data</Text>
         {needsCustomer && (
@@ -5066,7 +8268,7 @@ export default function App() {
                 <Text style={styles.cardTitle}>Add a customer first</Text>
                 <Text style={styles.muted}>{config.route === "/api/portal/service" ? "Service records must be linked to a CRM customer number before they can be created." : "Installation jobs must be linked to a saved customer ID before they can be created."}</Text>
                 <View style={styles.inlineActions}>
-                  <Pressable style={styles.smallButton} onPress={() => setActiveTab("customers")}>
+                  <Pressable style={styles.smallButton} onPress={() => { setActiveTab("customers"); setMessage("Opening Customer CRM."); }}>
                     <Text style={styles.smallButtonText}>Open Customer CRM</Text>
                   </Pressable>
                 </View>
@@ -5077,21 +8279,26 @@ export default function App() {
                 <View style={styles.field}>
                   <Pressable
                     style={[styles.dropdownButton, serviceCustomerDropdownOpen && styles.selectorPillActive]}
-                    onPress={() => setServiceCustomerDropdownOpen((open) => !open)}
-                    disabled={loading}
+                    onPress={() => {
+                      setServiceCustomerDropdownOpen((open) => {
+                        onNotice(open ? "Module customer selector closed." : "Module customer selector opened.");
+                        return !open;
+                      });
+                    }}
+                    disabled={actionLoading}
                   >
                     <Text style={styles.selectorText}>
-                      {selectedServiceCustomer
-                        ? `${selectedServiceCustomer.id} - ${selectedServiceCustomer.name}${selectedServiceCustomer.phone ? ` - ${selectedServiceCustomer.phone}` : ""}`
+                      {localSelectedServiceCustomer
+                        ? `${localSelectedServiceCustomer.id} - ${localSelectedServiceCustomer.name}${localSelectedServiceCustomer.phone ? ` - ${localSelectedServiceCustomer.phone}` : ""}`
                         : "Select CRM customer"}
                     </Text>
-                    <Text style={styles.dropdownChevron}>{serviceCustomerDropdownOpen ? "▲" : "▼"}</Text>
+                    <Text style={styles.dropdownChevron}>{serviceCustomerDropdownOpen ? "^" : "v"}</Text>
                   </Pressable>
                   {serviceCustomerDropdownOpen && (
                     <View style={styles.dropdownPanel}>
-                      <TextInput
-                        style={styles.input}
-                        value={serviceCustomerSearch}
+              <TextInput
+                style={styles.input}
+                        defaultValue={serviceCustomerSearch}
                         onChangeText={setServiceCustomerSearch}
                         placeholder="Search customer number, name, phone, CRM ID"
                       />
@@ -5100,9 +8307,9 @@ export default function App() {
                         {limitedItems(moduleServiceCustomerListKey, visibleServiceCustomers).map((customer, index) => (
                           <Pressable
                             key={`service-customer-${customer.id}-${customer.source_inquiry_id}-${index}`}
-                            style={[styles.dropdownOption, moduleDraft.customer_id === customer.id && styles.selectorPillActive]}
+                            style={[styles.dropdownOption, localModuleDraft.customer_id === customer.id && styles.selectorPillActive]}
                             onPress={() => {
-                              setModuleDraft((draft) => ({
+                              setLocalModuleDraftAndRef((draft) => ({
                                 ...draft,
                                 customer_id: customer.id,
                                 customer: customer.name,
@@ -5110,6 +8317,7 @@ export default function App() {
                               }));
                               setServiceCustomerDropdownOpen(false);
                               setServiceCustomerSearch("");
+                              onNotice(`Module customer selected: ${customer.id} - ${customer.name}.`);
                             }}
                           >
                             <Text style={styles.selectorText}>{customer.id} - {customer.name}</Text>
@@ -5127,10 +8335,13 @@ export default function App() {
                   {limitedItems(moduleCustomerListKey, customerOptions).map((customer) => (
                     <Pressable
                       key={customer.id}
-                      style={[styles.selectorPill, moduleDraft.customer_id === customer.id && styles.selectorPillActive]}
-                      onPress={() => setModuleDraft((draft) => ({ ...draft, customer_id: customer.id, customer: customer.name, notes: draft.notes }))}
+                      style={[styles.selectorPill, localModuleDraft.customer_id === customer.id && styles.selectorPillActive]}
+                      onPress={() => {
+                        setLocalModuleDraftAndRef((draft) => ({ ...draft, customer_id: customer.id, customer: customer.name, notes: draft.notes }));
+                        onNotice(`Module customer selected: ${customer.id} - ${customer.name}.`);
+                      }}
                     >
-                      <Text style={[styles.selectorText, moduleDraft.customer_id === customer.id && styles.selectorTextActive]}>
+                      <Text style={[styles.selectorText, localModuleDraft.customer_id === customer.id && styles.selectorTextActive]}>
                         {customer.id} - {customer.name}{customer.phone ? ` - ${customer.phone}` : ""}
                       </Text>
                     </Pressable>
@@ -5145,49 +8356,70 @@ export default function App() {
           <View style={styles.field}>
             <Text style={styles.label}>{config.titleLabel}</Text>
             <TextInput
+              key={`module-title-${moduleDraftResetKey}`}
               style={styles.input}
-              value={moduleDraft.title}
-              onChangeText={(value) => setModuleDraft((draft) => ({ ...draft, title: value }))}
+              defaultValue={moduleDraftRef.current[0].title}
+              onChangeText={(value) => { moduleDraftRef.current[0].title = value; }}
             />
           </View>
           <View style={styles.field}>
             <Text style={styles.label}>{config.route === "/api/portal/service" ? "Linked customer / owner" : config.customerKey === "department" ? "Department" : "Customer / owner"}</Text>
             <TextInput
+              key={`module-customer-${moduleDraftResetKey}`}
               style={styles.input}
-              value={moduleDraft.customer}
-              onChangeText={(value) => setModuleDraft((draft) => ({ ...draft, customer: value }))}
+              defaultValue={moduleDraftRef.current[0].customer}
+              onChangeText={(value) => { moduleDraftRef.current[0].customer = value; }}
             />
           </View>
           <View style={styles.field}>
             <Text style={styles.label}>Status</Text>
             <TextInput
+              key={`module-status-${moduleDraftResetKey}`}
               style={styles.input}
-              value={moduleDraft.status}
-              onChangeText={(value) => setModuleDraft((draft) => ({ ...draft, status: value }))}
+              defaultValue={moduleDraftRef.current[0].status}
+              onChangeText={(value) => { moduleDraftRef.current[0].status = value; }}
             />
           </View>
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>Notes / details</Text>
           <TextInput
+            key={`module-notes-${moduleDraftResetKey}`}
             style={[styles.input, styles.textarea]}
-            value={moduleDraft.notes}
-            onChangeText={(value) => setModuleDraft((draft) => ({ ...draft, notes: value }))}
+            defaultValue={moduleDraftRef.current[0].notes}
+            onChangeText={(value) => { moduleDraftRef.current[0].notes = value; }}
             multiline
           />
         </View>
-        <Pressable style={styles.primaryButton} onPress={() => saveModuleRecord(config)} disabled={loading || (needsCustomer && !moduleDraft.customer_id)}>
-          <Text style={styles.primaryButtonText}>Save module record</Text>
+        <Pressable style={styles.primaryButton} onPress={() => saveModuleRecord(config, moduleDraftRef.current[0], (record) => {
+          onSavedRecord?.(record);
+          setLocalModuleDraftAndRef({ ...emptyModuleDraft });
+        }, onNotice, onLoading)} disabled={actionLoading}>
+          <Text style={styles.primaryButtonText}>{config.route === "/api/portal/comms" ? "Save communication" : "Save module record"}</Text>
         </Pressable>
       </View>
+          );
+        }}
+      </LocalValue>
+        )}
+      </LocalToggle>
     );
   }
 
-  function renderEstimatorPage() {
+  function renderEstimatorBoundary() {
+    return (
+      <PaymentDraftBoundary>
+        {(paymentState) => renderEstimatorPage(paymentState)}
+      </PaymentDraftBoundary>
+    );
+  }
+
+  function renderEstimatorPage({ paymentDraft, paymentDraftRef, setPaymentDraft }: PaymentDraftState) {
     const estimates = data?.estimates || [];
     const payments = asRecords(data?.payments);
-    const selectedEstimate = estimates.find((estimate) => estimate.id === paymentDraft.estimate_id) || estimates[0];
-    const selectedPayments = payments.filter((payment) => String(payment.estimate_id || "") === String(paymentDraft.estimate_id || selectedEstimate?.id || ""));
+    const selectedEstimateId = paymentDraftRef.current[0].estimate_id || paymentDraft.estimate_id;
+    const selectedEstimate = estimates.find((estimate) => estimate.id === selectedEstimateId) || estimates[0];
+    const selectedPayments = payments.filter((payment) => String(payment.estimate_id || "") === String(selectedEstimateId || selectedEstimate?.id || ""));
     const paid = selectedPayments.filter((payment) => String(payment.status || "").toLowerCase() === "paid").reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
     const total = selectedPayments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
     const estimateListKey = "estimator-estimates";
@@ -5209,7 +8441,7 @@ export default function App() {
             <Text style={styles.muted}>{estimate.site || "Site pending"} - {estimate.elevator_type || "Elevator"} - {estimate.status || "Draft"}</Text>
             <Text style={styles.metricValue}>{formatMoney(estimate.total_cost)}</Text>
             <View style={styles.inlineActions}>
-              <Pressable style={styles.smallButton} onPress={() => setPaymentDraft((draft) => ({ ...draft, estimate_id: estimate.id, amount: String(estimate.total_cost || "") }))}>
+              <Pressable style={styles.smallButton} onPress={() => { setPaymentDraft((draft) => ({ ...draft, estimate_id: estimate.id, amount: String(estimate.total_cost || "") })); setMessage(`Payment ledger selected for ${estimate.id}.`); }}>
                 <Text style={styles.smallButtonText}>Select ledger</Text>
               </Pressable>
               <Pressable style={styles.smallButton} onPress={() => openEstimateArtifact(estimate.id, "report")} disabled={loading}>
@@ -5245,20 +8477,28 @@ export default function App() {
         </View>
         <View style={styles.formCard}>
           <Text style={styles.cardLabel}>Add payment milestone</Text>
-          <View style={styles.selectorList}>
-            {limitedItems(estimatePickerListKey, estimates).map((estimate) => (
-              <Pressable
-                key={estimate.id}
-                style={[styles.selectorPill, paymentDraft.estimate_id === estimate.id && styles.selectorPillActive]}
-                onPress={() => setPaymentDraft((draft) => ({ ...draft, estimate_id: estimate.id, amount: String(estimate.total_cost || "") }))}
-              >
-                <Text style={[styles.selectorText, paymentDraft.estimate_id === estimate.id && styles.selectorTextActive]}>
-                  {estimate.id} - {estimate.customer_name}
-                </Text>
-              </Pressable>
-            ))}
-            {renderListControls(estimatePickerListKey, estimates.length)}
-          </View>
+          <LocalValue initialValue={selectedEstimateId || ""}>
+            {(localEstimateId, setLocalEstimateId) => (
+              <View style={styles.selectorList}>
+                {limitedItems(estimatePickerListKey, estimates).map((estimate) => (
+                  <Pressable
+                    key={estimate.id}
+                    style={[styles.selectorPill, localEstimateId === estimate.id && styles.selectorPillActive]}
+                    onPress={() => {
+                      setLocalEstimateId(estimate.id);
+                      setPaymentDraft((draft) => ({ ...draft, estimate_id: estimate.id, amount: String(estimate.total_cost || "") }));
+                      setMessage(`Payment milestone linked to estimate ${estimate.id}.`);
+                    }}
+                  >
+                    <Text style={[styles.selectorText, localEstimateId === estimate.id && styles.selectorTextActive]}>
+                      {estimate.id} - {estimate.customer_name}
+                    </Text>
+                  </Pressable>
+                ))}
+                {renderListControls(estimatePickerListKey, estimates.length)}
+              </View>
+            )}
+          </LocalValue>
           {[
             ["milestone", "Milestone"],
             ["amount", "Amount"],
@@ -5271,16 +8511,23 @@ export default function App() {
               <Text style={styles.label}>{label}</Text>
               <TextInput
                 style={styles.input}
-                value={String(paymentDraft[key as keyof typeof paymentDraft] || "")}
-                onChangeText={(value) => setPaymentDraft((draft) => ({ ...draft, [key]: value }))}
+                defaultValue={String(paymentDraftRef.current[0][key as keyof typeof paymentDraft] || "")}
+                onChangeText={(value) => { paymentDraftRef.current[0] = { ...paymentDraftRef.current[0], [key]: value }; }}
               />
             </View>
           ))}
           <View style={styles.inlineActions}>
-            <Pressable style={styles.primaryButton} onPress={savePayment} disabled={loading || !paymentDraft.estimate_id}>
+            <Pressable style={styles.primaryButton} onPress={() => savePayment(paymentDraftRef.current[0])} disabled={loading}>
               <Text style={styles.primaryButtonText}>Add payment</Text>
             </Pressable>
-            <Pressable style={styles.smallButton} onPress={autoSchedulePayments} disabled={loading || !paymentDraft.estimate_id}>
+            <Pressable
+              style={styles.smallButton}
+              onPress={() => {
+                setMessage("Payment schedule is being generated.");
+                autoSchedulePayments(paymentDraftRef.current[0]);
+              }}
+              disabled={loading}
+            >
               <Text style={styles.smallButtonText}>Auto-schedule</Text>
             </Pressable>
           </View>
@@ -5307,8 +8554,48 @@ export default function App() {
     );
   }
 
-  function renderPaymentAccountsPage() {
-    const payments = asRecords(data?.payments);
+  function renderPaymentAccountsBoundary() {
+    return (
+      <LocalValue key="payment-accounts-rows" initialValue={asRecords(data?.payments)}>
+        {(accountPayments, setAccountPayments) => (
+          <LocalValue key="payment-accounts-status" initialValue={{ loading: false, notice: "" }}>
+            {(paymentStatus, setPaymentStatus) => (
+              <PaymentDraftBoundary>
+                {(paymentState) => renderPaymentAccountsPage(paymentState, {
+                  accountPayments,
+                  setAccountPayments,
+                  paymentActionLoading: paymentStatus.loading,
+                  setPaymentActionLoading: (next) => setPaymentStatus((current) => ({ ...current, loading: resolveLocalState(next, current.loading) })),
+                  paymentNotice: paymentStatus.notice,
+                  setPaymentNotice: (next) => setPaymentStatus((current) => ({ ...current, notice: resolveLocalState(next, current.notice) })),
+                })}
+              </PaymentDraftBoundary>
+            )}
+          </LocalValue>
+        )}
+      </LocalValue>
+    );
+  }
+
+  function renderPaymentAccountsPage(
+    { paymentDraft, paymentDraftRef, setPaymentDraft }: PaymentDraftState,
+    {
+      accountPayments,
+      setAccountPayments,
+      paymentActionLoading,
+      setPaymentActionLoading,
+      paymentNotice,
+      setPaymentNotice,
+    }: {
+      accountPayments: Record<string, unknown>[];
+      setAccountPayments: LocalStateSetter<Record<string, unknown>[]>;
+      paymentActionLoading: boolean;
+      setPaymentActionLoading: LocalStateSetter<boolean>;
+      paymentNotice: string;
+      setPaymentNotice: LocalStateSetter<string>;
+    }
+  ) {
+    const payments = accountPayments;
     const estimates = asRecords(data?.estimates);
     const customers = [
       ...asRecords(data?.customers).map((item) => ({
@@ -5324,8 +8611,9 @@ export default function App() {
         sourceInquiryId: String(item.enquiry_no || item.source_inquiry_no || item.id || ""),
       })),
     ].filter((item, index, list) => item.id && item.name && list.findIndex((candidate) => candidate.id === item.id) === index);
-    const selectedEstimate = estimates.find((estimate) => String(estimate.id) === String(paymentDraft.estimate_id));
-    const selectedCustomer = customers.find((customer) => customer.id === paymentDraft.customer_id);
+    const draftSnapshot = paymentDraftRef.current[0] || paymentDraft;
+    const selectedEstimate = estimates.find((estimate) => String(estimate.id) === String(draftSnapshot.estimate_id));
+    const selectedCustomer = customers.find((customer) => customer.id === draftSnapshot.customer_id);
     const estimatesForAccountsCustomer = (customer?: { id: string; name: string; sourceInquiryId?: string }) => {
       if (!customer) return [];
       const customerId = String(customer.id || "").trim();
@@ -5411,73 +8699,108 @@ export default function App() {
 
         <View style={styles.formCard}>
           <Text style={styles.cardLabel}>New account / payment entry</Text>
-          <View style={styles.inlineActions}>
-            {["Contract", "AMC"].map((type) => (
-              <Pressable
-                key={type}
-                style={[styles.selectorPill, paymentDraft.payment_type === type && styles.selectorPillActive]}
-                onPress={() => setPaymentDraft((draft) => ({ ...draft, payment_type: type }))}
-              >
-                <Text style={[styles.selectorText, paymentDraft.payment_type === type && styles.selectorTextActive]}>{type}</Text>
-              </Pressable>
-            ))}
-          </View>
-          <Text style={styles.label}>Link customer</Text>
-          <View style={styles.selectorList}>
-            {limitedItems(paymentCustomerListKey, customers).map((customer) => (
-              <Pressable
-                key={customer.id}
-                style={[styles.selectorPill, paymentDraft.customer_id === customer.id && styles.selectorPillActive]}
-                onPress={() => setDraftFromCustomer(customer)}
-              >
-                <Text style={[styles.selectorText, paymentDraft.customer_id === customer.id && styles.selectorTextActive]}>
-                  {customer.name}{customer.phone ? ` - ${customer.phone}` : ""}
-                </Text>
-              </Pressable>
-            ))}
-            {renderListControls(paymentCustomerListKey, customers.length)}
-          </View>
-          <Text style={styles.label}>Link offer / estimate</Text>
-          <View style={styles.selectorList}>
-            {!selectedCustomer && <Text style={styles.muted}>Select a customer first to show only that customer's linked offers and estimates.</Text>}
-            {selectedCustomer && linkedEstimateOptions.length === 0 && <Text style={styles.muted}>No offers or estimates are linked to {selectedCustomer.name}. Create or link an offer in Offer Manager first.</Text>}
-            {limitedItems(paymentEstimateListKey, linkedEstimateOptions).map((estimate) => (
-              <Pressable
-                key={String(estimate.id)}
-                style={[styles.selectorPill, paymentDraft.estimate_id === String(estimate.id) && styles.selectorPillActive]}
-                onPress={() => setDraftFromEstimate(estimate)}
-              >
-                <Text style={[styles.selectorText, paymentDraft.estimate_id === String(estimate.id) && styles.selectorTextActive]}>
-                  {String(estimate.id)} - {String(estimate.customer_name || "-")} - {formatMoney(Number(estimate.total_cost || 0))}
-                </Text>
-              </Pressable>
-            ))}
-            {renderListControls(paymentEstimateListKey, linkedEstimateOptions.length)}
-          </View>
+          {paymentNotice ? <Text style={styles.banner}>{paymentNotice}</Text> : null}
+          <LocalValue initialValue={paymentDraftRef.current[0].payment_type}>
+            {(localPaymentType, setLocalPaymentType) => (
+              <>
+                <View style={styles.inlineActions}>
+                  {["Contract", "AMC"].map((type) => (
+                    <Pressable
+                      key={type}
+                      style={[styles.selectorPill, localPaymentType === type && styles.selectorPillActive]}
+                      onPress={() => {
+                        setLocalPaymentType(type);
+                        setPaymentDraft((draft) => ({ ...draft, payment_type: type }));
+                        setPaymentNotice(`Payment type set to ${type}.`);
+                      }}
+                    >
+                      <Text style={[styles.selectorText, localPaymentType === type && styles.selectorTextActive]}>{type}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <LocalValue initialValue={paymentDraftRef.current[0].customer_id}>
+                  {(localCustomerId, setLocalCustomerId) => {
+                    const localSelectedCustomer = customers.find((customer) => customer.id === localCustomerId);
+                    const localEstimateOptions = estimatesForAccountsCustomer(localSelectedCustomer);
+                    return (
+                      <>
+                        <Text style={styles.label}>Link customer</Text>
+                        <View style={styles.selectorList}>
+                          {limitedItems(paymentCustomerListKey, customers).map((customer) => (
+                            <Pressable
+                              key={customer.id}
+                              style={[styles.selectorPill, localCustomerId === customer.id && styles.selectorPillActive]}
+                              onPress={() => {
+                                setLocalCustomerId(customer.id);
+                                setDraftFromCustomer(customer);
+                                setPaymentNotice(`Payment customer selected: ${customer.name}.`);
+                              }}
+                            >
+                              <Text style={[styles.selectorText, localCustomerId === customer.id && styles.selectorTextActive]}>
+                                {customer.name}{customer.phone ? ` - ${customer.phone}` : ""}
+                              </Text>
+                            </Pressable>
+                          ))}
+                          {renderListControls(paymentCustomerListKey, customers.length)}
+                        </View>
+                        <LocalValue initialValue={paymentDraftRef.current[0].estimate_id}>
+                          {(localEstimateId, setLocalEstimateId) => (
+                            <>
+                              <Text style={styles.label}>Link offer / estimate</Text>
+                              <View style={styles.selectorList}>
+                                {!localSelectedCustomer && <Text style={styles.muted}>Select a customer first to show only that customer's linked offers and estimates.</Text>}
+                                {localSelectedCustomer && localEstimateOptions.length === 0 && <Text style={styles.muted}>No offers or estimates are linked to {localSelectedCustomer.name}. Create or link an offer in Offer Manager first.</Text>}
+                                {limitedItems(paymentEstimateListKey, localEstimateOptions).map((estimate) => (
+                                  <Pressable
+                                    key={String(estimate.id)}
+                                    style={[styles.selectorPill, localEstimateId === String(estimate.id) && styles.selectorPillActive]}
+                                    onPress={() => {
+                                      setLocalEstimateId(String(estimate.id));
+                                      setDraftFromEstimate(estimate);
+                                      setPaymentNotice(`Payment offer selected: ${String(estimate.id)}.`);
+                                    }}
+                                  >
+                                    <Text style={[styles.selectorText, localEstimateId === String(estimate.id) && styles.selectorTextActive]}>
+                                      {String(estimate.id)} - {String(estimate.customer_name || "-")} - {formatMoney(Number(estimate.total_cost || 0))}
+                                    </Text>
+                                  </Pressable>
+                                ))}
+                                {renderListControls(paymentEstimateListKey, localEstimateOptions.length)}
+                              </View>
+                            </>
+                          )}
+                        </LocalValue>
+                      </>
+                    );
+                  }}
+                </LocalValue>
+                {localPaymentType === "AMC" && (
+                  <View>
+                    {[["amc_from_date", "AMC from date YYYY-MM-DD"], ["amc_to_date", "AMC to date YYYY-MM-DD"]].map(([key, label]) => (
+                      <View key={key} style={styles.field}>
+                        <Text style={styles.label}>{label}</Text>
+                        <TextInput
+                          style={styles.input}
+                          defaultValue={String(paymentDraftRef.current[0][key as keyof typeof paymentDraft] || "")}
+                          onChangeText={(value) => { paymentDraftRef.current[0] = { ...paymentDraftRef.current[0], [key]: value }; }}
+                        />
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
+          </LocalValue>
           {[["milestone", "Milestone / payment purpose"], ["method", "Payment method"], ["contract_basic_value", "Basic contract value"], ["basic_check_value", "Basic cheque value"], ["basic_cash_value", "Basic cash value"], ["basic_card_value", "Basic credit card value"], ["credit_card_charge_percent", "Credit card charge percent paid by client"], ["amount_received_check", "Received by cheque"], ["amount_received_cash", "Received by cash"], ["amount_received_card", "Received by credit card"], ["due_date", "Payment due date YYYY-MM-DD"], ["outstanding_date", "Outstanding date YYYY-MM-DD"], ["reminder_interval_days", "Reminder increment days"], ["cheque_number", "Cheque number"], ["reference", "Bank / payment reference"], ["notes", "Notes"]].map(([key, label]) => (
             <View key={key} style={styles.field}>
               <Text style={styles.label}>{label}</Text>
               <TextInput
                 style={styles.input}
-                value={String(paymentDraft[key as keyof typeof paymentDraft] || "")}
-                onChangeText={(value) => setPaymentDraft((draft) => ({ ...draft, [key]: value }))}
+                defaultValue={String(paymentDraftRef.current[0][key as keyof typeof paymentDraft] || "")}
+                onChangeText={(value) => { paymentDraftRef.current[0] = { ...paymentDraftRef.current[0], [key]: value }; }}
               />
             </View>
           ))}
-          {paymentDraft.payment_type === "AMC" && (
-            <View>
-              {[["amc_from_date", "AMC from date YYYY-MM-DD"], ["amc_to_date", "AMC to date YYYY-MM-DD"]].map(([key, label]) => (
-                <View key={key} style={styles.field}>
-                  <Text style={styles.label}>{label}</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={String(paymentDraft[key as keyof typeof paymentDraft] || "")}
-                    onChangeText={(value) => setPaymentDraft((draft) => ({ ...draft, [key]: value }))}
-                  />
-                </View>
-              ))}
-            </View>
-          )}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Calculated collection split</Text>
             <Text style={styles.bodyText}>Basic cheque {formatMoneyExact(paymentSummary.basicCheck)} + GST {paymentSummary.gstPercent}% {formatMoneyExact(paymentSummary.checkGst)} + cash {formatMoneyExact(paymentSummary.basicCash)} + card {formatMoneyExact(paymentSummary.basicCard)} + client card charge {paymentSummary.cardChargePercent}% {formatMoneyExact(paymentSummary.cardCharge)} = final {formatMoneyExact(paymentSummary.finalContract)}.</Text>
@@ -5485,10 +8808,26 @@ export default function App() {
             <Text style={styles.bodyText}>Outstanding: cheque/GST {formatMoneyExact(paymentSummary.outstandingCheck)}, cash {formatMoneyExact(paymentSummary.outstandingCash)}, card/charges {formatMoneyExact(paymentSummary.outstandingCard)}, total {formatMoneyExact(paymentSummary.outstandingTotal)}. Next reminder {paymentSummary.nextReminder || "-"}.</Text>
           </View>
           <View style={styles.inlineActions}>
-            <Pressable style={styles.primaryButton} onPress={savePayment} disabled={loading || !paymentDraft.customer_id}>
+            <Pressable style={styles.primaryButton} onPress={() => savePayment(paymentDraftRef.current[0], (record) => {
+              const savedId = recordIdentity(record) || String(record.id || "");
+              setAccountPayments((rows) => [record, ...rows.filter((item) => !savedId || (recordIdentity(item) !== savedId && String(item.id || "") !== savedId))]);
+            }, setPaymentNotice, setPaymentActionLoading)} disabled={paymentActionLoading}>
               <Text style={styles.primaryButtonText}>Save account payment</Text>
             </Pressable>
-            <Pressable style={styles.smallButton} onPress={autoSchedulePayments} disabled={loading || !selectedEstimate}>
+            <Pressable
+              style={styles.smallButton}
+              onPress={() => {
+                setPaymentNotice("Offer payment schedule is being generated.");
+                autoSchedulePayments(paymentDraftRef.current[0], (records) => setAccountPayments((rows) => [
+                  ...records,
+                  ...rows.filter((item) => !records.some((record) => {
+                    const savedId = recordIdentity(record) || String(record.id || "");
+                    return savedId && (recordIdentity(item) === savedId || String(item.id || "") === savedId);
+                  })),
+                ]), setPaymentNotice, setPaymentActionLoading);
+              }}
+              disabled={paymentActionLoading || !selectedEstimate}
+            >
               <Text style={styles.smallButtonText}>Auto-schedule offer</Text>
             </Pressable>
           </View>
@@ -5508,11 +8847,11 @@ export default function App() {
               <Text style={styles.bodyText}>Cheque number: {String(payment.cheque_number || payment.check_number || "-")}.</Text>
               <Text style={styles.bodyText}>Received cheque {formatMoneyExact(summary.receivedCheck)}, cash {formatMoneyExact(summary.receivedCash)}, and card {formatMoneyExact(summary.receivedCard)}. Outstanding total {formatMoneyExact(summary.outstandingTotal)}. Next reminder {summary.nextReminder || "-"}.</Text>
               <View style={styles.inlineActions}>
-                <Pressable style={styles.smallButton} onPress={() => updatePayment(id, "Paid")} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updatePayment(id, "Paid", (patch) => setAccountPayments((rows) => rows.map((row) => recordIdentity(row) === id || String(row.id || "") === id ? { ...row, ...patch } : row)), setPaymentNotice, setPaymentActionLoading)} disabled={paymentActionLoading}>
                   <Text style={styles.smallButtonText}>Paid</Text>
                 </Pressable>
                 {[7, 15, 30].map((days) => (
-                  <Pressable key={days} style={styles.smallButton} onPress={() => updatePaymentRecord(id, { status: "Outstanding", outstanding_date: today, reminder_interval_days: days, next_reminder_date: addDays(today, days) })} disabled={loading}>
+                  <Pressable key={days} style={styles.smallButton} onPress={() => updatePaymentRecord(id, { status: "Outstanding", outstanding_date: today, reminder_interval_days: days, next_reminder_date: addDays(today, days) }, `Payment reminder moved +${days} days.`, (patch) => setAccountPayments((rows) => rows.map((row) => recordIdentity(row) === id || String(row.id || "") === id ? { ...row, ...patch } : row)), setPaymentNotice, setPaymentActionLoading)} disabled={paymentActionLoading}>
                     <Text style={styles.smallButtonText}>Remind +{days}</Text>
                   </Pressable>
                 ))}
@@ -5526,8 +8865,36 @@ export default function App() {
     );
   }
 
-  function renderBreakdownPage() {
-    const breakdowns = asRecords((data as Record<string, unknown> | null)?.breakdowns);
+  function renderBreakdownPage(breakdownState: BreakdownState, breakdownDraftState: BreakdownDraftState, breakdownInnerDraftState: BreakdownInnerDraftState) {
+    const {
+      breakdownCustomerSearch,
+      setBreakdownCustomerSearch,
+      breakdownStatusFilter,
+      setBreakdownStatusFilter,
+      breakdownHistorySearch,
+      setBreakdownHistorySearch,
+      setBreakdownPage,
+      breakdownRows,
+      breakdownNotice,
+      breakdownActionLoading,
+      setBreakdownNotice,
+      setBreakdownActionLoading,
+      patchBreakdownRow,
+      prependBreakdownRow,
+    } = breakdownState;
+    const { breakdownDraft, breakdownDraftRef, setBreakdownDraft, setBreakdownDraftRefOnly } = breakdownDraftState;
+    const {
+      breakdownScheduleDraftsRef,
+      breakdownEngineerTaskDraftsRef,
+      breakdownRepairDraftsRef,
+      setBreakdownScheduleDraftsRefOnly,
+      setBreakdownEngineerTaskDraftsRefOnly,
+      setBreakdownRepairDraftsRefOnly,
+    } = breakdownInnerDraftState;
+    const breakdownScheduleDrafts = breakdownScheduleDraftsRef.current;
+    const breakdownEngineerTaskDrafts = breakdownEngineerTaskDraftsRef.current;
+    const breakdownRepairDrafts = breakdownRepairDraftsRef.current;
+    const breakdowns = breakdownRows;
     const crmInquiryCustomers = asRecords((data as Record<string, unknown> | null)?.sales_inquiries).map((item) => ({
       id: String(item.customer_id || item.id || item.enquiry_no || ""),
       name: String(item.customer || item.lead_name || item.name || ""),
@@ -5553,7 +8920,8 @@ export default function App() {
       return breakdownCustomerOptions.find((customer) => customer.id === customerId);
     };
     const customerHistoryQuery = breakdownHistorySearch.trim().toLowerCase();
-    const filteredBreakdowns = breakdowns.filter((item) => {
+    const breakdownListKey = "breakdown-calls";
+    const breakdownMatches = (item: Record<string, unknown>) => {
       const closed = breakdownIsClosed(item);
       if (breakdownStatusFilter === "Open" && closed) return false;
       if (breakdownStatusFilter === "Closed" && !closed) return false;
@@ -5578,9 +8946,8 @@ export default function App() {
         linkedCustomer?.enquiryNo,
       ].map((value) => String(value || "")).join(" ").toLowerCase();
       return haystack.includes(customerHistoryQuery);
-    });
-    const breakdownListKey = "breakdown-calls";
-    const pagedBreakdowns = filteredBreakdowns.slice(0, listVisibleCount(breakdownListKey, filteredBreakdowns.length));
+    };
+    const { total: filteredBreakdownsCount, visible: pagedBreakdowns } = collectVisibleItems(breakdownListKey, breakdowns, breakdownMatches);
     const breakdownStaffRosterListKey = "breakdown-staff-roster";
     const breakdownCustomerListKey = "breakdown-customers";
     const breakdownEngineerListKey = "breakdown-engineers";
@@ -5594,13 +8961,24 @@ export default function App() {
       String(person.title || "").toLowerCase().includes("supervisor")
     );
     return (
+      <LocalToggle>
+        {(breakdownCustomerDropdownOpen, setBreakdownCustomerDropdownOpen) => (
+          <LocalToggle>
+            {(breakdownEngineerDropdownOpen, setBreakdownEngineerDropdownOpen) => (
+              <LocalStringToggle>
+                {(breakdownRepairIssueDropdownOpen, setBreakdownRepairIssueDropdownOpen) => (
+                  <LocalStringToggle>
+                    {(breakdownCallEngineerDropdownOpen, setBreakdownCallEngineerDropdownOpen) => (
+                      <LocalRecordToggle>
+                        {(breakdownRepairOpen, setBreakdownRepairOpen) => (
       <View>
         <View style={styles.moduleHero}>
           <Text style={styles.eyebrow}>Breakdown Portal</Text>
           <Text style={styles.moduleHeroTitle}>Emergency Breakdown Control</Text>
           <Text style={styles.moduleHeroText}>Log trapped-passenger calls, assign an engineer, track dispatch, and close breakdowns from the mobile/web portal.</Text>
+          {!!breakdownNotice && <Text style={styles.statusPill}>{breakdownNotice}</Text>}
           <View style={styles.inlineActions}>
-            <Pressable style={styles.smallButton} onPress={syncDiscordBreakdowns} disabled={loading}>
+            <Pressable style={styles.smallButton} onPress={() => syncDiscordBreakdowns(setBreakdownNotice, setBreakdownActionLoading, prependBreakdownRow)} disabled={breakdownActionLoading}>
               <Text style={styles.smallButtonText}>Sync Discord</Text>
             </Pressable>
           </View>
@@ -5625,12 +9003,23 @@ export default function App() {
         </View>
 
         <View style={styles.formCard}>
-          <Pressable style={styles.repairNotesHeader} onPress={() => setBreakdownScheduleRosterOpen((open) => !open)}>
+          <LocalToggle>
+            {(breakdownScheduleRosterOpen, setBreakdownScheduleRosterOpen) => (
+              <>
+          <Pressable
+            style={styles.repairNotesHeader}
+            onPress={() => {
+              setBreakdownScheduleRosterOpen((open) => {
+                setBreakdownNotice(open ? "Breakdown schedule roster closed." : "Breakdown schedule roster opened.");
+                return !open;
+              });
+            }}
+          >
             <View style={styles.cardTitleBlock}>
               <Text style={styles.cardLabel}>Schedule Engineer</Text>
               <Text style={styles.muted} numberOfLines={1}>{assignableStaff.length} breakdown staff, {availableEngineers.length} available now</Text>
             </View>
-            <Text style={styles.dropdownChevron}>{breakdownScheduleRosterOpen ? "▲" : "▼"}</Text>
+            <Text style={styles.dropdownChevron}>{breakdownScheduleRosterOpen ? "^" : "v"}</Text>
           </Pressable>
           {breakdownScheduleRosterOpen && (
             <View style={styles.repairNotesBody}>
@@ -5659,15 +9048,22 @@ export default function App() {
                       <View style={styles.dispatchRosterAction}>
                         <TextInput
                           style={styles.dispatchTaskInput}
-                          value={taskDraft}
-                          onChangeText={(value) => setBreakdownEngineerTaskDrafts((draft) => ({ ...draft, [member.name]: value }))}
+                          defaultValue={taskDraft}
+                          onChangeText={(value) => setBreakdownEngineerTaskDraftsRefOnly((draft) => ({ ...draft, [member.name]: value }))}
                           placeholder="Current task"
                         />
                         <View style={styles.dispatchRosterButtons}>
-                          <Pressable style={styles.smallButton} onPress={() => updateBreakdownEngineerTask(member, taskDraft, member.name)} disabled={loading}>
+                          <Pressable
+                            style={styles.smallButton}
+                            onPress={() => {
+                              setBreakdownNotice(`Saving task for ${member.name}.`);
+                              updateBreakdownEngineerTask(member, breakdownEngineerTaskDraftsRef.current[member.name] ?? String(member.current_job || ""), member.name, patchBreakdownRow, setBreakdownNotice, setBreakdownActionLoading);
+                            }}
+                            disabled={breakdownActionLoading}
+                          >
                           <Text style={styles.smallButtonText}>Save task</Text>
                           </Pressable>
-                          <Pressable style={styles.smallButton} onPress={() => updateBreakdownEngineerTask(member, "", member.name)} disabled={loading}>
+                          <Pressable style={styles.smallButton} onPress={() => updateBreakdownEngineerTask(member, "", member.name, patchBreakdownRow, setBreakdownNotice, setBreakdownActionLoading)} disabled={breakdownActionLoading}>
                             <Text style={styles.smallButtonText}>Clear</Text>
                           </Pressable>
                         </View>
@@ -5680,17 +9076,19 @@ export default function App() {
               </View>
             </View>
           )}
+              </>
+            )}
+          </LocalToggle>
         </View>
 
         <View style={styles.formCard}>
-          <Pressable style={styles.repairNotesHeader} onPress={() => setBreakdownNewCallOpen((open) => !open)}>
-            <View style={styles.cardTitleBlock}>
-              <Text style={styles.cardLabel}>New breakdown call</Text>
-              <Text style={styles.muted} numberOfLines={1}>{breakdownDraft.customer_id ? `${breakdownDraft.customer_id} - ${breakdownDraft.customer || "Customer selected"}` : "Log a new CRM-linked breakdown"}</Text>
-            </View>
-            <Text style={styles.dropdownChevron}>{breakdownNewCallOpen ? "▲" : "▼"}</Text>
-          </Pressable>
-          {breakdownNewCallOpen && (
+          <LocalDisclosure
+            buttonStyle={styles.repairNotesHeader}
+            activeStyle={styles.selectorPillActive}
+            closedLabel="New breakdown call"
+            textStyle={styles.cardLabel}
+          >
+            <Text style={styles.muted} numberOfLines={1}>{breakdownDraft.customer_id ? `${breakdownDraft.customer_id} - ${breakdownDraft.customer || "Customer selected"}` : "Log a new CRM-linked breakdown"}</Text>
             <View style={styles.repairNotesBody}>
               <View style={styles.formSectionBlock}>
                 <Text style={styles.cardLabel}>1. Customer</Text>
@@ -5699,7 +9097,7 @@ export default function App() {
                     <Text style={styles.cardTitle}>Add a customer first</Text>
                     <Text style={styles.muted}>Breakdown calls must be linked to a saved customer ID before dispatch can begin.</Text>
                     <View style={styles.inlineActions}>
-                      <Pressable style={styles.smallButton} onPress={() => setActiveTab("customers")}>
+                      <Pressable style={styles.smallButton} onPress={() => { setActiveTab("customers"); setMessage("Opening Customer CRM."); }}>
                         <Text style={styles.smallButtonText}>Open Customer CRM</Text>
                       </Pressable>
                     </View>
@@ -5709,53 +9107,66 @@ export default function App() {
                   <View style={styles.field}>
                     <Text style={styles.label}>CRM customer</Text>
                     <Text style={styles.muted}>{breakdownCustomerOptions.length} CRM customers available for breakdown linking.</Text>
-                    <Pressable
-                      style={[styles.dropdownButton, breakdownCustomerDropdownOpen && styles.selectorPillActive]}
-                      onPress={() => setBreakdownCustomerDropdownOpen((open) => !open)}
-                      disabled={loading}
-                    >
-                      <Text style={styles.selectorText}>
-                        {selectedBreakdownCustomer
-                          ? `${selectedBreakdownCustomer.id} - ${selectedBreakdownCustomer.name}${selectedBreakdownCustomer.phone ? ` - ${selectedBreakdownCustomer.phone}` : ""}`
-                          : "Select CRM customer"}
-                      </Text>
-                      <Text style={styles.dropdownChevron}>{breakdownCustomerDropdownOpen ? "▲" : "▼"}</Text>
-                    </Pressable>
-                    {breakdownCustomerDropdownOpen && (
-                      <View style={styles.dropdownPanel}>
-                        <TextInput
-                          style={styles.input}
-                          value={breakdownCustomerSearch}
-                          onChangeText={setBreakdownCustomerSearch}
-                          placeholder="Search customer, phone, enquiry no"
-                        />
-                        <Text style={styles.muted}>Showing {visibleBreakdownCustomers.length} matching customers.</Text>
-                        <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                          {limitedItems(breakdownCustomerListKey, visibleBreakdownCustomers).map((customer, index) => (
-                            <Pressable
-                              key={`breakdown-customer-${customer.id}-${customer.enquiryNo}-${index}`}
-                              style={[styles.dropdownOption, breakdownDraft.customer_id === customer.id && styles.selectorPillActive]}
-                              onPress={() => {
-                                setBreakdownDraft((draft) => ({
-                                  ...draft,
-                                  customer_id: customer.id,
-                                  customer: customer.name,
-                                  source_inquiry_id: customer.enquiryNo,
-                                  phone: draft.phone || customer.phone,
-                                  location: customer.address,
-                                }));
-                                setBreakdownCustomerDropdownOpen(false);
-                              }}
-                            >
-                              <Text style={styles.selectorText}>{customer.id} - {customer.name}</Text>
-                              <Text style={styles.muted}>{customer.phone || "No phone"}{customer.address ? ` - ${customer.address}` : ""}{customer.enquiryNo ? ` - ${customer.enquiryNo}` : ""}</Text>
-                            </Pressable>
-                          ))}
-                          {!visibleBreakdownCustomers.length && <Text style={styles.muted}>No CRM customers match that search.</Text>}
-                          {renderListControls(breakdownCustomerListKey, visibleBreakdownCustomers.length)}
-                        </ScrollView>
-                      </View>
-                    )}
+                    <LocalValue initialValue={{
+                      id: breakdownDraftRef.current[0].customer_id || "",
+                      label: selectedBreakdownCustomer ? `${selectedBreakdownCustomer.id} - ${selectedBreakdownCustomer.name}${selectedBreakdownCustomer.phone ? ` - ${selectedBreakdownCustomer.phone}` : ""}` : "Select CRM customer",
+                    }}>
+                      {(selectedCustomer, setSelectedCustomer) => (
+                        <>
+                          <Pressable
+                            style={[styles.dropdownButton, breakdownCustomerDropdownOpen && styles.selectorPillActive]}
+                            onPress={() => {
+                              setBreakdownCustomerDropdownOpen((open) => {
+                                setBreakdownNotice(open ? "Breakdown customer selector closed." : "Breakdown customer selector opened.");
+                                return !open;
+                              });
+                            }}
+                            disabled={breakdownActionLoading}
+                          >
+                            <Text style={styles.selectorText}>{selectedCustomer.label}</Text>
+                            <Text style={styles.dropdownChevron}>{breakdownCustomerDropdownOpen ? "^" : "v"}</Text>
+                          </Pressable>
+                          {breakdownCustomerDropdownOpen && (
+                            <View style={styles.dropdownPanel}>
+                              <TextInput
+                                style={styles.input}
+                                value={breakdownCustomerSearch}
+                                onChangeText={setBreakdownCustomerSearch}
+                                placeholder="Search customer, phone, enquiry no"
+                              />
+                              <Text style={styles.muted}>Showing {visibleBreakdownCustomers.length} matching customers.</Text>
+                              <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                                {limitedItems(breakdownCustomerListKey, visibleBreakdownCustomers).map((customer, index) => (
+                                  <Pressable
+                                    key={`breakdown-customer-${customer.id}-${customer.enquiryNo}-${index}`}
+                                    style={[styles.dropdownOption, selectedCustomer.id === customer.id && styles.selectorPillActive]}
+                                    onPress={() => {
+                                      const label = `${customer.id} - ${customer.name}${customer.phone ? ` - ${customer.phone}` : ""}`;
+                                      setSelectedCustomer({ id: customer.id, label });
+                                      setBreakdownDraftRefOnly((draft) => ({
+                                        ...draft,
+                                        customer_id: customer.id,
+                                        customer: customer.name,
+                                        source_inquiry_id: customer.enquiryNo,
+                                        phone: draft.phone || customer.phone,
+                                        location: customer.address,
+                                      }));
+                                      setBreakdownCustomerDropdownOpen(false);
+                                      setBreakdownNotice(`Breakdown customer selected: ${customer.id} - ${customer.name}.`);
+                                    }}
+                                  >
+                                    <Text style={styles.selectorText}>{customer.id} - {customer.name}</Text>
+                                    <Text style={styles.muted}>{customer.phone || "No phone"}{customer.address ? ` - ${customer.address}` : ""}{customer.enquiryNo ? ` - ${customer.enquiryNo}` : ""}</Text>
+                                  </Pressable>
+                                ))}
+                                {!visibleBreakdownCustomers.length && <Text style={styles.muted}>No CRM customers match that search.</Text>}
+                                {renderListControls(breakdownCustomerListKey, visibleBreakdownCustomers.length)}
+                              </ScrollView>
+                            </View>
+                          )}
+                        </>
+                      )}
+                    </LocalValue>
                   </View>
                 )}
               </View>
@@ -5775,8 +9186,8 @@ export default function App() {
                       <Text style={styles.label}>{label}</Text>
                       <TextInput
                         style={styles.input}
-                        value={String(breakdownDraft[key as keyof typeof breakdownDraft] || "")}
-                        onChangeText={(value) => setBreakdownDraft((draft) => ({ ...draft, [key]: value }))}
+                        defaultValue={String(breakdownDraftRef.current[0][key as keyof typeof breakdownDraft] || "")}
+                        onChangeText={(value) => setBreakdownDraftRefOnly((draft) => ({ ...draft, [key]: value }))}
                         editable={key !== "location"}
                         placeholder={key === "location" ? "Taken from selected CRM customer" : undefined}
                       />
@@ -5788,42 +9199,55 @@ export default function App() {
                 <Text style={styles.cardLabel}>3. Engineer</Text>
                 <View style={styles.field}>
                   <Text style={styles.label}>Assigned engineer</Text>
-                  <Pressable
-                    style={[styles.dropdownButton, breakdownEngineerDropdownOpen && styles.selectorPillActive]}
-                    onPress={() => setBreakdownEngineerDropdownOpen((open) => !open)}
-                    disabled={loading || !engineerOptions.length}
-                  >
-                    <Text style={styles.selectorText}>{breakdownDraft.engineer || "Select engineer"}</Text>
-                    <Text style={styles.dropdownChevron}>{breakdownEngineerDropdownOpen ? "▲" : "▼"}</Text>
-                  </Pressable>
-                  {!!engineerOptions.length && breakdownEngineerDropdownOpen && (
-                    <View style={styles.dropdownPanel}>
-                      <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                        {limitedItems(breakdownEngineerListKey, engineerOptions).map((engineer) => (
-                          <Pressable
-                            key={`brk-eng-${engineer.name}`}
-                            style={[styles.dropdownOption, breakdownDraft.engineer === engineer.name && styles.selectorPillActive]}
-                            onPress={() => {
-                              setBreakdownDraft((draft) => ({ ...draft, engineer: engineer.name, assigned_engineer: engineer.name, scheduled_at: draft.scheduled_at || defaultBreakdownScheduleTime() }));
-                              setBreakdownEngineerDropdownOpen(false);
-                            }}
-                          >
-                            <Text style={styles.selectorText}>{engineer.name}</Text>
-                            {!!engineer.department && <Text style={styles.muted}>{engineer.department}</Text>}
-                          </Pressable>
-                        ))}
-                        {renderListControls(breakdownEngineerListKey, engineerOptions.length)}
-                      </ScrollView>
-                    </View>
-                  )}
+                  <LocalValue initialValue={breakdownDraftRef.current[0].engineer || ""}>
+                    {(selectedEngineer, setSelectedEngineer) => (
+                      <>
+                        <Pressable
+                          style={[styles.dropdownButton, breakdownEngineerDropdownOpen && styles.selectorPillActive]}
+                          onPress={() => {
+                            setBreakdownEngineerDropdownOpen((open) => {
+                              setBreakdownNotice(open ? "Breakdown engineer selector closed." : "Breakdown engineer selector opened.");
+                              return !open;
+                            });
+                          }}
+                          disabled={breakdownActionLoading || !engineerOptions.length}
+                        >
+                          <Text style={styles.selectorText}>{selectedEngineer || "Select engineer"}</Text>
+                          <Text style={styles.dropdownChevron}>{breakdownEngineerDropdownOpen ? "^" : "v"}</Text>
+                        </Pressable>
+                        {!!engineerOptions.length && breakdownEngineerDropdownOpen && (
+                          <View style={styles.dropdownPanel}>
+                            <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                              {limitedItems(breakdownEngineerListKey, engineerOptions).map((engineer) => (
+                                <Pressable
+                                  key={`brk-eng-${engineer.name}`}
+                                  style={[styles.dropdownOption, selectedEngineer === engineer.name && styles.selectorPillActive]}
+                                  onPress={() => {
+                                    setSelectedEngineer(engineer.name);
+                                    setBreakdownDraftRefOnly((draft) => ({ ...draft, engineer: engineer.name, assigned_engineer: engineer.name, scheduled_at: draft.scheduled_at || defaultBreakdownScheduleTime() }));
+                                    setBreakdownEngineerDropdownOpen(false);
+                                    setBreakdownNotice(`Breakdown engineer selected: ${engineer.name}.`);
+                                  }}
+                                >
+                                  <Text style={styles.selectorText}>{engineer.name}</Text>
+                                  {!!engineer.department && <Text style={styles.muted}>{engineer.department}</Text>}
+                                </Pressable>
+                              ))}
+                              {renderListControls(breakdownEngineerListKey, engineerOptions.length)}
+                            </ScrollView>
+                          </View>
+                        )}
+                      </>
+                    )}
+                  </LocalValue>
                   {!engineerOptions.length && <Text style={styles.muted}>No engineer roster found.</Text>}
                 </View>
               </View>
-              <Pressable style={styles.primaryButton} onPress={saveBreakdown} disabled={loading || !breakdownDraft.customer_id}>
+              <Pressable style={styles.primaryButton} onPress={() => saveBreakdown(breakdownDraftRef.current[0], prependBreakdownRow, setBreakdownNotice, setBreakdownActionLoading)} disabled={breakdownActionLoading}>
                 <Text style={styles.primaryButtonText}>Log breakdown</Text>
               </Pressable>
             </View>
-          )}
+          </LocalDisclosure>
         </View>
 
         <Text style={styles.sectionTitle}>Breakdown Calls</Text>
@@ -5841,8 +9265,9 @@ export default function App() {
                   onPress={() => {
                     setBreakdownStatusFilter(status);
                     setBreakdownPage(1);
+                    setBreakdownNotice(`Breakdown view filtered to ${status}.`);
                   }}
-                  disabled={loading}
+                  disabled={breakdownActionLoading}
                 >
                   <Text style={styles.smallButtonText}>{status}</Text>
                 </Pressable>
@@ -5868,9 +9293,9 @@ export default function App() {
             </View>
           )}
         </View>
-        {!!filteredBreakdowns.length && <Text style={styles.muted}>Showing {pagedBreakdowns.length} of {filteredBreakdowns.length}</Text>}
+        {!!filteredBreakdownsCount && <Text style={styles.muted}>Showing {pagedBreakdowns.length} of {filteredBreakdownsCount}</Text>}
         <View style={styles.limitedList}>
-        {!filteredBreakdowns.length && (
+        {!filteredBreakdownsCount && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No breakdown calls found</Text>
             <Text style={styles.muted}>{breakdowns.length ? "No breakdown calls match this status/customer search." : "Use the form above to log the first breakdown call. Trapped-passenger cases should be marked Y and dispatched immediately."}</Text>
@@ -5883,9 +9308,8 @@ export default function App() {
           const assignedEngineerName = String(item.engineer || item.assigned_engineer || item.assigned_to || "").trim();
           const selectedEngineer = assignableStaff.find((member) => member.name.toLowerCase() === assignedEngineerName.toLowerCase());
           const scheduleTime = breakdownScheduleDrafts[id] ?? String(item.scheduled_at || item.scheduled_time || item.dispatch_time || defaultBreakdownScheduleTime());
-          const repairDraft = breakdownRepairDraftFor(id, item);
+          const repairDraft = breakdownRepairDraftFor(id, item, breakdownRepairDrafts);
           const repairOpen = Boolean(breakdownRepairOpen[id]);
-          const repairNeedsCustomIssue = !String(repairDraft.issue_category || "").trim() || String(repairDraft.issue_category || "").trim().toLowerCase() === "other";
           const repairSummary = [
             repairDraft.issue_category || repairDraft.custom_issue,
             repairDraft.parts_used ? `Parts: ${repairDraft.parts_used}` : "",
@@ -5902,7 +9326,7 @@ export default function App() {
               <View style={styles.inlineMeta}>
                 <Text style={styles.muted}>CRM customer</Text>
                 {customerId ? (
-                  <Pressable onPress={() => openCrmForCustomerNumber(customerId)} disabled={loading}>
+                  <Pressable onPress={() => openCrmForCustomerNumber(customerId)} disabled={breakdownActionLoading}>
                     <Text style={styles.clickableUsername}>{customerId}{linkedCustomer?.name ? ` - ${linkedCustomer.name}` : ""}</Text>
                   </Pressable>
                 ) : (
@@ -5922,13 +9346,19 @@ export default function App() {
               <View style={styles.repairNotesPanel}>
                 <Pressable
                   style={styles.repairNotesHeader}
-                  onPress={() => setBreakdownRepairOpen((open) => ({ ...open, [id]: !open[id] }))}
+                  onPress={() => {
+                    setBreakdownRepairOpen((open) => {
+                      const opening = !open[id];
+                      setBreakdownNotice(opening ? `Repair notes opened for breakdown ${id}.` : `Repair notes closed for breakdown ${id}.`);
+                      return { ...open, [id]: opening };
+                    });
+                  }}
                 >
                   <View style={styles.cardTitleBlock}>
                     <Text style={styles.cardLabel}>Repair notes</Text>
                     <Text style={styles.muted} numberOfLines={1}>{repairSummary}</Text>
                   </View>
-                  <Text style={styles.dropdownChevron}>{repairOpen ? "▲" : "▼"}</Text>
+                  <Text style={styles.dropdownChevron}>{repairOpen ? "^" : "v"}</Text>
                 </Pressable>
                 {repairOpen && (
                   <View style={styles.repairNotesBody}>
@@ -5936,65 +9366,82 @@ export default function App() {
                     <View style={styles.formGrid}>
                   <View style={styles.field}>
                     <Text style={styles.label}>Common elevator issue</Text>
-                    <Pressable style={[styles.dropdownButton, breakdownRepairIssueDropdownOpen === id && styles.selectorPillActive]} onPress={() => setBreakdownRepairIssueDropdownOpen((openId) => openId === id ? "" : id)}>
-                      <Text style={styles.selectorText}>{repairDraft.issue_category || "Select issue"}</Text>
-                      <Text style={styles.dropdownChevron}>{breakdownRepairIssueDropdownOpen === id ? "▲" : "▼"}</Text>
-                    </Pressable>
-                    {breakdownRepairIssueDropdownOpen === id && (
-                      <View style={styles.dropdownPanel}>
-                        {serviceIssueCategories.map((issue) => (
+                    <LocalValue initialValue={repairDraft.issue_category || ""}>
+                      {(selectedRepairIssue, setSelectedRepairIssue) => (
+                        <>
                           <Pressable
-                            key={`${id}-repair-issue-${issue}`}
-                            style={[styles.dropdownOption, repairDraft.issue_category === issue && styles.selectorPillActive]}
+                            style={[styles.dropdownButton, breakdownRepairIssueDropdownOpen === id && styles.selectorPillActive]}
                             onPress={() => {
-                              setBreakdownRepairDrafts((drafts) => ({
-                                ...drafts,
-                                [id]: {
-                                  ...breakdownRepairDraftFor(id, item),
-                                  issue_category: issue,
-                                  custom_issue: issue === "Other" ? breakdownRepairDraftFor(id, item).custom_issue : "",
-                                },
-                              }));
-                              setBreakdownRepairIssueDropdownOpen("");
+                              setBreakdownRepairIssueDropdownOpen((openId) => {
+                                const opening = openId !== id;
+                                setBreakdownNotice(opening ? `Repair issue selector opened for breakdown ${id}.` : `Repair issue selector closed for breakdown ${id}.`);
+                                return opening ? id : "";
+                              });
                             }}
                           >
-                            <Text style={styles.selectorText}>{issue}</Text>
+                            <Text style={styles.selectorText}>{selectedRepairIssue || "Select issue"}</Text>
+                            <Text style={styles.dropdownChevron}>{breakdownRepairIssueDropdownOpen === id ? "^" : "v"}</Text>
                           </Pressable>
-                        ))}
-                      </View>
-                    )}
-                    {repairNeedsCustomIssue && (
-                      <View style={styles.inlineNestedField}>
-                        <Text style={styles.label}>Other issue - type here</Text>
-                        <TextInput
-                          style={[styles.input, styles.textarea]}
-                          value={repairDraft.custom_issue}
-                          onChangeText={(value) => updateBreakdownRepairDraft(id, item, "custom_issue", value)}
-                          placeholder="Type issue if not in list"
-                          multiline
-                        />
-                      </View>
-                    )}
+                          {breakdownRepairIssueDropdownOpen === id && (
+                            <View style={styles.dropdownPanel}>
+                              {serviceIssueCategories.map((issue) => (
+                                <Pressable
+                                  key={`${id}-repair-issue-${issue}`}
+                                  style={[styles.dropdownOption, selectedRepairIssue === issue && styles.selectorPillActive]}
+                                  onPress={() => {
+                                    setSelectedRepairIssue(issue);
+                                    setBreakdownRepairDraftsRefOnly((drafts) => ({
+                                      ...drafts,
+                                      [id]: {
+                                        ...breakdownRepairDraftFor(id, item, breakdownRepairDraftsRef.current),
+                                        issue_category: issue,
+                                        custom_issue: issue === "Other" ? breakdownRepairDraftFor(id, item, breakdownRepairDraftsRef.current).custom_issue : "",
+                                      },
+                                    }));
+                                    setBreakdownRepairIssueDropdownOpen("");
+                                    setBreakdownNotice(`Repair issue set to ${issue}.`);
+                                  }}
+                                >
+                                  <Text style={styles.selectorText}>{issue}</Text>
+                                </Pressable>
+                              ))}
+                            </View>
+                          )}
+                          {(!selectedRepairIssue.trim() || selectedRepairIssue.trim().toLowerCase() === "other") && (
+                            <View style={styles.inlineNestedField}>
+                              <Text style={styles.label}>Other issue - type here</Text>
+                              <TextInput
+                                style={[styles.input, styles.textarea]}
+                                defaultValue={repairDraft.custom_issue}
+                                onChangeText={(value) => updateBreakdownRepairDraft(id, item, "custom_issue", value, breakdownInnerDraftState)}
+                                placeholder="Type issue if not in list"
+                                multiline
+                              />
+                            </View>
+                          )}
+                        </>
+                      )}
+                    </LocalValue>
                   </View>
                   <View style={styles.field}>
                     <Text style={styles.label}>Parts used</Text>
-                    <TextInput style={styles.input} value={repairDraft.parts_used} onChangeText={(value) => updateBreakdownRepairDraft(id, item, "parts_used", value)} placeholder="Part names / item IDs" />
+                    <TextInput style={styles.input} defaultValue={repairDraft.parts_used} onChangeText={(value) => updateBreakdownRepairDraft(id, item, "parts_used", value, breakdownInnerDraftState)} placeholder="Part names / item IDs" />
                   </View>
                   <View style={styles.field}>
                     <Text style={styles.label}>Parts quantity</Text>
-                    <TextInput style={styles.input} value={repairDraft.parts_quantity} onChangeText={(value) => updateBreakdownRepairDraft(id, item, "parts_quantity", value.replace(/[^\d.]/g, ""))} keyboardType="numeric" />
+                    <TextInput style={styles.input} defaultValue={repairDraft.parts_quantity} onChangeText={(value) => updateBreakdownRepairDraft(id, item, "parts_quantity", value.replace(/[^\d.]/g, ""), breakdownInnerDraftState)} keyboardType="numeric" />
                   </View>
                 </View>
                 <View style={styles.field}>
                   <Text style={styles.label}>Action taken</Text>
-                  <TextInput style={[styles.input, styles.textarea]} value={repairDraft.action_taken} onChangeText={(value) => updateBreakdownRepairDraft(id, item, "action_taken", value)} multiline />
+                  <TextInput style={[styles.input, styles.textarea]} defaultValue={repairDraft.action_taken} onChangeText={(value) => updateBreakdownRepairDraft(id, item, "action_taken", value, breakdownInnerDraftState)} multiline />
                 </View>
                 <View style={styles.field}>
                   <Text style={styles.label}>Customer comments</Text>
-                  <TextInput style={[styles.input, styles.textarea]} value={repairDraft.customer_comments} onChangeText={(value) => updateBreakdownRepairDraft(id, item, "customer_comments", value)} multiline />
+                  <TextInput style={[styles.input, styles.textarea]} defaultValue={repairDraft.customer_comments} onChangeText={(value) => updateBreakdownRepairDraft(id, item, "customer_comments", value, breakdownInnerDraftState)} multiline />
                 </View>
                 <View style={styles.inlineActions}>
-                  <Pressable style={styles.primaryButtonInline} onPress={() => saveBreakdownRepairDetails(id, item)} disabled={loading}>
+                  <Pressable style={styles.primaryButtonInline} onPress={() => saveBreakdownRepairDetails(id, item, breakdownRepairDraftsRef.current, patchBreakdownRow, setBreakdownNotice, setBreakdownActionLoading)} disabled={breakdownActionLoading}>
                     <Text style={styles.primaryButtonText}>Save repair notes</Text>
                   </Pressable>
                 </View>
@@ -6005,8 +9452,8 @@ export default function App() {
                 <Text style={styles.label}>Schedule time</Text>
                 <TextInput
                   style={styles.input}
-                  value={breakdownScheduleDrafts[id] ?? String(item.scheduled_at || item.scheduled_time || item.dispatch_time || defaultBreakdownScheduleTime())}
-                  onChangeText={(value) => setBreakdownScheduleDrafts((draft) => ({ ...draft, [id]: value }))}
+                  defaultValue={breakdownScheduleDrafts[id] ?? String(item.scheduled_at || item.scheduled_time || item.dispatch_time || defaultBreakdownScheduleTime())}
+                  onChangeText={(value) => setBreakdownScheduleDraftsRefOnly((draft) => ({ ...draft, [id]: value }))}
                   placeholder="YYYY-MM-DD HH:mm"
                 />
               </View>
@@ -6014,8 +9461,14 @@ export default function App() {
               <View style={styles.singleEngineerPanel}>
                 <Pressable
                   style={[styles.dropdownButton, breakdownCallEngineerDropdownOpen === id && styles.selectorPillActive]}
-                  onPress={() => setBreakdownCallEngineerDropdownOpen((openId) => openId === id ? "" : id)}
-                  disabled={loading || !assignableStaff.length}
+                  onPress={() => {
+                    setBreakdownCallEngineerDropdownOpen((openId) => {
+                      const opening = openId !== id;
+                      setBreakdownNotice(opening ? `Engineer selector opened for breakdown ${id}.` : `Engineer selector closed for breakdown ${id}.`);
+                      return opening ? id : "";
+                    });
+                  }}
+                  disabled={breakdownActionLoading || !assignableStaff.length}
                 >
                   <View style={styles.cardTitleBlock}>
                     <Text style={styles.selectorText}>{assignedEngineerName || "Unassigned"}</Text>
@@ -6023,7 +9476,7 @@ export default function App() {
                       {assignedEngineerName ? "Assigned" : "Needs engineer"} - {assignedEngineerName ? "Only one engineer assigned" : "Select one engineer"}
                     </Text>
                   </View>
-                  <Text style={styles.dropdownChevron}>{breakdownCallEngineerDropdownOpen === id ? "▲" : "▼"}</Text>
+                  <Text style={styles.dropdownChevron}>{breakdownCallEngineerDropdownOpen === id ? "^" : "v"}</Text>
                 </Pressable>
                 {breakdownCallEngineerDropdownOpen === id && (
                   <View style={styles.dropdownPanel}>
@@ -6035,10 +9488,11 @@ export default function App() {
                         key={`${id}-${member.id}`}
                         style={[styles.dropdownOption, isAssigned && styles.selectorPillActive]}
                         onPress={() => {
-                          scheduleBreakdownEngineer(id, member, scheduleTime);
+                          setBreakdownNotice(`Assigning ${member.name} to breakdown ${id}.`);
+                          scheduleBreakdownEngineer(id, member, breakdownScheduleDraftsRef.current[id] ?? scheduleTime, patchBreakdownRow, setBreakdownNotice, setBreakdownActionLoading);
                           setBreakdownCallEngineerDropdownOpen("");
                         }}
-                        disabled={loading}
+                        disabled={breakdownActionLoading}
                       >
                         <Text style={styles.selectorText}>{member.name}</Text>
                         <Text style={styles.muted}>{availability.availableNow ? "Available" : "Busy"}</Text>
@@ -6051,28 +9505,59 @@ export default function App() {
                 )}
               </View>
               <View style={styles.inlineActions}>
-                <Pressable style={styles.smallButton} onPress={() => updateBreakdownVisitPoint(item, "check_in")} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateBreakdownVisitPoint(item, "check_in", patchBreakdownRow, setBreakdownNotice, setBreakdownActionLoading)} disabled={breakdownActionLoading}>
                   <Text style={styles.smallButtonText}>Check in</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateBreakdownVisitPoint(item, "check_out")} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateBreakdownVisitPoint(item, "check_out", patchBreakdownRow, setBreakdownNotice, setBreakdownActionLoading)} disabled={breakdownActionLoading}>
                   <Text style={styles.smallButtonText}>Check out</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateBreakdown(id, "Dispatched")} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateBreakdown(id, "Dispatched", "", patchBreakdownRow, setBreakdownNotice, setBreakdownActionLoading)} disabled={breakdownActionLoading}>
                   <Text style={styles.smallButtonText}>Dispatch</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateBreakdown(id, "Reached Site")} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateBreakdown(id, "Reached Site", "", patchBreakdownRow, setBreakdownNotice, setBreakdownActionLoading)} disabled={breakdownActionLoading}>
                   <Text style={styles.smallButtonText}>Reached site</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateBreakdown(id, "Closed")} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateBreakdown(id, "Closed", "", patchBreakdownRow, setBreakdownNotice, setBreakdownActionLoading)} disabled={breakdownActionLoading}>
                   <Text style={styles.smallButtonText}>Close</Text>
                 </Pressable>
               </View>
             </View>
           );
         })}
-        {renderListControls(breakdownListKey, filteredBreakdowns.length)}
+        {renderListControls(breakdownListKey, filteredBreakdownsCount)}
         </View>
       </View>
+                        )}
+                      </LocalRecordToggle>
+                    )}
+                  </LocalStringToggle>
+                )}
+              </LocalStringToggle>
+            )}
+          </LocalToggle>
+        )}
+      </LocalToggle>
+    );
+  }
+
+  function renderBreakdownBoundary() {
+    return (
+      <BreakdownStateBoundary
+        breakdownCount={asRecords((data as Record<string, unknown> | null)?.breakdowns).length}
+        initialBreakdowns={asRecords((data as Record<string, unknown> | null)?.breakdowns)}
+        controllerRef={breakdownControllerRef}
+        stateRef={breakdownStateRef}
+      >
+        {(breakdownState) => (
+          <BreakdownDraftBoundary>
+            {(breakdownDraftState) => (
+              <BreakdownInnerDraftBoundary>
+                {(breakdownInnerDraftState) => renderBreakdownPage(breakdownState, breakdownDraftState, breakdownInnerDraftState)}
+              </BreakdownInnerDraftBoundary>
+            )}
+          </BreakdownDraftBoundary>
+        )}
+      </BreakdownStateBoundary>
     );
   }
 
@@ -6097,7 +9582,7 @@ export default function App() {
     return option ? { id: option.id, name: option.name, company: option.name, contact: "", phone: option.phone, whatsapp: option.phone, email: "", siteAddress: option.address, billingAddress: option.address, owner: "", notes: "" } : null;
   }
 
-  function installationPayloadFromDraft() {
+  function installationPayloadFromDraft(installationDraft: typeof emptyInstallationDraft) {
     const customer = installationCustomerDetails(installationDraft.customer_id);
     const contractorPayments = installationDraft.contractor_payment_amount.trim()
       ? [{ date: installationDraft.contractor_payment_date, amount: Number(installationDraft.contractor_payment_amount || 0), method: installationDraft.contractor_payment_method, remarks: installationDraft.contractor_payment_remarks }]
@@ -6123,7 +9608,7 @@ export default function App() {
     };
   }
 
-  async function saveInstallation() {
+  async function saveInstallation(installationDraft: typeof emptyInstallationDraft, onSaved?: () => void) {
     if (!installationDraft.customer_id.trim()) {
       const text = "Select an existing CRM customer before creating an installation.";
       Platform.OS === "web" ? setMessage(text) : Alert.alert("Customer required", text);
@@ -6132,14 +9617,24 @@ export default function App() {
     setLoading(true);
     try {
       const id = installationDraft.id;
-      await apiFetch(id ? `/api/portal/install-jobs/${encodeURIComponent(id)}` : "/api/portal/install-jobs", {
+      const result = await apiFetch<{ record?: Record<string, unknown> }>(id ? `/api/portal/install-jobs/${encodeURIComponent(id)}` : "/api/portal/install-jobs", {
         method: id ? "PATCH" : "POST",
         token,
-        body: JSON.stringify(installationPayloadFromDraft()),
+        body: JSON.stringify(installationPayloadFromDraft(installationDraft)),
       });
-      setInstallationDraft(emptyInstallationDraft);
+      const savedInstallation = (result.record || installationPayloadFromDraft(installationDraft)) as Record<string, unknown>;
+      const savedInstallationId = recordIdentity(savedInstallation) || id || String(savedInstallation.id || savedInstallation.job_id || "");
+      if (savedInstallationId) {
+        if (id) {
+          installationControllerRef.current?.patchInstallationJob(savedInstallationId, savedInstallation);
+          patchDisplayedPortalRecord("install_jobs", savedInstallationId, savedInstallation);
+        } else {
+          installationControllerRef.current?.prependInstallationJob(savedInstallation);
+          prependDisplayedPortalRecord("install_jobs", savedInstallation);
+        }
+      }
+      onSaved?.();
       setInstallationEditorOpen(false);
-      await loadPortal();
       setMessage(id ? "Installation updated." : "Installation created from CRM customer.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Installation could not be saved.");
@@ -6148,17 +9643,31 @@ export default function App() {
     }
   }
 
-  async function updateInstallationRecord(record: Record<string, unknown>, payload: Record<string, unknown>, successMessage = "Installation updated.") {
+  async function updateInstallationRecord(
+    record: Record<string, unknown>,
+    payload: Record<string, unknown>,
+    successMessage = "Installation updated.",
+    onLocalUpdate?: (record: Record<string, unknown>) => void
+  ) {
     const id = recordIdentity(record);
-    if (!id) return;
+    if (!id) {
+      setMessage("This installation cannot be updated because it has no saved record ID.");
+      return;
+    }
     setLoading(true);
+    const optimisticRecord = { ...record, ...payload };
+    onLocalUpdate?.(optimisticRecord);
+    installationControllerRef.current?.patchInstallationJob(id, optimisticRecord);
     try {
-      await apiFetch(`/api/portal/install-jobs/${encodeURIComponent(id)}`, {
+      const result = await apiFetch<{ record?: Record<string, unknown> }>(`/api/portal/install-jobs/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
         body: JSON.stringify(payload),
       });
-      await loadPortal();
+      const updatedRecord = result.record || optimisticRecord;
+      onLocalUpdate?.(updatedRecord);
+      installationControllerRef.current?.patchInstallationJob(id, updatedRecord);
+      patchDisplayedPortalRecord("install_jobs", id, updatedRecord);
       setMessage(successMessage);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Installation could not be updated.");
@@ -6176,10 +9685,10 @@ export default function App() {
     try {
       const params = new URLSearchParams({
         format: "csv",
-        status: installationStatusFilter,
-        q: installationSearch,
-        start_date: installationReportStart,
-        end_date: installationReportEnd,
+        status: installationStateRef.current.installationStatusFilter,
+        q: installationStateRef.current.installationSearch,
+        start_date: installationStateRef.current.installationReportStart,
+        end_date: installationStateRef.current.installationReportEnd,
       });
       const response = await fetch(`${apiBaseUrl}/api/portal/install-jobs/report?${params.toString()}`, {
         method: "GET",
@@ -6209,12 +9718,12 @@ export default function App() {
     }
   }
 
-  function editInstallation(record: Record<string, unknown>) {
+  function installationDraftFromRecord(record: Record<string, unknown>) {
     const technical = (record.technical_details || {}) as Record<string, unknown>;
     const readiness = (record.site_readiness || {}) as Record<string, unknown>;
     const uploads = (record.uploads || {}) as Record<string, unknown>;
     const payment = asRecords(record.contractor_payments)[0] || {};
-    setInstallationDraft({
+    return {
       ...emptyInstallationDraft,
       ...Object.fromEntries(Object.entries(record).map(([key, value]) => [key, String(value ?? "")])),
       id: String(recordIdentity(record) || ""),
@@ -6236,41 +9745,64 @@ export default function App() {
       contractor_payment_date: String(payment.date || ""),
       contractor_payment_method: String(payment.method || ""),
       contractor_payment_remarks: String(payment.remarks || ""),
-    });
-    setInstallationEditorOpen(true);
+    };
   }
 
-  function renderInstallationField(label: string, key: keyof typeof emptyInstallationDraft, placeholder = "") {
+  function renderInstallationField(
+    label: string,
+    key: keyof typeof emptyInstallationDraft,
+    installationDraftRef: MutableRefObject<[typeof emptyInstallationDraft]>,
+    placeholder = ""
+  ) {
     return (
       <View key={`installation-field-${String(key)}`} style={styles.field}>
         <Text style={styles.label}>{label}</Text>
         <TextInput
           style={styles.input}
-          value={String(installationDraft[key] || "")}
-          onChangeText={(value) => setInstallationDraft((draft) => ({ ...draft, [key]: value }))}
+          defaultValue={String(installationDraftRef.current[0][key] || "")}
+          onChangeText={(value) => { installationDraftRef.current[0][key] = value; }}
           placeholder={placeholder}
         />
       </View>
     );
   }
 
-  function renderInstallationPage() {
-    const jobs = asRecords(data?.install_jobs);
+  function renderInstallationPage(installationState: InstallationState, { installationDraft, installationDraftRef, setInstallationDraft, setInstallationDraftRefOnly }: InstallationDraftState) {
+    const {
+      installationCustomerSearch,
+      setInstallationCustomerSearch,
+      installationSearch,
+      setInstallationSearch,
+      installationStatusFilter,
+      setInstallationStatusFilter,
+      installationReportStart,
+      setInstallationReportStart,
+      installationReportEnd,
+      setInstallationReportEnd,
+      installationJobs,
+      setInstallationJobs,
+      installationRowOverrides,
+      patchInstallationJob,
+      setInstallationRowOverride,
+    } = installationState;
+    const jobs = installationJobs;
     const teams = asRecords(data?.install_team);
     const contractors = asRecords(data?.installation_contractors);
     const customers = crmCustomerOptions();
-    const selectedCustomer = installationCustomerDetails(installationDraft.customer_id);
-    const visibleCustomers = customers.filter((customer) => {
+    const installationCustomerListKey = "installation-customers";
+    const { total: visibleCustomersCount, visible: visibleCustomers } = collectVisibleItems(installationCustomerListKey, customers, (customer) => {
       const query = installationCustomerSearch.trim().toLowerCase();
       return !query || `${customer.id} ${customer.name} ${customer.phone} ${customer.address}`.toLowerCase().includes(query);
     });
-    const filteredJobs = jobs.filter((job) => installationStatusFilter === "All" || String(job.status || "") === installationStatusFilter)
-      .filter((job) => !installationSearch.trim() || JSON.stringify(job).toLowerCase().includes(installationSearch.trim().toLowerCase()));
     const installationListKey = "installation-records";
-    const visibleInstallationJobs = filteredJobs.slice(0, listVisibleCount(installationListKey, filteredJobs.length));
+    const installationQuery = installationSearch.trim().toLowerCase();
+    const installationMatches = (job: Record<string, unknown>) => (
+      (installationStatusFilter === "All" || String(job.status || "") === installationStatusFilter) &&
+      (!installationQuery || JSON.stringify(job).toLowerCase().includes(installationQuery))
+    );
+    const { total: filteredJobsCount, visible: visibleInstallationJobs } = collectVisibleItems(installationListKey, jobs, installationMatches);
     const installTeamMetricListKey = "installation-team-metrics";
     const installContractorMetricListKey = "installation-contractor-metrics";
-    const installationCustomerListKey = "installation-customers";
     const today = new Date().toISOString().slice(0, 10);
     const statusOptions = ["All", "Site Visit Pending", "Site Ready", "Material Ready", "Installation Assigned", "Under Installation", "Commissioning", "Handover Pending", "Completed", "Closed"];
     const warrantyExpiring = jobs.filter((job) => String(job.warranty_end_date || "") >= today && String(job.warranty_end_date || "") <= datePlusDays(90));
@@ -6280,6 +9812,11 @@ export default function App() {
     const totalContract = jobs.reduce((sum, job) => sum + Number(job.contract_value || 0), 0);
     const totalPaid = jobs.reduce((sum, job) => sum + Number(job.total_paid || 0), 0);
     return (
+      <LocalImperativeToggle controllerRef={installationEditorOpenRef}>
+        {(installationEditorOpen, setInstallationEditorOpen) => {
+          const liveInstallationDraft = installationDraftRef.current[0];
+          const selectedCustomer = installationCustomerDetails(liveInstallationDraft.customer_id);
+          return (
       <View>
         <View style={styles.moduleHero}>
           <Text style={styles.eyebrow}>Installation Management</Text>
@@ -6288,95 +9825,117 @@ export default function App() {
         </View>
         <View style={styles.metricGrid}>
           {[
-            ["Total installations", jobs.length, "CRM-linked install records."],
-            ["Pending", jobs.filter((job) => !["Completed", "Closed"].includes(String(job.status || ""))).length, "Open installation workload."],
-            ["Site not ready", sitePending.length, "Construction work still pending."],
-            ["Under installation", jobs.filter((job) => String(job.status || "") === "Under Installation").length, "Approved active work."],
-            ["Commissioning pending", jobs.filter((job) => String(job.status || "") === "Commissioning").length, "Waiting commissioning completion."],
-            ["Panni pending", panniPending.length, "Reminder every 15 days."],
-            ["Warranty expiring", warrantyExpiring.length, "Within 90 days."],
-            ["Contractor due", formatMoney(contractorDue), `Paid ${formatMoney(totalPaid)} / ${formatMoney(totalContract)}`],
-          ].map(([label, value, detail]) => (
-            <View key={String(label)} style={styles.card}>
-              <Text style={styles.cardLabel}>{label}</Text>
-              <Text style={styles.metricValue}>{value}</Text>
-              <Text style={styles.muted}>{detail}</Text>
-            </View>
+            { label: "Total installations", value: jobs.length, detail: "CRM-linked install records.", status: "All", search: "" },
+            { label: "Pending", value: jobs.filter((job) => !["Completed", "Closed"].includes(String(job.status || ""))).length, detail: "Open installation workload.", status: "All", search: "" },
+            { label: "Site not ready", value: sitePending.length, detail: "Construction work still pending.", status: "All", search: "progress" },
+            { label: "Under installation", value: jobs.filter((job) => String(job.status || "") === "Under Installation").length, detail: "Approved active work.", status: "Under Installation", search: "" },
+            { label: "Commissioning pending", value: jobs.filter((job) => String(job.status || "") === "Commissioning").length, detail: "Waiting commissioning completion.", status: "Commissioning", search: "" },
+            { label: "Panni pending", value: panniPending.length, detail: "Reminder every 15 days.", status: "All", search: "panni" },
+            { label: "Warranty expiring", value: warrantyExpiring.length, detail: "Within 90 days.", status: "All", search: "warranty" },
+            { label: "Contractor due", value: formatMoney(contractorDue), detail: `Paid ${formatMoney(totalPaid)} / ${formatMoney(totalContract)}`, status: "All", search: "contractor" },
+          ].map((metric) => (
+            <Pressable
+              key={metric.label}
+              style={styles.card}
+              onPress={() => {
+                setInstallationStatusFilter(metric.status);
+                setInstallationSearch(metric.search);
+                setMessage(`Opening ${metric.label.toLowerCase()} installation view.`);
+              }}
+            >
+              <Text style={styles.cardLabel}>{metric.label}</Text>
+              <Text style={styles.metricValue}>{metric.value}</Text>
+              <Text style={styles.muted}>{metric.detail}</Text>
+            </Pressable>
           ))}
         </View>
 
         <View style={styles.formCard}>
           <Pressable
             style={[styles.dropdownButton, (installationEditorOpen || !!installationDraft.id) && styles.selectorPillActive]}
-            onPress={() => setInstallationEditorOpen((open) => !open)}
-            disabled={loading || !!installationDraft.id}
+            onPress={() => {
+              setInstallationEditorOpen((open) => {
+                setMessage(open ? "Installation editor closed." : "Installation editor opened.");
+                return !open;
+              });
+            }}
+            disabled={loading || !!liveInstallationDraft.id}
           >
-            <Text style={styles.selectorText}>{installationDraft.id ? "Edit installation" : "New installation from CRM"}</Text>
-            <Text style={styles.dropdownChevron}>{installationEditorOpen || installationDraft.id ? "▲" : "▼"}</Text>
+            <Text style={styles.selectorText}>{liveInstallationDraft.id ? "Edit installation" : "New installation from CRM"}</Text>
+            <Text style={styles.dropdownChevron}>{installationEditorOpen || liveInstallationDraft.id ? "^" : "v"}</Text>
           </Pressable>
-          {(installationEditorOpen || !!installationDraft.id) && (
+          {(installationEditorOpen || !!liveInstallationDraft.id) && (
+            <LocalValue initialValue={installationDraftRef.current[0].customer_id}>
+              {(localInstallationCustomerId, setLocalInstallationCustomerId) => {
+                const localSelectedCustomer = customers.find((customer) => customer.id === localInstallationCustomerId);
+                return (
             <>
               <View style={styles.field}>
                 <Text style={styles.label}>Select CRM customer</Text>
                 <TextInput style={styles.input} value={installationCustomerSearch} onChangeText={setInstallationCustomerSearch} placeholder="Search CRM customers by ID, name, phone, site" />
                 <View style={styles.selectorList}>
-                  {limitedItems(installationCustomerListKey, visibleCustomers).map((customer) => (
+                  {visibleCustomers.map((customer) => (
                     <Pressable
                       key={`install-customer-${customer.id}`}
-                      style={[styles.selectorPill, installationDraft.customer_id === customer.id && styles.selectorPillActive]}
-                      onPress={() => setInstallationDraft((draft) => ({ ...draft, customer_id: customer.id }))}
+                      style={[styles.selectorPill, localInstallationCustomerId === customer.id && styles.selectorPillActive]}
+                      onPress={() => {
+                        setLocalInstallationCustomerId(customer.id);
+                        setInstallationDraft((draft) => ({ ...draft, customer_id: customer.id }));
+                        setInstallationCustomerSearch((search) => search);
+                        setMessage(`Installation customer selected: ${customer.id} - ${customer.name}.`);
+                      }}
                     >
-                      <Text style={[styles.selectorText, installationDraft.customer_id === customer.id && styles.selectorTextActive]}>{customer.id} - {customer.name}</Text>
+                      <Text style={[styles.selectorText, localInstallationCustomerId === customer.id && styles.selectorTextActive]}>{customer.id} - {customer.name}</Text>
                       <Text style={styles.muted}>{customer.phone || "No phone"} - {customer.address || "No site address"}</Text>
                     </Pressable>
                   ))}
-                  {!visibleCustomers.length && <Text style={styles.muted}>No CRM customers match. Add or edit customers in Customer CRM first.</Text>}
-                  {renderListControls(installationCustomerListKey, visibleCustomers.length)}
+                  {!visibleCustomersCount && <Text style={styles.muted}>No CRM customers match. Add or edit customers in Customer CRM first.</Text>}
+                  {renderListControls(installationCustomerListKey, visibleCustomersCount)}
                 </View>
               </View>
-              {selectedCustomer && (
+              {localSelectedCustomer && (
                 <View style={styles.linkedSystemsPanel}>
                   <Text style={styles.cardLabel}>Read-only CRM customer information</Text>
-                  <Text style={styles.bodyText}>{selectedCustomer.name} - {selectedCustomer.contact || "No contact"} - {selectedCustomer.phone || "No mobile"} - {selectedCustomer.email || "No email"}</Text>
-                  <Text style={styles.muted}>Site: {selectedCustomer.siteAddress || "-"} - Billing: {selectedCustomer.billingAddress || "-"} - Sales: {selectedCustomer.owner || "-"}</Text>
-                  <Text style={styles.muted}>CRM notes: {selectedCustomer.notes || "-"}</Text>
+                  <Text style={styles.bodyText}>{localSelectedCustomer.name} - {localSelectedCustomer.phone || "No mobile"}</Text>
+                  <Text style={styles.muted}>Site: {localSelectedCustomer.address || "-"} - Source: {localSelectedCustomer.source_inquiry_id || "Saved CRM customer"}</Text>
                 </View>
               )}
               <View style={styles.formGrid}>
-                {renderInstallationField("Project", "project_name")}
-                {renderInstallationField("Lift", "lift_reference")}
-                {renderInstallationField("Installation status", "status")}
-                {renderInstallationField("Assigned team", "assigned_team")}
-                {renderInstallationField("Contractor", "contractor")}
-                {renderInstallationField("Engineer", "engineer")}
-                {renderInstallationField("Start date", "start_date")}
-                {renderInstallationField("Completion date", "completion_date")}
-                {renderInstallationField("Approved by", "approved_by", "Ashwani Ji")}
-                {renderInstallationField("Approval date", "approval_date")}
-                {renderInstallationField("Approval remarks", "approval_remarks")}
+                {renderInstallationField("Project", "project_name", installationDraftRef)}
+                {renderInstallationField("Lift", "lift_reference", installationDraftRef)}
+                {renderInstallationField("Installation status", "status", installationDraftRef)}
+                {renderInstallationField("Assigned team", "assigned_team", installationDraftRef)}
+                {renderInstallationField("Contractor", "contractor", installationDraftRef)}
+                {renderInstallationField("Engineer", "engineer", installationDraftRef)}
+                {renderInstallationField("Start date", "start_date", installationDraftRef)}
+                {renderInstallationField("Completion date", "completion_date", installationDraftRef)}
+                {renderInstallationField("Approved by", "approved_by", installationDraftRef, "Ashwani Ji")}
+                {renderInstallationField("Approval date", "approval_date", installationDraftRef)}
+                {renderInstallationField("Approval remarks", "approval_remarks", installationDraftRef)}
               </View>
               <Text style={styles.sectionTitle}>Technical Details</Text>
               <View style={styles.formGrid}>
-                {["motor_make", "motor_model_number", "motor_sticker_photo", "door_make", "controller_make", "controller_type", "controller_communication", "protocol", "controller_username", "controller_password", "drive_model_number", "ard_or_ups", "ard_make", "battery_size", "battery_make", "battery_quantity", "battery_warranty_expiry", "door_sensor_make", "lop_make", "cop_make", "button_type"].map((key) => renderInstallationField(key.replace(/_/g, " "), key as keyof typeof emptyInstallationDraft))}
+                {["motor_make", "motor_model_number", "motor_sticker_photo", "door_make", "controller_make", "controller_type", "controller_communication", "protocol", "controller_username", "controller_password", "drive_model_number", "ard_or_ups", "ard_make", "battery_size", "battery_make", "battery_quantity", "battery_warranty_expiry", "door_sensor_make", "lop_make", "cop_make", "button_type"].map((key) => renderInstallationField(key.replace(/_/g, " "), key as keyof typeof emptyInstallationDraft, installationDraftRef))}
               </View>
               <Text style={styles.sectionTitle}>Uploads, Readiness, Handover</Text>
               <View style={styles.formGrid}>
-                {["building_photo", "site_photo_url", "lift_video_url", "lift_well_construction", "expected_completion_date", "site_readiness_notes", "panni_removed", "panni_removal_date", "granite_required", "granite_status", "granite_completion_date", "granite_remarks", "installed_by", "commissioned_by", "handed_over_by", "handed_over_date", "warranty_start_date", "warranty_end_date", "final_remarks"].map((key) => renderInstallationField(key.replace(/_/g, " "), key as keyof typeof emptyInstallationDraft))}
+                {["building_photo", "site_photo_url", "lift_video_url", "lift_well_construction", "expected_completion_date", "site_readiness_notes", "panni_removed", "panni_removal_date", "granite_required", "granite_status", "granite_completion_date", "granite_remarks", "installed_by", "commissioned_by", "handed_over_by", "handed_over_date", "warranty_start_date", "warranty_end_date", "final_remarks"].map((key) => renderInstallationField(key.replace(/_/g, " "), key as keyof typeof emptyInstallationDraft, installationDraftRef))}
               </View>
               <Text style={styles.sectionTitle}>Contractor & Financials</Text>
               <View style={styles.formGrid}>
-                {["contractor_name", "contractor_mobile", "contractor_email", "contractor_gst", "contractor_address", "contractor_bank_details", "contract_value", "payment_terms", "contractor_payment_amount", "contractor_payment_date", "contractor_payment_method", "contractor_payment_remarks"].map((key) => renderInstallationField(key.replace(/_/g, " "), key as keyof typeof emptyInstallationDraft))}
+                {["contractor_name", "contractor_mobile", "contractor_email", "contractor_gst", "contractor_address", "contractor_bank_details", "contract_value", "payment_terms", "contractor_payment_amount", "contractor_payment_date", "contractor_payment_method", "contractor_payment_remarks"].map((key) => renderInstallationField(key.replace(/_/g, " "), key as keyof typeof emptyInstallationDraft, installationDraftRef))}
               </View>
               <View style={styles.inlineActions}>
-                <Pressable style={styles.primaryButtonInline} onPress={saveInstallation} disabled={loading || !installationDraft.customer_id}>
-                  <Text style={styles.primaryButtonText}>{installationDraft.id ? "Update installation" : "Create installation"}</Text>
+                <Pressable style={styles.primaryButtonInline} onPress={() => saveInstallation(installationDraftRef.current[0], () => setInstallationDraft(emptyInstallationDraft))} disabled={loading}>
+                  <Text style={styles.primaryButtonText}>{liveInstallationDraft.id ? "Update installation" : "Create installation"}</Text>
                 </Pressable>
-                {!!installationDraft.id && (
+                {!!liveInstallationDraft.id && (
                   <Pressable
                     style={styles.secondaryButton}
                     onPress={() => {
                       setInstallationDraft(emptyInstallationDraft);
                       setInstallationEditorOpen(false);
+                      setMessage("Installation edit cancelled.");
                     }}
                     disabled={loading}
                   >
@@ -6385,6 +9944,9 @@ export default function App() {
                 )}
               </View>
             </>
+                );
+              }}
+            </LocalValue>
           )}
         </View>
 
@@ -6402,54 +9964,88 @@ export default function App() {
             </View>
           </View>
           <View style={styles.inlineActions}>
-            {statusOptions.map((status) => <Pressable key={status} style={[styles.smallButton, installationStatusFilter === status && styles.selectorPillActive]} onPress={() => setInstallationStatusFilter(status)}><Text style={styles.smallButtonText}>{status}</Text></Pressable>)}
+            {statusOptions.map((status) => (
+              <Pressable
+                key={status}
+                style={[styles.smallButton, installationStatusFilter === status && styles.selectorPillActive]}
+                onPress={() => {
+                  setInstallationStatusFilter(status);
+                  setMessage(`Installation list filtered to ${status}.`);
+                }}
+              >
+                <Text style={styles.smallButtonText}>{status}</Text>
+              </Pressable>
+            ))}
             <Pressable style={styles.primaryButtonInline} onPress={downloadInstallationReport} disabled={loading}>
               <Text style={styles.primaryButtonText}>Export CSV</Text>
             </Pressable>
           </View>
         </View>
-        {!!filteredJobs.length && <Text style={styles.muted}>Showing {visibleInstallationJobs.length} of {filteredJobs.length}</Text>}
+        {!!filteredJobsCount && <Text style={styles.muted}>Showing {visibleInstallationJobs.length} of {filteredJobsCount}</Text>}
         <View style={styles.limitedList}>
         {visibleInstallationJobs.map((job, index) => {
           const id = recordIdentity(job) || String(job.job_id || index);
+          const jobOverride = installationRowOverrides[id] || installationRowOverrides[String(job.job_id || "")] || {};
+          const displayJob = { ...job, ...jobOverride };
           const customerId = String(job.customer_id || "");
-          const technical = (job.technical_details || {}) as Record<string, unknown>;
-          const readiness = (job.site_readiness || {}) as Record<string, unknown>;
-          const checklist = asRecords(job.checklist);
+          const technical = (displayJob.technical_details || {}) as Record<string, unknown>;
+          const readiness = (displayJob.site_readiness || {}) as Record<string, unknown>;
+          const checklist = asRecords(displayJob.checklist);
           const passedTests = checklist.filter((test) => String(test.result || "").toLowerCase() === "pass").length;
-          const totalDays = job.start_date && job.completion_date ? projectBusinessDays(job.start_date, job.completion_date) : 0;
+          const totalDays = displayJob.start_date && displayJob.completion_date ? projectBusinessDays(displayJob.start_date, displayJob.completion_date) : 0;
+          const patchRenderedInstallationJob = (updated: Record<string, unknown>) => {
+            setInstallationRowOverride(id, updated);
+            setInstallationJobs((current) => current.map((item) => {
+              if (item === job) return { ...item, ...updated };
+              const itemId = recordIdentity(item);
+              const updatedId = recordIdentity(updated);
+              if (itemId && updatedId && itemId === updatedId) return { ...item, ...updated };
+              if (String(item.job_id || "") && String(item.job_id || "") === String(updated.job_id || "")) return { ...item, ...updated };
+              return item;
+            }));
+          };
           return (
-            <View key={`installation-${id}`} style={[styles.card, compactLists && styles.compactCard]}>
+            <View key={`installation-${id}`} style={[styles.card, compactListsRef.current && styles.compactCard]}>
               <View style={styles.cardHeaderRow}>
                 <View style={styles.cardTitleBlock}>
                   <Text style={styles.cardTitle}>{String(job.job_id || id)} - {String(job.customer || "-")}</Text>
-                  <Text style={styles.muted}>CRM {customerId || "-"} - Project {String(job.project_name || "-")} - Lift {String(job.lift_reference || job.unit || "-")}</Text>
+                  <Text style={styles.muted}>CRM {customerId || "-"} - Project {String(displayJob.project_name || "-")} - Lift {String(displayJob.lift_reference || displayJob.unit || "-")}</Text>
                 </View>
-                <Text style={styles.statusPill}>{String(job.status || "-")}</Text>
+                <Text style={styles.statusPill}>{String(displayJob.status || "-")}</Text>
               </View>
-              <Text style={styles.bodyText}>Team: {String(job.assigned_team || "-")} - Contractor: {String(job.contractor || job.contractor_name || "-")} - Engineer: {String(job.engineer || "-")}</Text>
-              <Text style={styles.bodyText}>Approval: {String(job.approval_status || "Pending")} - {String(job.approved_by || "-")} - {String(job.approval_date || "-")}</Text>
-              <Text style={styles.bodyText}>Dates: Start {String(job.start_date || "-")} - Completion {String(job.completion_date || "-")} - Total days {totalDays || "-"}</Text>
+              <Text style={styles.bodyText}>Team: {String(displayJob.assigned_team || "-")} - Contractor: {String(displayJob.contractor || displayJob.contractor_name || "-")} - Engineer: {String(displayJob.engineer || "-")}</Text>
+              <Text style={styles.bodyText}>Approval: {String(displayJob.approval_status || "Pending")} - {String(displayJob.approved_by || "-")} - {String(displayJob.approval_date || "-")}</Text>
+              <Text style={styles.bodyText}>Dates: Start {String(displayJob.start_date || "-")} - Completion {String(displayJob.completion_date || "-")} - Total days {totalDays || "-"}</Text>
               <Text style={styles.bodyText}>Technical: Motor {String(technical.motor_make || "-")} {String(technical.motor_model_number || "")} - Controller {String(technical.controller_make || "-")} / {String(technical.controller_type || "-")} / {String(technical.controller_communication || "-")}</Text>
-              <Text style={styles.bodyText}>Site readiness: {String(readiness.lift_well_construction || "-")} - Expected {String(readiness.expected_completion_date || "-")} - Panni {String(job.panni_removed || "No")} - Granite {String(job.granite_required || "No")} {String(job.granite_status || "")}</Text>
-              <Text style={styles.bodyText}>Checklist: {passedTests}/{checklist.length || 16} passed - Warranty {String(job.warranty_start_date || "-")} to {String(job.warranty_end_date || "-")}</Text>
-              <Text style={styles.bodyText}>Contract: {formatMoney(Number(job.contract_value || 0))} - Paid {formatMoney(Number(job.total_paid || 0))} - Due {formatMoney(Number(job.outstanding_balance || job.total_due || 0))}</Text>
+              <Text style={styles.bodyText}>Site readiness: {String(readiness.lift_well_construction || "-")} - Expected {String(readiness.expected_completion_date || "-")} - Panni {String(displayJob.panni_removed || "No")} - Granite {String(displayJob.granite_required || "No")} {String(displayJob.granite_status || "")}</Text>
+              <Text style={styles.bodyText}>Checklist: {passedTests}/{checklist.length || 16} passed - Warranty {String(displayJob.warranty_start_date || "-")} to {String(displayJob.warranty_end_date || "-")}</Text>
+              <Text style={styles.bodyText}>Contract: {formatMoney(Number(displayJob.contract_value || 0))} - Paid {formatMoney(Number(displayJob.total_paid || 0))} - Due {formatMoney(Number(displayJob.outstanding_balance || displayJob.total_due || 0))}</Text>
               <View style={styles.linkedSystemsPanel}>
                 <Text style={styles.cardLabel}>Customer lifecycle links</Text>
                 <Text style={styles.muted}>Tickets {asRecords(data?.project_tickets).filter((ticket) => String(ticket.customer_id || "") === customerId || crmNameKey(ticket.customer || ticket.project) === crmNameKey(job.customer)).length} - Service {asRecords(data?.service_records).filter((service) => String(service.customer_id || "") === customerId || crmNameKey(service.customer) === crmNameKey(job.customer)).length} - Commissioning {asRecords(data?.commissionings).filter((item) => String(item.customer_id || "") === customerId || String(item.installation_ref || "") === id).length}</Text>
               </View>
               <View style={styles.inlineActions}>
-                <Pressable style={styles.smallButton} onPress={() => editInstallation(job)} disabled={loading}><Text style={styles.smallButtonText}>Edit</Text></Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateInstallationRecord(job, { approved_by: "Ashwani Ji", approval_date: today, approval_status: "Approved" }, "Installation approved.")} disabled={loading}><Text style={styles.smallButtonText}>Approve</Text></Pressable>
-                {["Site Ready", "Material Ready", "Installation Assigned", "Under Installation", "Commissioning", "Handover Pending", "Completed", "Closed"].map((status) => <Pressable key={`${id}-${status}`} style={styles.smallButton} onPress={() => updateInstallationRecord(job, { status })} disabled={loading}><Text style={styles.smallButtonText}>{status}</Text></Pressable>)}
-                <Pressable style={styles.smallButton} onPress={() => sendInstallToCommissioning(job)} disabled={loading || !["Completed", "Commissioning", "Handover Pending"].includes(String(job.status || ""))}><Text style={styles.smallButtonText}>Send commissioning</Text></Pressable>
+                <Pressable
+                  style={styles.smallButton}
+                  onPress={() => {
+                    setInstallationDraft(installationDraftFromRecord(job));
+                    setInstallationEditorOpen(true);
+                    setMessage(`Editing installation ${String(job.job_id || id)}.`);
+                  }}
+                  disabled={loading}
+                >
+                  <Text style={styles.smallButtonText}>Edit</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => updateInstallationRecord(displayJob, { approved_by: "Ashwani Ji", approval_date: today, approval_status: "Approved" }, "Installation approved.", patchRenderedInstallationJob)} disabled={loading}><Text style={styles.smallButtonText}>Approve</Text></Pressable>
+                {["Site Ready", "Material Ready", "Installation Assigned", "Under Installation", "Commissioning", "Handover Pending", "Completed", "Closed"].map((status) => <Pressable key={`${id}-${status}`} style={styles.smallButton} onPress={() => updateInstallationRecord(displayJob, { status }, `Installation marked ${status}.`, patchRenderedInstallationJob)} disabled={loading}><Text style={styles.smallButtonText}>{status}</Text></Pressable>)}
+                <Pressable style={styles.smallButton} onPress={() => sendInstallToCommissioning(displayJob)} disabled={loading || !["Completed", "Commissioning", "Handover Pending"].includes(String(displayJob.status || ""))}><Text style={styles.smallButtonText}>Send commissioning</Text></Pressable>
                 {!!customerId && <Pressable style={styles.smallButton} onPress={() => openCrmForCustomerNumber(customerId)} disabled={loading}><Text style={styles.smallButtonText}>Open CRM</Text></Pressable>}
               </View>
             </View>
           );
         })}
-        {renderListControls(installationListKey, filteredJobs.length)}
-        {!filteredJobs.length && <View style={styles.card}><Text style={styles.cardTitle}>No installations found</Text><Text style={styles.muted}>Create one from an existing CRM customer above.</Text></View>}
+        {renderListControls(installationListKey, filteredJobsCount)}
+        {!filteredJobsCount && <View style={styles.card}><Text style={styles.cardTitle}>No installations found</Text><Text style={styles.muted}>Create one from an existing CRM customer above.</Text></View>}
         </View>
 
         <Text style={styles.sectionTitle}>Team & Contractor Metrics</Text>
@@ -6457,18 +10053,71 @@ export default function App() {
           {limitedItems(installTeamMetricListKey, teams).map((team) => {
             const name = fieldText(team, ["name"]);
             const assignedCount = jobs.filter((job) => String(job.assigned_team || job.crew || "").toLowerCase().includes(name.toLowerCase())).length;
-            return <View key={`team-metric-${name}`} style={styles.card}><Text style={styles.cardLabel}>{name}</Text><Text style={styles.metricValue}>{assignedCount}</Text><Text style={styles.muted}>{fieldText(team, ["availability"])} - {fieldText(team, ["phone"])}</Text></View>;
+            return (
+              <Pressable
+                key={`team-metric-${name}`}
+                style={styles.card}
+                onPress={() => {
+                  setActiveTab("team");
+                  setMessage(`Opening install team profile for ${name}.`);
+                }}
+              >
+                <Text style={styles.cardLabel}>{name}</Text>
+                <Text style={styles.metricValue}>{assignedCount}</Text>
+                <Text style={styles.muted}>{fieldText(team, ["availability"])} - {fieldText(team, ["phone"])}</Text>
+              </Pressable>
+            );
           })}
           {renderListControls(installTeamMetricListKey, teams.length)}
-          {limitedItems(installContractorMetricListKey, contractors).map((contractor) => <View key={`contractor-metric-${recordIdentity(contractor) || fieldText(contractor, ["name", "contractor_name"])}`} style={styles.card}><Text style={styles.cardLabel}>{fieldText(contractor, ["contractor_name", "name"])}</Text><Text style={styles.metricValue}>{jobs.filter((job) => fieldText(job, ["contractor", "contractor_name"]) === fieldText(contractor, ["contractor_name", "name"])).length}</Text><Text style={styles.muted}>{fieldText(contractor, ["mobile", "phone"])} - GST {fieldText(contractor, ["gst", "gst_number"])}</Text></View>)}
+          {limitedItems(installContractorMetricListKey, contractors).map((contractor) => {
+            const contractorName = fieldText(contractor, ["contractor_name", "name"]);
+            return (
+              <Pressable
+                key={`contractor-metric-${recordIdentity(contractor) || contractorName}`}
+                style={styles.card}
+                onPress={() => {
+                  setInstallationStatusFilter("All");
+                  setInstallationSearch(contractorName);
+                  setMessage(`Opening installation work for contractor ${contractorName}.`);
+                }}
+              >
+                <Text style={styles.cardLabel}>{contractorName}</Text>
+                <Text style={styles.metricValue}>{jobs.filter((job) => fieldText(job, ["contractor", "contractor_name"]) === contractorName).length}</Text>
+                <Text style={styles.muted}>{fieldText(contractor, ["mobile", "phone"])} - GST {fieldText(contractor, ["gst", "gst_number"])}</Text>
+              </Pressable>
+            );
+          })}
           {renderListControls(installContractorMetricListKey, contractors.length)}
         </View>
-      </View>
+        </View>
+          );
+        }}
+      </LocalImperativeToggle>
     );
   }
 
-  function renderInstallTeamPage() {
-    const team = asRecords(data?.install_team);
+  function renderInstallationBoundary() {
+    return (
+      <InstallationDraftBoundary>
+        {(installationDraftState) => (
+          <InstallationStateBoundary controllerRef={installationControllerRef} jobs={asRecords(data?.install_jobs)} stateRef={installationStateRef}>
+            {(installationState) => renderInstallationPage(installationState, installationDraftState)}
+          </InstallationStateBoundary>
+        )}
+      </InstallationDraftBoundary>
+    );
+  }
+
+  function renderInstallTeamBoundary() {
+    return (
+      <InstallTeamDraftBoundary teamRows={asRecords(data?.install_team)}>
+        {(installTeamState) => renderInstallTeamPage(installTeamState)}
+      </InstallTeamDraftBoundary>
+    );
+  }
+
+  function renderInstallTeamPage({ installTeamDraft, installTeamDraftRef, installTeamRows, installTeamRowOverrides, setInstallTeamDraft, setInstallTeamRows, patchInstallTeamRow, prependInstallTeamRow, setInstallTeamRowOverride }: InstallTeamDraftState) {
+    const team = installTeamRows;
     const jobs = asRecords(data?.install_jobs);
     const available = team.filter((member) => ["available", "on site", "standby"].includes(String(member.availability || "").toLowerCase()));
     const assigned = team.filter((member) => String(member.current_job || "").trim());
@@ -6512,30 +10161,45 @@ export default function App() {
               <Text style={styles.label}>{label}</Text>
               <TextInput
                 style={styles.input}
-                value={String(installTeamDraft[key as keyof typeof installTeamDraft] || "")}
-                onChangeText={(value) => setInstallTeamDraft((draft) => ({ ...draft, [key]: value }))}
+                defaultValue={String(installTeamDraftRef.current[0][key as keyof typeof installTeamDraft] || "")}
+                onChangeText={(value) => { installTeamDraftRef.current[0] = { ...installTeamDraftRef.current[0], [key]: value }; }}
               />
             </View>
           ))}
           <Text style={styles.label}>Assign to job</Text>
-          <View style={styles.selectorList}>
-            {limitedItems(installTeamJobPickerListKey, jobs).map((job) => {
-              const jobId = fieldText(job, ["job_id", "id"]);
-              return (
-                <Pressable
-                  key={jobId}
-                  style={[styles.selectorPill, installTeamDraft.current_job === jobId && styles.selectorPillActive]}
-                  onPress={() => setInstallTeamDraft((draft) => ({ ...draft, current_job: jobId }))}
-                >
-                  <Text style={[styles.selectorText, installTeamDraft.current_job === jobId && styles.selectorTextActive]}>
-                    {jobId} - {fieldText(job, ["customer"])} - {fieldText(job, ["site"])}
-                  </Text>
-                </Pressable>
-              );
+          <LocalValue initialValue={installTeamDraftRef.current[0].current_job}>
+            {(localCurrentJob, setLocalCurrentJob) => (
+              <View style={styles.selectorList}>
+                {limitedItems(installTeamJobPickerListKey, jobs).map((job) => {
+                  const jobId = fieldText(job, ["job_id", "id"]);
+                  return (
+                    <Pressable
+                      key={jobId}
+                      style={[styles.selectorPill, localCurrentJob === jobId && styles.selectorPillActive]}
+                      onPress={() => {
+                        setLocalCurrentJob(jobId);
+                        setInstallTeamDraft((draft) => ({ ...draft, current_job: jobId }));
+                        setMessage(`Install team job selected: ${jobId}.`);
+                      }}
+                    >
+                      <Text style={[styles.selectorText, localCurrentJob === jobId && styles.selectorTextActive]}>
+                        {jobId} - {fieldText(job, ["customer"])} - {fieldText(job, ["site"])}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+                {renderListControls(installTeamJobPickerListKey, jobs.length)}
+              </View>
+            )}
+          </LocalValue>
+          <Pressable
+            style={styles.primaryButton}
+            onPress={() => saveInstallTeamMember(installTeamDraftRef.current[0], (record) => {
+              prependInstallTeamRow(record);
+              setInstallTeamDraft(emptyInstallTeamDraft);
             })}
-            {renderListControls(installTeamJobPickerListKey, jobs.length)}
-          </View>
-          <Pressable style={styles.primaryButton} onPress={saveInstallTeamMember} disabled={loading}>
+            disabled={loading}
+          >
             <Text style={styles.primaryButtonText}>Save team member</Text>
           </Pressable>
         </View>
@@ -6544,23 +10208,34 @@ export default function App() {
         <View style={styles.limitedList}>
         {limitedItems(installTeamRosterListKey, team).map((member, index) => {
           const id = recordIdentity(member) || String(member.id || `TM-${index + 1}`);
+          const memberOverride = installTeamRowOverrides[id] || installTeamRowOverrides[fieldText(member, ["name"])] || {};
+          const displayMember = { ...member, ...memberOverride };
+          const patchRenderedInstallTeamRow = (updated: Record<string, unknown>) => {
+            setInstallTeamRowOverride(id, updated);
+            setInstallTeamRows((current) => current.map((item) => {
+              if (item === member) return { ...item, ...updated };
+              const itemId = recordIdentity(item) || fieldText(item, ["name"]);
+              const updatedId = recordIdentity(updated) || fieldText(updated, ["name"]);
+              return itemId && updatedId && itemId === updatedId ? { ...item, ...updated } : item;
+            }));
+          };
           return (
             <View key={id} style={styles.card}>
               <View style={styles.cardHeaderRow}>
-                <Text style={styles.cardTitle}>{fieldText(member, ["name"])}</Text>
-                <Text style={styles.statusPill}>{fieldText(member, ["availability"])}</Text>
+                <Text style={styles.cardTitle}>{fieldText(displayMember, ["name"])}</Text>
+                <Text style={styles.statusPill}>{fieldText(displayMember, ["availability"])}</Text>
               </View>
-              <Text style={styles.muted}>{fieldText(member, ["role"])} - {fieldText(member, ["phone"])}</Text>
-              <Text style={styles.bodyText}>Current job: {fieldText(member, ["current_job"])}</Text>
-              <Text style={styles.bodyText}>Skills: {Array.isArray(member.skills) ? member.skills.join(", ") : fieldText(member, ["skills"])}</Text>
-              <Text style={styles.bodyText}>Shift: {fieldText(member, ["shift"])}</Text>
+              <Text style={styles.muted}>{fieldText(displayMember, ["role"])} - {fieldText(displayMember, ["phone"])}</Text>
+              <Text style={styles.bodyText}>Current job: {fieldText(displayMember, ["current_job"])}</Text>
+              <Text style={styles.bodyText}>Skills: {Array.isArray(displayMember.skills) ? displayMember.skills.join(", ") : fieldText(displayMember, ["skills"])}</Text>
+              <Text style={styles.bodyText}>Shift: {fieldText(displayMember, ["shift"])}</Text>
 
               <Text style={styles.label}>Assign job</Text>
               <View style={styles.inlineActions}>
                 {limitedItems(`${installTeamCardJobListKey}-${id}`, jobs).map((job) => {
                   const jobId = fieldText(job, ["job_id", "id"]);
                   return (
-                    <Pressable key={`${id}-${jobId}`} style={styles.smallButton} onPress={() => assignInstallTeamMember(id, jobId)} disabled={loading}>
+                    <Pressable key={`${id}-${jobId}`} style={styles.smallButton} onPress={() => assignInstallTeamMember(id, jobId, patchRenderedInstallTeamRow)} disabled={loading}>
                       <Text style={styles.smallButtonText}>{jobId}</Text>
                     </Pressable>
                   );
@@ -6568,13 +10243,13 @@ export default function App() {
                 {renderListControls(`${installTeamCardJobListKey}-${id}`, jobs.length)}
               </View>
               <View style={styles.inlineActions}>
-                <Pressable style={styles.smallButton} onPress={() => updateInstallTeamMember(id, { availability: "Available" })} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateInstallTeamMember(id, { availability: "Available" }, patchRenderedInstallTeamRow)} disabled={loading}>
                   <Text style={styles.smallButtonText}>Available</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateInstallTeamMember(id, { availability: "On Site" })} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateInstallTeamMember(id, { availability: "On Site" }, patchRenderedInstallTeamRow)} disabled={loading}>
                   <Text style={styles.smallButtonText}>On site</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateInstallTeamMember(id, { availability: "Off Duty", current_job: "" })} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateInstallTeamMember(id, { availability: "Off Duty", current_job: "" }, patchRenderedInstallTeamRow)} disabled={loading}>
                   <Text style={styles.smallButtonText}>Off duty</Text>
                 </Pressable>
               </View>
@@ -6608,8 +10283,16 @@ export default function App() {
     );
   }
 
-  function renderCommissioningPage() {
-    const commissionings = asRecords((data as Record<string, unknown> | null)?.commissionings);
+  function renderCommissioningBoundary() {
+    return (
+      <CommissioningDraftBoundary rows={asRecords((data as Record<string, unknown> | null)?.commissionings)}>
+        {(commissioningState) => renderCommissioningPage(commissioningState)}
+      </CommissioningDraftBoundary>
+    );
+  }
+
+  function renderCommissioningPage({ commissioningDraft, commissioningDraftRef, commissioningRows, commissioningRowOverrides, setCommissioningDraft, setCommissioningRows, patchCommissioningRow, prependCommissioningRow, setCommissioningRowOverride }: CommissioningDraftState) {
+    const commissionings = commissioningRows;
     const messages = asRecords((data as Record<string, unknown> | null)?.dept_comms)
       .filter((item) => String(item.department || "").toLowerCase() === "commissioning" || String(item.commissioning_id || "").trim());
     const commissioningEngineers = asRecords(data?.org_chart)
@@ -6651,24 +10334,32 @@ export default function App() {
         <View style={styles.formCard}>
           <Text style={styles.cardLabel}>Manual commissioning record</Text>
           <Text style={styles.label}>Assign engineer</Text>
-          <View style={styles.selectorList}>
-            {limitedItems(commissioningEngineerListKey, commissioningEngineers).map((engineer) => {
-              const name = fieldText(engineer, ["name"]);
-              return (
-                <Pressable
-                  key={`commissioning-engineer-${name}`}
-                  style={[styles.selectorPill, commissioningDraft.assigned_engineer === name && styles.selectorPillActive]}
-                  onPress={() => setCommissioningDraft((draft) => ({ ...draft, assigned_engineer: name }))}
-                  disabled={loading}
-                >
-                  <Text style={[styles.selectorText, commissioningDraft.assigned_engineer === name && styles.selectorTextActive]}>
-                    {name} - {fieldText(engineer, ["title", "role", "department"])}
-                  </Text>
-                </Pressable>
-              );
-            })}
-            {renderListControls(commissioningEngineerListKey, commissioningEngineers.length)}
-          </View>
+          <LocalValue initialValue={commissioningDraftRef.current[0].assigned_engineer}>
+            {(localEngineer, setLocalEngineer) => (
+              <View style={styles.selectorList}>
+                {limitedItems(commissioningEngineerListKey, commissioningEngineers).map((engineer) => {
+                  const name = fieldText(engineer, ["name"]);
+                  return (
+                    <Pressable
+                      key={`commissioning-engineer-${name}`}
+                      style={[styles.selectorPill, localEngineer === name && styles.selectorPillActive]}
+                      onPress={() => {
+                        setLocalEngineer(name);
+                        setCommissioningDraft((draft) => ({ ...draft, assigned_engineer: name }));
+                        setMessage(`Commissioning engineer selected: ${name}.`);
+                      }}
+                      disabled={loading}
+                    >
+                      <Text style={[styles.selectorText, localEngineer === name && styles.selectorTextActive]}>
+                        {name} - {fieldText(engineer, ["title", "role", "department"])}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+                {renderListControls(commissioningEngineerListKey, commissioningEngineers.length)}
+              </View>
+            )}
+          </LocalValue>
           {[
             ["installation_ref", "Installation ref"],
             ["unit", "Unit / lift"],
@@ -6694,12 +10385,15 @@ export default function App() {
               <Text style={styles.label}>{label}</Text>
               <TextInput
                 style={styles.input}
-                value={String(commissioningDraft[key as keyof typeof commissioningDraft] || "")}
-                onChangeText={(value) => setCommissioningDraft((draft) => ({ ...draft, [key]: value }))}
+                defaultValue={String(commissioningDraftRef.current[0][key as keyof typeof commissioningDraft] || "")}
+                onChangeText={(value) => { commissioningDraftRef.current[0] = { ...commissioningDraftRef.current[0], [key]: value }; }}
               />
             </View>
           ))}
-          <Pressable style={styles.primaryButton} onPress={saveCommissioningRecord} disabled={loading}>
+          <Pressable style={styles.primaryButton} onPress={() => saveCommissioningRecord(commissioningDraftRef.current[0], (record) => {
+            prependCommissioningRow(record);
+            setCommissioningDraft(emptyCommissioningDraft);
+          })} disabled={loading}>
             <Text style={styles.primaryButtonText}>Save commissioning record</Text>
           </Pressable>
         </View>
@@ -6726,19 +10420,31 @@ export default function App() {
         <View style={styles.limitedList}>
         {limitedItems(commissioningBoardListKey, commissionings).map((item, index) => {
           const id = recordIdentity(item) || String(item.id || `COM-${index + 1}`);
+          const itemOverride = commissioningRowOverrides[id] || {};
+          const displayItem = { ...item, ...itemOverride };
+          const patchRenderedCommissioningRow = (updated: Record<string, unknown>) => {
+            setCommissioningRowOverride(id, updated);
+            setCommissioningRows((current) => current.map((record) => {
+              if (record === item) return { ...record, ...updated };
+              const recordId = recordIdentity(record);
+              const updatedId = recordIdentity(updated);
+              if (recordId && updatedId && recordId === updatedId) return { ...record, ...updated };
+              return record;
+            }));
+          };
           return (
             <View key={id} style={styles.card}>
               <View style={styles.cardHeaderRow}>
-                <Text style={styles.cardTitle}>{id} - {fieldText(item, ["unit", "installation_ref", "job_ref"])}</Text>
-                <Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text>
+                <Text style={styles.cardTitle}>{id} - {fieldText(displayItem, ["unit", "installation_ref", "job_ref"])}</Text>
+                <Text style={styles.statusPill}>{fieldText(displayItem, ["status"])}</Text>
               </View>
-              <Text style={styles.muted}>{fieldText(item, ["customer"])} - {fieldText(item, ["site"])} - Install complete {fieldText(item, ["install_complete_date"])}</Text>
-              <Text style={styles.bodyText}>Engineer: {fieldText(item, ["assigned_engineer", "engineer", "technician"])} - Controller: {fieldText(item, ["controller_type"])} - Drive model: {fieldText(item, ["drive_model_number", "drive_model"])}</Text>
-              <Text style={styles.bodyText}>Motor serial: {fieldText(item, ["motor_serial_number", "motor_serial"])} - Nameplate: {fieldText(item, ["motor_nameplate_file", "motor_nameplate_url"])}</Text>
-              <Text style={styles.bodyText}>Communication: {fieldText(item, ["communication_link"])} - Protocol required: {fieldText(item, ["protocol_required"])} - Protocol: {fieldText(item, ["protocol_type", "protocol"])}</Text>
-              <Text style={styles.bodyText}>Payment cleared: {String(item.payment_cleared || false)} - Handover: {fieldText(item, ["handover_date"])}</Text>
-              {!!fieldText(item, ["commissioning_details", "technical_details"]) && fieldText(item, ["commissioning_details", "technical_details"]) !== "-" && <Text style={styles.bodyText}>Details: {fieldText(item, ["commissioning_details", "technical_details"])}</Text>}
-              <Text style={styles.bodyText}>{fieldText(item, ["message_from_install_team", "notes"])}</Text>
+              <Text style={styles.muted}>{fieldText(displayItem, ["customer"])} - {fieldText(displayItem, ["site"])} - Install complete {fieldText(displayItem, ["install_complete_date"])}</Text>
+              <Text style={styles.bodyText}>Engineer: {fieldText(displayItem, ["assigned_engineer", "engineer", "technician"])} - Controller: {fieldText(displayItem, ["controller_type"])} - Drive model: {fieldText(displayItem, ["drive_model_number", "drive_model"])}</Text>
+              <Text style={styles.bodyText}>Motor serial: {fieldText(displayItem, ["motor_serial_number", "motor_serial"])} - Nameplate: {fieldText(displayItem, ["motor_nameplate_file", "motor_nameplate_url"])}</Text>
+              <Text style={styles.bodyText}>Communication: {fieldText(displayItem, ["communication_link"])} - Protocol required: {fieldText(displayItem, ["protocol_required"])} - Protocol: {fieldText(displayItem, ["protocol_type", "protocol"])}</Text>
+              <Text style={styles.bodyText}>Payment cleared: {String(displayItem.payment_cleared || false)} - Handover: {fieldText(displayItem, ["handover_date"])}</Text>
+              {!!fieldText(displayItem, ["commissioning_details", "technical_details"]) && fieldText(displayItem, ["commissioning_details", "technical_details"]) !== "-" && <Text style={styles.bodyText}>Details: {fieldText(displayItem, ["commissioning_details", "technical_details"])}</Text>}
+              <Text style={styles.bodyText}>{fieldText(displayItem, ["message_from_install_team", "notes"])}</Text>
               {!!commissioningEngineers.length && (
                 <>
                   <Text style={styles.label}>Assign engineer</Text>
@@ -6746,7 +10452,7 @@ export default function App() {
                     {limitedItems(`${commissioningCardEngineerListKey}-${id}`, commissioningEngineers).map((engineer) => {
                       const name = fieldText(engineer, ["name"]);
                       return (
-                        <Pressable key={`${id}-engineer-${name}`} style={styles.smallButton} onPress={() => updateCommissioning(id, { assigned_engineer: name })} disabled={loading}>
+                        <Pressable key={`${id}-engineer-${name}`} style={styles.smallButton} onPress={() => updateCommissioning(id, { assigned_engineer: name }, patchRenderedCommissioningRow)} disabled={loading}>
                           <Text style={styles.smallButtonText}>{name}</Text>
                         </Pressable>
                       );
@@ -6756,41 +10462,41 @@ export default function App() {
                 </>
               )}
               <View style={styles.inlineActions}>
-                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { controller_type: "Closed loop" })} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { controller_type: "Closed loop" }, patchRenderedCommissioningRow)} disabled={loading}>
                   <Text style={styles.smallButtonText}>Closed loop</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { controller_type: "Open loop" })} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { controller_type: "Open loop" }, patchRenderedCommissioningRow)} disabled={loading}>
                   <Text style={styles.smallButtonText}>Open loop</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { communication_link: "Serial link" })} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { communication_link: "Serial link" }, patchRenderedCommissioningRow)} disabled={loading}>
                   <Text style={styles.smallButtonText}>Serial link</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { communication_link: "Normal" })} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { communication_link: "Normal" }, patchRenderedCommissioningRow)} disabled={loading}>
                   <Text style={styles.smallButtonText}>Normal</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { protocol_required: "Y" })} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { protocol_required: "Y" }, patchRenderedCommissioningRow)} disabled={loading}>
                   <Text style={styles.smallButtonText}>Protocol yes</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { protocol_required: "N", protocol_type: "" })} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { protocol_required: "N", protocol_type: "" }, patchRenderedCommissioningRow)} disabled={loading}>
                   <Text style={styles.smallButtonText}>Protocol no</Text>
                 </Pressable>
               </View>
               <View style={styles.inlineActions}>
-                <Pressable style={styles.smallButton} onPress={() => uploadMotorNameplate(id)} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => uploadMotorNameplate(id, patchRenderedCommissioningRow)} disabled={loading}>
                   <Text style={styles.smallButtonText}>Upload motor nameplate</Text>
                 </Pressable>
-                {!!item.motor_nameplate_url && (
-                  <Pressable style={styles.smallButton} onPress={() => Linking.openURL(`${apiBaseUrl}${String(item.motor_nameplate_url)}`)} disabled={loading}>
+                {!!displayItem.motor_nameplate_url && (
+                  <Pressable style={styles.smallButton} onPress={() => Linking.openURL(`${apiBaseUrl}${String(displayItem.motor_nameplate_url)}`)} disabled={loading}>
                     <Text style={styles.smallButtonText}>View nameplate</Text>
                   </Pressable>
                 )}
-                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { status: "In Progress", start_date: new Date().toISOString().slice(0, 10) })} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { status: "In Progress", start_date: new Date().toISOString().slice(0, 10) }, patchRenderedCommissioningRow)} disabled={loading}>
                   <Text style={styles.smallButtonText}>Start checks</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { payment_cleared: true })} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { payment_cleared: true }, patchRenderedCommissioningRow)} disabled={loading}>
                   <Text style={styles.smallButtonText}>Payment cleared</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { status: "Handover Complete", handover_date: new Date().toISOString().slice(0, 10) })} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateCommissioning(id, { status: "Handover Complete", handover_date: new Date().toISOString().slice(0, 10) }, patchRenderedCommissioningRow)} disabled={loading}>
                   <Text style={styles.smallButtonText}>Handover complete</Text>
                 </Pressable>
               </View>
@@ -6803,7 +10509,7 @@ export default function App() {
     );
   }
 
-  function selectStaffForAttendance(staff: Record<string, unknown>) {
+  function selectStaffForAttendance(staff: Record<string, unknown>, { setAttendanceDraft, setLeaveDraft }: HrDraftState) {
     setAttendanceDraft((draft) => ({
       ...draft,
       person_id: String(staff.id || ""),
@@ -6818,19 +10524,44 @@ export default function App() {
     }));
   }
 
-  function renderStaffManagementPage() {
+  function renderStaffManagementPage(hrState: HrState, hrDrafts: HrDraftState) {
+    const { attendanceDraft, attendanceDraftRef, leaveDraft, leaveDraftRef, setAttendanceDraft, setAttendanceDraftRefOnly, setLeaveDraft, setLeaveDraftRefOnly } = hrDrafts;
+    const {
+      hrSearch,
+      setHrSearch,
+      hrDepartmentFilter,
+      setHrDepartmentFilter,
+      hrNotice,
+      hrActionLoading,
+      hrAttendanceRows,
+      hrLeaveRows,
+      setHrNotice,
+      setHrActionLoading,
+      upsertHrAttendanceRow,
+      patchHrLeaveRow,
+      prependHrLeaveRow,
+    } = hrState;
+    const hrBusy = loading || hrActionLoading;
     const staff = asRecords(data?.org_chart);
-    const attendance = asRecords(data?.attendance_today);
-    const leaves = asRecords((data as Record<string, unknown> | null)?.leave_requests);
+    const attendance = hrAttendanceRows;
+    const leaves = hrLeaveRows;
     const today = new Date().toISOString().slice(0, 10);
     const departments = ["All", ...Array.from(new Set(staff.map((person) => fieldText(person, ["department"])).filter(Boolean))).sort()];
     const query = hrSearch.trim().toLowerCase();
-    const visibleStaff = staff.filter((person) => {
+    const staffDirectoryListKey = "staff-directory";
+    const pendingLeavesListKey = "staff-pending-leaves";
+    const todayAttendanceListKey = "staff-today-attendance";
+    const monthlyLeaveListKey = "staff-monthly-leaves";
+    const leaveHistoryListKey = "staff-leave-history";
+    const staffMatches = (person: Record<string, unknown>) => {
       const department = fieldText(person, ["department"]);
       const departmentOk = hrDepartmentFilter === "All" || department === hrDepartmentFilter;
       const queryOk = !query || JSON.stringify(person).toLowerCase().includes(query);
       return departmentOk && queryOk;
-    });
+    };
+    const staffVisible = collectVisibleItems(staffDirectoryListKey, staff, staffMatches);
+    const visibleStaffCount = staffVisible.total;
+    const visibleStaff = staffVisible.visible;
     const todayAttendance = attendance.filter((item) => fieldText(item, ["date"]) === today);
     const attendanceByPerson = new Map(todayAttendance.map((item) => [fieldText(item, ["person_id", "staff_id"]), item]));
     const viewer = (data?.viewer || {}) as Record<string, unknown>;
@@ -6842,11 +10573,13 @@ export default function App() {
     const canManageAttendance = ["admin", "ceo"].includes(viewerRole) || String(viewerDepartment).toLowerCase() === "executive office";
     const canReviewLeave = canManageAttendance || ["manager", "team lead", "team_lead", "lead"].includes(viewerRole);
     const pendingLeaves = leaves.filter((item) => String(item.status || "").toLowerCase() === "pending");
-    const visiblePendingLeaves = pendingLeaves.filter((item) => {
+    const pendingLeaveVisible = collectVisibleItems(pendingLeavesListKey, pendingLeaves, (item) => {
       if (canManageAttendance) return true;
       if (canReviewLeave) return normalizedKey(fieldText(item, ["department"])) === normalizedKey(viewerDepartment);
       return fieldText(item, ["person_id", "staff_id"]) === viewerStaffId;
     });
+    const visiblePendingLeaves = pendingLeaveVisible.visible;
+    const visiblePendingLeavesCount = pendingLeaveVisible.total;
     const visibleLeaveHistory = leaves.filter((item) => {
       if (canManageAttendance) return true;
       if (canReviewLeave) return normalizedKey(fieldText(item, ["department"])) === normalizedKey(viewerDepartment);
@@ -6873,12 +10606,6 @@ export default function App() {
     });
     const presentToday = todayAttendance.filter((item) => String(item.status || "").toLowerCase() === "present");
     const unavailableToday = todayAttendance.filter((item) => ["absent", "half-day", "leave"].includes(String(item.status || "").toLowerCase()));
-    const selectedPerson = staff.find((person) => fieldText(person, ["id"]) === attendanceDraft.person_id);
-    const staffDirectoryListKey = "staff-directory";
-    const pendingLeavesListKey = "staff-pending-leaves";
-    const todayAttendanceListKey = "staff-today-attendance";
-    const monthlyLeaveListKey = "staff-monthly-leaves";
-    const leaveHistoryListKey = "staff-leave-history";
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -6886,6 +10613,8 @@ export default function App() {
           <Text style={styles.moduleHeroTitle}>Staff, Attendance & Leave</Text>
           <Text style={styles.moduleHeroText}>A single workspace for staff records, daily attendance, leave requests, and manager approvals.</Text>
         </View>
+        {hrActionLoading && <ActivityIndicator style={styles.loader} />}
+        {!!hrNotice && <Text style={styles.banner}>{hrNotice}</Text>}
 
         <View style={styles.staffMetricGrid}>
           <View style={[styles.card, styles.staffMetricTile]}>
@@ -6905,7 +10634,7 @@ export default function App() {
           </View>
           <View style={[styles.card, styles.staffMetricTile]}>
             <Text style={styles.cardLabel}>Pending leave</Text>
-            <Text style={styles.metricValue}>{visiblePendingLeaves.length}</Text>
+            <Text style={styles.metricValue}>{visiblePendingLeavesCount}</Text>
             <Text style={styles.muted}>Manager action required.</Text>
           </View>
         </View>
@@ -6926,10 +10655,10 @@ export default function App() {
             <Text style={styles.muted}>Check-out location: {attendanceLocationText(viewerAttendance?.check_out_location)}</Text>
           )}
           <View style={styles.inlineActions}>
-            <Pressable style={styles.primaryButton} onPress={() => markSelfAttendance("check_in")} disabled={loading || !viewerStaff}>
+            <Pressable style={styles.primaryButton} onPress={() => markSelfAttendance("check_in", upsertHrAttendanceRow, attendance, setHrNotice, setHrActionLoading)} disabled={hrBusy || !viewerStaff}>
               <Text style={styles.primaryButtonText}>Check in</Text>
             </Pressable>
-            <Pressable style={styles.secondaryButton} onPress={() => markSelfAttendance("check_out")} disabled={loading || !viewerStaff}>
+            <Pressable style={styles.secondaryButton} onPress={() => markSelfAttendance("check_out", upsertHrAttendanceRow, attendance, setHrNotice, setHrActionLoading)} disabled={hrBusy || !viewerStaff}>
               <Text style={styles.secondaryButtonText}>Check out</Text>
             </Pressable>
           </View>
@@ -6955,9 +10684,10 @@ export default function App() {
               <View key={`self-leave-${key}`} style={styles.field}>
                 <Text style={styles.label}>{label}</Text>
                 <TextInput
+                  key={`self-leave-${key}-${String(leaveDraftRef.current[0][key as keyof typeof leaveDraft] || "")}`}
                   style={[styles.input, key === "reason" && styles.textarea]}
-                  value={String(leaveDraft[key as keyof typeof leaveDraft] || "")}
-                  onChangeText={(value) => setLeaveDraft((draft) => ({ ...draft, [key]: value }))}
+                  defaultValue={String(leaveDraftRef.current[0][key as keyof typeof leaveDraft] || "")}
+                  onChangeText={(value) => { leaveDraftRef.current[0] = { ...leaveDraftRef.current[0], [key]: value }; }}
                   multiline={key === "reason"}
                 />
               </View>
@@ -6965,14 +10695,21 @@ export default function App() {
           </View>
           <View style={styles.inlineActions}>
             {["Casual", "Sick", "Earned", "Unpaid"].map((leaveType) => (
-              <Pressable key={`self-${leaveType}`} style={styles.smallButton} onPress={() => setLeaveDraft((draft) => ({ ...draft, leave_type: leaveType }))}>
+              <Pressable
+                key={`self-${leaveType}`}
+                style={styles.smallButton}
+                onPress={() => {
+                  setLeaveDraft((draft) => ({ ...draft, leave_type: leaveType }));
+                  setHrNotice(`Leave type set to ${leaveType}.`);
+                }}
+              >
                 <Text style={styles.smallButtonText}>{leaveType}</Text>
               </Pressable>
             ))}
             <Pressable
               style={styles.primaryButtonInline}
-              onPress={saveLeaveRequest}
-              disabled={loading || !viewerStaff || !leaveDraft.person_id}
+              onPress={() => saveLeaveRequest(leaveDraftRef.current[0], prependHrLeaveRow, setHrNotice, setHrActionLoading)}
+              disabled={hrBusy || !viewerStaff}
             >
               <Text style={styles.primaryButtonText}>Request time off</Text>
             </Pressable>
@@ -6983,7 +10720,7 @@ export default function App() {
           <View style={styles.cardHeaderRow}>
             <View>
               <Text style={styles.cardLabel}>Find staff</Text>
-              <Text style={styles.cardTitle}>{visibleStaff.length} matching records</Text>
+              <Text style={styles.cardTitle}>{visibleStaffCount} matching records</Text>
             </View>
             <Text style={styles.statusPill}>{hrDepartmentFilter}</Text>
           </View>
@@ -7001,7 +10738,10 @@ export default function App() {
               <Pressable
                 key={department}
                 style={[styles.smallButton, hrDepartmentFilter === department && styles.selectorPillActive]}
-                onPress={() => setHrDepartmentFilter(department)}
+                onPress={() => {
+                  setHrDepartmentFilter(department);
+                  setHrNotice(`Staff department filter set to ${department}.`);
+                }}
               >
                 <Text style={styles.smallButtonText}>{department}</Text>
               </Pressable>
@@ -7009,9 +10749,14 @@ export default function App() {
           </View>
         </View>
 
+        <LocalValue initialValue={attendanceDraftRef.current[0].person_id}>
+          {(selectedAttendancePersonId, setSelectedAttendancePersonId) => {
+            const selectedAttendancePerson = staff.find((person) => fieldText(person, ["id"]) === selectedAttendancePersonId);
+            return (
+              <>
         <Text style={styles.sectionTitle}>Staff Directory</Text>
         <View style={styles.metricGrid}>
-          {limitedItems(staffDirectoryListKey, visibleStaff).map((person) => {
+          {visibleStaff.map((person) => {
             const personId = fieldText(person, ["id"]);
             const statusRecord = attendanceByPerson.get(personId);
             const status = fieldText(statusRecord || {}, ["status"]) || "Not marked";
@@ -7027,11 +10772,11 @@ export default function App() {
                 <Text style={styles.bodyText}>Phone: {fieldText(person, ["phone", "mobile"]) || "Not set"}</Text>
                 <Text style={styles.bodyText}>Reports to: {fieldText(person, ["reports_to", "manager"]) || "Not set"}</Text>
                 <View style={styles.inlineActions}>
-                  <Pressable style={styles.smallButton} onPress={() => selectStaffForAttendance(person)}>
+                  <Pressable style={styles.smallButton} onPress={() => { selectStaffForAttendance(person, hrDrafts); setSelectedAttendancePersonId(personId); setHrNotice(`Selected ${fieldText(person, ["name"]) || "staff member"} for attendance.`); }} disabled={hrBusy}>
                     <Text style={styles.smallButtonText}>Select</Text>
                   </Pressable>
                   {canManageAttendance && ["present", "absent", "half-day", "leave"].map((statusOption) => (
-                    <Pressable key={`${personId}-${statusOption}`} style={styles.smallButton} onPress={() => markQuickAttendance(person, statusOption)} disabled={loading}>
+                    <Pressable key={`${personId}-${statusOption}`} style={styles.smallButton} onPress={() => markQuickAttendance(person, statusOption, upsertHrAttendanceRow, setHrNotice, setHrActionLoading)} disabled={hrBusy}>
                       <Text style={styles.smallButtonText}>{statusOption}</Text>
                     </Pressable>
                   ))}
@@ -7039,9 +10784,9 @@ export default function App() {
               </View>
             );
           })}
-          {renderListControls(staffDirectoryListKey, visibleStaff.length)}
+          {renderListControls(staffDirectoryListKey, visibleStaffCount)}
         </View>
-        {!visibleStaff.length && (
+        {!visibleStaffCount && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No staff found</Text>
             <Text style={styles.muted}>Change the search or department filter.</Text>
@@ -7051,7 +10796,7 @@ export default function App() {
         {canManageAttendance && <View style={styles.formGrid}>
           <View style={styles.formCard}>
             <Text style={styles.cardLabel}>Attendance console</Text>
-            <Text style={styles.cardTitle}>{selectedPerson ? fieldText(selectedPerson, ["name"]) : "Select a staff member"}</Text>
+            <Text style={styles.cardTitle}>{selectedAttendancePerson ? fieldText(selectedAttendancePerson, ["name"]) : "Select a staff member"}</Text>
             {[
               ["date", "Date"],
               ["person_name", "Staff name"],
@@ -7064,35 +10809,47 @@ export default function App() {
               <View key={key} style={styles.field}>
                 <Text style={styles.label}>{label}</Text>
                 <TextInput
+                  key={`attendance-draft-${key}-${String(attendanceDraftRef.current[0][key as keyof typeof attendanceDraft] || "")}`}
                   style={[styles.input, key === "notes" && styles.textarea]}
-                  value={String(attendanceDraft[key as keyof typeof attendanceDraft] || "")}
-                  onChangeText={(value) => setAttendanceDraft((draft) => ({ ...draft, [key]: value }))}
+                  defaultValue={String(attendanceDraftRef.current[0][key as keyof typeof attendanceDraft] || "")}
+                  onChangeText={(value) => { attendanceDraftRef.current[0] = { ...attendanceDraftRef.current[0], [key]: value }; }}
                   multiline={key === "notes"}
                 />
               </View>
             ))}
             <View style={styles.inlineActions}>
               {["present", "late", "absent", "half-day", "leave", "wfh"].map((status) => (
-                <Pressable key={status} style={styles.smallButton} onPress={() => setAttendanceDraft((draft) => ({ ...draft, status }))}>
+                <Pressable
+                  key={status}
+                  style={styles.smallButton}
+                  onPress={() => {
+                    setAttendanceDraft((draft) => ({ ...draft, status }));
+                    setHrNotice(`Attendance draft status set to ${status}.`);
+                  }}
+                >
                   <Text style={styles.smallButtonText}>{status}</Text>
                 </Pressable>
               ))}
             </View>
-            <Pressable style={styles.primaryButton} onPress={saveAttendance} disabled={loading || !attendanceDraft.person_id}>
+            <Pressable style={styles.primaryButton} onPress={() => saveAttendance(attendanceDraftRef.current[0], upsertHrAttendanceRow, setHrNotice, setHrActionLoading)} disabled={hrBusy}>
               <Text style={styles.primaryButtonText}>Save attendance</Text>
             </Pressable>
           </View>
         </View>}
+              </>
+            );
+          }}
+        </LocalValue>
 
         <Text style={styles.sectionTitle}>Leave Approval Queue</Text>
         <View style={styles.limitedList}>
-        {!visiblePendingLeaves.length && (
+        {!visiblePendingLeavesCount && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No pending leave requests</Text>
             <Text style={styles.muted}>Approved and rejected requests stay in the leave history below.</Text>
           </View>
         )}
-        {limitedItems(pendingLeavesListKey, visiblePendingLeaves).map((item, index) => {
+        {visiblePendingLeaves.map((item, index) => {
           const id = recordIdentity(item) || String(item.id || `LEAVE-${index + 1}`);
           return (
             <View key={id} style={styles.card}>
@@ -7104,10 +10861,10 @@ export default function App() {
               <Text style={styles.bodyText}>{fieldText(item, ["reason", "notes"])}</Text>
               {canReviewLeave ? (
                 <View style={styles.inlineActions}>
-                  <Pressable style={styles.smallButton} onPress={() => updateLeaveRequest(id, "Approved")} disabled={loading}>
+                  <Pressable style={styles.smallButton} onPress={() => updateLeaveRequest(id, "Approved", patchHrLeaveRow, setHrNotice, setHrActionLoading)} disabled={hrBusy}>
                     <Text style={styles.smallButtonText}>Approve</Text>
                   </Pressable>
-                  <Pressable style={styles.smallButton} onPress={() => updateLeaveRequest(id, "Rejected")} disabled={loading}>
+                  <Pressable style={styles.smallButton} onPress={() => updateLeaveRequest(id, "Rejected", patchHrLeaveRow, setHrNotice, setHrActionLoading)} disabled={hrBusy}>
                     <Text style={styles.smallButtonText}>Reject</Text>
                   </Pressable>
                 </View>
@@ -7117,7 +10874,7 @@ export default function App() {
             </View>
           );
         })}
-        {renderListControls(pendingLeavesListKey, visiblePendingLeaves.length)}
+        {renderListControls(pendingLeavesListKey, visiblePendingLeavesCount)}
         </View>
 
         <Text style={styles.sectionTitle}>Today Attendance</Text>
@@ -7200,10 +10957,10 @@ export default function App() {
               )}
               {canReviewLeave && String(item.status || "").toLowerCase() === "pending" && (
                 <View style={styles.inlineActions}>
-                  <Pressable style={styles.smallButton} onPress={() => updateLeaveRequest(id, "Approved")} disabled={loading}>
+                  <Pressable style={styles.smallButton} onPress={() => updateLeaveRequest(id, "Approved", patchHrLeaveRow, setHrNotice, setHrActionLoading)} disabled={hrBusy}>
                     <Text style={styles.smallButtonText}>Approve</Text>
                   </Pressable>
-                  <Pressable style={styles.smallButton} onPress={() => updateLeaveRequest(id, "Rejected")} disabled={loading}>
+                  <Pressable style={styles.smallButton} onPress={() => updateLeaveRequest(id, "Rejected", patchHrLeaveRow, setHrNotice, setHrActionLoading)} disabled={hrBusy}>
                     <Text style={styles.smallButtonText}>Reject</Text>
                   </Pressable>
                 </View>
@@ -7223,7 +10980,21 @@ export default function App() {
     );
   }
 
-  function filteredCustomers() {
+  function renderStaffManagementBoundary() {
+    const viewerStaff = viewerStaffRecord(asRecords(data?.org_chart)) || null;
+    return (
+      <HrStateBoundary attendanceRows={asRecords(data?.attendance_today)} leaveRows={asRecords((data as Record<string, unknown> | null)?.leave_requests)}>
+        {(hrState) => (
+          <HrDraftBoundary viewerStaff={viewerStaff}>
+            {(hrDrafts) => renderStaffManagementPage(hrState, hrDrafts)}
+          </HrDraftBoundary>
+        )}
+      </HrStateBoundary>
+    );
+  }
+
+  function filteredCustomers(crmState: CrmPageState) {
+    const { crmSearch, crmStageFilter, crmStaffFilter, crmDepartmentFilter, crmTeamFilter } = crmState;
     const query = crmSearch.trim().toLowerCase();
     const staffQuery = crmStaffFilter.trim().toLowerCase();
     return (data?.customers || []).filter((customer) => {
@@ -7325,7 +11096,7 @@ export default function App() {
   }
 
   async function saveCustomerInstalledDate(customer: Partial<Customer>) {
-    await saveInstalledDateForCrmRecord(customer as Record<string, unknown>, customerInstalledDateDraft);
+    await saveInstalledDateForCrmRecord(customer as Record<string, unknown>, customerDraftStateRef.current.customerInstalledDateDraft);
   }
 
   function canManageCustomerAssignments() {
@@ -7366,12 +11137,30 @@ export default function App() {
   async function saveCustomerAssignments(customer: Customer, assignments: Array<Record<string, unknown>>) {
     setLoading(true);
     try {
-      await apiFetch(`/api/portal/customers/${encodeURIComponent(customer.id)}/assignments`, {
+      const result = await apiFetch<{ assignments?: Array<Record<string, unknown>> }>(`/api/portal/customers/${encodeURIComponent(customer.id)}/assignments`, {
         method: "PUT",
         token,
         body: JSON.stringify({ assignments: assignmentPayloadFromRecords(assignments) }),
       });
-      await loadPortal();
+      const currentData = dataRef.current[0];
+      const currentAssignments = asRecords(currentData?.customer_assignments);
+      if (currentData) {
+        const customerId = String(customer.id || "");
+        const nextAssignments = [
+          ...currentAssignments.filter((assignment) => String(assignment.customer_id || "") !== customerId),
+          ...(result.assignments || assignments).map((assignment, index) => ({
+            ...assignment,
+            id: assignment.id || `local-${customerId}-${assignment.staff_id || assignment.staff_name || index}`,
+            customer_id: customerId,
+            customer_name: customer.name,
+            active_status: assignment.active_status ?? true,
+          })),
+        ];
+        const nextData = { ...currentData, customer_assignments: nextAssignments };
+        dataRef.current[0] = nextData;
+        setData(nextData);
+      }
+      refreshPortalCache();
       setMessage(`Assigned team updated for ${customer.name || customer.id}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Customer assignments could not be updated.");
@@ -7436,7 +11225,14 @@ export default function App() {
               </View>
               {!!assignment.primary_owner && <Text style={styles.statusPill}>Primary</Text>}
               {!assignment.primary_owner && (
-                <Pressable style={styles.smallButton} onPress={() => setPrimaryCustomerAssignment(customer, assignment)} disabled={loading}>
+                <Pressable
+                  style={styles.smallButton}
+                  onPress={() => {
+                    setMessage(`${name} is being set as primary owner.`);
+                    setPrimaryCustomerAssignment(customer, assignment);
+                  }}
+                  disabled={loading}
+                >
                   <Text style={styles.smallButtonText}>Make primary</Text>
                 </Pressable>
               )}
@@ -7567,14 +11363,19 @@ export default function App() {
     });
   }
 
-  async function saveApprovalRequest() {
+  async function saveApprovalRequest(
+    approvalDraft: typeof emptyApprovalDraft,
+    onSaved?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     if (!approvalDraft.reference.trim() && !approvalDraft.customer.trim()) {
-      setMessage("Approval needs a reference or customer.");
+      onNotice("Approval needs a reference or customer.");
       return;
     }
-    setLoading(true);
+    onLoading(true);
     try {
-      await apiFetch("/api/portal/approvals", {
+      const response = await apiFetch<Record<string, unknown>>("/api/portal/approvals", {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -7583,42 +11384,60 @@ export default function App() {
           requested_at: new Date().toISOString(),
         }),
       });
-      setApprovalDraft(emptyApprovalDraft);
-      await loadPortal();
-      setMessage("Approval request saved.");
+      const savedApproval = savedRecordFromModuleResponse("/api/portal/approvals", response, approvalDraft);
+      prependDisplayedPortalRecordRefOnly("approvals", savedApproval);
+      onSaved?.(savedApproval);
+      onNotice("Approval request saved.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Approval request could not be saved.");
+      onNotice(error instanceof Error ? error.message : "Approval request could not be saved.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function updateApproval(record: Record<string, unknown>, status: string) {
+  async function updateApproval(
+    record: Record<string, unknown>,
+    status: string,
+    onUpdated?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     const id = recordIdentity(record) || fieldText(record, ["id", "reference"]);
-    setLoading(true);
+    const patch = {
+      status,
+      approved_by: data?.viewer?.display_name || username,
+      approved_at: new Date().toISOString(),
+    };
+    const optimisticRecord = { ...record, ...patch };
+    onUpdated?.(optimisticRecord);
+    onLoading(true);
     try {
-      await apiFetch(`/api/portal/approvals/${encodeURIComponent(id)}`, {
+      const response = await apiFetch<Record<string, unknown>>(`/api/portal/approvals/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
-        body: JSON.stringify({
-          status,
-          approved_by: data?.viewer?.display_name || username,
-          approved_at: new Date().toISOString(),
-        }),
+        body: JSON.stringify(patch),
       });
-      await loadPortal();
-      setMessage(`Approval ${status.toLowerCase()}.`);
+      const updatedApproval = savedRecordFromModuleResponse("/api/portal/approvals", response, optimisticRecord);
+      patchDisplayedPortalRecordRefOnly("approvals", id, updatedApproval);
+      onUpdated?.(updatedApproval);
+      onNotice(`Approval ${status.toLowerCase()}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Approval could not be updated.");
+      onUpdated?.(record);
+      onNotice(error instanceof Error ? error.message : "Approval could not be updated.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function saveDocumentRecord(payload: Record<string, unknown>) {
-    setLoading(true);
+  async function saveDocumentRecord(
+    payload: Record<string, unknown>,
+    onLocalCreate?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
+    onLoading(true);
     try {
-      await apiFetch("/api/portal/documents", {
+      const response = await apiFetch<{ record?: Record<string, unknown>; document?: Record<string, unknown> }>("/api/portal/documents", {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -7627,21 +11446,28 @@ export default function App() {
           uploaded_at: new Date().toISOString(),
         }),
       });
-      setDocumentDraft(emptyDocumentDraft);
-      await loadPortal();
-      setMessage("Document saved to vault.");
+      const savedDocument = response.record || response.document || payload;
+      onLocalCreate?.(savedDocument);
+      prependDisplayedPortalRecordRefOnly("documents", savedDocument);
+      onNotice("Document saved to vault.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Document could not be saved.");
+      onNotice(error instanceof Error ? error.message : "Document could not be saved.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function uploadVaultDocument() {
+  async function uploadVaultDocument(
+    documentDraft: typeof emptyDocumentDraft,
+    onLocalCreate?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     if (Platform.OS !== "web" || typeof document === "undefined") {
-      setMessage("Document upload is available in the web portal.");
+      onNotice("Document upload is available in the web portal.");
       return;
     }
+    onNotice("Choose a PDF, image, Word, or spreadsheet file to upload.");
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "application/pdf,image/*,.doc,.docx,.xls,.xlsx";
@@ -7656,21 +11482,21 @@ export default function App() {
           filename: file.name,
           content_type: file.type || "application/octet-stream",
           data_url: String(reader.result || ""),
-        });
+        }, onLocalCreate, onNotice, onLoading);
       };
       reader.readAsDataURL(file);
     };
     input.click();
   }
 
-  async function saveEscalationRule() {
+  async function saveEscalationRule(escalationDraft: typeof emptyEscalationDraft) {
     if (!escalationDraft.name.trim()) {
       setMessage("Escalation rule needs a name.");
-      return;
+      return null;
     }
     setLoading(true);
     try {
-      await apiFetch("/api/portal/escalation-rules", {
+      const response = await apiFetch<{ record?: Record<string, unknown> }>("/api/portal/escalation-rules", {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -7679,24 +11505,25 @@ export default function App() {
           active: String(escalationDraft.active).toLowerCase() !== "false",
         }),
       });
-      setEscalationDraft(emptyEscalationDraft);
-      await loadPortal();
+      refreshPortalCache();
       setMessage("Escalation rule saved.");
+      return response.record || null;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Escalation rule could not be saved.");
+      return null;
     } finally {
       setLoading(false);
     }
   }
 
-  async function saveConversation() {
+  async function saveConversation(conversationDraft: typeof emptyConversationDraft) {
     if (!conversationDraft.customer.trim() && !conversationDraft.message.trim()) {
       setMessage("Conversation needs a customer or message.");
-      return;
+      return null;
     }
     setLoading(true);
     try {
-      await apiFetch("/api/portal/conversations", {
+      const response = await apiFetch<{ record?: Record<string, unknown> }>("/api/portal/conversations", {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -7705,20 +11532,21 @@ export default function App() {
           owner: data?.viewer?.display_name || username,
         }),
       });
-      setConversationDraft(emptyConversationDraft);
-      await loadPortal();
+      refreshPortalCache();
       setMessage("Conversation saved.");
+      return response.record || null;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Conversation could not be saved.");
+      return null;
     } finally {
       setLoading(false);
     }
   }
 
-  async function saveIntelligenceRecord(route: string, payload: Record<string, unknown>, reset: () => void, success: string) {
+  async function saveIntelligenceRecord(route: string, payload: Record<string, unknown>, reset: (() => void) | undefined, success: string) {
     setLoading(true);
     try {
-      await apiFetch(`/api/portal/${route}`, {
+      const response = await apiFetch<{ record?: Record<string, unknown> }>(`/api/portal/${route}`, {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -7727,11 +11555,13 @@ export default function App() {
           recorded_at: new Date().toISOString(),
         }),
       });
-      reset();
-      await loadPortal();
+      reset?.();
+      refreshPortalCache();
       setMessage(success);
+      return response.record || null;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : `${success} failed.`);
+      return null;
     } finally {
       setLoading(false);
     }
@@ -7749,6 +11579,7 @@ export default function App() {
       visited_by: data?.viewer?.display_name || username,
     });
     setSiteVisitEditorOpen(true);
+    setMessage(`Site visit editor opened for ${customer.name || customer.id}.`);
   }
 
   function openSiteVisitForCrmOption(customer: { id: string; name: string; phone?: string; address?: string; source_inquiry_id?: string }) {
@@ -7764,23 +11595,26 @@ export default function App() {
       visited_by: data?.viewer?.display_name || username,
     });
     setSiteVisitEditorOpen(true);
+    setMessage(`Site visit editor opened for ${customer.name || customer.id}.`);
   }
 
   function openSiteVisitForInquiry(record: Record<string, unknown>) {
     const customerId = String(record.customer_id || record.id || record.enquiry_no || "");
     const enquiryNo = String(record.enquiry_no || record.source_enquiry_no || "");
+    const customerName = String(record.customer || record.lead_name || record.name || customerId || "CRM enquiry");
     setSiteVisitDraft({
       ...emptySiteVisit,
       customer_id: customerId,
-      customer_name: String(record.customer || record.lead_name || record.name || ""),
+      customer_name: customerName,
       address: String(record.address || record.site_address || record.site || ""),
-      site_person_name: String(record.customer || record.lead_name || record.name || ""),
+      site_person_name: customerName,
       site_person_mobile: String(record.phone || record.whatsapp_no || ""),
       site_enquiry_no: enquiryNo,
       site_visit_date: new Date().toISOString().slice(0, 10),
       visited_by: data?.viewer?.display_name || username,
     });
     setSiteVisitEditorOpen(true);
+    setMessage(`Site visit editor opened for ${customerName}.`);
   }
 
   function openExistingSiteVisit(visit: SiteVisit) {
@@ -7788,11 +11622,15 @@ export default function App() {
     setSiteVisitEditorOpen(true);
   }
 
-  function renderSiteVisitEditorModal() {
-    const linkedCustomer = siteVisitDraft.customer_id ? crmCustomerForSiteVisit(siteVisitDraft as Record<string, unknown>) : undefined;
+  function renderSiteVisitEditorModal(siteVisitDraftState: SiteVisitDraftState) {
     const modalSiteVisits = data?.site_visits || [];
     const modalSiteVisitListKey = "site-visit-modal-saved";
     return (
+      <LocalImperativeToggle controllerRef={siteVisitEditorOpenRef}>
+        {(siteVisitEditorOpen, setSiteVisitEditorOpen) => {
+      const siteVisitDraft = siteVisitEditorOpen ? siteVisitDraftRef.current : siteVisitDraftState.siteVisitDraft;
+      const linkedCustomer = siteVisitDraft.customer_id ? crmCustomerForSiteVisit(siteVisitDraft as Record<string, unknown>) : undefined;
+      return (
       <Modal visible={siteVisitEditorOpen} transparent animationType="fade" onRequestClose={() => setSiteVisitEditorOpen(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -7804,7 +11642,7 @@ export default function App() {
                   {linkedCustomer ? ` - ${linkedCustomer.name}${linkedCustomer.address ? ` - ${linkedCustomer.address}` : ""}` : " - select from CRM"}
                 </Text>
               </View>
-              <Pressable style={styles.secondaryButton} onPress={() => setSiteVisitEditorOpen(false)} disabled={loading}>
+              <Pressable style={styles.secondaryButton} onPress={() => { setSiteVisitEditorOpen(false); setMessage("Site visit editor closed."); }} disabled={loading}>
                 <Text style={styles.secondaryButtonText}>Close</Text>
               </Pressable>
             </View>
@@ -7819,18 +11657,22 @@ export default function App() {
                 />
               </View>
               <View style={styles.formGrid}>
-                {siteVisitFields.map((field) => (
+                {siteVisitFields.map((field) => {
+                  const drivesOpeningRows = field.key === "site_stops" || field.key === "site_number_of_openings";
+                  const fieldValue = String(siteVisitDraft[field.key] || "");
+                  return (
                   <View key={`site-modal-${String(field.key)}`} style={styles.field}>
                     <Text style={styles.label}>{field.label}</Text>
                     <TextInput
                       style={[styles.input, field.multiline && styles.textarea]}
-                      value={String(siteVisitDraft[field.key] || "")}
+                      {...(drivesOpeningRows ? { controlled: true, value: fieldValue } : { defaultValue: fieldValue })}
                       onChangeText={(value) => updateSiteVisitField(field.key, value)}
                       keyboardType={field.keyboard || "default"}
                       multiline={field.multiline}
                     />
                   </View>
-                ))}
+                  );
+                })}
               </View>
               <View style={styles.openingSchedulePanel}>
                 <View style={styles.sectionHeaderRow}>
@@ -7845,15 +11687,15 @@ export default function App() {
                     <View key={`opening-schedule-${index}`} style={styles.openingScheduleRow}>
                       <View style={styles.openingScheduleField}>
                         <Text style={styles.label}>Floor</Text>
-                        <TextInput style={styles.input} value={row.floor} onChangeText={(value) => updateOpeningScheduleRow(index, "floor", value)} />
+                        <TextInput style={styles.input} defaultValue={row.floor} onChangeText={(value) => updateOpeningScheduleRow(index, "floor", value)} />
                       </View>
                       <View style={styles.openingScheduleField}>
                         <Text style={styles.label}>FF height mm</Text>
-                        <TextInput style={styles.input} value={row.ff_height_mm} onChangeText={(value) => updateOpeningScheduleRow(index, "ff_height_mm", value)} keyboardType="numeric" />
+                        <TextInput style={styles.input} defaultValue={row.ff_height_mm} onChangeText={(value) => updateOpeningScheduleRow(index, "ff_height_mm", value)} keyboardType="numeric" />
                       </View>
                       <View style={styles.openingScheduleField}>
                         <Text style={styles.label}>Lintel height mm</Text>
-                        <TextInput style={styles.input} value={row.lintel_height_mm} onChangeText={(value) => updateOpeningScheduleRow(index, "lintel_height_mm", value)} keyboardType="numeric" />
+                        <TextInput style={styles.input} defaultValue={row.lintel_height_mm} onChangeText={(value) => updateOpeningScheduleRow(index, "lintel_height_mm", value)} keyboardType="numeric" />
                       </View>
                     </View>
                   ))
@@ -7865,16 +11707,19 @@ export default function App() {
               </View>
             </ScrollView>
             <View style={styles.modalActions}>
-              <Pressable style={styles.secondaryButton} onPress={() => setSiteVisitEditorOpen(false)} disabled={loading}>
+              <Pressable style={styles.secondaryButton} onPress={() => { setSiteVisitEditorOpen(false); setMessage("Site visit edit cancelled."); }} disabled={loading}>
                 <Text style={styles.secondaryButtonText}>Cancel</Text>
               </Pressable>
-              <Pressable style={styles.primaryButtonInline} onPress={saveSiteVisit} disabled={loading || !siteVisitDraft.customer_id}>
+              <Pressable style={styles.primaryButtonInline} onPress={() => saveSiteVisit(siteVisitDraftRef.current)} disabled={loading}>
                 <Text style={styles.primaryButtonText}>{siteVisitDraft.id ? "Update site visit report" : "Save site visit report"}</Text>
               </Pressable>
             </View>
           </View>
         </View>
       </Modal>
+      );
+        }}
+      </LocalImperativeToggle>
     );
   }
 
@@ -7958,7 +11803,8 @@ export default function App() {
     }));
   }
 
-  function renderOfferMeasurementSection() {
+  function renderOfferMeasurementSection(offerDraftState: OfferDraftState) {
+    const { offerDraft } = offerDraftState;
     const linkedSiteVisits = siteVisitsForCustomerId(offerDraft.customer_id);
     const offerSiteVisitListKey = `offer-site-visits-${offerDraft.customer_id || "none"}`;
     const measurementFields = [
@@ -8014,9 +11860,9 @@ export default function App() {
               <Text style={styles.label}>{label}</Text>
               <TextInput
                 style={styles.input}
-                value={String(offerDraft[key] || "")}
+                defaultValue={String(offerDraft[key] || "")}
                 editable={key !== "site_visit_id"}
-                onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, [key]: value }))}
+                onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, [key]: value }; }}
                 keyboardType={["pit_size_mm", "site_stops", "site_number_of_openings", "door_size_width_mm", "door_size_height_mm", "car_size_width_mm", "car_size_depth_mm", "site_capacity_persons", "site_capacity_kg", "shaft_width_mm", "shaft_depth_mm", "civil_door_height_mm"].includes(key) ? "numeric" : "default"}
               />
             </View>
@@ -8024,11 +11870,11 @@ export default function App() {
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>Floor height profile</Text>
-          <TextInput style={[styles.input, styles.textarea]} value={String(offerDraft.floor_height_profile || "")} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, floor_height_profile: value }))} multiline />
+          <TextInput style={[styles.input, styles.textarea]} defaultValue={String(offerDraft.floor_height_profile || "")} onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, floor_height_profile: value }; }} multiline />
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>Opening schedule summary</Text>
-          <TextInput style={[styles.input, styles.textarea]} value={String(offerDraft.opening_schedule_summary || "")} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, opening_schedule_summary: value }))} multiline />
+          <TextInput style={[styles.input, styles.textarea]} defaultValue={String(offerDraft.opening_schedule_summary || "")} onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, opening_schedule_summary: value }; }} multiline />
         </View>
       </View>
     );
@@ -8037,44 +11883,52 @@ export default function App() {
   function addInventoryItemToOffer(item: Record<string, unknown>) {
     const id = recordIdentity(item) || String(item.id || item.name || item.item || "");
     const price = inventoryPrice(item);
-    setOfferDraft((draft) => {
-      const currentLines = offerInventoryLines(draft);
-      const existingIndex = currentLines.findIndex((line) => String(line.item_id || "") === id);
-      const nextLines = existingIndex >= 0
-        ? currentLines.map((line, index) => index === existingIndex ? { ...line, qty: String((offerNumber(line.qty, 1) || 1) + 1) } : line)
-        : [
-            ...currentLines,
-            {
-              item_id: id,
-              name: String(item.name || item.item || id),
-              description: String(item.description || item.specification || item.notes || ""),
-              category: String(item.category || ""),
-              unit: String(item.unit || "pcs"),
-              qty: "1",
-              actual: "",
-              current_price: String(price || ""),
-              purchase_price: String(item.purchase_price || item.unit_cost || ""),
-              price_date: String(item.price_date || item.last_updated || item.updated_at || ""),
-              vendor: String(item.vendor || ""),
-            },
-          ];
-      const materialTotal = offerInventoryTotal({ inventory_items: nextLines });
-      return {
-        ...draft,
-        inventory_items: nextLines,
-        inventory_material_total: String(materialTotal),
-        inventory_pricing_source: `Inventory prices from ${new Date().toISOString().slice(0, 10)}`,
-        material_cost: String(materialTotal),
-      };
-    });
+    const itemName = String(item.name || item.item || id || "Inventory item");
+    const currentDraft = offerDraftRef.current;
+    const currentLines = offerInventoryLines(currentDraft);
+    const existingIndex = currentLines.findIndex((line) => String(line.item_id || "") === id || normalizedOfferInventoryName(line.name) === normalizedOfferInventoryName(itemName));
+    const quantityIncreased = existingIndex >= 0;
+    const nextLines = existingIndex >= 0
+      ? currentLines.map((line, index) => index === existingIndex ? { ...line, qty: String((offerNumber(line.qty, 1) || 1) + 1) } : line)
+      : [
+          ...currentLines,
+          {
+            item_id: id,
+            name: itemName,
+            description: String(item.description || item.specification || item.notes || ""),
+            category: String(item.category || ""),
+            unit: String(item.unit || "pcs"),
+            qty: "1",
+            actual: "",
+            current_price: String(price || ""),
+            purchase_price: String(item.purchase_price || item.unit_cost || ""),
+            price_date: String(item.price_date || item.last_updated || item.updated_at || ""),
+            vendor: String(item.vendor || ""),
+          },
+        ];
+    const materialTotal = offerInventoryTotal({ inventory_items: nextLines });
+    offerDraftRef.current = {
+      ...currentDraft,
+      inventory_items: nextLines,
+      inventory_material_total: String(materialTotal),
+      inventory_pricing_source: `Inventory prices from ${new Date().toISOString().slice(0, 10)}`,
+      material_cost: String(materialTotal),
+    };
+    setOfferDraft(offerDraftRef.current);
+    setMessage(quantityIncreased ? `${itemName} quantity increased in offer.` : `${itemName} added to offer inventory.`);
   }
 
-  function updateOfferInventoryLine(index: number, patch: Record<string, string>) {
-    setOfferDraft((draft) => {
-      const nextLines = offerInventoryLines(draft).map((line, lineIndex) => lineIndex === index ? { ...line, ...patch } : line);
-      const materialTotal = offerInventoryTotal({ inventory_items: nextLines });
-      return { ...draft, inventory_items: nextLines, inventory_material_total: String(materialTotal), material_cost: String(materialTotal) };
-    });
+  function updateOfferInventoryLineRefOnly(index: number, patch: Record<string, string>, offerDraftState?: OfferDraftState) {
+    const nextLines = offerInventoryLines(offerDraftRef.current).map((line, lineIndex) => lineIndex === index ? { ...line, ...patch } : line);
+    const materialTotal = offerInventoryTotal({ inventory_items: nextLines });
+    const nextDraft = {
+      ...offerDraftRef.current,
+      inventory_items: nextLines,
+      inventory_material_total: String(materialTotal),
+      material_cost: String(materialTotal),
+    };
+    offerDraftRef.current = nextDraft;
+    offerDraftState?.setOfferDraftDelayed?.(nextDraft);
   }
 
   function removeOfferInventoryLine(index: number) {
@@ -8085,13 +11939,15 @@ export default function App() {
     });
   }
 
-  function renderOfferInventorySection() {
+  function renderOfferInventorySection(offerDraftState: OfferDraftState) {
+    const { offerDraft, offerDraftRef } = offerDraftState;
+    const liveOfferDraft = offerDraftRef.current || offerDraft;
     const inventory = asRecords(data?.inventory);
-    const selectedLineEntries = offerInventoryLines(offerDraft)
+    const selectedLineEntries = offerInventoryLines(liveOfferDraft)
       .map((line, originalIndex) => ({ line, originalIndex }))
       .filter(({ line }) => isOfferInventoryItemAllowed(line));
     const selectedLines = selectedLineEntries.map(({ line }) => line);
-    const materialTotal = offerInventoryTotal(offerDraft);
+    const materialTotal = offerInventoryTotal(liveOfferDraft);
     const pricedInventory = offerInventoryItemNames
       .map((name) => inventory.find((item) => normalizedOfferInventoryName(item.name || item.item || item.item_id) === normalizedOfferInventoryName(name)) || { id: name, name, unit: name === "Guide rail" ? "length" : "pcs" })
       .filter((item) => String(item.name || item.item || "").trim())
@@ -8126,35 +11982,47 @@ export default function App() {
           </View>
         )}
         {limitedItems(offerInventoryLinesListKey, selectedLineEntries).map(({ line, originalIndex }) => {
+          const lineName = String(line.name || "Inventory line");
           return (
-            <View key={`offer-inventory-line-${String(line.item_id || originalIndex)}`} style={styles.openingScheduleRow}>
-              <View style={styles.openingScheduleField}>
-                <Text style={styles.label}>Item</Text>
-                <TextInput style={styles.input} value={String(line.name || "")} onChangeText={(value) => updateOfferInventoryLine(originalIndex, { name: value })} />
+            <View key={`offer-inventory-line-${String(line.item_id || originalIndex)}`} style={styles.offerInventoryEditor}>
+              <View style={styles.sectionHeaderRow}>
+                <View>
+                  <Text style={styles.cardLabel}>Modify entry</Text>
+                  <Text style={styles.cardTitle}>{lineName}</Text>
+                </View>
+                <Text style={styles.statusPill}>{formatMoney(offerNumber(line.current_price) * offerInventoryActualQuantity(line))}</Text>
               </View>
-              <View style={styles.openingScheduleField}>
-                <Text style={styles.label}>Description</Text>
-                <TextInput style={styles.input} value={String(line.description || "")} onChangeText={(value) => updateOfferInventoryLine(originalIndex, { description: value })} />
+              <View style={styles.offerInventoryEditorGrid}>
+                <View style={styles.offerInventoryEditorField}>
+                  <Text style={styles.label}>Item</Text>
+                  <TextInput style={styles.offerInventoryInput} defaultValue={lineName} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { name: value }, offerDraftState)} />
+                </View>
+                <View style={styles.offerInventoryEditorFieldWide}>
+                  <Text style={styles.label}>Description</Text>
+                  <TextInput style={styles.offerInventoryInput} defaultValue={String(line.description || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { description: value }, offerDraftState)} />
+                </View>
+                <View style={styles.offerInventoryEditorField}>
+                  <Text style={styles.label}>Unit</Text>
+                  <TextInput style={styles.offerInventoryInput} defaultValue={String(line.unit || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { unit: value }, offerDraftState)} />
+                </View>
+                <View style={styles.offerInventoryEditorField}>
+                  <Text style={styles.label}>QTY</Text>
+                  <TextInput style={styles.offerInventoryInput} defaultValue={String(line.qty || "1")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { qty: value }, offerDraftState)} keyboardType="numeric" />
+                </View>
+                <View style={styles.offerInventoryEditorField}>
+                  <Text style={styles.label}>Current price</Text>
+                  <TextInput style={styles.offerInventoryInput} defaultValue={String(line.current_price || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { current_price: value }, offerDraftState)} keyboardType="numeric" />
+                </View>
+                <View style={styles.offerInventoryEditorField}>
+                  <Text style={styles.label}>Actual</Text>
+                  <TextInput style={styles.offerInventoryInput} defaultValue={String(line.actual || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { actual: value }, offerDraftState)} keyboardType="numeric" />
+                </View>
               </View>
-              <View style={styles.openingScheduleField}>
-                <Text style={styles.label}>Unit</Text>
-                <TextInput style={styles.input} value={String(line.unit || "")} onChangeText={(value) => updateOfferInventoryLine(originalIndex, { unit: value })} />
+              <View style={styles.inlineActions}>
+                <Pressable style={styles.smallButton} onPress={() => removeOfferInventoryLine(originalIndex)} disabled={loading}>
+                  <Text style={styles.smallButtonText}>Remove</Text>
+                </Pressable>
               </View>
-              <View style={styles.openingScheduleField}>
-                <Text style={styles.label}>QTY</Text>
-                <TextInput style={styles.input} value={String(line.qty || "1")} onChangeText={(value) => updateOfferInventoryLine(originalIndex, { qty: value })} keyboardType="numeric" />
-              </View>
-              <View style={styles.openingScheduleField}>
-                <Text style={styles.label}>Current price</Text>
-                <TextInput style={styles.input} value={String(line.current_price || "")} onChangeText={(value) => updateOfferInventoryLine(originalIndex, { current_price: value })} keyboardType="numeric" />
-              </View>
-              <View style={styles.openingScheduleField}>
-                <Text style={styles.label}>Actual</Text>
-                <TextInput style={styles.input} value={String(line.actual || "")} onChangeText={(value) => updateOfferInventoryLine(originalIndex, { actual: value })} keyboardType="numeric" />
-              </View>
-              <Pressable style={styles.smallButton} onPress={() => removeOfferInventoryLine(originalIndex)} disabled={loading}>
-                <Text style={styles.smallButtonText}>Remove</Text>
-              </Pressable>
             </View>
           );
         })}
@@ -8164,8 +12032,15 @@ export default function App() {
     );
   }
 
-  function renderOfferEditorModal() {
+  function renderOfferEditorModal(offerDraftState: OfferDraftState) {
     return (
+      <LocalImperativeToggle controllerRef={costingEditorOpenRef}>
+        {(costingEditorOpen, setCostingEditorOpen) => (
+          <OfferDraftModalRenderBoundary controllerRef={offerDraftControllerRef} draftRef={offerDraftRef}>
+            {(liveOfferDraftState) => {
+      const currentOfferDraftState = costingEditorOpen ? liveOfferDraftState : offerDraftState;
+      const offerDraft = currentOfferDraftState.offerDraft;
+      return (
       <Modal visible={costingEditorOpen} transparent animationType="fade" onRequestClose={() => setCostingEditorOpen(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -8174,7 +12049,7 @@ export default function App() {
                 <Text style={styles.cardLabel}>Offer Manager</Text>
                 <Text style={styles.muted}>Customer ID: {offerDraft.customer_id || "-"}</Text>
               </View>
-              <Pressable style={styles.secondaryButton} onPress={() => setCostingEditorOpen(false)} disabled={loading}>
+              <Pressable style={styles.secondaryButton} onPress={() => { setCostingEditorOpen(false); setMessage("Offer editor closed."); }} disabled={loading}>
                 <Text style={styles.secondaryButtonText}>Close</Text>
               </Pressable>
             </View>
@@ -8213,17 +12088,17 @@ export default function App() {
                     <Text style={styles.label}>{label}</Text>
                     <TextInput
                       style={styles.input}
-                      value={String(offerDraft[key] || "")}
+                      defaultValue={String(offerDraft[key] || "")}
                       editable={key !== "customer_id"}
                       placeholder={key === "job_no" ? "Auto-generated on save" : undefined}
-                      onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, [key]: key === "customer_name" ? value : value, ...(key === "customer_name" ? { offer_name: value } : {}) }))}
+                      onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, [key]: value, ...(key === "customer_name" ? { offer_name: value } : {}) }; }}
                       keyboardType={["material_cost", "install_cost", "overhead_cost", "margin_percent", "discount", "gst_percent", "total_cost"].includes(key) ? "numeric" : "default"}
                     />
                   </View>
                 ))}
               </View>
-              {renderOfferMeasurementSection()}
-              {renderOfferInventorySection()}
+              {renderOfferMeasurementSection(currentOfferDraftState)}
+              {renderOfferInventorySection(currentOfferDraftState)}
               <View style={styles.linkedSystemsPanel}>
                 <Text style={styles.cardLabel}>Client offer preview</Text>
                 <Text style={styles.metricValue}>{formatMoney(offerCostSummary(offerDraft).totalCost)}</Text>
@@ -8232,68 +12107,103 @@ export default function App() {
               <View style={styles.formGrid}>
                 <View style={styles.field}>
                   <Text style={styles.label}>Payment terms</Text>
-                  <TextInput style={[styles.input, styles.textarea]} value={offerDraft.payment_terms} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, payment_terms: value }))} multiline />
+                  <TextInput style={[styles.input, styles.textarea]} defaultValue={offerDraft.payment_terms} onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, payment_terms: value }; }} multiline />
                 </View>
                 <View style={styles.field}>
                   <Text style={styles.label}>Delivery timeline</Text>
-                  <TextInput style={[styles.input, styles.textarea]} value={offerDraft.delivery_timeline} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, delivery_timeline: value }))} multiline />
+                  <TextInput style={[styles.input, styles.textarea]} defaultValue={offerDraft.delivery_timeline} onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, delivery_timeline: value }; }} multiline />
                 </View>
                 <View style={styles.field}>
                   <Text style={styles.label}>Warranty terms</Text>
-                  <TextInput style={[styles.input, styles.textarea]} value={offerDraft.warranty_terms} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, warranty_terms: value }))} multiline />
+                  <TextInput style={[styles.input, styles.textarea]} defaultValue={offerDraft.warranty_terms} onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, warranty_terms: value }; }} multiline />
                 </View>
               </View>
               <View style={styles.field}>
                 <Text style={styles.label}>Internal costing notes</Text>
-                <TextInput style={[styles.input, styles.textarea]} value={offerDraft.notes} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, notes: value }))} multiline />
+                <TextInput style={[styles.input, styles.textarea]} defaultValue={offerDraft.notes} onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, notes: value }; }} multiline />
               </View>
             </ScrollView>
             <View style={styles.modalActions}>
-              <Pressable style={styles.secondaryButton} onPress={() => setCostingEditorOpen(false)} disabled={loading}>
+              <Pressable style={styles.secondaryButton} onPress={() => { setCostingEditorOpen(false); setMessage("Offer edit cancelled."); }} disabled={loading}>
                 <Text style={styles.secondaryButtonText}>Cancel</Text>
               </Pressable>
-              <Pressable style={styles.primaryButtonInline} onPress={saveOffer} disabled={loading || !offerDraft.customer_id.trim() || !offerDraft.customer_name.trim()}>
+              <Pressable style={styles.primaryButtonInline} onPress={() => saveOffer(offerDraftRef.current)} disabled={loading}>
                 <Text style={styles.primaryButtonText}>Save offer</Text>
               </Pressable>
             </View>
           </View>
         </View>
       </Modal>
+      );
+        }}
+          </OfferDraftModalRenderBoundary>
+        )}
+      </LocalImperativeToggle>
     );
   }
 
-  function renderOfferManagerPage() {
+  function renderOfferManagerPage(offerManagerState: OfferManagerState, offerDraftState: OfferDraftState) {
+    const { offerCustomerSearch, offerCustomerOfferFilter, setOfferCustomerSearch, setOfferCustomerOfferFilter } = offerManagerState;
     const offers = [...asRecords(data?.estimates)].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
     const customers = [...(data?.customers || [])].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
     const customerOptions = offerCustomerOptions();
+    const offersByCustomerId = new Map<string, Array<Record<string, unknown>>>();
+    const offersByInquiryId = new Map<string, Array<Record<string, unknown>>>();
+    const offersByNameKey = new Map<string, Array<Record<string, unknown>>>();
+    const addOfferIndex = (map: Map<string, Array<Record<string, unknown>>>, key: string, offer: Record<string, unknown>) => {
+      if (!key) return;
+      const list = map.get(key);
+      if (list) list.push(offer);
+      else map.set(key, [offer]);
+    };
+    offers.forEach((offer) => {
+      addOfferIndex(offersByCustomerId, String(offer.customer_id || ""), offer);
+      addOfferIndex(offersByInquiryId, String(offer.source_inquiry_id || offer.enquiry_no || offer.source_enquiry_no || ""), offer);
+      addOfferIndex(offersByNameKey, crmNameKey(offer.customer_name || offer.offer_name || offer.customer), offer);
+    });
     const offersForCustomerOption = (customer: { id: string; name: string; record: Record<string, unknown> }) => {
       const customerId = String(customer.id || "");
       const sourceInquiryId = String(customer.record.source_inquiry_id || customer.record.enquiry_no || customer.record.id || "");
       const nameKey = crmNameKey(customer.name);
-      return offers.filter((offer) => {
-        const offerCustomerId = String(offer.customer_id || "");
-        const offerInquiryId = String(offer.source_inquiry_id || offer.enquiry_no || offer.source_enquiry_no || "");
-        const offerNameKey = crmNameKey(offer.customer_name || offer.offer_name || offer.customer);
-        return Boolean(
-          (customerId && offerCustomerId && customerId === offerCustomerId) ||
-          (sourceInquiryId && offerInquiryId && sourceInquiryId === offerInquiryId) ||
-          (nameKey && offerNameKey && nameKey === offerNameKey)
-        );
+      const seen = new Set<string>();
+      return [
+        ...(customerId ? offersByCustomerId.get(customerId) || [] : []),
+        ...(sourceInquiryId ? offersByInquiryId.get(sourceInquiryId) || [] : []),
+        ...(nameKey ? offersByNameKey.get(nameKey) || [] : []),
+      ].filter((offer, index) => {
+        const id = recordIdentity(offer) || String(offer.job_no || offer.estimate_id || offer.id || index);
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
       });
     };
     const activeOffers = offers.filter((offer) => !String(offer.status || offer.lead_status || "").toLowerCase().includes("lost"));
     const measurementReadyRecords = customerOptions.filter((customer) => siteVisitsForOfferRecord(customer.record).length);
     const offerCustomerQuery = offerCustomerSearch.trim().toLowerCase();
-    const filteredOfferCustomers = customerOptions
-      .filter((customer) => !offerCustomerQuery || `${customer.id || ""} ${customer.name || ""} ${customer.phone || ""} ${customer.address || ""} ${customer.source || ""}`.toLowerCase().includes(offerCustomerQuery))
-      .filter((customer) => {
+    const offerCustomerListKey = "offer-customers";
+    const offerCustomerVisibleLimit = visibleListLimit(offerCustomerListKey);
+    const offerCustomerMatches = (customer: { id: string; name: string; phone: string; address: string; source: string; record: Record<string, unknown> }) => {
+      if (offerCustomerQuery && !`${customer.id || ""} ${customer.name || ""} ${customer.phone || ""} ${customer.address || ""} ${customer.source || ""}`.toLowerCase().includes(offerCustomerQuery)) {
+        return false;
+      }
+      if (offerCustomerOfferFilter !== "All") {
         const count = offersForCustomerOption(customer).length;
         if (offerCustomerOfferFilter === "No offers") return count === 0;
         if (offerCustomerOfferFilter === "Has offers") return count > 0;
-        return true;
-      });
-    const offerCustomerListKey = "offer-customers";
-    const visibleOfferCustomers = filteredOfferCustomers.slice(0, listVisibleCount(offerCustomerListKey, filteredOfferCustomers.length));
+      }
+      return true;
+    };
+    const collectVisibleOfferCustomers = () => {
+      let total = 0;
+      const visible: typeof customerOptions = [];
+      for (const customer of customerOptions) {
+        if (!offerCustomerMatches(customer)) continue;
+        total += 1;
+        if (visible.length < offerCustomerVisibleLimit) visible.push(customer);
+      }
+      return { total, visible };
+    };
+    const { total: totalOfferCustomers, visible: visibleOfferCustomers } = collectVisibleOfferCustomers();
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -8331,7 +12241,7 @@ export default function App() {
               <Text style={styles.cardTitle}>Choose the CRM record</Text>
               <Text style={styles.muted}>The selected customer or enquiry opens the offer form with CRM details and the latest linked site visit measurements already filled where available.</Text>
             </View>
-            <Text style={styles.statusPill}>{filteredOfferCustomers.length} matching records</Text>
+            <Text style={styles.statusPill}>{totalOfferCustomers} matching records</Text>
           </View>
           {!customerOptions.length && <Text style={styles.muted}>No CRM customers or enquiries are available yet.</Text>}
           {!!customerOptions.length && (
@@ -8353,7 +12263,7 @@ export default function App() {
                   style={[styles.smallButton, offerCustomerOfferFilter === filter && styles.selectorPillActive]}
                   onPress={() => {
                     setOfferCustomerOfferFilter(filter);
-                    setOfferCustomerPage(1);
+                    setMessage(`Offer customer filter set to ${filter === "All" ? "All CRM records" : filter}.`);
                   }}
                   disabled={loading}
                 >
@@ -8362,7 +12272,7 @@ export default function App() {
               ))}
             </View>
           )}
-          {!!filteredOfferCustomers.length && <Text style={styles.muted}>Showing {visibleOfferCustomers.length} of {filteredOfferCustomers.length} CRM records</Text>}
+          {!!totalOfferCustomers && <Text style={styles.muted}>Showing {visibleOfferCustomers.length} of {totalOfferCustomers} CRM records</Text>}
           <View style={styles.formGrid}>
             {visibleOfferCustomers.map((customer) => {
               const visits = siteVisitsForOfferRecord(customer.record);
@@ -8441,18 +12351,31 @@ export default function App() {
                 </View>
               );
             })}
-            {!!customerOptions.length && !filteredOfferCustomers.length && (
+            {!!customerOptions.length && !totalOfferCustomers && (
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>No CRM records match that search</Text>
                 <Text style={styles.muted}>Clear the search or add the customer/enquiry in CRM first.</Text>
               </View>
             )}
-            {renderListControls(offerCustomerListKey, filteredOfferCustomers.length)}
+            {renderListControls(offerCustomerListKey, totalOfferCustomers)}
           </View>
         </View>
 
-        {renderOfferEditorModal()}
+        {renderOfferEditorModal(offerDraftState)}
       </View>
+    );
+  }
+
+  function renderOfferManagerBoundary() {
+    return (
+      <OfferManagerStateBoundary>
+        {(offerManagerState) => renderOfferManagerPage(offerManagerState, {
+          offerDraft: offerDraftRef.current,
+          offerDraftRef,
+          setOfferDraft,
+          setOfferDraftRefOnly,
+        })}
+      </OfferManagerStateBoundary>
     );
   }
 
@@ -8504,7 +12427,7 @@ export default function App() {
     const critical = actions.filter((item) => item.priority === 1);
     const todayDue = actions.filter((item) => item.date && item.date <= new Date().toISOString().slice(0, 10));
     const todayListKey = "today-priority";
-    const visibleActions = actions.slice(0, listVisibleCount(todayListKey, actions.length));
+    const { total: actionsCount, visible: visibleActions } = collectVisibleItems(todayListKey, actions);
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -8520,9 +12443,9 @@ export default function App() {
         </View>
         <Text style={styles.sectionTitle}>Priority List</Text>
         <View style={styles.analyticsPanel}>
-          {!actions.length && <Text style={styles.muted}>Nothing urgent is queued from the loaded records.</Text>}
+          {!actionsCount && <Text style={styles.muted}>Nothing urgent is queued from the loaded records.</Text>}
           {visibleActions.map((item) => (
-            <Pressable key={item.id} style={[styles.analyticsRow, item.priority === 1 && styles.alertCard]} onPress={() => setActiveTab(item.tab)}>
+            <Pressable key={item.id} style={[styles.analyticsRow, item.priority === 1 && styles.alertCard]} onPress={() => { setActiveTab(item.tab); setMessage(`Opening ${item.label} from Today.`); }}>
               <View style={styles.analyticsRowHeader}>
                 <View style={styles.cardTitleBlock}>
                   <Text style={styles.cardLabel}>{item.label}</Text>
@@ -8533,7 +12456,7 @@ export default function App() {
               <Text style={styles.muted}>{item.detail}</Text>
             </Pressable>
           ))}
-          {renderListControls(todayListKey, actions.length)}
+          {renderListControls(todayListKey, actionsCount)}
         </View>
       </View>
     );
@@ -8867,12 +12790,65 @@ export default function App() {
     };
   }
 
-  function renderCommandIntelligencePage() {
+  function renderCommandIntelligencePage(intelligenceDrafts: IntelligenceDrafts, communicationDrafts: CommandCommunicationDraftState) {
+    const {
+      escalationDraftRef,
+      conversationDraftRef,
+      savedEscalationRules,
+      savedConversations,
+      escalationSaveNotice,
+      addSavedEscalationRule,
+      addSavedConversation,
+      setEscalationSaveNotice,
+      setConversationDraft,
+    } = communicationDrafts;
+    const {
+      warrantyDraftRef,
+      dispatchDraftRef,
+      readinessDraftRef,
+      skillDraftRef,
+      handoverDraftRef,
+      liftAssetDraftRef,
+      partsUsageDraftRef,
+      safetyIncidentDraftRef,
+      tenderChecklistDraftRef,
+      amcContractDraftRef,
+      serviceReportDraftRef,
+      dailyBriefDraftRef,
+      savedIntelligenceRecords,
+      addSavedIntelligenceRecord,
+    } = intelligenceDrafts;
     const intel = commandIntelligence();
-    const conversations = asRecords(data?.conversations);
-    const rules = asRecords(data?.escalation_rules);
+    const storedConversations = asRecords(data?.conversations);
+    const savedConversationIds = new Set(savedConversations.map((conversation) => String(conversation.id || "")).filter(Boolean));
+    const conversations = [...savedConversations, ...storedConversations.filter((conversation) => !savedConversationIds.has(String(conversation.id || "")))];
+    const storedRules = asRecords(data?.escalation_rules);
+    const savedRuleIds = new Set(savedEscalationRules.map((rule) => String(rule.id || "")).filter(Boolean));
+    const rules = [...savedEscalationRules, ...storedRules.filter((rule) => !savedRuleIds.has(String(rule.id || "")))];
     const auditLogs = asRecords(data?.audit_logs);
-    const commandItems = <T,>(key: string, items: T[]) => limitedItems(`intelligence-${key}`, items);
+    const mergeSavedRecords = <T extends Record<string, unknown>>(route: string, storedRecords: T[]) => {
+      const savedRecords = savedIntelligenceRecords[route] || [];
+      const savedIds = new Set(savedRecords.map((record) => String(record.id || "")).filter(Boolean));
+      return [...savedRecords, ...storedRecords.filter((record) => !savedIds.has(String(record.id || "")))] as T[];
+    };
+    const saveCommandRecord = (route: string, payload: Record<string, unknown>, reset: (() => void) | undefined, success: string) => {
+      void saveIntelligenceRecord(route, payload, reset, success).then((record) => {
+        if (record) addSavedIntelligenceRecord(route, record);
+      });
+    };
+    const warrantyRows = mergeSavedRecords("warranty-records", intel.warrantyRows);
+    const dispatchRows = mergeSavedRecords("dispatch-records", intel.dispatchRows);
+    const readinessRows = mergeSavedRecords("readiness-checklists", intel.readinessRows);
+    const skillRows = mergeSavedRecords("skill-matrix", intel.skillRows);
+    const handoverRows = mergeSavedRecords("handover-packs", intel.handoverRows);
+    const liftAssetRows = mergeSavedRecords("lift-assets", intel.liftAssetRows);
+    const partsUsageRows = mergeSavedRecords("parts-usage", intel.partsUsageRows);
+    const serviceReportRows = mergeSavedRecords("service-reports", intel.serviceReportRows);
+    const safetyRows = mergeSavedRecords("safety-incidents", intel.safetyRows);
+    const tenderChecklistRows = mergeSavedRecords("tender-checklists", intel.tenderChecklistRows);
+    const amcContractRows = mergeSavedRecords("amc-contracts", intel.amcContractRows);
+    const dailyBriefRows = mergeSavedRecords("daily-briefs", intel.dailyBriefRows);
+    const commandItems = <T,>(key: string, items: T[]) => collectVisibleItems(`intelligence-${key}`, items).visible;
     const commandControls = (key: string, total: number) => renderListControls(`intelligence-${key}`, total);
     return (
       <View>
@@ -8885,7 +12861,7 @@ export default function App() {
         <Text style={styles.sectionTitle}>1. Role-Based Home Dashboards</Text>
         <View style={styles.metricGrid}>
           {commandItems("role-metrics", intel.roleMetrics).map((item) => (
-            <Pressable key={item.label} style={styles.card} onPress={() => setActiveTab(item.tab)}>
+            <Pressable key={item.label} style={styles.card} onPress={() => { setActiveTab(item.tab); setMessage(`Opening ${item.label} dashboard.`); }}>
               <Text style={styles.cardLabel}>{item.label}</Text>
               <Text style={styles.metricValue}>{item.count}</Text>
               <Text style={styles.muted}>{item.detail}</Text>
@@ -8900,18 +12876,32 @@ export default function App() {
             {(["name", "module", "condition", "threshold_minutes", "manager"] as const).map((key) => (
               <View key={key} style={styles.field}>
                 <Text style={styles.label}>{key}</Text>
-                <TextInput style={styles.input} value={escalationDraft[key]} onChangeText={(value) => setEscalationDraft((draft) => ({ ...draft, [key]: value }))} />
+                <TextInput style={styles.input} defaultValue={escalationDraftRef.current[0][key]} onChangeText={(value) => { escalationDraftRef.current[0][key] = value; }} />
               </View>
             ))}
           </View>
-          <Pressable style={styles.primaryButtonInline} onPress={saveEscalationRule} disabled={loading}>
+          <Pressable
+            style={styles.primaryButtonInline}
+            onPress={() => {
+              void saveEscalationRule(escalationDraftRef.current[0]).then((record) => {
+                if (!record) {
+                  setEscalationSaveNotice(messageRef.current[0] || "Escalation rule could not be saved.");
+                  return;
+                }
+                addSavedEscalationRule(record);
+                setEscalationSaveNotice(`Escalation rule ${fieldText(record, ["id", "name"])} saved.`);
+              });
+            }}
+            disabled={loading}
+          >
             <Text style={styles.primaryButtonText}>Save escalation rule</Text>
           </Pressable>
+          {!!escalationSaveNotice && <Text style={styles.statusPill}>{escalationSaveNotice}</Text>}
           <Text style={styles.muted}>{rules.length} saved rule records. {intel.escalationHits.length} live records currently match escalation conditions.</Text>
         </View>
         <View style={styles.analyticsPanel}>
           {commandItems("escalations", intel.escalationHits).map((item) => (
-            <Pressable key={item.key} style={[styles.analyticsRow, styles.alertCard]} onPress={() => setActiveTab(item.tab)}>
+            <Pressable key={item.key} style={[styles.analyticsRow, styles.alertCard]} onPress={() => { setActiveTab(item.tab); setMessage(`Opening escalation target: ${item.title}.`); }}>
               <Text style={styles.cardTitle}>{item.title}</Text>
               <Text style={styles.muted}>{item.detail}</Text>
             </Pressable>
@@ -8923,7 +12913,7 @@ export default function App() {
         <Text style={styles.sectionTitle}>3. Customer 360 Health Score</Text>
         <View style={styles.analyticsPanel}>
           {commandItems("health", intel.healthRows).map((row) => (
-            <Pressable key={`health-${fieldText(row.customer, ["id", "name"])}`} style={row.score < 65 ? [styles.analyticsRow, styles.alertCard] : styles.analyticsRow} onPress={() => { setCrmSearch(fieldText(row.customer, ["id", "name"])); setActiveTab("customers"); }}>
+            <Pressable key={`health-${fieldText(row.customer, ["id", "name"])}`} style={row.score < 65 ? [styles.analyticsRow, styles.alertCard] : styles.analyticsRow} onPress={() => { setCrmSearch(fieldText(row.customer, ["id", "name"])); setActiveTab("customers"); setMessage(`Opening customer health record for ${fieldText(row.customer, ["name"])}.`); }}>
               <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.customer, ["name"])}</Text><Text style={styles.statusPill}>{row.score}/100</Text></View>
               <Text style={styles.muted}>{row.risk} open risk signals across payments, breakdowns, service, and renewals.</Text>
             </Pressable>
@@ -8947,11 +12937,21 @@ export default function App() {
         <View style={styles.formCard}>
           <View style={styles.formGrid}>
             {(["customer", "customer_id", "channel", "subject", "linked_type", "linked_id", "status"] as const).map((key) => (
-              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={conversationDraft[key]} onChangeText={(value) => setConversationDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} defaultValue={conversationDraftRef.current[0][key]} onChangeText={(value) => { conversationDraftRef.current[0] = { ...conversationDraftRef.current[0], [key]: value }; }} /></View>
             ))}
           </View>
-          <TextInput style={[styles.input, styles.textarea]} value={conversationDraft.message} onChangeText={(value) => setConversationDraft((draft) => ({ ...draft, message: value }))} placeholder="Message" multiline />
-          <Pressable style={styles.primaryButtonInline} onPress={saveConversation} disabled={loading}><Text style={styles.primaryButtonText}>Save conversation</Text></Pressable>
+          <TextInput style={[styles.input, styles.textarea]} defaultValue={conversationDraftRef.current[0].message} onChangeText={(value) => { conversationDraftRef.current[0].message = value; }} placeholder="Message" multiline />
+          <Pressable
+            style={styles.primaryButtonInline}
+            onPress={() => {
+              void saveConversation(conversationDraftRef.current[0]).then((record) => {
+                if (record) addSavedConversation(record);
+              });
+            }}
+            disabled={loading}
+          >
+            <Text style={styles.primaryButtonText}>Save conversation</Text>
+          </Pressable>
         </View>
         <View style={styles.analyticsPanel}>
           {commandItems("conversations", conversations).map((item, index) => <View key={`conv-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer", "subject"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["channel"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["linked_type"])} {fieldText(item, ["linked_id"])} - {fieldText(item, ["status"])}</Text><Text style={styles.bodyText}>{fieldText(item, ["message"])}</Text></View>)}
@@ -8989,25 +12989,33 @@ export default function App() {
 
         <Text style={styles.sectionTitle}>6. Smart Auto Assignment</Text>
         <View style={styles.analyticsPanel}>
-          {commandItems("assignments", intel.assignmentRows).map((row) => (
-            <View key={row.key} style={styles.analyticsRow}>
+          {commandItems("assignments", intel.assignmentRows).map((row) => {
+            const targetTab: TabKey = row.type === "Service" ? "service" : row.type === "Site Visit" ? "siteVisits" : "breakdown";
+            return (
+            <Pressable key={row.key} style={styles.analyticsRow} onPress={() => { setActiveTab(targetTab); setMessage(`Opening ${row.type} assignment recommendation.`); }}>
               <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.type}: {fieldText(row.record, ["unit", "job_id", "job_number", "customer"])}</Text><Text style={styles.statusPill}>{row.engineer}</Text></View>
               <Text style={styles.muted}>Suggested from availability, current task, and open workload.</Text>
-            </View>
-          ))}
+            </Pressable>
+            );
+          })}
           {commandControls("assignments", intel.assignmentRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>7. Offer Versioning & Comparison</Text>
         <View style={styles.analyticsPanel}>
-          {commandItems("offer-versions", intel.offerVersions).map((row, index) => <Pressable key={`offer-version-${recordIdentity(row.offer) || index}`} style={styles.analyticsRow} onPress={() => setActiveTab("offerManager")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.offer, ["job_no", "id", "customer_name"])}</Text><Text style={styles.statusPill}>{row.edits.length + 1} versions</Text></View><Text style={styles.muted}>{fieldText(row.offer, ["customer_name", "offer_name"])} - {formatMoney(offerCostSummary(row.offer).totalCost)}</Text></Pressable>)}
+          {commandItems("offer-versions", intel.offerVersions).map((row, index) => <Pressable key={`offer-version-${recordIdentity(row.offer) || index}`} style={styles.analyticsRow} onPress={() => { setActiveTab("offerManager"); setMessage(`Opening offer version history for ${fieldText(row.offer, ["job_no", "id", "customer_name"])}.`); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.offer, ["job_no", "id", "customer_name"])}</Text><Text style={styles.statusPill}>{row.edits.length + 1} versions</Text></View><Text style={styles.muted}>{fieldText(row.offer, ["customer_name", "offer_name"])} - {formatMoney(offerCostSummary(row.offer).totalCost)}</Text></Pressable>)}
           {!intel.offerVersions.length && <Text style={styles.muted}>No offer records are available for version comparison.</Text>}
           {commandControls("offer-versions", intel.offerVersions.length)}
         </View>
 
         <Text style={styles.sectionTitle}>8. Inventory Purchase Planning</Text>
         <View style={styles.analyticsPanel}>
-          {commandItems("purchase-suggestions", intel.purchaseSuggestions).map((row) => <View key={row.key} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.item, ["name", "item", "part_name"])}</Text><Text style={styles.statusPill}>Buy {row.qty}</Text></View><Text style={styles.muted}>Vendor {fieldText(row.item, ["vendor"])} - bin {fieldText(row.item, ["bin_location"])}</Text></View>)}
+          {commandItems("purchase-suggestions", intel.purchaseSuggestions).map((row) => (
+            <Pressable key={row.key} style={styles.analyticsRow} onPress={() => { setActiveTab("inventory"); setMessage(`Opening inventory purchase suggestion for ${fieldText(row.item, ["name", "item", "part_name"])}.`); }}>
+              <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.item, ["name", "item", "part_name"])}</Text><Text style={styles.statusPill}>Buy {row.qty}</Text></View>
+              <Text style={styles.muted}>Vendor {fieldText(row.item, ["vendor"])} - bin {fieldText(row.item, ["bin_location"])}</Text>
+            </Pressable>
+          ))}
           {!intel.purchaseSuggestions.length && <Text style={styles.muted}>No purchase suggestions from current stock thresholds.</Text>}
           {commandControls("purchase-suggestions", intel.purchaseSuggestions.length)}
         </View>
@@ -9022,7 +13030,7 @@ export default function App() {
         <Text style={styles.sectionTitle}>9A. Installation Milestone Tracker</Text>
         <View style={styles.analyticsPanel}>
           {commandItems("installation-milestones", intel.installationMilestoneRows).map((row) => (
-            <Pressable key={row.key} style={styles.analyticsRow} onPress={() => setActiveTab("installations")}>
+            <Pressable key={row.key} style={styles.analyticsRow} onPress={() => { setActiveTab("installations"); setMessage(`Opening installation milestones for ${fieldText(row.job, ["job_id", "id"])}.`); }}>
               <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.job, ["job_id", "id"])} - {fieldText(row.job, ["customer"])}</Text><Text style={styles.statusPill}>{row.completed}/{row.total}</Text></View>
               <Text style={styles.muted}>Next milestone: {row.next} - Status {statusText(row.job) || "Open"}</Text>
             </Pressable>
@@ -9033,7 +13041,17 @@ export default function App() {
 
         <Text style={styles.sectionTitle}>10. Audit Trail Everywhere</Text>
         <View style={styles.analyticsPanel}>
-          {commandItems("audit-logs", auditLogs).map((item, index) => <View key={`audit-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["collection"])} - {fieldText(item, ["action"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["actor"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["record_id"])} - {fieldText(item, ["changed_at"])}</Text><Text style={styles.bodyText}>Before: {String(item.before || item.previous || "-").slice(0, 120)} | After: {String(item.after || item.changes || item.next || "-").slice(0, 120)}</Text></View>)}
+          {commandItems("audit-logs", auditLogs).map((item, index) => {
+            const collection = fieldText(item, ["collection"]).toLowerCase();
+            const targetTab: TabKey = collection.includes("breakdown") ? "breakdown" : collection.includes("service") ? "service" : collection.includes("install") ? "installations" : collection.includes("inventory") ? "inventory" : collection.includes("estimate") || collection.includes("offer") ? "offerManager" : "backoffice";
+            return (
+              <Pressable key={`audit-${recordIdentity(item) || index}`} style={styles.analyticsRow} onPress={() => { setActiveTab(targetTab); setMessage(`Opening audit record ${fieldText(item, ["record_id"])} from ${fieldText(item, ["collection"])}.`); }}>
+                <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["collection"])} - {fieldText(item, ["action"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["actor"])}</Text></View>
+                <Text style={styles.muted}>{fieldText(item, ["record_id"])} - {fieldText(item, ["changed_at"])}</Text>
+                <Text style={styles.bodyText}>Before: {String(item.before || item.previous || "-").slice(0, 120)} | After: {String(item.after || item.changes || item.next || "-").slice(0, 120)}</Text>
+              </Pressable>
+            );
+          })}
           {!auditLogs.length && <Text style={styles.muted}>Audit entries will be recorded as portal records are created, updated, or deleted.</Text>}
           {commandControls("audit-logs", auditLogs.length)}
         </View>
@@ -9042,83 +13060,87 @@ export default function App() {
         <View style={styles.formCard}>
           <View style={styles.formGrid}>
             {(["customer", "customer_id", "unit", "install_job_id", "warranty_start", "warranty_end", "status"] as const).map((key) => (
-              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={warrantyDraft[key]} onChangeText={(value) => setWarrantyDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} defaultValue={warrantyDraftRef.current[0][key]} onChangeText={(value) => { warrantyDraftRef.current[0] = { ...warrantyDraftRef.current[0], [key]: value }; }} /></View>
             ))}
           </View>
-          <TextInput style={[styles.input, styles.textarea]} value={warrantyDraft.notes} onChangeText={(value) => setWarrantyDraft((draft) => ({ ...draft, notes: value }))} placeholder="Warranty notes" multiline />
-          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("warranty-records", warrantyDraft, () => setWarrantyDraft(emptyWarrantyDraft), "Warranty record saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save warranty</Text></Pressable>
+          <TextInput style={[styles.input, styles.textarea]} defaultValue={warrantyDraftRef.current[0].notes} onChangeText={(value) => { warrantyDraftRef.current[0].notes = value; }} placeholder="Warranty notes" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveCommandRecord("warranty-records", warrantyDraftRef.current[0], undefined, "Warranty record saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save warranty</Text></Pressable>
+          {/warranty|authentication required/i.test(message) && <Text style={styles.statusPill}>{message}</Text>}
         </View>
         <View style={styles.analyticsPanel}>
-          {commandItems("warranties", intel.warrantyRows).map((item, index) => <View key={`war-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer"])} - {fieldText(item, ["unit"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["warranty_end"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["status"])} - Customer ID {fieldText(item, ["customer_id"])}</Text></View>)}
-          {!intel.warrantyRows.length && <Text style={styles.muted}>No warranty records have been saved or detected from installations.</Text>}
-          {commandControls("warranties", intel.warrantyRows.length)}
+          {commandItems("warranties", warrantyRows).map((item, index) => <View key={`war-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer"])} - {fieldText(item, ["unit"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["warranty_end"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["status"])} - Customer ID {fieldText(item, ["customer_id"])}</Text></View>)}
+          {!warrantyRows.length && <Text style={styles.muted}>No warranty records have been saved or detected from installations.</Text>}
+          {commandControls("warranties", warrantyRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>12. Material Dispatch Board</Text>
         <View style={styles.formCard}>
           <View style={styles.formGrid}>
             {(["job_id", "customer", "material", "status", "transporter", "lr_number", "delivered_at"] as const).map((key) => (
-              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={dispatchDraft[key]} onChangeText={(value) => setDispatchDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} defaultValue={dispatchDraftRef.current[0][key]} onChangeText={(value) => { dispatchDraftRef.current[0] = { ...dispatchDraftRef.current[0], [key]: value }; }} /></View>
             ))}
           </View>
-          <TextInput style={[styles.input, styles.textarea]} value={dispatchDraft.shortage_notes} onChangeText={(value) => setDispatchDraft((draft) => ({ ...draft, shortage_notes: value }))} placeholder="Shortage/damage notes" multiline />
-          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("dispatch-records", dispatchDraft, () => setDispatchDraft(emptyDispatchDraft), "Dispatch record saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save dispatch</Text></Pressable>
+          <TextInput style={[styles.input, styles.textarea]} defaultValue={dispatchDraftRef.current[0].shortage_notes} onChangeText={(value) => { dispatchDraftRef.current[0].shortage_notes = value; }} placeholder="Shortage/damage notes" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveCommandRecord("dispatch-records", dispatchDraftRef.current[0], undefined, "Dispatch record saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save dispatch</Text></Pressable>
+          {/dispatch|authentication required/i.test(message) && <Text style={styles.statusPill}>{message}</Text>}
         </View>
         <View style={styles.analyticsPanel}>
-          {commandItems("dispatch", intel.dispatchRows).map((item, index) => <View key={`dispatch-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["material"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["transporter"])} - LR {fieldText(item, ["lr_number"])} - Delivered {fieldText(item, ["delivered_at"])}</Text></View>)}
-          {!intel.dispatchRows.length && <Text style={styles.muted}>No dispatch records are currently saved.</Text>}
-          {commandControls("dispatch", intel.dispatchRows.length)}
+          {commandItems("dispatch", dispatchRows).map((item, index) => <View key={`dispatch-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["material"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["transporter"])} - LR {fieldText(item, ["lr_number"])} - Delivered {fieldText(item, ["delivered_at"])}</Text></View>)}
+          {!dispatchRows.length && <Text style={styles.muted}>No dispatch records are currently saved.</Text>}
+          {commandControls("dispatch", dispatchRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>13. Site Readiness Checklist</Text>
         <View style={styles.formCard}>
           <View style={styles.formGrid}>
             {(["job_id", "customer", "pit_ready", "shaft_ready", "power_ready", "storage_ready", "access_ready", "safety_ready"] as const).map((key) => (
-              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={readinessDraft[key]} onChangeText={(value) => setReadinessDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} defaultValue={readinessDraftRef.current[0][key]} onChangeText={(value) => { readinessDraftRef.current[0] = { ...readinessDraftRef.current[0], [key]: value }; }} /></View>
             ))}
           </View>
-          <TextInput style={[styles.input, styles.textarea]} value={readinessDraft.notes} onChangeText={(value) => setReadinessDraft((draft) => ({ ...draft, notes: value }))} placeholder="Readiness notes" multiline />
-          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("readiness-checklists", readinessDraft, () => setReadinessDraft(emptyReadinessDraft), "Readiness checklist saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save readiness</Text></Pressable>
+          <TextInput style={[styles.input, styles.textarea]} defaultValue={readinessDraftRef.current[0].notes} onChangeText={(value) => { readinessDraftRef.current[0].notes = value; }} placeholder="Readiness notes" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveCommandRecord("readiness-checklists", readinessDraftRef.current[0], undefined, "Readiness checklist saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save readiness</Text></Pressable>
+          {/readiness|authentication required/i.test(message) && <Text style={styles.statusPill}>{message}</Text>}
         </View>
         <View style={styles.analyticsPanel}>
-          {commandItems("readiness", intel.readinessRows).map((item, index) => <View key={`ready-${recordIdentity(item) || index}`} style={styles.analyticsRow}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.muted}>Pit {fieldText(item, ["pit_ready"])} - Shaft {fieldText(item, ["shaft_ready"])} - Power {fieldText(item, ["power_ready"])} - Safety {fieldText(item, ["safety_ready"])}</Text></View>)}
-          {!intel.readinessRows.length && <Text style={styles.muted}>No readiness checklists are saved yet.</Text>}
-          {commandControls("readiness", intel.readinessRows.length)}
+          {commandItems("readiness", readinessRows).map((item, index) => <View key={`ready-${recordIdentity(item) || index}`} style={styles.analyticsRow}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.muted}>Pit {fieldText(item, ["pit_ready"])} - Shaft {fieldText(item, ["shaft_ready"])} - Power {fieldText(item, ["power_ready"])} - Safety {fieldText(item, ["safety_ready"])}</Text></View>)}
+          {!readinessRows.length && <Text style={styles.muted}>No readiness checklists are saved yet.</Text>}
+          {commandControls("readiness", readinessRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>14. Engineer Skill Matrix</Text>
         <View style={styles.formCard}>
           <View style={styles.formGrid}>
             {(["engineer", "department", "controller_type", "door_type", "hydraulic", "mrl", "escalator", "commissioning", "troubleshooting"] as const).map((key) => (
-              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={skillDraft[key]} onChangeText={(value) => setSkillDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} defaultValue={skillDraftRef.current[0][key]} onChangeText={(value) => { skillDraftRef.current[0] = { ...skillDraftRef.current[0], [key]: value }; }} /></View>
             ))}
           </View>
-          <TextInput style={[styles.input, styles.textarea]} value={skillDraft.notes} onChangeText={(value) => setSkillDraft((draft) => ({ ...draft, notes: value }))} placeholder="Skill notes" multiline />
-          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("skill-matrix", skillDraft, () => setSkillDraft(emptySkillDraft), "Engineer skill record saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save skills</Text></Pressable>
+          <TextInput style={[styles.input, styles.textarea]} defaultValue={skillDraftRef.current[0].notes} onChangeText={(value) => { skillDraftRef.current[0].notes = value; }} placeholder="Skill notes" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveCommandRecord("skill-matrix", skillDraftRef.current[0], undefined, "Engineer skill record saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save skills</Text></Pressable>
+          {/skill|authentication required/i.test(message) && <Text style={styles.statusPill}>{message}</Text>}
         </View>
         <View style={styles.analyticsPanel}>
-          {commandItems("skills", intel.skillRows).map((item, index) => <View key={`skill-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["engineer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["department"])}</Text></View><Text style={styles.muted}>Controller {fieldText(item, ["controller_type"])} - Door {fieldText(item, ["door_type"])} - Troubleshooting {fieldText(item, ["troubleshooting"])}</Text></View>)}
-          {!intel.skillRows.length && <Text style={styles.muted}>No engineer skill records are saved yet.</Text>}
-          {commandControls("skills", intel.skillRows.length)}
+          {commandItems("skills", skillRows).map((item, index) => <View key={`skill-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["engineer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["department"])}</Text></View><Text style={styles.muted}>Controller {fieldText(item, ["controller_type"])} - Door {fieldText(item, ["door_type"])} - Troubleshooting {fieldText(item, ["troubleshooting"])}</Text></View>)}
+          {!skillRows.length && <Text style={styles.muted}>No engineer skill records are saved yet.</Text>}
+          {commandControls("skills", skillRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>15. Complaint Repeat Analysis</Text>
         <View style={styles.analyticsPanel}>
-          {commandItems("repeat-complaints", intel.repeatComplaints).map((row) => <Pressable key={row.key} style={[styles.analyticsRow, styles.alertCard]} onPress={() => setActiveTab("breakdown")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.customer} - {row.unit}</Text><Text style={styles.statusPill}>{row.count} repeats</Text></View><Text style={styles.muted}>{row.fault}</Text></Pressable>)}
+          {commandItems("repeat-complaints", intel.repeatComplaints).map((row) => <Pressable key={row.key} style={[styles.analyticsRow, styles.alertCard]} onPress={() => { setActiveTab("breakdown"); setMessage(`Opening repeat complaint history for ${row.customer}.`); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.customer} - {row.unit}</Text><Text style={styles.statusPill}>{row.count} repeats</Text></View><Text style={styles.muted}>{row.fault}</Text></Pressable>)}
           {!intel.repeatComplaints.length && <Text style={styles.muted}>No repeated complaint pattern has crossed the repeat threshold.</Text>}
           {commandControls("repeat-complaints", intel.repeatComplaints.length)}
         </View>
 
         <Text style={styles.sectionTitle}>16. AMC Visit Calendar</Text>
         <View style={styles.analyticsPanel}>
-          {commandItems("amc-calendar", intel.amcCalendar).map((row) => <Pressable key={row.key} style={styles.analyticsRow} onPress={() => setActiveTab("renewals")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.customer}</Text><Text style={styles.statusPill}>{row.date || "No date"}</Text></View><Text style={styles.muted}>{row.status}</Text></Pressable>)}
+          {commandItems("amc-calendar", intel.amcCalendar).map((row) => <Pressable key={row.key} style={styles.analyticsRow} onPress={() => { setActiveTab("renewals"); setMessage(`Opening renewal calendar item for ${row.customer}.`); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.customer}</Text><Text style={styles.statusPill}>{row.date || "No date"}</Text></View><Text style={styles.muted}>{row.status}</Text></Pressable>)}
           {!intel.amcCalendar.length && <Text style={styles.muted}>No open AMC visits or renewals are scheduled.</Text>}
           {commandControls("amc-calendar", intel.amcCalendar.length)}
         </View>
 
         <Text style={styles.sectionTitle}>17. Customer Portal</Text>
         <View style={styles.analyticsPanel}>
-          {commandItems("customer-portals", intel.customerPortalRows).map((row) => <Pressable key={`portal-${fieldText(row.customer, ["id"])}`} style={styles.analyticsRow} onPress={() => { setCrmSearch(fieldText(row.customer, ["id", "name"])); setActiveTab("customers"); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.customer, ["name"])}</Text><Text style={styles.statusPill}>{row.active ? "Portal active" : "No portal user"}</Text></View><Text style={styles.muted}>Customer ID {fieldText(row.customer, ["id"])} - User {fieldText(row.portalUser || {}, ["username"])}</Text></Pressable>)}
+          {commandItems("customer-portals", intel.customerPortalRows).map((row) => <Pressable key={`portal-${fieldText(row.customer, ["id"])}`} style={styles.analyticsRow} onPress={() => { setCrmSearch(fieldText(row.customer, ["id", "name"])); setActiveTab("customers"); setMessage(`Opening customer portal record for ${fieldText(row.customer, ["name"])}.`); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.customer, ["name"])}</Text><Text style={styles.statusPill}>{row.active ? "Portal active" : "No portal user"}</Text></View><Text style={styles.muted}>Customer ID {fieldText(row.customer, ["id"])} - User {fieldText(row.portalUser || {}, ["username"])}</Text></Pressable>)}
           {!intel.customerPortalRows.length && <Text style={styles.muted}>No customers are loaded for portal access review.</Text>}
           {commandControls("customer-portals", intel.customerPortalRows.length)}
         </View>
@@ -9126,7 +13148,7 @@ export default function App() {
         <Text style={styles.sectionTitle}>17A. Customer Portal Action Queue</Text>
         <View style={styles.analyticsPanel}>
           {commandItems("customer-portal-queue", intel.customerPortalQueue).map((row) => (
-            <Pressable key={`portal-queue-${fieldText(row.customer, ["id"])}`} style={row.needsPortal ? [styles.analyticsRow, styles.alertCard] : styles.analyticsRow} onPress={() => { setCrmSearch(fieldText(row.customer, ["id", "name"])); setActiveTab("customers"); }}>
+            <Pressable key={`portal-queue-${fieldText(row.customer, ["id"])}`} style={row.needsPortal ? [styles.analyticsRow, styles.alertCard] : styles.analyticsRow} onPress={() => { setCrmSearch(fieldText(row.customer, ["id", "name"])); setActiveTab("customers"); setMessage(`Opening customer portal action for ${fieldText(row.customer, ["name"])}.`); }}>
               <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.customer, ["name"])}</Text><Text style={styles.statusPill}>{row.needsPortal ? "Create access" : "Review"}</Text></View>
               <Text style={styles.muted}>{row.openItems} open service/payment items - {row.docs} vault documents - User {fieldText(row.portalUser || {}, ["username"])}</Text>
             </Pressable>
@@ -9137,7 +13159,7 @@ export default function App() {
 
         <Text style={styles.sectionTitle}>18. Profitability Dashboard</Text>
         <View style={styles.analyticsPanel}>
-          {commandItems("profitability", intel.profitabilityRows).map((row, index) => <Pressable key={`profit-${recordIdentity(row.offer) || index}`} style={styles.analyticsRow} onPress={() => setActiveTab("offerManager")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.offer, ["job_no", "customer_name", "id"])}</Text><Text style={styles.statusPill}>{formatMoney(row.margin)}</Text></View><Text style={styles.muted}>Revenue {formatMoney(row.revenue)} - Cost {formatMoney(row.cost)} - Collected {formatMoney(row.collected)}</Text></Pressable>)}
+          {commandItems("profitability", intel.profitabilityRows).map((row, index) => <Pressable key={`profit-${recordIdentity(row.offer) || index}`} style={styles.analyticsRow} onPress={() => { setActiveTab("offerManager"); setMessage(`Opening profitability offer ${fieldText(row.offer, ["job_no", "customer_name", "id"])}.`); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.offer, ["job_no", "customer_name", "id"])}</Text><Text style={styles.statusPill}>{formatMoney(row.margin)}</Text></View><Text style={styles.muted}>Revenue {formatMoney(row.revenue)} - Cost {formatMoney(row.cost)} - Collected {formatMoney(row.collected)}</Text></Pressable>)}
           {!intel.profitabilityRows.length && <Text style={styles.muted}>No offers are available for profitability analysis.</Text>}
           {commandControls("profitability", intel.profitabilityRows.length)}
         </View>
@@ -9153,54 +13175,54 @@ export default function App() {
         <View style={styles.formCard}>
           <View style={styles.formGrid}>
             {(["job_id", "customer", "warranty_id", "service_schedule", "payment_summary", "gad_document", "commissioning_report", "customer_signature", "status"] as const).map((key) => (
-              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={handoverDraft[key]} onChangeText={(value) => setHandoverDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} defaultValue={handoverDraftRef.current[0][key]} onChangeText={(value) => { handoverDraftRef.current[0] = { ...handoverDraftRef.current[0], [key]: value }; }} /></View>
             ))}
           </View>
-          <TextInput style={[styles.input, styles.textarea]} value={handoverDraft.photo_links} onChangeText={(value) => setHandoverDraft((draft) => ({ ...draft, photo_links: value }))} placeholder="Photo/document links" multiline />
-          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("handover-packs", handoverDraft, () => setHandoverDraft(emptyHandoverDraft), "Handover pack saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save handover pack</Text></Pressable>
+          <TextInput style={[styles.input, styles.textarea]} defaultValue={handoverDraftRef.current[0].photo_links} onChangeText={(value) => { handoverDraftRef.current[0].photo_links = value; }} placeholder="Photo/document links" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveCommandRecord("handover-packs", handoverDraftRef.current[0], undefined, "Handover pack saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save handover pack</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {commandItems("handovers", intel.handoverRows).map((item, index) => <View key={`handover-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>Warranty {fieldText(item, ["warranty_id"])} - Signature {fieldText(item, ["customer_signature"])}</Text></View>)}
-          {!intel.handoverRows.length && <Text style={styles.muted}>No digital handover packs are saved yet.</Text>}
-          {commandControls("handovers", intel.handoverRows.length)}
+          {commandItems("handovers", handoverRows).map((item, index) => <View key={`handover-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>Warranty {fieldText(item, ["warranty_id"])} - Signature {fieldText(item, ["customer_signature"])}</Text></View>)}
+          {!handoverRows.length && <Text style={styles.muted}>No digital handover packs are saved yet.</Text>}
+          {commandControls("handovers", handoverRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>21. Lift Asset Registry</Text>
         <View style={styles.formCard}>
           <View style={styles.formGrid}>
             {(["customer", "customer_id", "unit", "site", "controller", "motor", "door_type", "warranty_id", "amc_status"] as const).map((key) => (
-              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={liftAssetDraft[key]} onChangeText={(value) => setLiftAssetDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} defaultValue={liftAssetDraftRef.current[0][key]} onChangeText={(value) => { liftAssetDraftRef.current[0] = { ...liftAssetDraftRef.current[0], [key]: value }; }} /></View>
             ))}
           </View>
-          <TextInput style={styles.input} value={liftAssetDraft.qr_code} onChangeText={(value) => setLiftAssetDraft((draft) => ({ ...draft, qr_code: value }))} placeholder="QR code override" />
-          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("lift-assets", liftAssetDraft, () => setLiftAssetDraft(emptyLiftAssetDraft), "Lift asset saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save lift asset</Text></Pressable>
+          <TextInput style={styles.input} defaultValue={liftAssetDraftRef.current[0].qr_code} onChangeText={(value) => { liftAssetDraftRef.current[0].qr_code = value; }} placeholder="QR code override" />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveCommandRecord("lift-assets", liftAssetDraftRef.current[0], undefined, "Lift asset saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save lift asset</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {commandItems("lift-assets", intel.liftAssetRows).map((item, index) => <View key={`asset-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer"])} - {fieldText(item, ["unit"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["amc_status", "status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["site"])} - Controller {fieldText(item, ["controller"])} - Door {fieldText(item, ["door_type"])}</Text></View>)}
-          {!intel.liftAssetRows.length && <Text style={styles.muted}>No lift assets are registered yet.</Text>}
-          {commandControls("lift-assets", intel.liftAssetRows.length)}
+          {commandItems("lift-assets", liftAssetRows).map((item, index) => <View key={`asset-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer"])} - {fieldText(item, ["unit"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["amc_status", "status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["site"])} - Controller {fieldText(item, ["controller"])} - Door {fieldText(item, ["door_type"])}</Text></View>)}
+          {!liftAssetRows.length && <Text style={styles.muted}>No lift assets are registered yet.</Text>}
+          {commandControls("lift-assets", liftAssetRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>22. Spare Parts Usage Ledger</Text>
         <View style={styles.formCard}>
           <View style={styles.formGrid}>
             {(["job_id", "customer", "unit", "engineer", "part_name", "item_id", "quantity"] as const).map((key) => (
-              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={partsUsageDraft[key]} onChangeText={(value) => setPartsUsageDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} defaultValue={partsUsageDraftRef.current[0][key]} onChangeText={(value) => { partsUsageDraftRef.current[0] = { ...partsUsageDraftRef.current[0], [key]: value }; }} /></View>
             ))}
           </View>
-          <TextInput style={[styles.input, styles.textarea]} value={partsUsageDraft.notes} onChangeText={(value) => setPartsUsageDraft((draft) => ({ ...draft, notes: value }))} placeholder="Usage notes" multiline />
-          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("parts-usage", partsUsageDraft, () => setPartsUsageDraft(emptyPartsUsageDraft), "Parts usage saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save parts usage</Text></Pressable>
+          <TextInput style={[styles.input, styles.textarea]} defaultValue={partsUsageDraftRef.current[0].notes} onChangeText={(value) => { partsUsageDraftRef.current[0].notes = value; }} placeholder="Usage notes" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveCommandRecord("parts-usage", partsUsageDraftRef.current[0], undefined, "Parts usage saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save parts usage</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {commandItems("parts-usage", intel.partsUsageRows).map((item, index) => <View key={`part-use-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["part_name"])} - {fieldText(item, ["job_id"])}</Text><Text style={styles.statusPill}>Qty {fieldText(item, ["quantity"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["customer"])} - {fieldText(item, ["engineer"])} - {fieldText(item, ["unit"])}</Text></View>)}
-          {!intel.partsUsageRows.length && <Text style={styles.muted}>No spare part usage entries are saved yet.</Text>}
-          {commandControls("parts-usage", intel.partsUsageRows.length)}
+          {commandItems("parts-usage", partsUsageRows).map((item, index) => <View key={`part-use-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["part_name"])} - {fieldText(item, ["job_id"])}</Text><Text style={styles.statusPill}>Qty {fieldText(item, ["quantity"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["customer"])} - {fieldText(item, ["engineer"])} - {fieldText(item, ["unit"])}</Text></View>)}
+          {!partsUsageRows.length && <Text style={styles.muted}>No spare part usage entries are saved yet.</Text>}
+          {commandControls("parts-usage", partsUsageRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>22A. Spare Parts Consumption Forecast</Text>
         <View style={styles.analyticsPanel}>
           {commandItems("spare-forecast", intel.spareForecastRows).map((row) => (
-            <Pressable key={`spare-forecast-${row.part}`} style={styles.analyticsRow} onPress={() => setActiveTab("inventory")}>
+            <Pressable key={`spare-forecast-${row.part}`} style={styles.analyticsRow} onPress={() => { setActiveTab("inventory"); setMessage(`Opening inventory forecast for ${row.part}.`); }}>
               <View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.part}</Text><Text style={styles.statusPill}>Stock {row.recommendedStock}</Text></View>
               <Text style={styles.muted}>Estimated monthly use {row.monthlyUse} from {row.sourceCount} service, breakdown, and parts-usage records.</Text>
             </Pressable>
@@ -9211,7 +13233,7 @@ export default function App() {
 
         <Text style={styles.sectionTitle}>23. QR Code on Every Lift</Text>
         <View style={styles.analyticsPanel}>
-          {commandItems("qr", intel.qrRows).map((row) => <Pressable key={row.key} style={styles.analyticsRow} onPress={() => { setServiceRecordSearch(fieldText(row.asset, ["unit", "customer"])); setActiveTab("service"); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.asset, ["unit"])} - {fieldText(row.asset, ["customer"])}</Text><Text style={styles.statusPill}>Service link</Text></View><Text style={styles.muted}>{row.qr}</Text></Pressable>)}
+          {commandItems("qr", intel.qrRows).map((row) => <Pressable key={row.key} style={styles.analyticsRow} onPress={() => { setServiceRecordSearch(fieldText(row.asset, ["unit", "customer"])); setActiveTab("service"); setMessage(`Opening service link for ${fieldText(row.asset, ["unit", "customer"])}.`); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(row.asset, ["unit"])} - {fieldText(row.asset, ["customer"])}</Text><Text style={styles.statusPill}>Service link</Text></View><Text style={styles.muted}>{row.qr}</Text></Pressable>)}
           {!intel.qrRows.length && <Text style={styles.muted}>Register lift assets to generate service lookup QR values.</Text>}
           {commandControls("qr", intel.qrRows.length)}
         </View>
@@ -9220,20 +13242,20 @@ export default function App() {
         <View style={styles.formCard}>
           <View style={styles.formGrid}>
             {(["job_id", "customer", "unit", "engineer", "next_visit_date", "customer_signature", "status"] as const).map((key) => (
-              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={serviceReportDraft[key]} onChangeText={(value) => setServiceReportDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} defaultValue={serviceReportDraftRef.current[0][key]} onChangeText={(value) => { serviceReportDraftRef.current[0] = { ...serviceReportDraftRef.current[0], [key]: value }; }} /></View>
             ))}
           </View>
-          <TextInput style={[styles.input, styles.textarea]} value={serviceReportDraft.checklist} onChangeText={(value) => setServiceReportDraft((draft) => ({ ...draft, checklist: value }))} placeholder="Checklist completed" multiline />
-          <TextInput style={[styles.input, styles.textarea]} value={serviceReportDraft.parts_used} onChangeText={(value) => setServiceReportDraft((draft) => ({ ...draft, parts_used: value }))} placeholder="Parts used" multiline />
-          <TextInput style={[styles.input, styles.textarea]} value={serviceReportDraft.notes} onChangeText={(value) => setServiceReportDraft((draft) => ({ ...draft, notes: value }))} placeholder="Service notes" multiline />
-          <TextInput style={styles.input} value={serviceReportDraft.voice_note_url} onChangeText={(value) => setServiceReportDraft((draft) => ({ ...draft, voice_note_url: value }))} placeholder="Voice note URL / file reference" />
-          <TextInput style={[styles.input, styles.textarea]} value={serviceReportDraft.voice_transcript} onChangeText={(value) => setServiceReportDraft((draft) => ({ ...draft, voice_transcript: value }))} placeholder="Voice note transcript" multiline />
-          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("service-reports", serviceReportDraft, () => setServiceReportDraft(emptyServiceReportDraft), "Service report saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save service report</Text></Pressable>
+          <TextInput style={[styles.input, styles.textarea]} defaultValue={serviceReportDraftRef.current[0].checklist} onChangeText={(value) => { serviceReportDraftRef.current[0].checklist = value; }} placeholder="Checklist completed" multiline />
+          <TextInput style={[styles.input, styles.textarea]} defaultValue={serviceReportDraftRef.current[0].parts_used} onChangeText={(value) => { serviceReportDraftRef.current[0].parts_used = value; }} placeholder="Parts used" multiline />
+          <TextInput style={[styles.input, styles.textarea]} defaultValue={serviceReportDraftRef.current[0].notes} onChangeText={(value) => { serviceReportDraftRef.current[0].notes = value; }} placeholder="Service notes" multiline />
+          <TextInput style={styles.input} defaultValue={serviceReportDraftRef.current[0].voice_note_url} onChangeText={(value) => { serviceReportDraftRef.current[0].voice_note_url = value; }} placeholder="Voice note URL / file reference" />
+          <TextInput style={[styles.input, styles.textarea]} defaultValue={serviceReportDraftRef.current[0].voice_transcript} onChangeText={(value) => { serviceReportDraftRef.current[0].voice_transcript = value; }} placeholder="Voice note transcript" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveCommandRecord("service-reports", serviceReportDraftRef.current[0], undefined, "Service report saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save service report</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {commandItems("service-reports", intel.serviceReportRows).map((item, index) => <View key={`service-report-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["engineer"])} - Next {fieldText(item, ["next_visit_date"])}</Text></View>)}
-          {!intel.serviceReportRows.length && <Text style={styles.muted}>No service reports are saved yet.</Text>}
-          {commandControls("service-reports", intel.serviceReportRows.length)}
+          {commandItems("service-reports", serviceReportRows).map((item, index) => <Pressable key={`service-report-${recordIdentity(item) || index}`} style={styles.analyticsRow} onPress={() => { setServiceRecordSearch(fieldText(item, ["job_id", "customer"])); setActiveTab("service"); setMessage(`Opening service report ${fieldText(item, ["job_id", "customer"])}.`); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["job_id"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["engineer"])} - Next {fieldText(item, ["next_visit_date"])}</Text></Pressable>)}
+          {!serviceReportRows.length && <Text style={styles.muted}>No service reports are saved yet.</Text>}
+          {commandControls("service-reports", serviceReportRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>24A. Engineer Voice Notes</Text>
@@ -9251,18 +13273,18 @@ export default function App() {
 
         <Text style={styles.sectionTitle}>25. Payment Collection Forecast</Text>
         <View style={styles.metricGrid}>
-          <View style={styles.card}><Text style={styles.cardLabel}>Open forecast</Text><Text style={styles.metricValue}>{intel.paymentForecastRows.length}</Text><Text style={styles.muted}>Unclosed payment reminders</Text></View>
+          <Pressable style={styles.card} onPress={() => { setActiveTab("finance"); setMessage("Opening payment collection forecast."); }}><Text style={styles.cardLabel}>Open forecast</Text><Text style={styles.metricValue}>{intel.paymentForecastRows.length}</Text><Text style={styles.muted}>Unclosed payment reminders</Text></Pressable>
           <View style={styles.card}><Text style={styles.cardLabel}>Forecast value</Text><Text style={styles.metricValue}>{formatMoney(intel.paymentForecastRows.reduce((sum, row) => sum + row.amount, 0))}</Text><Text style={styles.muted}>Outstanding and scheduled collection</Text></View>
         </View>
         <View style={styles.analyticsPanel}>
-          {commandItems("payment-forecast", intel.paymentForecastRows).map((row) => <Pressable key={row.key} style={styles.analyticsRow} onPress={() => setActiveTab("finance")}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.customer}</Text><Text style={styles.statusPill}>{formatMoney(row.amount)}</Text></View><Text style={styles.muted}>{row.date} - {row.status}</Text></Pressable>)}
+          {commandItems("payment-forecast", intel.paymentForecastRows).map((row) => <Pressable key={row.key} style={styles.analyticsRow} onPress={() => { setActiveTab("finance"); setMessage(`Opening payment forecast for ${row.customer}.`); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.customer}</Text><Text style={styles.statusPill}>{formatMoney(row.amount)}</Text></View><Text style={styles.muted}>{row.date} - {row.status}</Text></Pressable>)}
           {!intel.paymentForecastRows.length && <Text style={styles.muted}>No open payment collection items are due.</Text>}
           {commandControls("payment-forecast", intel.paymentForecastRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>26. Engineer Performance Dashboard</Text>
         <View style={styles.analyticsPanel}>
-          {commandItems("engineer-performance", intel.engineerPerformanceRows).map((row) => <View key={`eng-perf-${row.name}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.name}</Text><Text style={styles.statusPill}>{row.closed} closed</Text></View><Text style={styles.muted}>{row.open} open jobs - {fieldText(row.engineer, ["department", "role"])} - {fieldText(row.engineer, ["availability", "status"])}</Text></View>)}
+          {commandItems("engineer-performance", intel.engineerPerformanceRows).map((row) => <Pressable key={`eng-perf-${row.name}`} style={styles.analyticsRow} onPress={() => { setServiceRecordSearch(row.name); setActiveTab("service"); setMessage(`Opening engineer workload for ${row.name}.`); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{row.name}</Text><Text style={styles.statusPill}>{row.closed} closed</Text></View><Text style={styles.muted}>{row.open} open jobs - {fieldText(row.engineer, ["department", "role"])} - {fieldText(row.engineer, ["availability", "status"])}</Text></Pressable>)}
           {!intel.engineerPerformanceRows.length && <Text style={styles.muted}>No engineer-linked job history is available yet.</Text>}
           {commandControls("engineer-performance", intel.engineerPerformanceRows.length)}
         </View>
@@ -9271,64 +13293,64 @@ export default function App() {
         <View style={styles.formCard}>
           <View style={styles.formGrid}>
             {(["job_id", "customer", "site", "incident_type", "severity", "trapped_passenger", "responsible_staff", "status"] as const).map((key) => (
-              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={safetyIncidentDraft[key]} onChangeText={(value) => setSafetyIncidentDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} defaultValue={safetyIncidentDraftRef.current[0][key]} onChangeText={(value) => { safetyIncidentDraftRef.current[0] = { ...safetyIncidentDraftRef.current[0], [key]: value }; }} /></View>
             ))}
           </View>
-          <TextInput style={[styles.input, styles.textarea]} value={safetyIncidentDraft.corrective_action} onChangeText={(value) => setSafetyIncidentDraft((draft) => ({ ...draft, corrective_action: value }))} placeholder="Corrective action" multiline />
-          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("safety-incidents", safetyIncidentDraft, () => setSafetyIncidentDraft(emptySafetyIncidentDraft), "Safety incident saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save safety incident</Text></Pressable>
+          <TextInput style={[styles.input, styles.textarea]} defaultValue={safetyIncidentDraftRef.current[0].corrective_action} onChangeText={(value) => { safetyIncidentDraftRef.current[0].corrective_action = value; }} placeholder="Corrective action" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveCommandRecord("safety-incidents", safetyIncidentDraftRef.current[0], undefined, "Safety incident saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save safety incident</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {commandItems("safety", intel.safetyRows).map((item, index) => <View key={`safety-${recordIdentity(item) || index}`} style={/high|critical/i.test(fieldText(item, ["severity"])) ? [styles.analyticsRow, styles.alertCard] : styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["incident_type"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["severity"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["site"])} - {fieldText(item, ["status"])}</Text></View>)}
-          {!intel.safetyRows.length && <Text style={styles.muted}>No safety incidents are registered.</Text>}
-          {commandControls("safety", intel.safetyRows.length)}
+          {commandItems("safety", safetyRows).map((item, index) => <View key={`safety-${recordIdentity(item) || index}`} style={/high|critical/i.test(fieldText(item, ["severity"])) ? [styles.analyticsRow, styles.alertCard] : styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["incident_type"])} - {fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["severity"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["site"])} - {fieldText(item, ["status"])}</Text></View>)}
+          {!safetyRows.length && <Text style={styles.muted}>No safety incidents are registered.</Text>}
+          {commandControls("safety", safetyRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>28. Tender Document Checklist</Text>
         <View style={styles.formCard}>
           <View style={styles.formGrid}>
             {(["tender_id", "tender_title", "emd", "sd", "gst_docs", "pan", "certificates", "technical_sheets", "drawings", "annexures", "final_submission"] as const).map((key) => (
-              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={tenderChecklistDraft[key]} onChangeText={(value) => setTenderChecklistDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} defaultValue={tenderChecklistDraftRef.current[0][key]} onChangeText={(value) => { tenderChecklistDraftRef.current[0] = { ...tenderChecklistDraftRef.current[0], [key]: value }; }} /></View>
             ))}
           </View>
-          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("tender-checklists", tenderChecklistDraft, () => setTenderChecklistDraft(emptyTenderChecklistDraft), "Tender checklist saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save tender checklist</Text></Pressable>
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveCommandRecord("tender-checklists", tenderChecklistDraftRef.current[0], undefined, "Tender checklist saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save tender checklist</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {commandItems("tender-checklists", intel.tenderChecklistRows).map((item, index) => <View key={`tdc-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["tender_title", "tender_id"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["final_submission"])}</Text></View><Text style={styles.muted}>EMD {fieldText(item, ["emd"])} - GST {fieldText(item, ["gst_docs"])} - Drawings {fieldText(item, ["drawings"])}</Text></View>)}
-          {!intel.tenderChecklistRows.length && <Text style={styles.muted}>No tender checklists are saved yet.</Text>}
-          {commandControls("tender-checklists", intel.tenderChecklistRows.length)}
+          {commandItems("tender-checklists", tenderChecklistRows).map((item, index) => <View key={`tdc-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["tender_title", "tender_id"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["final_submission"])}</Text></View><Text style={styles.muted}>EMD {fieldText(item, ["emd"])} - GST {fieldText(item, ["gst_docs"])} - Drawings {fieldText(item, ["drawings"])}</Text></View>)}
+          {!tenderChecklistRows.length && <Text style={styles.muted}>No tender checklists are saved yet.</Text>}
+          {commandControls("tender-checklists", tenderChecklistRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>29. AMC Contract Builder</Text>
         <View style={styles.formCard}>
           <View style={styles.formGrid}>
             {(["customer", "customer_id", "lift_count", "service_frequency", "parts_included", "warranty_status", "annual_price", "status"] as const).map((key) => (
-              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={amcContractDraft[key]} onChangeText={(value) => setAmcContractDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} defaultValue={amcContractDraftRef.current[0][key]} onChangeText={(value) => { amcContractDraftRef.current[0] = { ...amcContractDraftRef.current[0], [key]: value }; }} /></View>
             ))}
           </View>
-          <TextInput style={[styles.input, styles.textarea]} value={amcContractDraft.terms} onChangeText={(value) => setAmcContractDraft((draft) => ({ ...draft, terms: value }))} placeholder="AMC terms" multiline />
-          <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("amc-contracts", amcContractDraft, () => setAmcContractDraft(emptyAmcContractDraft), "AMC contract saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save AMC contract</Text></Pressable>
+          <TextInput style={[styles.input, styles.textarea]} defaultValue={amcContractDraftRef.current[0].terms} onChangeText={(value) => { amcContractDraftRef.current[0].terms = value; }} placeholder="AMC terms" multiline />
+          <Pressable style={styles.primaryButtonInline} onPress={() => saveCommandRecord("amc-contracts", amcContractDraftRef.current[0], undefined, "AMC contract saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save AMC contract</Text></Pressable>
         </View>
         <View style={styles.analyticsPanel}>
-          {commandItems("amc-contracts", intel.amcContractRows).map((item, index) => <View key={`amc-contract-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{formatMoney(offerNumber(item.annual_price))}</Text></View><Text style={styles.muted}>{fieldText(item, ["lift_count"])} lifts - {fieldText(item, ["service_frequency"])} - {fieldText(item, ["status"])}</Text></View>)}
-          {!intel.amcContractRows.length && <Text style={styles.muted}>No AMC contracts are saved yet.</Text>}
-          {commandControls("amc-contracts", intel.amcContractRows.length)}
+          {commandItems("amc-contracts", amcContractRows).map((item, index) => <View key={`amc-contract-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["customer"])}</Text><Text style={styles.statusPill}>{formatMoney(offerNumber(item.annual_price))}</Text></View><Text style={styles.muted}>{fieldText(item, ["lift_count"])} lifts - {fieldText(item, ["service_frequency"])} - {fieldText(item, ["status"])}</Text></View>)}
+          {!amcContractRows.length && <Text style={styles.muted}>No AMC contracts are saved yet.</Text>}
+          {commandControls("amc-contracts", amcContractRows.length)}
         </View>
 
         <Text style={styles.sectionTitle}>30. Management Daily Brief PDF</Text>
         <View style={styles.formCard}>
           <View style={styles.formGrid}>
             {(["date", "audience", "status"] as const).map((key) => (
-              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={dailyBriefDraft[key]} onChangeText={(value) => setDailyBriefDraft((draft) => ({ ...draft, [key]: value }))} /></View>
+              <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} defaultValue={dailyBriefDraftRef.current[0][key]} onChangeText={(value) => { dailyBriefDraftRef.current[0] = { ...dailyBriefDraftRef.current[0], [key]: value }; }} /></View>
             ))}
           </View>
           <View style={styles.metricGrid}>
-            <View style={styles.card}><Text style={styles.cardLabel}>Action queue</Text><Text style={styles.metricValue}>{intel.managementBrief.actions}</Text><Text style={styles.muted}>Items requiring attention</Text></View>
-            <View style={styles.card}><Text style={styles.cardLabel}>Escalations</Text><Text style={styles.metricValue}>{intel.managementBrief.escalations}</Text><Text style={styles.muted}>Live operational risks</Text></View>
-            <View style={styles.card}><Text style={styles.cardLabel}>Breakdowns</Text><Text style={styles.metricValue}>{intel.managementBrief.openBreakdowns}</Text><Text style={styles.muted}>Currently open</Text></View>
+            <Pressable style={styles.card} onPress={() => { setActiveTab("today"); setMessage("Opening daily action queue."); }}><Text style={styles.cardLabel}>Action queue</Text><Text style={styles.metricValue}>{intel.managementBrief.actions}</Text><Text style={styles.muted}>Items requiring attention</Text></Pressable>
+            <Pressable style={styles.card} onPress={() => { setActiveTab("intelligence"); setMessage("Opening escalation risks."); }}><Text style={styles.cardLabel}>Escalations</Text><Text style={styles.metricValue}>{intel.managementBrief.escalations}</Text><Text style={styles.muted}>Live operational risks</Text></Pressable>
+            <Pressable style={styles.card} onPress={() => { setBreakdownStatusFilter("Open"); setActiveTab("breakdown"); setMessage("Opening open breakdowns."); }}><Text style={styles.cardLabel}>Breakdowns</Text><Text style={styles.metricValue}>{intel.managementBrief.openBreakdowns}</Text><Text style={styles.muted}>Currently open</Text></Pressable>
           </View>
-          <TextInput style={[styles.input, styles.textarea]} value={dailyBriefDraft.summary} onChangeText={(value) => setDailyBriefDraft((draft) => ({ ...draft, summary: value }))} placeholder="Brief summary" multiline />
+          <TextInput style={[styles.input, styles.textarea]} defaultValue={dailyBriefDraftRef.current[0].summary} onChangeText={(value) => { dailyBriefDraftRef.current[0].summary = value; }} placeholder="Brief summary" multiline />
           <View style={styles.inlineActions}>
-            <Pressable style={styles.primaryButtonInline} onPress={() => saveIntelligenceRecord("daily-briefs", dailyBriefDraft.summary ? dailyBriefDraft : { ...dailyBriefDraft, summary: `Actions ${intel.managementBrief.actions}; escalations ${intel.managementBrief.escalations}; breakdowns ${intel.managementBrief.openBreakdowns}; payments overdue ${intel.managementBrief.overduePayments}; stalled installs ${intel.managementBrief.stalledInstalls}; tenders due ${intel.managementBrief.tenderDue}; low stock ${intel.managementBrief.lowStock}.` }, () => setDailyBriefDraft(emptyDailyBriefDraft), "Daily brief saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save daily brief</Text></Pressable>
+            <Pressable style={styles.primaryButtonInline} onPress={() => saveCommandRecord("daily-briefs", dailyBriefDraftRef.current[0].summary ? dailyBriefDraftRef.current[0] : { ...dailyBriefDraftRef.current[0], summary: `Actions ${intel.managementBrief.actions}; escalations ${intel.managementBrief.escalations}; breakdowns ${intel.managementBrief.openBreakdowns}; payments overdue ${intel.managementBrief.overduePayments}; stalled installs ${intel.managementBrief.stalledInstalls}; tenders due ${intel.managementBrief.tenderDue}; low stock ${intel.managementBrief.lowStock}.` }, undefined, "Daily brief saved.")} disabled={loading}><Text style={styles.primaryButtonText}>Save daily brief</Text></Pressable>
             <Pressable style={styles.secondaryButton} onPress={() => {
               const printPage = (globalThis as unknown as { print?: () => void }).print;
               if (Platform.OS === "web" && typeof printPage === "function") printPage();
@@ -9337,29 +13359,43 @@ export default function App() {
           </View>
         </View>
         <View style={styles.analyticsPanel}>
-          {commandItems("daily-briefs", intel.dailyBriefRows).map((item, index) => <View key={`brief-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["date"])} - {fieldText(item, ["audience"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["summary"])}</Text></View>)}
-          {!intel.dailyBriefRows.length && <Text style={styles.muted}>No management daily briefs are saved yet.</Text>}
-          {commandControls("daily-briefs", intel.dailyBriefRows.length)}
+          {commandItems("daily-briefs", dailyBriefRows).map((item, index) => <View key={`brief-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["date"])} - {fieldText(item, ["audience"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["summary"])}</Text></View>)}
+          {!dailyBriefRows.length && <Text style={styles.muted}>No management daily briefs are saved yet.</Text>}
+          {commandControls("daily-briefs", dailyBriefRows.length)}
         </View>
       </View>
     );
   }
 
-  function renderOperationsBacklogPage() {
+  function renderCommandIntelligenceBoundary() {
+    return (
+      <IntelligenceDraftBoundary>
+        {(intelligenceDrafts) => (
+          <CommandCommunicationDraftBoundary>
+            {(communicationDrafts) => renderCommandIntelligencePage(intelligenceDrafts, communicationDrafts)}
+          </CommandCommunicationDraftBoundary>
+        )}
+      </IntelligenceDraftBoundary>
+    );
+  }
+
+  function renderOperationsBacklogPage(backlogState: BacklogState) {
+    const { backlogSearch, setBacklogSearch, backlogCategory, setBacklogCategory } = backlogState;
     const categories = ["All", ...Array.from(new Set(operationsBacklog.map((item) => item.category)))];
     const query = backlogSearch.trim().toLowerCase();
-    const filtered = operationsBacklog.filter((item) => {
+    const backlogFilteredListKey = "backlog-filtered";
+    const backlogMatches = (item: (typeof operationsBacklog)[number]) => {
       const matchesCategory = backlogCategory === "All" || item.category === backlogCategory;
       const matchesQuery = !query || `${item.number} ${item.title} ${item.category} ${item.priority}`.toLowerCase().includes(query);
       return matchesCategory && matchesQuery;
-    });
+    };
+    const { total: filteredBacklogCount, visible: visibleBacklogItems } = collectVisibleItems(backlogFilteredListKey, operationsBacklog, backlogMatches);
     const categoryRows = categories.filter((category) => category !== "All").map((category) => ({
       category,
       total: operationsBacklog.filter((item) => item.category === category).length,
       nearTerm: operationsBacklog.filter((item) => item.category === category && item.priority === "Near-term").length,
     }));
     const backlogCategoryListKey = "backlog-categories";
-    const backlogFilteredListKey = "backlog-filtered";
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -9378,13 +13414,21 @@ export default function App() {
           <View style={styles.formGrid}>
             <View style={styles.field}>
               <Text style={styles.label}>Search backlog</Text>
-              <TextInput style={styles.input} value={backlogSearch} onChangeText={setBacklogSearch} placeholder="Search feature, department, priority" />
+              <TextInput controlled style={styles.input} value={backlogSearch} onChangeText={setBacklogSearch} placeholder="Search feature, department, priority" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Category</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
                 {categories.map((category) => (
-                  <Pressable key={category} style={[styles.smallButton, backlogCategory === category && styles.selectorPillActive]} onPress={() => setBacklogCategory(category)}>
+                  <Pressable
+                    key={category}
+                    style={[styles.smallButton, backlogCategory === category && styles.selectorPillActive]}
+                    onPress={() => {
+                      setBacklogSearch("");
+                      setBacklogCategory(category);
+                      setMessage(`Backlog category set to ${category}.`);
+                    }}
+                  >
                     <Text style={styles.smallButtonText}>{category}</Text>
                   </Pressable>
                 ))}
@@ -9396,7 +13440,15 @@ export default function App() {
         <Text style={styles.sectionTitle}>Backlog by Department</Text>
         <View style={styles.metricGrid}>
           {limitedItems(backlogCategoryListKey, categoryRows).map((row) => (
-            <Pressable key={row.category} style={styles.card} onPress={() => setBacklogCategory(row.category)}>
+            <Pressable
+              key={row.category}
+              style={styles.card}
+              onPress={() => {
+                setBacklogSearch("");
+                setBacklogCategory(row.category);
+                setMessage(`Backlog category set to ${row.category}.`);
+              }}
+            >
               <Text style={styles.cardLabel}>{row.category}</Text>
               <Text style={styles.metricValue}>{row.total}</Text>
               <Text style={styles.muted}>{row.nearTerm} near-term items</Text>
@@ -9407,8 +13459,16 @@ export default function App() {
 
         <Text style={styles.sectionTitle}>Filtered Roadmap</Text>
         <View style={styles.analyticsPanel}>
-          {limitedItems(backlogFilteredListKey, filtered).map((item) => (
-            <View key={`backlog-${item.number}`} style={styles.analyticsRow}>
+          {visibleBacklogItems.map((item) => (
+            <Pressable
+              key={`backlog-${item.number}`}
+              style={styles.analyticsRow}
+              onPress={() => {
+                setBacklogCategory(item.category);
+                setBacklogSearch(item.title);
+                setMessage(`Opening backlog item #${item.number}: ${item.title}.`);
+              }}
+            >
               <View style={styles.analyticsRowHeader}>
                 <View style={styles.cardTitleBlock}>
                   <Text style={styles.cardLabel}>#{item.number} - {item.category}</Text>
@@ -9417,12 +13477,20 @@ export default function App() {
                 <Text style={[styles.statusPill, item.priority === "Near-term" && styles.selectorPillActive]}>{item.priority}</Text>
               </View>
               <Text style={styles.muted}>{item.status} item from the operations platform backlog.</Text>
-            </View>
+            </Pressable>
           ))}
-          {!filtered.length && <Text style={styles.muted}>No backlog items match the current search.</Text>}
-          {renderListControls(backlogFilteredListKey, filtered.length)}
+          {!filteredBacklogCount && <Text style={styles.muted}>No backlog items match the current search.</Text>}
+          {renderListControls(backlogFilteredListKey, filteredBacklogCount)}
         </View>
       </View>
+    );
+  }
+
+  function renderOperationsBacklogBoundary() {
+    return (
+      <BacklogStateBoundary>
+        {(backlogState) => renderOperationsBacklogPage(backlogState)}
+      </BacklogStateBoundary>
     );
   }
 
@@ -9448,24 +13516,80 @@ export default function App() {
     }))).sort((a, b) => String(b.date).localeCompare(String(a.date)));
   }
 
-  function renderApprovalsPage() {
-    const approvals = asRecords(data?.approvals);
+  function renderApprovalsBoundary() {
+    return (
+      <LocalValue key="approval-rows" initialValue={asRecords(data?.approvals)}>
+        {(approvalRows, setApprovalRows) => (
+          <LocalValue key="approval-action-status" initialValue={{ loading: false, notice: "" }}>
+            {(approvalActionStatus, setApprovalActionStatus) => (
+              <ApprovalDraftBoundary>
+                {(approvalState) => renderApprovalsPage(approvalState, {
+                  approvalRows,
+                  setApprovalRows,
+                  approvalActionLoading: approvalActionStatus.loading,
+                  approvalNotice: approvalActionStatus.notice,
+                  setApprovalActionLoading: (next) => setApprovalActionStatus((current) => ({ ...current, loading: resolveLocalState(next, current.loading) })),
+                  setApprovalNotice: (next) => setApprovalActionStatus((current) => ({ ...current, notice: resolveLocalState(next, current.notice) })),
+                })}
+              </ApprovalDraftBoundary>
+            )}
+          </LocalValue>
+        )}
+      </LocalValue>
+    );
+  }
+
+  function renderApprovalsPage(
+    { approvalDraftRef }: ApprovalDraftState,
+    {
+      approvalRows,
+      setApprovalRows,
+      approvalActionLoading,
+      approvalNotice,
+      setApprovalActionLoading,
+      setApprovalNotice,
+    }: {
+      approvalRows: Record<string, unknown>[];
+      setApprovalRows: LocalStateSetter<Record<string, unknown>[]>;
+      approvalActionLoading: boolean;
+      approvalNotice: string;
+      setApprovalActionLoading: LocalStateSetter<boolean>;
+      setApprovalNotice: LocalStateSetter<string>;
+    }
+  ) {
+    const approvals = approvalRows;
     const pending = approvals.filter((item) => !/approved|rejected/i.test(statusText(item)));
     const approvalListKey = "approvals";
+    const createApprovalRow = (savedRecord: Record<string, unknown>) => {
+      const savedId = recordIdentity(savedRecord) || String(savedRecord.id || "");
+      setApprovalRows((rows) => [savedRecord, ...rows.filter((row) => {
+        const rowId = recordIdentity(row) || String(row.id || "");
+        return !savedId || rowId !== savedId;
+      })]);
+      approvalDraftRef.current[0] = { ...emptyApprovalDraft };
+    };
+    const patchApprovalRow = (updatedRecord: Record<string, unknown>) => {
+      const updatedId = recordIdentity(updatedRecord) || String(updatedRecord.id || "");
+      setApprovalRows((rows) => rows.map((row) => {
+        const rowId = recordIdentity(row) || String(row.id || "");
+        return updatedId && rowId === updatedId ? { ...row, ...updatedRecord } : row;
+      }));
+    };
     return (
       <View>
         <View style={styles.moduleHero}><Text style={styles.eyebrow}>Controls</Text><Text style={styles.moduleHeroTitle}>Approval Workflow</Text><Text style={styles.moduleHeroText}>Manager approvals for offers, discounts, tender submissions, purchase orders, and payment changes.</Text></View>
-        <View style={styles.formCard}>
+        <View key={`approval-form-${approvals.length}`} style={styles.formCard}>
           <Text style={styles.cardLabel}>New approval request</Text>
+          {!!approvalNotice && <Text style={styles.banner}>{approvalNotice}</Text>}
           <View style={styles.formGrid}>
-            {(["type", "reference", "customer", "amount"] as const).map((key) => <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={approvalDraft[key]} onChangeText={(value) => setApprovalDraft((draft) => ({ ...draft, [key]: value }))} /></View>)}
+            {(["type", "reference", "customer", "amount"] as const).map((key) => <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} defaultValue={approvalDraftRef.current[0][key]} onChangeText={(value) => { approvalDraftRef.current[0][key] = value; }} /></View>)}
           </View>
-          <TextInput style={[styles.input, styles.textarea]} value={approvalDraft.notes} onChangeText={(value) => setApprovalDraft((draft) => ({ ...draft, notes: value }))} placeholder="Approval notes" multiline />
-          <Pressable style={styles.primaryButton} onPress={saveApprovalRequest} disabled={loading}><Text style={styles.primaryButtonText}>Request approval</Text></Pressable>
+          <TextInput style={[styles.input, styles.textarea]} defaultValue={approvalDraftRef.current[0].notes} onChangeText={(value) => { approvalDraftRef.current[0].notes = value; }} placeholder="Approval notes" multiline />
+          <Pressable style={styles.primaryButton} onPress={() => saveApprovalRequest(approvalDraftRef.current[0], createApprovalRow, setApprovalNotice, setApprovalActionLoading)} disabled={approvalActionLoading}><Text style={styles.primaryButtonText}>Request approval</Text></Pressable>
         </View>
         <View style={styles.metricGrid}><View style={styles.card}><Text style={styles.cardLabel}>Pending</Text><Text style={styles.metricValue}>{pending.length}</Text><Text style={styles.muted}>Awaiting manager decision.</Text></View><View style={styles.card}><Text style={styles.cardLabel}>Total</Text><Text style={styles.metricValue}>{approvals.length}</Text><Text style={styles.muted}>Approval records in audit trail.</Text></View></View>
         <View style={styles.analyticsPanel}>
-          {limitedItems(approvalListKey, approvals).map((item, index) => <View key={`approval-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["reference", "type", "customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["type"])} - {fieldText(item, ["customer"])} - {fieldText(item, ["amount"])}</Text><Text style={styles.bodyText}>{fieldText(item, ["notes"])}</Text>{!/approved|rejected/i.test(statusText(item)) && <View style={styles.inlineActions}><Pressable style={styles.smallButton} onPress={() => updateApproval(item, "Approved")} disabled={loading}><Text style={styles.smallButtonText}>Approve</Text></Pressable><Pressable style={styles.dangerButton} onPress={() => updateApproval(item, "Rejected")} disabled={loading}><Text style={styles.dangerButtonText}>Reject</Text></Pressable></View>}</View>)}
+          {limitedItems(approvalListKey, approvals).map((item, index) => <View key={`approval-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["reference", "type", "customer"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["type"])} - {fieldText(item, ["customer"])} - {fieldText(item, ["amount"])}</Text><Text style={styles.bodyText}>{fieldText(item, ["notes"])}</Text>{!/approved|rejected/i.test(statusText(item)) && <View style={styles.inlineActions}><Pressable style={styles.smallButton} onPress={() => updateApproval(item, "Approved", patchApprovalRow, setApprovalNotice, setApprovalActionLoading)} disabled={approvalActionLoading}><Text style={styles.smallButtonText}>Approve</Text></Pressable><Pressable style={styles.dangerButton} onPress={() => updateApproval(item, "Rejected", patchApprovalRow, setApprovalNotice, setApprovalActionLoading)} disabled={approvalActionLoading}><Text style={styles.dangerButtonText}>Reject</Text></Pressable></View>}</View>)}
           {!approvals.length && <Text style={styles.muted}>No approval records yet.</Text>}
           {renderListControls(approvalListKey, approvals.length)}
         </View>
@@ -9473,26 +13597,63 @@ export default function App() {
     );
   }
 
-  function renderDocumentVaultPage() {
-    const documents = asRecords(data?.documents);
+  function renderDocumentVaultBoundary() {
+    return (
+      <DocumentDraftBoundary>
+        {(documentState) => renderDocumentVaultPage(documentState)}
+      </DocumentDraftBoundary>
+    );
+  }
+
+  function renderDocumentVaultPage({ documentDraftRef }: DocumentDraftState) {
     const documentListKey = "documents";
     return (
-      <View>
-        <View style={styles.moduleHero}><Text style={styles.eyebrow}>Vault</Text><Text style={styles.moduleHeroTitle}>Document Vault</Text><Text style={styles.moduleHeroText}>Attach signed offers, POs, invoices, site photos, GAD drawings, service reports, and receipts to customers and jobs.</Text></View>
-        <View style={styles.formCard}>
-          <Text style={styles.cardLabel}>Add document</Text>
-          <View style={styles.formGrid}>
-            {(["title", "linked_type", "linked_id", "customer", "document_type", "url"] as const).map((key) => <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} value={documentDraft[key]} onChangeText={(value) => setDocumentDraft((draft) => ({ ...draft, [key]: value }))} /></View>)}
-          </View>
-          <TextInput style={[styles.input, styles.textarea]} value={documentDraft.notes} onChangeText={(value) => setDocumentDraft((draft) => ({ ...draft, notes: value }))} placeholder="Notes" multiline />
-          <View style={styles.inlineActions}><Pressable style={styles.primaryButtonInline} onPress={uploadVaultDocument} disabled={loading}><Text style={styles.primaryButtonText}>Upload file</Text></Pressable><Pressable style={styles.secondaryButton} onPress={() => saveDocumentRecord(documentDraft)} disabled={loading}><Text style={styles.secondaryButtonText}>Save link</Text></Pressable></View>
-        </View>
-        <View style={styles.analyticsPanel}>
-          {limitedItems(documentListKey, documents).map((item, index) => <View key={`doc-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["title", "filename"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["document_type", "linked_type"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["customer"])} - {fieldText(item, ["linked_type"])} {fieldText(item, ["linked_id"])}</Text><Text style={styles.bodyText}>{fieldText(item, ["notes"])}</Text>{!!fieldText(item, ["url", "data_url"])?.replace("-", "") && <Pressable style={styles.smallButton} onPress={() => Linking.openURL(fieldText(item, ["url", "data_url"]))}><Text style={styles.smallButtonText}>Open document</Text></Pressable>}</View>)}
-          {!documents.length && <Text style={styles.muted}>No documents have been attached yet.</Text>}
-          {renderListControls(documentListKey, documents.length)}
-        </View>
-      </View>
+      <LocalValue key="document-vault-rows" initialValue={asRecords(data?.documents)}>
+        {(documents, setDocuments) => {
+          const prependDocument = (record: Record<string, unknown>) => {
+            setDocuments((current) => {
+              const id = recordIdentity(record);
+              return id
+                ? [record, ...current.filter((item) => recordIdentity(item) !== id)]
+                : [record, ...current];
+            });
+          };
+          return (
+            <LocalValue key="document-vault-notice" initialValue="">
+              {(documentNotice, setDocumentNotice) => (
+                <LocalValue key="document-vault-loading" initialValue={false}>
+                  {(documentLoading, setDocumentLoading) => {
+                    const documentBusy = loading || documentLoading;
+                    return (
+                      <View>
+                        <View style={styles.moduleHero}><Text style={styles.eyebrow}>Vault</Text><Text style={styles.moduleHeroTitle}>Document Vault</Text><Text style={styles.moduleHeroText}>Attach signed offers, POs, invoices, site photos, GAD drawings, service reports, and receipts to customers and jobs.</Text></View>
+                        {documentLoading && <ActivityIndicator style={styles.loader} />}
+                        {!!documentNotice && <Text style={styles.banner}>{documentNotice}</Text>}
+                        <View style={styles.formCard}>
+                          <Text style={styles.cardLabel}>Add document</Text>
+                          <View style={styles.formGrid}>
+                            {(["title", "linked_type", "linked_id", "customer", "document_type", "url"] as const).map((key) => <View key={key} style={styles.field}><Text style={styles.label}>{key}</Text><TextInput style={styles.input} defaultValue={documentDraftRef.current[0][key]} onChangeText={(value) => { documentDraftRef.current[0][key] = value; }} /></View>)}
+                          </View>
+                          <TextInput style={[styles.input, styles.textarea]} defaultValue={documentDraftRef.current[0].notes} onChangeText={(value) => { documentDraftRef.current[0].notes = value; }} placeholder="Notes" multiline />
+                          <View style={styles.inlineActions}>
+                            <Pressable style={styles.primaryButtonInline} onPress={() => uploadVaultDocument(documentDraftRef.current[0], prependDocument, setDocumentNotice, setDocumentLoading)} disabled={documentBusy}><Text style={styles.primaryButtonText}>Upload file</Text></Pressable>
+                            <Pressable style={styles.secondaryButton} onPress={() => saveDocumentRecord(documentDraftRef.current[0], prependDocument, setDocumentNotice, setDocumentLoading)} disabled={documentBusy}><Text style={styles.secondaryButtonText}>Save link</Text></Pressable>
+                          </View>
+                        </View>
+                        <View style={styles.analyticsPanel}>
+                          {limitedItems(documentListKey, documents).map((item, index) => <View key={`doc-${recordIdentity(item) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{fieldText(item, ["title", "filename"])}</Text><Text style={styles.statusPill}>{fieldText(item, ["document_type", "linked_type"])}</Text></View><Text style={styles.muted}>{fieldText(item, ["customer"])} - {fieldText(item, ["linked_type"])} {fieldText(item, ["linked_id"])}</Text><Text style={styles.bodyText}>{fieldText(item, ["notes"])}</Text>{!!fieldText(item, ["url", "data_url"])?.replace("-", "") && <Pressable style={styles.smallButton} onPress={() => Linking.openURL(fieldText(item, ["url", "data_url"]))}><Text style={styles.smallButtonText}>Open document</Text></Pressable>}</View>)}
+                          {!documents.length && <Text style={styles.muted}>No documents have been attached yet.</Text>}
+                          {renderListControls(documentListKey, documents.length)}
+                        </View>
+                      </View>
+                    );
+                  }}
+                </LocalValue>
+              )}
+            </LocalValue>
+          );
+        }}
+      </LocalValue>
     );
   }
 
@@ -9507,22 +13668,74 @@ export default function App() {
     ];
     const engineerJobListKey = "engineer-jobs";
     return (
-      <View>
-        <View style={styles.moduleHero}><Text style={styles.eyebrow}>Field</Text><Text style={styles.moduleHeroTitle}>Engineer Mobile Job View</Text><Text style={styles.moduleHeroText}>A focused technician screen for today’s assigned jobs, customer contact, check-in, photos, status, notes, and signature handoff.</Text></View>
-        <View style={styles.metricGrid}><View style={styles.card}><Text style={styles.cardLabel}>Assigned jobs</Text><Text style={styles.metricValue}>{jobs.length}</Text><Text style={styles.muted}>{name || "Current user"} active queue.</Text></View><View style={styles.card}><Text style={styles.cardLabel}>Attendance</Text><Text style={styles.metricValue}>{fieldText(asRecords(data?.attendance_today).find((item) => fieldText(item, ["person_id", "staff_id"]) === fieldText(staff || {}, ["id"])) || {}, ["status"]) || "-"}</Text><Text style={styles.muted}>Today field attendance.</Text></View></View>
-        <View style={styles.inlineActions}><Pressable style={styles.smallButton} onPress={() => markSelfAttendance("check_in")} disabled={loading}><Text style={styles.smallButtonText}>Check in</Text></Pressable><Pressable style={styles.smallButton} onPress={() => markSelfAttendance("check_out")} disabled={loading}><Text style={styles.smallButtonText}>Check out</Text></Pressable></View>
-        <View style={styles.analyticsPanel}>
-          {limitedItems(engineerJobListKey, jobs).map((job, index) => <Pressable key={`engineer-${job.type}-${index}`} style={styles.analyticsRow} onPress={() => setActiveTab(job.tab)}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{job.type}: {fieldText(job.record, ["unit", "job_id", "job_number", "id", "customer"])}</Text><Text style={styles.statusPill}>{fieldText(job.record, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(job.record, ["customer", "customer_name"])} - {fieldText(job.record, ["site", "location", "address"])}</Text><Text style={styles.bodyText}>Contact: {fieldText(job.record, ["phone", "caller_mobile", "contact_phone"])} - Schedule: {fieldText(job.record, ["scheduled_at", "service_date", "handover_date", "due_date"])}</Text><Text style={styles.bodyText}>Notes/signature/photos can be added from the linked job record.</Text></Pressable>)}
-          {!jobs.length && <Text style={styles.muted}>No assigned open jobs matched your staff profile.</Text>}
-          {renderListControls(engineerJobListKey, jobs.length)}
-        </View>
-      </View>
+      <LocalValue key="engineer-jobs-attendance" initialValue={asRecords(data?.attendance_today)}>
+        {(attendanceRows, setAttendanceRows) => {
+          const staffId = fieldText(staff || {}, ["id"]);
+          const attendanceRecord = attendanceRows.find((item) => fieldText(item, ["person_id", "staff_id"]) === staffId);
+          const upsertAttendance = (record: Record<string, unknown>) => {
+            const savedId = recordIdentity(record);
+            const savedDate = fieldText(record, ["date"]);
+            const savedPersonId = fieldText(record, ["person_id", "staff_id"]);
+            setAttendanceRows((current) => {
+              let changed = false;
+              const next = current.map((item) => {
+                const sameId = savedId && recordIdentity(item) === savedId;
+                const sameDayPerson = savedDate && savedPersonId && fieldText(item, ["date"]) === savedDate && fieldText(item, ["person_id", "staff_id"]) === savedPersonId;
+                if (!sameId && !sameDayPerson) return item;
+                changed = true;
+                return { ...item, ...record };
+              });
+              return changed ? next : [record, ...current];
+            });
+          };
+          return (
+            <View>
+              <View style={styles.moduleHero}><Text style={styles.eyebrow}>Field</Text><Text style={styles.moduleHeroTitle}>Engineer Mobile Job View</Text><Text style={styles.moduleHeroText}>A focused technician screen for today’s assigned jobs, customer contact, check-in, photos, status, notes, and signature handoff.</Text></View>
+              <View style={styles.metricGrid}><View style={styles.card}><Text style={styles.cardLabel}>Assigned jobs</Text><Text style={styles.metricValue}>{jobs.length}</Text><Text style={styles.muted}>{name || "Current user"} active queue.</Text></View><View style={styles.card}><Text style={styles.cardLabel}>Attendance</Text><Text style={styles.metricValue}>{fieldText(attendanceRecord || {}, ["status"]) || "-"}</Text><Text style={styles.muted}>Today field attendance.</Text></View></View>
+              <View style={styles.inlineActions}><Pressable style={styles.smallButton} onPress={() => markSelfAttendance("check_in", upsertAttendance, attendanceRows)} disabled={loading}><Text style={styles.smallButtonText}>Check in</Text></Pressable><Pressable style={styles.smallButton} onPress={() => markSelfAttendance("check_out", upsertAttendance, attendanceRows)} disabled={loading}><Text style={styles.smallButtonText}>Check out</Text></Pressable></View>
+              <View style={styles.analyticsPanel}>
+                {limitedItems(engineerJobListKey, jobs).map((job, index) => <Pressable key={`engineer-${job.type}-${index}`} style={styles.analyticsRow} onPress={() => { setActiveTab(job.tab); setMessage(`Opening engineer job ${job.type}: ${fieldText(job.record, ["unit", "job_id", "job_number", "id", "customer"])}.`); }}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{job.type}: {fieldText(job.record, ["unit", "job_id", "job_number", "id", "customer"])}</Text><Text style={styles.statusPill}>{fieldText(job.record, ["status"])}</Text></View><Text style={styles.muted}>{fieldText(job.record, ["customer", "customer_name"])} - {fieldText(job.record, ["site", "location", "address"])}</Text><Text style={styles.bodyText}>Contact: {fieldText(job.record, ["phone", "caller_mobile", "contact_phone"])} - Schedule: {fieldText(job.record, ["scheduled_at", "service_date", "handover_date", "due_date"])}</Text><Text style={styles.bodyText}>Notes/signature/photos can be added from the linked job record.</Text></Pressable>)}
+                {!jobs.length && <Text style={styles.muted}>No assigned open jobs matched your staff profile.</Text>}
+                {renderListControls(engineerJobListKey, jobs.length)}
+              </View>
+            </View>
+          );
+        }}
+      </LocalValue>
     );
   }
 
-  function renderCustomerCrmPage() {
+  function renderCustomerCrmPage(crmState: CrmState, siteVisitDraftState: SiteVisitDraftState, customerDraftState: CustomerDraftState, salesInquiryDraftState: SalesInquiryDraftState, offerDraftState: OfferDraftState) {
+    const { salesInquiryDraft, setSalesInquiryDraft, salesInquiryInstalledDateDraft, setSalesInquiryInstalledDateDraft, salesInquiryDraftVersion } = salesInquiryDraftState;
+    const { offerDraft, setOfferDraft } = offerDraftState;
+    const {
+      customerDraft,
+      setCustomerDraft,
+      customerInstalledDateDraft,
+      setCustomerInstalledDateDraft,
+      customerInlineDrafts,
+      customerInlineInstalledDates,
+      customerDraftVersion,
+    } = customerDraftState;
+    const { siteVisitDraft } = siteVisitDraftState;
+    const {
+      crmSearch,
+      setCrmSearch,
+      crmRecordView,
+      setCrmRecordView,
+      crmStageFilter,
+      setCrmStageFilter,
+      crmStaffFilter,
+      setCrmStaffFilter,
+      crmDepartmentFilter,
+      setCrmDepartmentFilter,
+      crmTeamFilter,
+      setCrmTeamFilter,
+      crmImportType,
+      setCrmImportType,
+    } = crmState;
     const customers = data?.customers || [];
-    const visibleCustomers = filteredCustomers();
+    const visibleCustomers = filteredCustomers(crmState);
     const inquiries = asRecords((data as Record<string, unknown> | null)?.sales_inquiries);
     const offers = [...asRecords(data?.estimates)].sort((a, b) => {
       const aReport = String(a.imported_from || a.source || "").includes("Offer Report") ? 1 : 0;
@@ -9530,7 +13743,7 @@ export default function App() {
       return bReport - aReport;
     });
     const assignmentFiltersActive = Boolean(crmStaffFilter.trim() || crmDepartmentFilter !== "All" || crmTeamFilter !== "All");
-    const visibleInquiries = assignmentFiltersActive ? [] : inquiries.filter((item) => {
+    const visibleInquiries = crmRecordView !== "Enquiries" || assignmentFiltersActive ? [] : inquiries.filter((item) => {
       const query = crmSearch.trim().toLowerCase();
       const relationshipStatus = crmRelationshipStatus(item);
       const stageOk = crmStageFilter === "All" || relationshipStatus === crmStageFilter || String(item.lead_status || item.status || "") === crmStageFilter;
@@ -9538,17 +13751,32 @@ export default function App() {
       return stageOk && queryOk;
     });
     const leadInquiryRows = visibleInquiries.filter((item) => crmRelationshipStatus(item) !== "Current Customer");
-    const currentCustomerInquiryRows = visibleInquiries.filter((item) => crmRelationshipStatus(item) === "Current Customer");
     const openInquiries = inquiries.filter((item) => !String(item.status || item.lead_status || "").toLowerCase().includes("lost"));
     const reportImported = inquiries.filter((item) => item.source_enquiry_no || item.enquiry_no).length;
-    const crmRows = [
-      ...(crmRecordView === "Customers" ? visibleCustomers.map((customer) => ({ type: "customer" as const, customer })) : []),
-      ...(crmRecordView === "Customers" ? currentCustomerInquiryRows.map((inquiry, index) => ({ type: "inquiry" as const, inquiry, index })) : []),
-      ...(crmRecordView === "Enquiries" ? leadInquiryRows.map((inquiry, index) => ({ type: "inquiry" as const, inquiry, index })) : []),
-    ];
     const crmListKey = `crm-${crmRecordView}`;
-    const pagedCrmRows = crmRows.slice(0, listVisibleCount(crmListKey, crmRows.length));
-    const inquiriesWithEstimates = inquiries.filter((item) => estimatesForInquiry(item, offers).length);
+    const pagedCustomerRecords = crmRecordView === "Customers" ? collectVisibleItems<Customer>(crmListKey, visibleCustomers) : null;
+    const pagedInquiryRecords = crmRecordView === "Customers" ? null : collectVisibleItems<Record<string, unknown>>(crmListKey, leadInquiryRows);
+    const crmRowsTotal = pagedCustomerRecords?.total ?? pagedInquiryRecords?.total ?? 0;
+    const pagedCrmRows = pagedCustomerRecords
+      ? pagedCustomerRecords.visible.map((customer) => ({ type: "customer" as const, customer }))
+      : (pagedInquiryRecords?.visible || []).map((inquiry, index) => ({ type: "inquiry" as const, inquiry, index }));
+    const inquiryEstimateKeys = new Set<string>();
+    offers.forEach((estimate) => {
+      [estimate.source_inquiry_id, estimate.enquiry_no, estimate.source_enquiry_no, estimate.customer_id].forEach((value) => {
+        const text = String(value || "").trim();
+        if (text) inquiryEstimateKeys.add(text);
+      });
+      const nameKey = crmNameKey(estimate.customer_name || estimate.offer_name || estimate.customer);
+      if (nameKey) inquiryEstimateKeys.add(`name:${nameKey}`);
+    });
+    const inquiriesWithEstimatesCount = inquiries.reduce((count, item) => {
+      const keys = [
+        inquiryIdentity(item),
+        String(item.customer_id || "").trim(),
+        `name:${crmNameKey(item.customer || item.lead_name || item.name)}`,
+      ].filter(Boolean);
+      return count + (keys.some((key) => inquiryEstimateKeys.has(key)) ? 1 : 0);
+    }, 0);
     const stages = ["All", "Lead", "Current Customer", "Qualified", "Site Visit", "Quoted", "Negotiation", "Won", "Lost", "AMC"];
     const today = new Date().toISOString().slice(0, 10);
     const dueInquiryFollowUps = inquiries.filter((item) => {
@@ -9596,99 +13824,141 @@ export default function App() {
                 <Text style={styles.cardLabel}>CSV import</Text>
                 <Text style={styles.cardTitle}>Upload captured CRM data</Text>
               </View>
-              <Pressable style={styles.smallButton} onPress={() => setCrmImportOpen((open) => !open)} disabled={loading}>
-                <Text style={styles.smallButtonText}>{crmImportOpen ? "Close" : "Open"}</Text>
-              </Pressable>
-            </View>
-            {crmImportOpen && (
-              <>
-                <View style={styles.inlineActions}>
-                  {crmCsvImportTypes.map((item) => (
-                    <Pressable
-                      key={item.key}
-                      style={[styles.selectorPill, crmImportType === item.key && styles.selectorPillActive]}
-                      onPress={() => setCrmImportType(item.key)}
-                      disabled={loading}
-                    >
-                      <Text style={[styles.selectorText, crmImportType === item.key && styles.selectorTextActive]}>{item.label}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-                <View style={styles.inlineActions}>
-                  <Pressable style={styles.primaryButtonInline} onPress={uploadCrmCsv} disabled={loading}>
-                    <Text style={styles.primaryButtonText}>Upload CSV</Text>
-                  </Pressable>
-                  {crmCsvTemplates.map(([label, fileName]) => (
-                    <Pressable key={fileName} style={styles.smallButton} onPress={() => openCrmImportTemplate(fileName)} disabled={loading}>
-                      <Text style={styles.smallButtonText}>{label}</Text>
-                    </Pressable>
-                  ))}
-                </View>
+              <LocalDisclosure
+                buttonStyle={styles.smallButton}
+                activeStyle={styles.selectorPillActive}
+                closedLabel="Open"
+                openLabel="Close"
+                textStyle={styles.smallButtonText}
+                disabled={loading}
+              >
+                <CsvImportEditor
+                  disabled={loading}
+                  importTypes={crmCsvImportTypes}
+                  onImport={importEditedCrmCsv}
+                  onOpenTemplate={openCrmImportTemplate}
+                  onSelectImportType={(key, label) => {
+                    setCrmImportType(key);
+                    setMessage(`CSV import type set to ${label}.`);
+                  }}
+                  selectedImportType={crmImportType}
+                  setMessage={setMessage}
+                  templates={crmCsvTemplates}
+                />
                 <Text style={styles.muted}>Use the FUZI CSV templates, keep the headers unchanged, then upload here. Rows with matching FUZI customer ID, external reference, phone, or enquiry number update existing records.</Text>
-              </>
-            )}
+              </LocalDisclosure>
+            </View>
           </View>
         )}
         <View style={styles.crmMetricGrid}>
-          <View style={[styles.card, styles.crmMetricTile]}>
+          <Pressable
+            style={[styles.card, styles.crmMetricTile]}
+            onPress={() => {
+              setCrmRecordView("Customers");
+              setCrmStageFilter("All");
+              setCrmSearch("");
+              setMessage("Showing saved CRM accounts.");
+            }}
+            disabled={loading}
+          >
             <Text style={styles.cardLabel}>Accounts</Text>
             <Text style={styles.metricValue}>{customers.length}</Text>
             <Text style={styles.muted}>Saved customer and building records.</Text>
-          </View>
-          <View style={[styles.card, styles.crmMetricTile]}>
+          </Pressable>
+          <Pressable
+            style={[styles.card, styles.crmMetricTile]}
+            onPress={() => {
+              setCrmRecordView("Enquiries");
+              setCrmStageFilter("All");
+              setCrmSearch("");
+              setMessage(`Showing ${dueFollowUps.length} CRM follow-up${dueFollowUps.length === 1 ? "" : "s"} due today or overdue.`);
+            }}
+            disabled={loading}
+          >
             <Text style={styles.cardLabel}>Follow-ups due</Text>
             <Text style={styles.metricValue}>{dueFollowUps.length}</Text>
             <Text style={styles.muted}>Next follow-up today or overdue.</Text>
-          </View>
-          <View style={[styles.card, styles.crmMetricTile]}>
+          </Pressable>
+          <Pressable
+            style={[styles.card, styles.crmMetricTile]}
+            onPress={() => {
+              setCrmRecordView("Customers");
+              setCrmStageFilter("All");
+              setCrmSearch("consent missing");
+              setMessage(`Showing ${consentMissing.length} CRM account${consentMissing.length === 1 ? "" : "s"} missing DPDP consent.`);
+            }}
+            disabled={loading}
+          >
             <Text style={styles.cardLabel}>Consent missing</Text>
             <Text style={styles.metricValue}>{consentMissing.length}</Text>
             <Text style={styles.muted}>DPDP consent needs review.</Text>
-          </View>
-          <View style={[styles.card, styles.crmMetricTile]}>
+          </Pressable>
+          <Pressable
+            style={[styles.card, styles.crmMetricTile]}
+            onPress={() => {
+              setCrmRecordView("Enquiries");
+              setCrmStageFilter("All");
+              setCrmSearch("");
+              setMessage(`Showing ${inquiries.length} CRM sales enquiries.`);
+            }}
+            disabled={loading}
+          >
             <Text style={styles.cardLabel}>Sales enquiries</Text>
             <Text style={styles.metricValue}>{inquiries.length}</Text>
             <Text style={styles.muted}>{openInquiries.length} active, {reportImported} from enquiry report.</Text>
-          </View>
-          <View style={[styles.card, styles.crmMetricTile]}>
+          </Pressable>
+          <Pressable
+            style={[styles.card, styles.crmMetricTile]}
+            onPress={() => {
+              setCrmRecordView("Enquiries");
+              setCrmStageFilter("All");
+              setCrmSearch("");
+              setMessage(`Showing CRM enquiries linked to ${offers.length} offer${offers.length === 1 ? "" : "s"}.`);
+            }}
+            disabled={loading}
+          >
             <Text style={styles.cardLabel}>Customers with costing</Text>
-            <Text style={styles.metricValue}>{inquiriesWithEstimates.length}</Text>
+            <Text style={styles.metricValue}>{inquiriesWithEstimatesCount}</Text>
             <Text style={styles.muted}>{offers.length} customer-linked offers tied into CRM.</Text>
-          </View>
+          </Pressable>
         </View>
 
         <View style={styles.formCard}>
           <Text style={styles.cardLabel}>New account / lead</Text>
-          <Pressable
-            style={[styles.dropdownButton, customerEditorOpen && styles.selectorPillActive]}
-            onPress={() => setCustomerEditorOpen((open) => !open)}
+          <LocalDisclosure
+            buttonStyle={styles.dropdownButton}
+            activeStyle={styles.selectorPillActive}
+            closedLabel="Add new CRM account / lead"
+            textStyle={styles.selectorText}
             disabled={loading}
           >
-            <Text style={styles.selectorText}>Add new CRM account / lead</Text>
-            <Text style={styles.dropdownChevron}>{customerEditorOpen ? "▲" : "▼"}</Text>
-          </Pressable>
-          {customerEditorOpen && (
-            <>
+              <View key={`customer-create-form-${customerDraftVersion}`}>
               {customerFields.map((field) => (
                 <View key={field.key} style={styles.field}>
                   <Text style={styles.label}>{field.label}</Text>
                   <TextInput
                     style={[styles.input, field.multiline && styles.textarea]}
-                    value={String(customerDraft[field.key] || "")}
-                    onChangeText={(value) => setCustomerDraft((draft) => ({ ...draft, [field.key]: value }))}
-                    commitOnBlur
+                    defaultValue={String(customerDraft[field.key] || "")}
+                    onChangeText={(value) => {
+                      customerDraftStateRef.current = {
+                        ...customerDraftStateRef.current,
+                        customerDraft: { ...customerDraftStateRef.current.customerDraft, [field.key]: value },
+                      };
+                    }}
                     keyboardType={field.keyboard || "default"}
                     multiline={field.multiline}
                   />
                 </View>
               ))}
+              </View>
               <View style={styles.installDatePanel}>
                 <Text style={styles.cardLabel}>Handover date</Text>
                 <TextInput
                   style={styles.input}
-                  value={customerInstalledDateDraft}
-                  onChangeText={setCustomerInstalledDateDraft}
-                  commitOnBlur
+                  defaultValue={customerInstalledDateDraft}
+                  onChangeText={(value) => {
+                    customerDraftStateRef.current = { ...customerDraftStateRef.current, customerInstalledDateDraft: value };
+                  }}
                   placeholder="YYYY-MM-DD or leave blank"
                 />
                 <Text style={styles.muted}>If this customer already has a handover date, enter it here to classify the account as a current customer.</Text>
@@ -9696,116 +13966,117 @@ export default function App() {
               <Pressable style={styles.primaryButton} onPress={() => saveCustomer()} disabled={loading}>
                 <Text style={styles.primaryButtonText}>Save customer</Text>
               </Pressable>
-            </>
-          )}
+          </LocalDisclosure>
         </View>
 
         <View style={styles.formCard}>
           <Text style={styles.cardLabel}>Sales enquiry intake</Text>
           <Text style={styles.muted}>New enquiries are captured in CRM using the same fields as the enquiry report.</Text>
-          <Pressable
-            style={[styles.dropdownButton, (salesInquiryEditorOpen || !!salesInquiryDraft.id) && styles.selectorPillActive]}
-            onPress={() => setSalesInquiryEditorOpen((open) => !open)}
+          <LocalDisclosure
+            buttonStyle={styles.dropdownButton}
+            activeStyle={styles.selectorPillActive}
+            closedLabel={salesInquiryDraft.id ? `Editing ${salesInquiryDraft.customer || salesInquiryDraft.enquiry_no || salesInquiryDraft.id}` : "Add new sales enquiry"}
+            textStyle={styles.selectorText}
+            forceOpen={!!salesInquiryDraft.id}
             disabled={loading || !!salesInquiryDraft.id}
           >
-            <Text style={styles.selectorText}>
-              {salesInquiryDraft.id ? `Editing ${salesInquiryDraft.customer || salesInquiryDraft.enquiry_no || salesInquiryDraft.id}` : "Add new sales enquiry"}
-            </Text>
-            <Text style={styles.dropdownChevron}>{salesInquiryEditorOpen || salesInquiryDraft.id ? "▲" : "▼"}</Text>
-          </Pressable>
-          {(salesInquiryEditorOpen || !!salesInquiryDraft.id) && (
-            <>
-          <View style={styles.formGrid}>
+          <View key={`sales-intake-form-${salesInquiryDraftVersion}`} style={styles.formGrid}>
             <View style={styles.field}>
               <Text style={styles.label}>System customer ID</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.customer_id} editable={false} placeholder="Auto-generated" />
+              <TextInput style={styles.input} value={salesInquiryDraft.customer_id} controlled editable={false} placeholder="Auto-generated" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Enquiry no</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.enquiry_no} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, enquiry_no: value }))} commitOnBlur placeholder="Auto if blank" />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.enquiry_no} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, enquiry_no: value } }; }} placeholder="Auto if blank" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Lead / customer name</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.customer} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, customer: value }))} commitOnBlur />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.customer} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, customer: value } }; }} />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Lead status</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.lead_status} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, lead_status: value }))} commitOnBlur />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.lead_status} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, lead_status: value } }; }} />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Lead type</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.lead_type} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, lead_type: value }))} commitOnBlur />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.lead_type} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, lead_type: value } }; }} />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Phone</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.phone} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, phone: value }))} commitOnBlur keyboardType="phone-pad" />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.phone} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, phone: value } }; }} keyboardType="phone-pad" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Full address</Text>
-              <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.address} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, address: value }))} commitOnBlur multiline />
+              <TextInput style={[styles.input, styles.textarea]} defaultValue={salesInquiryDraft.address} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, address: value } }; }} multiline />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>WhatsApp</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.whatsapp_no} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, whatsapp_no: value }))} commitOnBlur keyboardType="phone-pad" />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.whatsapp_no} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, whatsapp_no: value } }; }} keyboardType="phone-pad" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Quantity</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.qty} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, qty: value }))} commitOnBlur keyboardType="numeric" />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.qty} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, qty: value } }; }} keyboardType="numeric" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Created date</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.received_date} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, received_date: value }))} commitOnBlur placeholder="YYYY-MM-DD" />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.received_date} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, received_date: value } }; }} placeholder="YYYY-MM-DD" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Referral by</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.referral_by} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, referral_by: value }))} commitOnBlur />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.referral_by} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, referral_by: value } }; }} />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Assigned to</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.assigned_to} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, assigned_to: value }))} commitOnBlur />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.assigned_to} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, assigned_to: value } }; }} />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Follow-up channel</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.followup_channel} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, followup_channel: value }))} commitOnBlur placeholder="WhatsApp / Call / Email" />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.followup_channel} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, followup_channel: value } }; }} placeholder="WhatsApp / Call / Email" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Auto follow-up every days</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.followup_frequency_days} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, followup_frequency_days: value }))} commitOnBlur keyboardType="numeric" />
+              <TextInput key={`new-enquiry-frequency-${salesInquiryDraft.followup_frequency_days}`} style={styles.input} defaultValue={salesInquiryDraft.followup_frequency_days} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, followup_frequency_days: value } }; }} keyboardType="numeric" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Next follow-up</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.next_followup} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, next_followup: value }))} commitOnBlur placeholder="YYYY-MM-DD" />
+              <TextInput key={`new-enquiry-next-${salesInquiryDraft.next_followup}`} style={styles.input} defaultValue={salesInquiryDraft.next_followup} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, next_followup: value } }; }} placeholder="YYYY-MM-DD" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Follow-up status</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.followup_status} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, followup_status: value }))} commitOnBlur placeholder="Open / Scheduled / Closed" />
+              <TextInput key={`new-enquiry-followup-status-${salesInquiryDraft.followup_status}`} style={styles.input} defaultValue={salesInquiryDraft.followup_status} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, followup_status: value } }; }} placeholder="Open / Scheduled / Closed" />
             </View>
           </View>
           <View style={styles.inlineActions}>
             {[3, 7, 14, 30].map((days) => (
-              <Pressable key={`draft-followup-${days}`} style={styles.smallButton} onPress={() => setSalesInquiryDraft((draft) => ({ ...draft, next_followup: datePlusDays(days), followup_frequency_days: String(days), followup_status: "Scheduled" }))}>
+              <Pressable
+                key={`draft-followup-${days}`}
+                style={styles.smallButton}
+                onPress={() => {
+                  setSalesInquiryDraft((draft) => ({ ...draft, next_followup: datePlusDays(days), followup_frequency_days: String(days), followup_status: "Scheduled" }));
+                  setMessage(`Sales enquiry follow-up set to every ${days} days.`);
+                }}
+              >
                 <Text style={styles.smallButtonText}>Every {days}d</Text>
               </Pressable>
             ))}
           </View>
           <View style={styles.field}>
             <Text style={styles.label}>Enquiry remark</Text>
-            <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.enquiry_remark} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, enquiry_remark: value }))} commitOnBlur multiline />
+            <TextInput style={[styles.input, styles.textarea]} defaultValue={salesInquiryDraft.enquiry_remark} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, enquiry_remark: value } }; }} multiline />
           </View>
           {!!salesInquiryDraft.id && (
             <View style={styles.installDatePanel}>
               <Text style={styles.cardLabel}>Handover date</Text>
               <TextInput
                 style={styles.input}
-                value={salesInquiryInstalledDateDraft}
-                onChangeText={setSalesInquiryInstalledDateDraft}
-                commitOnBlur
+                defaultValue={salesInquiryInstalledDateDraft}
+                onChangeText={setSalesInquiryInstalledDateDraftRefOnly}
                 placeholder="YYYY-MM-DD or leave blank"
               />
               <Text style={styles.muted}>Saving a handover date converts this enquiry into a current customer and links the handover date.</Text>
             </View>
           )}
-          <Pressable style={styles.primaryButton} onPress={() => saveSalesInquiry()} disabled={loading || !salesInquiryDraft.customer.trim()}>
+          <Pressable style={styles.primaryButton} onPress={() => saveSalesInquiry()} disabled={loading}>
             <Text style={styles.primaryButtonText}>{salesInquiryDraft.id ? "Update enquiry record" : "Save enquiry intake"}</Text>
           </Pressable>
           {!!salesInquiryDraft.id && (
@@ -9814,15 +14085,14 @@ export default function App() {
               onPress={() => {
                 setSalesInquiryDraft(emptySalesInquiryDraft);
                 setSalesInquiryInstalledDateDraft("");
-                setSalesInquiryEditorOpen(false);
+                setMessage("Enquiry edit cancelled.");
               }}
               disabled={loading}
             >
               <Text style={styles.secondaryButtonText}>Cancel enquiry edit</Text>
             </Pressable>
           )}
-            </>
-          )}
+          </LocalDisclosure>
         </View>
 
         <Text style={styles.sectionTitle}>Pipeline & Search</Text>
@@ -9840,7 +14110,7 @@ export default function App() {
                   onPress={() => {
                     setCrmRecordView(view);
                     setActiveTab(view === "Customers" ? "customers" : "enquiries");
-                    setEnquiryPage(1);
+                    setMessage(`CRM view changed to ${view}.`);
                   }}
                   disabled={loading}
                 >
@@ -9852,6 +14122,7 @@ export default function App() {
           <TextInput
             style={styles.input}
             value={crmSearch}
+            controlled
             onChangeText={setCrmSearch}
             commitDelayMs={900}
             placeholder="Search name, phone, GSTIN, assigned staff, department, site, notes"
@@ -9862,6 +14133,7 @@ export default function App() {
               <TextInput
                 style={styles.input}
                 value={crmStaffFilter}
+                controlled
                 onChangeText={setCrmStaffFilter}
                 commitDelayMs={900}
                 placeholder="Employee name"
@@ -9869,100 +14141,124 @@ export default function App() {
             </View>
             <View style={styles.crmFilterTile}>
               <Text style={styles.label}>Department</Text>
-              <Pressable
-                style={[styles.dropdownButton, crmDepartmentDropdownOpen && styles.selectorPillActive]}
-                onPress={() => {
-                  setCrmDepartmentDropdownOpen((open) => !open);
-                  setCrmTeamDropdownOpen(false);
-                  setCrmStageDropdownOpen(false);
-                }}
-                disabled={loading}
-              >
-                <Text style={styles.selectorText}>{crmDepartmentFilter}</Text>
-                <Text style={styles.dropdownChevron}>{crmDepartmentDropdownOpen ? "▲" : "▼"}</Text>
-              </Pressable>
-              {crmDepartmentDropdownOpen && (
-                <View style={styles.dropdownPanel}>
-                  <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                    {customerAssignmentOptions.departments.map((department) => (
-                      <Pressable
-                        key={`crm-dept-${department}`}
-                        style={[styles.dropdownOption, crmDepartmentFilter === department && styles.selectorPillActive]}
-                        onPress={() => {
-                          setCrmDepartmentFilter(department);
-                          setCrmDepartmentDropdownOpen(false);
-                        }}
-                      >
-                        <Text style={styles.selectorText}>{department}</Text>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
+              <LocalToggle>
+                {(crmDepartmentDropdownOpen, setCrmDepartmentDropdownOpen) => (
+                  <>
+                    <Pressable
+                      style={[styles.dropdownButton, crmDepartmentDropdownOpen && styles.selectorPillActive]}
+                      onPress={() => {
+                        setCrmDepartmentDropdownOpen((open) => {
+                          setMessage(open ? "CRM department selector closed." : "CRM department selector opened.");
+                          return !open;
+                        });
+                      }}
+                      disabled={loading}
+                    >
+                      <Text style={styles.selectorText}>{crmDepartmentFilter}</Text>
+                      <Text style={styles.dropdownChevron}>{crmDepartmentDropdownOpen ? "^" : "v"}</Text>
+                    </Pressable>
+                    {crmDepartmentDropdownOpen && (
+                      <View style={styles.dropdownPanel}>
+                        <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                          {customerAssignmentOptions.departments.map((department) => (
+                            <Pressable
+                              key={`crm-dept-${department}`}
+                              style={[styles.dropdownOption, crmDepartmentFilter === department && styles.selectorPillActive]}
+                              onPress={() => {
+                                setCrmDepartmentFilter(department);
+                                setCrmDepartmentDropdownOpen(false);
+                                setMessage(`CRM department filter set to ${department}.`);
+                              }}
+                            >
+                              <Text style={styles.selectorText}>{department}</Text>
+                            </Pressable>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    )}
+                  </>
+                )}
+              </LocalToggle>
             </View>
             <View style={styles.crmFilterTile}>
               <Text style={styles.label}>Team / position</Text>
-              <Pressable
-                style={[styles.dropdownButton, crmTeamDropdownOpen && styles.selectorPillActive]}
-                onPress={() => {
-                  setCrmTeamDropdownOpen((open) => !open);
-                  setCrmDepartmentDropdownOpen(false);
-                  setCrmStageDropdownOpen(false);
-                }}
-                disabled={loading}
-              >
-                <Text style={styles.selectorText}>{crmTeamFilter}</Text>
-                <Text style={styles.dropdownChevron}>{crmTeamDropdownOpen ? "▲" : "▼"}</Text>
-              </Pressable>
-              {crmTeamDropdownOpen && (
-                <View style={styles.dropdownPanel}>
-                  <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
-                    {customerAssignmentOptions.teams.map((team) => (
-                      <Pressable
-                        key={`crm-team-${team}`}
-                        style={[styles.dropdownOption, crmTeamFilter === team && styles.selectorPillActive]}
-                        onPress={() => {
-                          setCrmTeamFilter(team);
-                          setCrmTeamDropdownOpen(false);
-                        }}
-                      >
-                        <Text style={styles.selectorText}>{team}</Text>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
+              <LocalToggle>
+                {(crmTeamDropdownOpen, setCrmTeamDropdownOpen) => (
+                  <>
+                    <Pressable
+                      style={[styles.dropdownButton, crmTeamDropdownOpen && styles.selectorPillActive]}
+                      onPress={() => {
+                        setCrmTeamDropdownOpen((open) => {
+                          setMessage(open ? "CRM team selector closed." : "CRM team selector opened.");
+                          return !open;
+                        });
+                      }}
+                      disabled={loading}
+                    >
+                      <Text style={styles.selectorText}>{crmTeamFilter}</Text>
+                      <Text style={styles.dropdownChevron}>{crmTeamDropdownOpen ? "^" : "v"}</Text>
+                    </Pressable>
+                    {crmTeamDropdownOpen && (
+                      <View style={styles.dropdownPanel}>
+                        <ScrollView style={styles.dropdownScroll} nestedScrollEnabled>
+                          {customerAssignmentOptions.teams.map((team) => (
+                            <Pressable
+                              key={`crm-team-${team}`}
+                              style={[styles.dropdownOption, crmTeamFilter === team && styles.selectorPillActive]}
+                              onPress={() => {
+                                setCrmTeamFilter(team);
+                                setCrmTeamDropdownOpen(false);
+                                setMessage(`CRM team filter set to ${team}.`);
+                              }}
+                            >
+                              <Text style={styles.selectorText}>{team}</Text>
+                            </Pressable>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    )}
+                  </>
+                )}
+              </LocalToggle>
             </View>
             <View style={styles.crmFilterTile}>
               <Text style={styles.label}>Pipeline stage</Text>
-              <Pressable
-                style={[styles.dropdownButton, crmStageDropdownOpen && styles.selectorPillActive]}
-                onPress={() => {
-                  setCrmStageDropdownOpen((open) => !open);
-                  setCrmDepartmentDropdownOpen(false);
-                  setCrmTeamDropdownOpen(false);
-                }}
-                disabled={loading}
-              >
-                <Text style={styles.selectorText}>{crmStageFilter}</Text>
-                <Text style={styles.dropdownChevron}>{crmStageDropdownOpen ? "▲" : "▼"}</Text>
-              </Pressable>
-              {crmStageDropdownOpen && (
-                <View style={styles.dropdownPanel}>
-                  {stages.map((stage) => (
+              <LocalToggle>
+                {(crmStageDropdownOpen, setCrmStageDropdownOpen) => (
+                  <>
                     <Pressable
-                      key={`crm-stage-${stage}`}
-                      style={[styles.dropdownOption, crmStageFilter === stage && styles.selectorPillActive]}
+                      style={[styles.dropdownButton, crmStageDropdownOpen && styles.selectorPillActive]}
                       onPress={() => {
-                        setCrmStageFilter(stage);
-                        setCrmStageDropdownOpen(false);
+                        setCrmStageDropdownOpen((open) => {
+                          setMessage(open ? "CRM stage selector closed." : "CRM stage selector opened.");
+                          return !open;
+                        });
                       }}
+                      disabled={loading}
                     >
-                      <Text style={styles.selectorText}>{stage}</Text>
+                      <Text style={styles.selectorText}>{crmStageFilter}</Text>
+                      <Text style={styles.dropdownChevron}>{crmStageDropdownOpen ? "^" : "v"}</Text>
                     </Pressable>
-                  ))}
-                </View>
-              )}
+                    {crmStageDropdownOpen && (
+                      <View style={styles.dropdownPanel}>
+                        {stages.map((stage) => (
+                          <Pressable
+                            key={`crm-stage-${stage}`}
+                            style={[styles.dropdownOption, crmStageFilter === stage && styles.selectorPillActive]}
+                            onPress={() => {
+                              setCrmStageFilter(stage);
+                              setCrmStageDropdownOpen(false);
+                              setMessage(`CRM stage filter set to ${stage}.`);
+                            }}
+                          >
+                            <Text style={styles.selectorText}>{stage}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
+                  </>
+                )}
+              </LocalToggle>
             </View>
           </View>
         </View>
@@ -10004,9 +14300,9 @@ export default function App() {
         </View>
 
         <Text style={styles.sectionTitle}>{crmRecordView === "Customers" ? "CRM Customer Records" : "CRM Enquiries"}</Text>
-        {!!crmRows.length && <Text style={styles.muted}>Showing {pagedCrmRows.length} of {crmRows.length}</Text>}
+        {!!crmRowsTotal && <Text style={styles.muted}>Showing {pagedCrmRows.length} of {crmRowsTotal}</Text>}
         <View style={styles.limitedList}>
-        {!crmRows.length && (
+        {!crmRowsTotal && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{crmRecordView === "Customers" ? "No CRM customers found" : "No enquiries found"}</Text>
             <Text style={styles.muted}>{crmRecordView === "Customers" ? "Customers appear here after they are saved as accounts or an enquiry is converted/has a handover date." : "New sales enquiries stay here until they are converted to a CRM customer or linked to a handover date."}</Text>
@@ -10016,8 +14312,6 @@ export default function App() {
           if (row.type === "customer") {
             const customer = row.customer;
             const customerId = String(customer.id || "");
-            const inlineDraft = customerInlineDrafts[customerId];
-            const inlineInstalledDate = customerInlineInstalledDates[customerId] || "";
             const customerEstimates = estimatesForCustomer(customer, offers);
             const latestEstimate = customerEstimates[0];
             const latestMotor = latestMotorForCustomer(customer);
@@ -10034,7 +14328,7 @@ export default function App() {
             const relationshipStatus = crmRelationshipStatus(customer as unknown as Record<string, unknown>);
             const assignedTeam = customerAssignmentRecords(customer.id);
             return (
-              <View key={`customer-${customer.id}`} style={[styles.card, compactLists && styles.compactCard]}>
+              <View key={`customer-${customer.id}`} style={[styles.card, compactListsRef.current && styles.compactCard]}>
                 <View style={styles.cardHeaderRow}>
                   <Text style={styles.cardTitle}>{customer.name}</Text>
                   <View style={styles.cardTitleBlock}>
@@ -10073,7 +14367,7 @@ export default function App() {
                 <View style={styles.linkedSystemsPanel}>
                   <Text style={styles.cardLabel}>Customer Timeline</Text>
                   {limitedItems(customerTimelineListKey, timeline).map((item) => (
-                    <Pressable key={item.key} onPress={() => setActiveTab(item.tab)}>
+                    <Pressable key={item.key} onPress={() => { setActiveTab(item.tab); setMessage(`Opening ${item.label} timeline item for ${customer.name}.`); }}>
                       <Text style={styles.muted}>{item.date} - {item.label} - {item.title}</Text>
                       {!!item.detail && item.detail !== "-" && <Text style={styles.bodyText}>{item.detail}</Text>}
                     </Pressable>
@@ -10100,56 +14394,71 @@ export default function App() {
                     </Pressable>
                   )}
                 </View>
-                {!!inlineDraft && (
-                  <View style={styles.inlineRecordEditor}>
-                    <Text style={styles.cardLabel}>Edit customer inline</Text>
-                    <View style={styles.formGrid}>
-                      {customerFields.map((field) => (
-                        <View key={`inline-${customerId}-${field.key}`} style={styles.field}>
-                          <Text style={styles.label}>{field.label}</Text>
-                          <TextInput
-                            style={[styles.input, field.multiline && styles.textarea]}
-                            value={String(inlineDraft[field.key] || "")}
-                            onChangeText={(value) => setCustomerInlineDrafts((drafts) => ({
-                              ...drafts,
-                              [customerId]: { ...drafts[customerId], [field.key]: value },
-                            }))}
-                            commitOnBlur
-                            keyboardType={field.keyboard || "default"}
-                            multiline={field.multiline}
-                          />
-                        </View>
-                      ))}
+                <CustomerInlineEditorSlot
+                  controllerMapRef={customerInlineEditorControllersRef}
+                  customerId={customerId}
+                  initialDraft={customerInlineDrafts[customerId]}
+                  initialInstalledDate={customerInlineInstalledDates[customerId] || ""}
+                >
+                  {({ inlineDraft, inlineInstalledDate }) => inlineDraft ? (
+                    <View key={`customer-inline-${customerId}-${customerDraftVersion}`} style={styles.inlineRecordEditor}>
+                      <Text style={styles.cardLabel}>Edit customer inline</Text>
+                      <View style={styles.formGrid}>
+                        {customerFields.map((field) => (
+                          <View key={`inline-${customerId}-${field.key}`} style={styles.field}>
+                            <Text style={styles.label}>{field.label}</Text>
+                            <TextInput
+                              style={[styles.input, field.multiline && styles.textarea]}
+                              defaultValue={String(inlineDraft[field.key] || "")}
+                              onChangeText={(value) => {
+                                customerDraftStateRef.current = {
+                                  ...customerDraftStateRef.current,
+                                  customerInlineDrafts: {
+                                    ...customerDraftStateRef.current.customerInlineDrafts,
+                                    [customerId]: { ...customerDraftStateRef.current.customerInlineDrafts[customerId], [field.key]: value },
+                                  },
+                                };
+                              }}
+                              keyboardType={field.keyboard || "default"}
+                              multiline={field.multiline}
+                            />
+                          </View>
+                        ))}
+                      </View>
+                      <View style={styles.installDatePanel}>
+                        <Text style={styles.cardLabel}>Handover date</Text>
+                        <TextInput
+                          style={styles.input}
+                          defaultValue={inlineInstalledDate}
+                          onChangeText={(value) => {
+                            customerDraftStateRef.current = {
+                              ...customerDraftStateRef.current,
+                              customerInlineInstalledDates: { ...customerDraftStateRef.current.customerInlineInstalledDates, [customerId]: value },
+                            };
+                          }}
+                          placeholder="YYYY-MM-DD or leave blank"
+                        />
+                        <Text style={styles.muted}>Changing this updates the customer-linked handover date used by CRM and service schedules.</Text>
+                      </View>
+                      {renderCustomerAssignmentManager(inlineDraft as Customer)}
+                      <View style={styles.inlineActions}>
+                        <Pressable style={styles.primaryButtonInline} onPress={() => saveInlineCustomer(customerId)} disabled={loading}>
+                          <Text style={styles.primaryButtonText}>Save customer</Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.smallButton}
+                          onPress={() => openSiteVisitForCustomer({ ...customer, ...inlineDraft, id: customerId } as Customer)}
+                          disabled={loading}
+                        >
+                          <Text style={styles.smallButtonText}>Add site report</Text>
+                        </Pressable>
+                        <Pressable style={styles.secondaryButton} onPress={() => { cancelInlineCustomerEdit(customerId); setMessage("Customer edit cancelled."); }} disabled={loading}>
+                          <Text style={styles.secondaryButtonText}>Cancel edit</Text>
+                        </Pressable>
+                      </View>
                     </View>
-                    <View style={styles.installDatePanel}>
-                      <Text style={styles.cardLabel}>Handover date</Text>
-                      <TextInput
-                        style={styles.input}
-                        value={inlineInstalledDate}
-                        onChangeText={(value) => setCustomerInlineInstalledDates((dates) => ({ ...dates, [customerId]: value }))}
-                        commitOnBlur
-                        placeholder="YYYY-MM-DD or leave blank"
-                      />
-                      <Text style={styles.muted}>Changing this updates the customer-linked handover date used by CRM and service schedules.</Text>
-                    </View>
-                    {renderCustomerAssignmentManager(inlineDraft as Customer)}
-                    <View style={styles.inlineActions}>
-                      <Pressable style={styles.primaryButtonInline} onPress={() => saveInlineCustomer(customerId)} disabled={loading}>
-                        <Text style={styles.primaryButtonText}>Save customer</Text>
-                      </Pressable>
-                      <Pressable
-                        style={styles.smallButton}
-                        onPress={() => openSiteVisitForCustomer({ ...customer, ...inlineDraft, id: customerId } as Customer)}
-                        disabled={loading}
-                      >
-                        <Text style={styles.smallButtonText}>Add site report</Text>
-                      </Pressable>
-                      <Pressable style={styles.secondaryButton} onPress={() => cancelInlineCustomerEdit(customerId)} disabled={loading}>
-                        <Text style={styles.secondaryButtonText}>Cancel edit</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                )}
+                  ) : null}
+                </CustomerInlineEditorSlot>
               </View>
             );
           }
@@ -10172,7 +14481,7 @@ export default function App() {
             const inquiryInstallationsListKey = `crm-inquiry-installations-${id}`;
           const { job: latestInquiryInstalledJob, date: latestInquiryInstalledDate } = crmLatestInstalledFromJobs(inquiryInstallations);
           return (
-            <View key={`${id}-${index}`} style={[styles.card, compactLists && styles.compactCard]}>
+            <View key={`${id}-${index}`} style={[styles.card, compactListsRef.current && styles.compactCard]}>
               <View style={styles.cardHeaderRow}>
                 <View style={styles.cardTitleBlock}>
                   <Text style={styles.cardTitle}>{String(item.customer || item.lead_name || item.name || "-")}</Text>
@@ -10184,15 +14493,15 @@ export default function App() {
                 </View>
               </View>
               {isEditing ? (
-                <View style={styles.inlineRecordEditor}>
+                <View key={`sales-edit-form-${id}-${salesInquiryDraftVersion}`} style={styles.inlineRecordEditor}>
                   <View style={styles.formGrid}>
                     <View style={styles.field}>
                       <Text style={styles.label}>System customer ID</Text>
-                      <TextInput style={styles.input} value={salesInquiryDraft.customer_id} editable={false} placeholder="Auto-generated" />
+                      <TextInput style={styles.input} value={salesInquiryDraft.customer_id} controlled editable={false} placeholder="Auto-generated" />
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>Lead / customer name</Text>
-                      <TextInput style={styles.input} value={salesInquiryDraft.customer} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, customer: value }))} commitOnBlur />
+                      <TextInput style={styles.input} defaultValue={salesInquiryDraft.customer} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, customer: value } }; }} />
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>Lead status</Text>
@@ -10205,11 +14514,14 @@ export default function App() {
                             <Pressable
                               key={`edit-${id}-${statusOption}`}
                               style={[styles.statusChoice, salesInquiryDraft.lead_status === statusOption && styles.statusChoiceActive]}
-                              onPress={() => setSalesInquiryDraft((draft) => ({
-                                ...draft,
-                                lead_status: statusOption,
-                                ...(isLostInquiryStatus(statusOption) ? {} : { lost_reason: "" }),
-                              }))}
+                              onPress={() => {
+                                setSalesInquiryDraft((draft) => ({
+                                  ...draft,
+                                  lead_status: statusOption,
+                                  ...(isLostInquiryStatus(statusOption) ? {} : { lost_reason: "" }),
+                                }));
+                                setMessage(`Sales enquiry status set to ${statusOption}.`);
+                              }}
                               disabled={loading}
                             >
                               <Text style={[styles.statusChoiceText, salesInquiryDraft.lead_status === statusOption && styles.statusChoiceTextActive]}>{statusOption}</Text>
@@ -10223,9 +14535,8 @@ export default function App() {
                         <Text style={styles.label}>Lost reason required</Text>
                         <TextInput
                           style={[styles.input, styles.textarea]}
-                          value={salesInquiryDraft.lost_reason}
-                          onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, lost_reason: value }))}
-                          commitOnBlur
+                          defaultValue={salesInquiryDraft.lost_reason}
+                          onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, lost_reason: value } }; }}
                           multiline
                           placeholder="Why was this enquiry/order/site visit/offer lost?"
                         />
@@ -10233,55 +14544,54 @@ export default function App() {
                     ) : null}
                     <View style={styles.field}>
                       <Text style={styles.label}>Lead type</Text>
-                      <TextInput style={styles.input} value={salesInquiryDraft.lead_type} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, lead_type: value }))} commitOnBlur />
+                      <TextInput style={styles.input} defaultValue={salesInquiryDraft.lead_type} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, lead_type: value } }; }} />
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>Phone</Text>
-                      <TextInput style={styles.input} value={salesInquiryDraft.phone} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, phone: value }))} commitOnBlur keyboardType="phone-pad" />
+                      <TextInput style={styles.input} defaultValue={salesInquiryDraft.phone} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, phone: value } }; }} keyboardType="phone-pad" />
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>Full address</Text>
-                      <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.address} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, address: value }))} commitOnBlur multiline />
+                      <TextInput style={[styles.input, styles.textarea]} defaultValue={salesInquiryDraft.address} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, address: value } }; }} multiline />
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>WhatsApp</Text>
-                      <TextInput style={styles.input} value={salesInquiryDraft.whatsapp_no} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, whatsapp_no: value }))} commitOnBlur keyboardType="phone-pad" />
+                      <TextInput style={styles.input} defaultValue={salesInquiryDraft.whatsapp_no} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, whatsapp_no: value } }; }} keyboardType="phone-pad" />
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>Next follow-up</Text>
-                      <TextInput style={styles.input} value={salesInquiryDraft.next_followup} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, next_followup: value }))} commitOnBlur placeholder="YYYY-MM-DD" />
+                      <TextInput key={`edit-enquiry-next-${id}-${salesInquiryDraft.next_followup}`} style={styles.input} defaultValue={salesInquiryDraft.next_followup} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, next_followup: value } }; }} placeholder="YYYY-MM-DD" />
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>Follow-up channel</Text>
-                      <TextInput style={styles.input} value={salesInquiryDraft.followup_channel} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, followup_channel: value }))} commitOnBlur />
+                      <TextInput style={styles.input} defaultValue={salesInquiryDraft.followup_channel} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, followup_channel: value } }; }} />
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>Auto follow-up every days</Text>
-                      <TextInput style={styles.input} value={salesInquiryDraft.followup_frequency_days} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, followup_frequency_days: value }))} commitOnBlur keyboardType="numeric" />
+                      <TextInput key={`edit-enquiry-frequency-${id}-${salesInquiryDraft.followup_frequency_days}`} style={styles.input} defaultValue={salesInquiryDraft.followup_frequency_days} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, followup_frequency_days: value } }; }} keyboardType="numeric" />
                     </View>
                     <View style={styles.field}>
                       <Text style={styles.label}>Follow-up status</Text>
-                      <TextInput style={styles.input} value={salesInquiryDraft.followup_status} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, followup_status: value }))} commitOnBlur />
+                      <TextInput key={`edit-enquiry-followup-status-${id}-${salesInquiryDraft.followup_status}`} style={styles.input} defaultValue={salesInquiryDraft.followup_status} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, followup_status: value } }; }} />
                     </View>
                   </View>
                   <View style={styles.inlineActions}>
                     {[3, 7, 14, 30].map((days) => (
-                      <Pressable key={`edit-followup-${days}`} style={styles.smallButton} onPress={() => setSalesInquiryDraft((draft) => ({ ...draft, next_followup: datePlusDays(days), followup_frequency_days: String(days), followup_status: "Scheduled" }))}>
+                      <Pressable key={`edit-followup-${days}`} style={styles.smallButton} onPress={() => { setSalesInquiryDraft((draft) => ({ ...draft, next_followup: datePlusDays(days), followup_frequency_days: String(days), followup_status: "Scheduled" })); setMessage(`Sales enquiry follow-up set to every ${days} days.`); }}>
                         <Text style={styles.smallButtonText}>Every {days}d</Text>
                       </Pressable>
                     ))}
                   </View>
                   <View style={styles.field}>
                     <Text style={styles.label}>Enquiry remark</Text>
-                    <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.enquiry_remark} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, enquiry_remark: value }))} commitOnBlur multiline />
+                    <TextInput style={[styles.input, styles.textarea]} defaultValue={salesInquiryDraft.enquiry_remark} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, enquiry_remark: value } }; }} multiline />
                   </View>
                   <View style={styles.installDatePanel}>
                     <Text style={styles.cardLabel}>Handover date</Text>
                     <TextInput
                       style={styles.input}
-                      value={salesInquiryInstalledDateDraft}
-                      onChangeText={setSalesInquiryInstalledDateDraft}
-                      commitOnBlur
+                      defaultValue={salesInquiryInstalledDateDraft}
+                      onChangeText={setSalesInquiryInstalledDateDraftRefOnly}
                       placeholder="YYYY-MM-DD or leave blank"
                     />
                     <Text style={styles.muted}>Saving a handover date converts this enquiry into a current customer and links the handover date.</Text>
@@ -10292,6 +14602,7 @@ export default function App() {
                       onPress={() => {
                         setSiteVisitDraft({ ...emptySiteVisit, customer_id: salesInquiryDraft.customer_id, site_enquiry_no: salesInquiryDraft.enquiry_no });
                         setSiteVisitEditorOpen(true);
+                        setMessage("Site visit editor opened from sales enquiry.");
                       }}
                       disabled={loading || !salesInquiryDraft.customer_id}
                     >
@@ -10302,7 +14613,7 @@ export default function App() {
                     <Pressable
                       style={styles.primaryButtonInline}
                       onPress={() => saveSalesInquiry(true)}
-                      disabled={loading || !salesInquiryDraft.customer.trim()}
+                      disabled={loading}
                     >
                       <Text style={styles.primaryButtonText}>Save to system</Text>
                     </Pressable>
@@ -10312,6 +14623,7 @@ export default function App() {
                         setSalesInquiryDraft(emptySalesInquiryDraft);
                         setSalesInquiryInstalledDateDraft("");
                         setSiteVisitEditorOpen(false);
+                        setMessage("Sales enquiry edit cancelled.");
                       }}
                       disabled={loading}
                     >
@@ -10368,121 +14680,12 @@ export default function App() {
             </View>
           );
         })}
-        {renderListControls(crmListKey, crmRows.length)}
+        {renderListControls(crmListKey, crmRowsTotal)}
         </View>
-        <Modal visible={costingEditorOpen} transparent animationType="fade" onRequestClose={() => setCostingEditorOpen(false)}>
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCard}>
-              <View style={styles.modalHeader}>
-                <View>
-                  <Text style={styles.cardLabel}>Offer Manager</Text>
-                  <Text style={styles.muted}>Customer ID: {offerDraft.customer_id || "-"}</Text>
-                </View>
-                <Pressable style={styles.secondaryButton} onPress={() => setCostingEditorOpen(false)} disabled={loading}>
-                  <Text style={styles.secondaryButtonText}>Close</Text>
-                </Pressable>
-              </View>
-              <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
-                <View style={styles.linkedSystemsPanel}>
-                  <Text style={styles.cardLabel}>CRM linked offer</Text>
-                  <Text style={styles.bodyText}>Customer {offerDraft.customer_id || "-"} - {offerDraft.customer_name || "-"}</Text>
-                  <Text style={styles.muted}>Source: {offerDraft.linked_customer_source || "CRM"} - Enquiry {offerDraft.source_inquiry_id || "-"} - Site visit {offerDraft.site_visit_id || "none"} - Costing source {offerDraft.costing_source_file || "not selected"}</Text>
-                  <Text style={styles.muted}>Offer/job number is generated when saved if left blank.</Text>
-                </View>
-                <View style={styles.formGrid}>
-                  <View style={styles.field}>
-                    <Text style={styles.label}>Customer ID</Text>
-                    <TextInput style={styles.input} value={offerDraft.customer_id} editable={false} placeholder="Select from CRM row" />
-                  </View>
-                  <View style={styles.field}>
-                    <Text style={styles.label}>Offer / job no (system generated if blank)</Text>
-                    <TextInput style={styles.input} value={offerDraft.job_no} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, job_no: value }))} placeholder="Auto-generated on save" />
-                  </View>
-                  <View style={styles.field}>
-                    <Text style={styles.label}>Offer date</Text>
-                    <TextInput style={styles.input} value={offerDraft.offer_date} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, offer_date: value }))} placeholder="YYYY-MM-DD" />
-                  </View>
-                  <View style={styles.field}>
-                    <Text style={styles.label}>Customer name</Text>
-                    <TextInput style={styles.input} value={offerDraft.customer_name} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, customer_name: value, offer_name: value }))} />
-                  </View>
-                  <View style={styles.field}>
-                    <Text style={styles.label}>Offer type</Text>
-                    <TextInput style={styles.input} value={offerDraft.offer_type} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, offer_type: value }))} />
-                  </View>
-                  <View style={styles.field}>
-                    <Text style={styles.label}>Offer status</Text>
-                    <TextInput style={styles.input} value={offerDraft.lead_status} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, lead_status: value }))} />
-                  </View>
-                  <View style={styles.field}>
-                    <Text style={styles.label}>Client offer value</Text>
-                    <TextInput style={styles.input} value={offerDraft.total_cost} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, total_cost: value }))} keyboardType="numeric" />
-                  </View>
-                  {[
-                    ["elevator_type", "Elevator type"],
-                    ["stops", "Stops / floors"],
-                    ["capacity", "Capacity"],
-                    ["speed", "Speed"],
-                    ["drive_type", "Drive type"],
-                    ["door_type", "Door type"],
-                    ["finish", "Cabin / finish"],
-                    ["material_cost", "Internal material cost"],
-                    ["install_cost", "Internal install cost"],
-                    ["overhead_cost", "Internal overhead"],
-                    ["margin_percent", "Margin percent"],
-                    ["discount", "Discount"],
-                    ["gst_percent", "GST percent"],
-                    ["offer_valid_until", "Offer valid until"],
-                  ].map(([key, label]) => (
-                    <View key={`offer-field-${key}`} style={styles.field}>
-                      <Text style={styles.label}>{label}</Text>
-                      <TextInput
-                        style={styles.input}
-                        value={String(offerDraft[key] || "")}
-                        onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, [key]: value }))}
-                        keyboardType={["material_cost", "install_cost", "overhead_cost", "margin_percent", "discount", "gst_percent"].includes(key) ? "numeric" : "default"}
-                      />
-                    </View>
-                  ))}
-                </View>
-                {renderOfferMeasurementSection()}
-                {renderOfferInventorySection()}
-                <View style={styles.linkedSystemsPanel}>
-                  <Text style={styles.cardLabel}>Client offer preview</Text>
-                  <Text style={styles.metricValue}>{formatMoney(offerCostSummary(offerDraft).totalCost)}</Text>
-                  <Text style={styles.muted}>Base {formatMoney(offerCostSummary(offerDraft).baseCost)} + margin {offerCostSummary(offerDraft).marginPercent}% + GST {offerCostSummary(offerDraft).gstPercent}% after discount.</Text>
-                </View>
-                <View style={styles.formGrid}>
-                  <View style={styles.field}>
-                    <Text style={styles.label}>Payment terms</Text>
-                    <TextInput style={[styles.input, styles.textarea]} value={offerDraft.payment_terms} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, payment_terms: value }))} multiline />
-                  </View>
-                  <View style={styles.field}>
-                    <Text style={styles.label}>Delivery timeline</Text>
-                    <TextInput style={[styles.input, styles.textarea]} value={offerDraft.delivery_timeline} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, delivery_timeline: value }))} multiline />
-                  </View>
-                  <View style={styles.field}>
-                    <Text style={styles.label}>Warranty terms</Text>
-                    <TextInput style={[styles.input, styles.textarea]} value={offerDraft.warranty_terms} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, warranty_terms: value }))} multiline />
-                  </View>
-                </View>
-                <View style={styles.field}>
-                  <Text style={styles.label}>Internal costing notes</Text>
-                  <TextInput style={[styles.input, styles.textarea]} value={offerDraft.notes} onChangeText={(value) => setOfferDraft((draft) => ({ ...draft, notes: value }))} multiline />
-                </View>
-              </ScrollView>
-              <View style={styles.modalActions}>
-                <Pressable style={styles.secondaryButton} onPress={() => setCostingEditorOpen(false)} disabled={loading}>
-                  <Text style={styles.secondaryButtonText}>Cancel</Text>
-                </Pressable>
-                <Pressable style={styles.primaryButtonInline} onPress={saveOffer} disabled={loading || !offerDraft.customer_name.trim()}>
-                  <Text style={styles.primaryButtonText}>Save offer</Text>
-                </Pressable>
-              </View>
-            </View>
-          </View>
-        </Modal>
+        {renderOfferEditorModal(offerDraftState)}
 
+        <LocalImperativeToggle controllerRef={siteVisitEditorOpenRef}>
+          {(siteVisitEditorOpen, setSiteVisitEditorOpen) => (
         <Modal visible={siteVisitEditorOpen} transparent animationType="fade" onRequestClose={() => setSiteVisitEditorOpen(false)}>
           <View style={styles.modalOverlay}>
             <View style={styles.modalCard}>
@@ -10491,7 +14694,7 @@ export default function App() {
                   <Text style={styles.cardLabel}>{siteVisitDraft.id ? "Edit site visit report" : "Create site visit report"}</Text>
                   <Text style={styles.muted}>Customer ID: {String(siteVisitDraft.customer_id || "-")}</Text>
                 </View>
-                <Pressable style={styles.secondaryButton} onPress={() => setSiteVisitEditorOpen(false)} disabled={loading}>
+                <Pressable style={styles.secondaryButton} onPress={() => { setSiteVisitEditorOpen(false); setMessage("Site visit editor closed."); }} disabled={loading}>
                   <Text style={styles.secondaryButtonText}>Close</Text>
                 </Pressable>
               </View>
@@ -10506,18 +14709,22 @@ export default function App() {
                   />
                 </View>
                 <View style={styles.formGrid}>
-                  {siteVisitFields.map((field) => (
+                  {siteVisitFields.map((field) => {
+                    const drivesOpeningRows = field.key === "site_stops" || field.key === "site_number_of_openings";
+                    const fieldValue = String(siteVisitDraft[field.key] || "");
+                    return (
                     <View key={`site-modal-${String(field.key)}`} style={styles.field}>
                       <Text style={styles.label}>{field.label}</Text>
                       <TextInput
                         style={[styles.input, field.multiline && styles.textarea]}
-                        value={String(siteVisitDraft[field.key] || "")}
+                        {...(drivesOpeningRows ? { controlled: true, value: fieldValue } : { defaultValue: fieldValue })}
                         onChangeText={(value) => updateSiteVisitField(field.key, value)}
                         keyboardType={field.keyboard || "default"}
                         multiline={field.multiline}
                       />
                     </View>
-                  ))}
+                    );
+                  })}
                 </View>
                 <View style={styles.openingSchedulePanel}>
                   <View style={styles.sectionHeaderRow}>
@@ -10532,15 +14739,15 @@ export default function App() {
                       <View key={`opening-schedule-${index}`} style={styles.openingScheduleRow}>
                         <View style={styles.openingScheduleField}>
                           <Text style={styles.label}>Floor</Text>
-                          <TextInput style={styles.input} value={row.floor} onChangeText={(value) => updateOpeningScheduleRow(index, "floor", value)} />
+                          <TextInput style={styles.input} defaultValue={row.floor} onChangeText={(value) => updateOpeningScheduleRow(index, "floor", value)} />
                         </View>
                         <View style={styles.openingScheduleField}>
                           <Text style={styles.label}>FF height mm</Text>
-                          <TextInput style={styles.input} value={row.ff_height_mm} onChangeText={(value) => updateOpeningScheduleRow(index, "ff_height_mm", value)} keyboardType="numeric" />
+                          <TextInput style={styles.input} defaultValue={row.ff_height_mm} onChangeText={(value) => updateOpeningScheduleRow(index, "ff_height_mm", value)} keyboardType="numeric" />
                         </View>
                         <View style={styles.openingScheduleField}>
                           <Text style={styles.label}>Lintel height mm</Text>
-                          <TextInput style={styles.input} value={row.lintel_height_mm} onChangeText={(value) => updateOpeningScheduleRow(index, "lintel_height_mm", value)} keyboardType="numeric" />
+                          <TextInput style={styles.input} defaultValue={row.lintel_height_mm} onChangeText={(value) => updateOpeningScheduleRow(index, "lintel_height_mm", value)} keyboardType="numeric" />
                         </View>
                       </View>
                     ))
@@ -10552,16 +14759,18 @@ export default function App() {
                 </View>
               </ScrollView>
               <View style={styles.modalActions}>
-                <Pressable style={styles.secondaryButton} onPress={() => setSiteVisitEditorOpen(false)} disabled={loading}>
+                <Pressable style={styles.secondaryButton} onPress={() => { setSiteVisitEditorOpen(false); setMessage("Site visit edit cancelled."); }} disabled={loading}>
                   <Text style={styles.secondaryButtonText}>Cancel</Text>
                 </Pressable>
-                <Pressable style={styles.primaryButtonInline} onPress={saveSiteVisit} disabled={loading || !siteVisitDraft.customer_id}>
+                <Pressable style={styles.primaryButtonInline} onPress={() => saveSiteVisit(siteVisitDraftRef.current)} disabled={loading}>
                   <Text style={styles.primaryButtonText}>{siteVisitDraft.id ? "Update site visit report" : "Save site visit report"}</Text>
                 </Pressable>
               </View>
             </View>
           </View>
         </Modal>
+          )}
+        </LocalImperativeToggle>
 
         <Text style={styles.sectionTitle}>Saved Site Visits</Text>
         <View style={styles.limitedList}>
@@ -10590,17 +14799,41 @@ export default function App() {
     );
   }
 
-  function renderSiteVisitReportsPage() {
+  function renderCustomerCrmBoundary() {
+    return (
+      <CrmStateBoundary controllerRef={crmControllerRef} stateRef={crmStateRef}>
+        {(crmState) => (
+          <OfferDraftBoundary controllerRef={offerDraftControllerRef} draftRef={offerDraftRef}>
+            {(offerDraftState) => (
+              <SiteVisitDraftBoundary controllerRef={siteVisitDraftControllerRef} draftRef={siteVisitDraftRef}>
+                {(siteVisitDraftState) => (
+                  <CustomerDraftBoundary controllerRef={customerDraftControllerRef} stateRef={customerDraftStateRef}>
+                    {(customerDraftState) => (
+                      <SalesInquiryDraftBoundary controllerRef={salesInquiryDraftControllerRef} stateRef={salesInquiryDraftStateRef}>
+                        {(salesInquiryDraftState) => renderCustomerCrmPage(crmState, siteVisitDraftState, customerDraftState, salesInquiryDraftState, offerDraftState)}
+                      </SalesInquiryDraftBoundary>
+                    )}
+                  </CustomerDraftBoundary>
+                )}
+              </SiteVisitDraftBoundary>
+            )}
+          </OfferDraftBoundary>
+        )}
+      </CrmStateBoundary>
+    );
+  }
+
+  function renderSiteVisitReportsPage(siteVisitReportsState: SiteVisitReportsState, siteVisitDraftState: SiteVisitDraftState) {
+    const { siteVisitCustomerSearch, setSiteVisitCustomerSearch } = siteVisitReportsState;
     const customerOptions = crmCustomerOptions();
     const query = siteVisitCustomerSearch.trim().toLowerCase();
-    const matchingCustomers = customerOptions.filter((customer) => (
-      !query || `${customer.id} ${customer.name} ${customer.phone} ${customer.source_inquiry_id}`.toLowerCase().includes(query)
-    ));
     const siteVisits = [...(data?.site_visits || [])].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
     const siteVisitCustomerListKey = "site-visit-customers";
     const siteVisitListKey = "site-visits";
-    const visibleSiteVisitCustomers = matchingCustomers.slice(0, listVisibleCount(siteVisitCustomerListKey, matchingCustomers.length));
-    const visibleSiteVisits = siteVisits.slice(0, listVisibleCount(siteVisitListKey, siteVisits.length));
+    const { total: matchingCustomersCount, visible: visibleSiteVisitCustomers } = collectVisibleItems(siteVisitCustomerListKey, customerOptions, (customer) => (
+      !query || `${customer.id} ${customer.name} ${customer.phone} ${customer.source_inquiry_id}`.toLowerCase().includes(query)
+    ));
+    const { total: siteVisitCount, visible: visibleSiteVisits } = collectVisibleItems(siteVisitListKey, siteVisits);
     const myName = String(data?.viewer?.display_name || username || "");
     const myUsername = String(data?.viewer?.username || username || "");
     const myVisits = siteVisits.filter((visit) => (
@@ -10616,21 +14849,39 @@ export default function App() {
         </View>
 
         <View style={styles.metricGrid}>
-          <View style={styles.card}>
+          <Pressable
+            style={styles.card}
+            onPress={() => {
+              setMessage(`Showing ${siteVisits.length} saved site visit report${siteVisits.length === 1 ? "" : "s"}.`);
+            }}
+            disabled={loading}
+          >
             <Text style={styles.cardLabel}>Saved reports</Text>
             <Text style={styles.metricValue}>{siteVisits.length}</Text>
             <Text style={styles.muted}>All site visit notes saved in CRM.</Text>
-          </View>
-          <View style={styles.card}>
+          </Pressable>
+          <Pressable
+            style={styles.card}
+            onPress={() => {
+              setMessage(`Showing ${myVisits.length} site visit report${myVisits.length === 1 ? "" : "s"} linked to this login.`);
+            }}
+            disabled={loading}
+          >
             <Text style={styles.cardLabel}>My visits</Text>
             <Text style={styles.metricValue}>{myVisits.length}</Text>
             <Text style={styles.muted}>Submitted or updated by this login.</Text>
-          </View>
-          <View style={styles.card}>
+          </Pressable>
+          <Pressable
+            style={styles.card}
+            onPress={() => {
+              setMessage(`Showing ${customerOptions.length} CRM customer and enquiry choice${customerOptions.length === 1 ? "" : "s"} for site visits.`);
+            }}
+            disabled={loading}
+          >
             <Text style={styles.cardLabel}>CRM choices</Text>
             <Text style={styles.metricValue}>{customerOptions.length}</Text>
             <Text style={styles.muted}>Customers and enquiries available for linking.</Text>
-          </View>
+          </Pressable>
         </View>
 
         <View style={styles.formCard}>
@@ -10639,7 +14890,7 @@ export default function App() {
               <Text style={styles.cardLabel}>Add a new site visit record</Text>
               <Text style={styles.cardTitle}>Select CRM customer</Text>
             </View>
-            <Text style={styles.statusPill}>{matchingCustomers.length} matches</Text>
+            <Text style={styles.statusPill}>{matchingCustomersCount} matches</Text>
           </View>
           <View style={styles.field}>
             <Text style={styles.label}>Search customer</Text>
@@ -10665,16 +14916,14 @@ export default function App() {
                 </Pressable>
               );
             })}
-            {renderListControls(siteVisitCustomerListKey, matchingCustomers.length)}
+            {renderListControls(siteVisitCustomerListKey, matchingCustomersCount)}
           </ScrollView>
-          {!matchingCustomers.length && (
+          {!matchingCustomersCount && (
             <View style={styles.emptyState}>
               <Text style={styles.muted}>No CRM customers found for that search.</Text>
             </View>
           )}
         </View>
-
-        {renderSiteVisitEditorModal()}
 
         <Text style={styles.sectionTitle}>Saved Site Visits</Text>
         {!!siteVisits.length && <Text style={styles.muted}>Showing {visibleSiteVisits.length} of {siteVisits.length}</Text>}
@@ -10711,7 +14960,7 @@ export default function App() {
           </View>
           );
         })}
-        {renderListControls(siteVisitListKey, siteVisits.length)}
+            {renderListControls(siteVisitListKey, siteVisitCount)}
         {!siteVisits.length && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No site visits saved</Text>
@@ -10723,8 +14972,41 @@ export default function App() {
     );
   }
 
-  function renderAccountsPage() {
-    const users = asRecords(data?.users);
+  function renderSiteVisitReportsBoundary() {
+    return (
+      <SiteVisitReportsStateBoundary searchControllerRef={siteVisitCustomerSearchRef}>
+        {(siteVisitReportsState) => (
+          <SiteVisitDraftBoundary controllerRef={siteVisitDraftControllerRef} draftRef={siteVisitDraftRef}>
+            {(siteVisitDraftState) => renderSiteVisitReportsPage(siteVisitReportsState, siteVisitDraftState)}
+          </SiteVisitDraftBoundary>
+        )}
+      </SiteVisitReportsStateBoundary>
+    );
+  }
+
+  function renderAccountsPage(accountState: AccountState) {
+    const {
+      accountDraft,
+      setAccountDraft,
+      setAccountDraftRefOnly,
+      accountSearch,
+      setAccountSearch,
+      accountEditDrafts,
+      setAccountEditDrafts,
+      setAccountEditDraftsRefOnly,
+      accountPasswordDrafts,
+      setAccountPasswordDraftsRefOnly,
+      accountNotice,
+      accountActionLoading,
+      accountRows,
+      setAccountNotice,
+      setAccountActionLoading,
+      setAccountRows,
+      patchAccountRow,
+      prependAccountRow,
+    } = accountState;
+    const users = accountRows;
+    const accountBusy = loading || accountActionLoading;
     const org = asRecords(data?.org_chart);
     const managerIds = new Set(org.map((person) => fieldText(person, ["reports_to"])).filter(Boolean));
     const heads = org.filter((person) => /head|supervisor|manager|director|ceo/i.test(`${person.title || ""} ${person.name || ""}`));
@@ -10779,14 +15061,21 @@ export default function App() {
     const renderRoleDropdown = (value: string, onChange: (role: string) => void, open: boolean, setOpen: (open: boolean) => void) => (
       <View style={styles.field}>
         <Text style={styles.label}>Role</Text>
-        <Pressable style={[styles.dropdownButton, open && styles.selectorPillActive]} onPress={() => setOpen(!open)} disabled={loading}>
+        <Pressable
+          style={[styles.dropdownButton, open && styles.selectorPillActive]}
+          onPress={() => {
+            setOpen(!open);
+            setAccountNotice(open ? "Account role selector closed." : "Account role selector opened.");
+          }}
+          disabled={accountBusy}
+        >
           <Text style={styles.cardTitle}>{roleLabel(value || "staff")}</Text>
-          <Text style={styles.dropdownChevron}>{open ? "▲" : "▼"}</Text>
+          <Text style={styles.dropdownChevron}>{open ? "^" : "v"}</Text>
         </Pressable>
         {open && (
           <View style={styles.dropdownPanel}>
             {accountRoleOptions.map((role) => (
-              <Pressable key={role} style={[styles.dropdownOption, value === role && styles.selectorPillActive]} onPress={() => { onChange(role); setOpen(false); }} disabled={loading}>
+              <Pressable key={role} style={[styles.dropdownOption, value === role && styles.selectorPillActive]} onPress={() => { onChange(role); setOpen(false); setAccountNotice(`Account role set to ${roleLabel(role)}.`); }} disabled={accountBusy}>
                 <Text style={styles.cardTitle}>{roleLabel(role)}</Text>
               </Pressable>
             ))}
@@ -10825,14 +15114,24 @@ export default function App() {
     const staffLoginCoverageListKey = "accounts-staff-login-coverage";
     const supervisorListKey = "accounts-supervisors";
     const userAccountListKey = "accounts-users";
-    const renderInlineAccountEditor = (user: Record<string, unknown>) => {
+    const { total: sortedOrgCount, visible: visibleSortedOrg } = collectVisibleItems(staffLoginCoverageListKey, sortedOrg);
+    const { total: sortedHeadsCount, visible: visibleSortedHeads } = collectVisibleItems(supervisorListKey, sortedHeads);
+    const { total: sortedUsersCount, visible: visibleSortedUsers } = collectVisibleItems(userAccountListKey, sortedUsers);
+    const renderInlineAccountEditor = (
+      user: Record<string, unknown>,
+      accountEditRoleOpen: string,
+      setAccountEditRoleOpen: (next: string | ((current: string) => string)) => void
+    ) => {
       const id = String(user.id || "");
       const draft = accountEditDrafts[id];
       if (!isAdmin || !draft) return null;
-      const updateDraft = (key: keyof typeof emptyAccountDraft, value: string) => setAccountEditDrafts((drafts) => ({
-        ...drafts,
-        [id]: { ...(drafts[id] || draft), [key]: value },
-      }));
+      const updateDraft = (key: keyof typeof emptyAccountDraft, value: string) => setAccountEditDrafts((drafts) => {
+        const currentDraft = accountStateRef.current.accountEditDrafts[id] || drafts[id] || draft;
+        return {
+          ...drafts,
+          [id]: { ...currentDraft, [key]: value },
+        };
+      });
       return (
         <View style={styles.inlineNestedField}>
           {[
@@ -10847,7 +15146,7 @@ export default function App() {
               <Text style={styles.label}>{label}</Text>
               <TextInput
                 style={styles.input}
-                value={String(draft[key as keyof typeof emptyAccountDraft] || "")}
+                defaultValue={String(draft[key as keyof typeof emptyAccountDraft] || "")}
                 onChangeText={(value) => updateDraft(key as keyof typeof emptyAccountDraft, value)}
                 secureTextEntry={key === "password"}
                 autoCapitalize="none"
@@ -10855,23 +15154,26 @@ export default function App() {
             </View>
           ))}
           <View style={styles.inlineActions}>
-            <Pressable style={styles.smallButton} onPress={() => generateInlineAccountPassword(id)} disabled={loading}>
+            <Pressable style={styles.smallButton} onPress={() => generateInlineAccountPassword(id, setAccountNotice)} disabled={accountBusy}>
               <Text style={styles.smallButtonText}>Generate password</Text>
             </Pressable>
-            <Pressable style={styles.smallButton} onPress={() => copyTextToClipboard(String(draft.password || ""))} disabled={loading || !draft.password}>
+            <Pressable style={styles.smallButton} onPress={() => { setAccountNotice("Copying password..."); copyTextToClipboard(String(accountStateRef.current.accountEditDrafts[id]?.password || ""), setAccountNotice); }} disabled={accountBusy}>
               <Text style={styles.smallButtonText}>Copy password</Text>
             </Pressable>
           </View>
           {renderRoleDropdown(String(draft.role || "staff"), (role) => updateDraft("role", role), accountEditRoleOpen === id, (open) => setAccountEditRoleOpen(open ? id : ""))}
           <View style={styles.inlineActions}>
-            <Pressable style={styles.primaryButtonInline} onPress={() => saveAccountEdit(id)} disabled={loading || !draft.username}>
+            <Pressable style={styles.primaryButtonInline} onPress={() => saveAccountEdit(id, patchAccountRow, setAccountNotice, setAccountActionLoading)} disabled={accountBusy}>
               <Text style={styles.primaryButtonText}>Save account</Text>
             </Pressable>
-            <Pressable style={styles.smallButton} onPress={() => setAccountEditDrafts((drafts) => {
-              const next = { ...drafts };
-              delete next[id];
-              return next;
-            })} disabled={loading}>
+            <Pressable style={styles.smallButton} onPress={() => {
+              setAccountEditDrafts((drafts) => {
+                const next = { ...drafts };
+                delete next[id];
+                return next;
+              });
+              setAccountNotice("Account edit cancelled.");
+            }} disabled={accountBusy}>
               <Text style={styles.smallButtonText}>Cancel edit</Text>
             </Pressable>
           </View>
@@ -10879,12 +15181,20 @@ export default function App() {
       );
     };
     return (
+      <LocalStringToggle>
+        {(accountEditRoleOpen, setAccountEditRoleOpen) => (
+          <LocalToggle>
+            {(accountCreateOpen, setAccountCreateOpen) => (
+              <LocalToggle>
+                {(accountCreateRoleOpen, setAccountCreateRoleOpen) => (
       <View>
         <View style={styles.moduleHero}>
           <Text style={styles.eyebrow}>Admin</Text>
           <Text style={styles.moduleHeroTitle}>Team Accounts & Access</Text>
           <Text style={styles.moduleHeroText}>Create department logins, change usernames and passwords when staff changes, activate or deactivate accounts, and keep supervisor access scoped to the tools they need.</Text>
         </View>
+        {accountActionLoading && <ActivityIndicator style={styles.loader} />}
+        {!!accountNotice && <Text style={styles.banner}>{accountNotice}</Text>}
 
         {!isAdmin && (
           <View style={styles.card}>
@@ -10905,14 +15215,15 @@ export default function App() {
                 onPress={() => {
                   if (!accountCreateOpen) setAccountDraft(emptyAccountDraft);
                   setAccountCreateOpen(!accountCreateOpen);
+                  setAccountNotice(accountCreateOpen ? "New account form hidden." : "New account form opened.");
                 }}
-                disabled={loading}
+                disabled={accountBusy}
               >
                 <Text style={styles.smallButtonText}>{accountCreateOpen ? "Hide form" : "New account"}</Text>
               </Pressable>
             </View>
             <View style={styles.inlineActions}>
-              <Pressable style={styles.primaryButtonInline} onPress={syncStaffLogins} disabled={loading}>
+              <Pressable style={styles.primaryButtonInline} onPress={() => syncStaffLogins(setAccountRows, setAccountNotice, setAccountActionLoading)} disabled={accountBusy}>
                 <Text style={styles.primaryButtonText}>Sync all staff logins</Text>
               </Pressable>
             </View>
@@ -10931,27 +15242,27 @@ export default function App() {
                     <Text style={styles.label}>{label}</Text>
                     <TextInput
                       style={styles.input}
-                      value={String(accountDraft[key as keyof typeof accountDraft] || "")}
-                      onChangeText={(value) => setAccountDraft((draft) => ({ ...draft, [key]: value }))}
+                      defaultValue={String(accountDraft[key as keyof typeof accountDraft] || "")}
+                      onChangeText={(value) => setAccountDraftRefOnly((draft) => ({ ...draft, [key]: value }))}
                       secureTextEntry={key === "password"}
                       autoCapitalize="none"
                     />
                   </View>
                 ))}
                 <View style={styles.inlineActions}>
-                  <Pressable style={styles.smallButton} onPress={generateAccountDraftPassword} disabled={loading}>
+                  <Pressable style={styles.smallButton} onPress={() => generateAccountDraftPassword(setAccountNotice)} disabled={accountBusy}>
                     <Text style={styles.smallButtonText}>Generate password</Text>
                   </Pressable>
-                  <Pressable style={styles.smallButton} onPress={() => copyTextToClipboard(accountDraft.password)} disabled={loading || !accountDraft.password}>
+                  <Pressable style={styles.smallButton} onPress={() => { setAccountNotice("Copying password..."); copyTextToClipboard(accountStateRef.current.accountDraft.password, setAccountNotice); }} disabled={accountBusy}>
                     <Text style={styles.smallButtonText}>Copy password</Text>
                   </Pressable>
                 </View>
                 {renderRoleDropdown(accountDraft.role, (role) => setAccountDraft((draft) => ({ ...draft, role })), accountCreateRoleOpen, setAccountCreateRoleOpen)}
                 <View style={styles.inlineActions}>
-                  <Pressable style={styles.primaryButton} onPress={saveAccount} disabled={loading || !accountDraft.username}>
+                  <Pressable style={styles.primaryButton} onPress={() => saveAccount(prependAccountRow, patchAccountRow, setAccountNotice, setAccountActionLoading)} disabled={accountBusy}>
                     <Text style={styles.primaryButtonText}>Create account</Text>
                   </Pressable>
-                  <Pressable style={styles.smallButton} onPress={() => setAccountDraft(emptyAccountDraft)} disabled={loading}>
+                  <Pressable style={styles.smallButton} onPress={() => { setAccountDraft(emptyAccountDraft); setAccountNotice("New account form cleared."); }} disabled={accountBusy}>
                     <Text style={styles.smallButtonText}>Clear</Text>
                   </Pressable>
                 </View>
@@ -10971,7 +15282,7 @@ export default function App() {
           />
           {!!accountSearch && (
             <View style={styles.inlineActions}>
-              <Pressable style={styles.smallButton} onPress={() => setAccountSearch("")}>
+              <Pressable style={styles.smallButton} onPress={() => { setAccountSearch(""); setAccountNotice("Team account search cleared."); }}>
                 <Text style={styles.smallButtonText}>Clear</Text>
               </Pressable>
             </View>
@@ -10980,7 +15291,7 @@ export default function App() {
 
         <Text style={styles.sectionTitle}>Staff Login Coverage</Text>
         <View style={styles.limitedList}>
-        {limitedItems(staffLoginCoverageListKey, sortedOrg).map((person) => {
+        {visibleSortedOrg.map((person) => {
           const linked = loginForPerson(person);
           return (
             <View key={`staff-login-${String(person.id || person.name)}`} style={styles.card}>
@@ -10997,7 +15308,7 @@ export default function App() {
               {isAdmin && (
                 <View style={styles.inlineActions}>
                   {linked ? (
-                    <Pressable style={styles.smallButton} onPress={() => editAccount(linked)} disabled={loading}>
+                    <Pressable style={styles.smallButton} onPress={() => editAccount(linked)} disabled={accountBusy}>
                       <Text style={styles.smallButtonText}>Edit username / password</Text>
                     </Pressable>
                   ) : (
@@ -11006,6 +15317,7 @@ export default function App() {
                       onPress={() => {
                         setAccountDraft(accountDraftForPerson(person));
                         setAccountCreateOpen(true);
+                        setAccountNotice(`Prepared login for ${fieldText(person, ["name"]) || "staff member"}.`);
                       }}
                     >
                       <Text style={styles.smallButtonText}>Prepare login</Text>
@@ -11013,16 +15325,16 @@ export default function App() {
                   )}
                 </View>
               )}
-              {linked ? renderInlineAccountEditor(linked) : null}
+              {linked ? renderInlineAccountEditor(linked, accountEditRoleOpen, setAccountEditRoleOpen) : null}
             </View>
           );
         })}
-        {renderListControls(staffLoginCoverageListKey, sortedOrg.length)}
+        {renderListControls(staffLoginCoverageListKey, sortedOrgCount)}
         </View>
 
         <Text style={styles.sectionTitle}>Org Supervisors</Text>
         <View style={styles.limitedList}>
-        {limitedItems(supervisorListKey, sortedHeads).map((person) => {
+        {visibleSortedHeads.map((person) => {
           const linked = loginForPerson(person);
           return (
             <View key={String(person.id)} style={styles.card}>
@@ -11036,6 +15348,7 @@ export default function App() {
                   onPress={() => {
                     setAccountDraft(accountDraftForPerson(person));
                     setAccountCreateOpen(true);
+                    setAccountNotice(`Prepared login for ${fieldText(person, ["name"]) || "staff member"}.`);
                   }}
                 >
                   <Text style={styles.smallButtonText}>Prepare login</Text>
@@ -11044,19 +15357,19 @@ export default function App() {
             </View>
           );
         })}
-        {renderListControls(supervisorListKey, sortedHeads.length)}
+        {renderListControls(supervisorListKey, sortedHeadsCount)}
         </View>
 
         <Text style={styles.sectionTitle}>User Accounts</Text>
         <View style={styles.limitedList}>
-        {limitedItems(userAccountListKey, sortedUsers).map((user) => (
+        {visibleSortedUsers.map((user) => (
           <View key={String(user.id || user.username)} style={styles.card}>
             <View style={styles.cardHeaderRow}>
               <Text style={styles.cardTitle}>{fieldText(user, ["display_name", "username"])}</Text>
               <Text style={styles.statusPill}>{String(user.active) === "false" ? "Inactive" : "Active"}</Text>
             </View>
             <View style={styles.inlineMeta}>
-              <Pressable onPress={() => isAdmin && editAccount(user)} disabled={!isAdmin || loading}>
+              <Pressable onPress={() => isAdmin && editAccount(user)} disabled={!isAdmin || accountBusy}>
                 <Text style={styles.clickableUsername}>{fieldText(user, ["username"])}</Text>
               </Pressable>
               <Text style={styles.muted}>- {fieldText(user, ["department"])} - {roleLabel(fieldText(user, ["role"]) || "staff")}</Text>
@@ -11065,13 +15378,13 @@ export default function App() {
             <Text style={styles.bodyText}>Password change required: {String(user.must_change_password || false)}</Text>
             {isAdmin && (
               <View style={styles.inlineActions}>
-                <Pressable style={styles.smallButton} onPress={() => editAccount(user)} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => editAccount(user)} disabled={accountBusy}>
                   <Text style={styles.smallButtonText}>Edit username / password</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateAccount(String(user.id), { reset_shared_password: true })} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateAccount(String(user.id), { reset_shared_password: true }, patchAccountRow, setAccountNotice, setAccountActionLoading)} disabled={accountBusy}>
                   <Text style={styles.smallButtonText}>Reset staff password</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateAccount(String(user.id), { active: String(user.active) === "false" ? true : false })} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateAccount(String(user.id), { active: String(user.active) === "false" ? true : false }, patchAccountRow, setAccountNotice, setAccountActionLoading)} disabled={accountBusy}>
                   <Text style={styles.smallButtonText}>{String(user.active) === "false" ? "Restore to team" : "Remove from team"}</Text>
                 </Pressable>
               </View>
@@ -11082,48 +15395,77 @@ export default function App() {
                 <View style={styles.inlineActions}>
                   <TextInput
                     style={[styles.input, styles.inlinePasswordInput]}
-                    value={accountPasswordDrafts[String(user.id)] || ""}
-                    onChangeText={(value) => setAccountPasswordDrafts((drafts) => ({ ...drafts, [String(user.id)]: value }))}
+                    defaultValue={accountPasswordDrafts[String(user.id)] || ""}
+                    onChangeText={(value) => setAccountPasswordDraftsRefOnly((drafts) => ({ ...drafts, [String(user.id)]: value }))}
                     secureTextEntry
                     autoCapitalize="none"
                     placeholder="New password for this account"
                   />
-                  <Pressable style={styles.primaryButtonInline} onPress={() => setAccountPassword(String(user.id))} disabled={loading || !String(user.id)}>
+                  <Pressable
+                    style={styles.primaryButtonInline}
+                    onPress={() => {
+                      setAccountNotice(`Changing password for ${fieldText(user, ["username", "display_name"]) || "account"}.`);
+                      setAccountPassword(String(user.id), patchAccountRow, setAccountNotice, setAccountActionLoading);
+                    }}
+                    disabled={accountBusy || !String(user.id)}
+                  >
                     <Text style={styles.primaryButtonText}>Change password</Text>
                   </Pressable>
-                  <Pressable style={styles.smallButton} onPress={() => generateQuickAccountPassword(String(user.id))} disabled={loading || !String(user.id)}>
+                  <Pressable style={styles.smallButton} onPress={() => generateQuickAccountPassword(String(user.id), setAccountNotice)} disabled={accountBusy || !String(user.id)}>
                     <Text style={styles.smallButtonText}>Generate</Text>
                   </Pressable>
-                  <Pressable style={styles.smallButton} onPress={() => copyTextToClipboard(accountPasswordDrafts[String(user.id)] || "")} disabled={loading || !accountPasswordDrafts[String(user.id)]}>
+                  <Pressable style={styles.smallButton} onPress={() => { setAccountNotice("Copying password..."); copyTextToClipboard(accountStateRef.current.accountPasswordDrafts[String(user.id)] || "", setAccountNotice); }} disabled={accountBusy}>
                     <Text style={styles.smallButtonText}>Copy</Text>
                   </Pressable>
                 </View>
               </View>
             )}
-            {renderInlineAccountEditor(user)}
+            {renderInlineAccountEditor(user, accountEditRoleOpen, setAccountEditRoleOpen)}
           </View>
         ))}
-        {!sortedUsers.length && (
+        {!sortedUsersCount && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No team accounts match that search.</Text>
             <Text style={styles.muted}>Clear the search to see all logins.</Text>
           </View>
         )}
-        {renderListControls(userAccountListKey, sortedUsers.length)}
+        {renderListControls(userAccountListKey, sortedUsersCount)}
         </View>
       </View>
+                )}
+              </LocalToggle>
+            )}
+          </LocalToggle>
+        )}
+      </LocalStringToggle>
     );
   }
 
-  function renderRenewalsPage() {
-    const renewals = asRecords(data?.renewals);
+  function renderAccountsBoundary() {
+    return (
+      <AccountStateBoundary controllerRef={accountControllerRef} initialUsers={asRecords(data?.users)} stateRef={accountStateRef}>
+        {(accountState) => renderAccountsPage(accountState)}
+      </AccountStateBoundary>
+    );
+  }
+
+  function renderRenewalsBoundary() {
+    return (
+      <RenewalDraftBoundary rows={asRecords(data?.renewals)}>
+        {(renewalState) => renderRenewalsPage(renewalState)}
+      </RenewalDraftBoundary>
+    );
+  }
+
+  function renderRenewalsPage({ renewalDraft, renewalDraftRef, renewalRows, setRenewalDraft, setRenewalDraftRefOnly, patchRenewalRow, prependRenewalRow }: RenewalDraftState) {
+    const renewals = renewalRows;
     const openRenewals = renewals.filter((item) => !["closed", "renewed", "lost"].includes(String(item.status || "").toLowerCase()));
     const highValue = renewals.filter((item) => String(item.value || "").toLowerCase() === "high");
     const renewalCustomerListKey = "renewal-customers";
     const renewalListKey = "renewals";
     const renewalCustomerOptions = data?.customers || [];
-    const visibleRenewalCustomers = renewalCustomerOptions.slice(0, listVisibleCount(renewalCustomerListKey, renewalCustomerOptions.length));
-    const visibleRenewals = renewals.slice(0, listVisibleCount(renewalListKey, renewals.length));
+    const { total: renewalCustomerCount, visible: visibleRenewalCustomers } = collectVisibleItems(renewalCustomerListKey, renewalCustomerOptions);
+    const { total: renewalCount, visible: visibleRenewals } = collectVisibleItems(renewalListKey, renewals);
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -11152,27 +15494,41 @@ export default function App() {
               <Text style={styles.cardTitle}>Add a customer first</Text>
               <Text style={styles.muted}>Maintenance renewals must be linked to a saved customer ID before they can be created.</Text>
               <View style={styles.inlineActions}>
-                <Pressable style={styles.smallButton} onPress={() => setActiveTab("customers")}>
+                <Pressable style={styles.smallButton} onPress={() => { setActiveTab("customers"); setMessage("Opening Customer CRM."); }}>
                   <Text style={styles.smallButtonText}>Open Customer CRM</Text>
                 </Pressable>
               </View>
             </View>
           )}
           {!!data?.customers.length && (
-            <View style={styles.selectorList}>
-              {visibleRenewalCustomers.map((customer) => (
-                <Pressable
-                  key={customer.id}
-                  style={[styles.selectorPill, renewalDraft.customer_id === customer.id && styles.selectorPillActive]}
-                  onPress={() => setRenewalDraft((draft) => ({ ...draft, customer_id: customer.id, customer: customer.name, contact_email: customer.email || draft.contact_email }))}
-                >
-                  <Text style={[styles.selectorText, renewalDraft.customer_id === customer.id && styles.selectorTextActive]}>
-                    {customer.id} - {customer.name}
-                  </Text>
-                </Pressable>
-              ))}
-              {renderListControls(renewalCustomerListKey, renewalCustomerOptions.length)}
-            </View>
+            <LocalValue initialValue={renewalDraftRef.current[0].customer_id}>
+              {(localRenewalCustomerId, setLocalRenewalCustomerId) => (
+                <View style={styles.selectorList}>
+                  {visibleRenewalCustomers.map((customer) => (
+                    <Pressable
+                      key={customer.id}
+                      style={[styles.selectorPill, localRenewalCustomerId === customer.id && styles.selectorPillActive]}
+                      onPress={() => {
+                        setLocalRenewalCustomerId(customer.id);
+                        setRenewalDraft((draft) => ({ ...draft, customer_id: customer.id, customer: customer.name, contact_email: customer.email || draft.contact_email }));
+                        setMessage(`Renewal customer selected: ${customer.id} - ${customer.name}.`);
+                      }}
+                    >
+                      <Text style={[styles.selectorText, localRenewalCustomerId === customer.id && styles.selectorTextActive]}>
+                        {customer.id} - {customer.name}
+                      </Text>
+                    </Pressable>
+                  ))}
+                  {renderListControls(renewalCustomerListKey, renewalCustomerCount)}
+                  <Pressable style={styles.primaryButton} onPress={() => saveRenewal(renewalDraftRef.current[0], (record) => {
+                    prependRenewalRow(record);
+                    setRenewalDraft(emptyRenewalDraft);
+                  })} disabled={loading}>
+                    <Text style={styles.primaryButtonText}>Save renewal</Text>
+                  </Pressable>
+                </View>
+              )}
+            </LocalValue>
           )}
           {[
             ["renewal_date", "Renewal date YYYY-MM-DD"],
@@ -11185,46 +15541,52 @@ export default function App() {
               <Text style={styles.label}>{label}</Text>
               <TextInput
                 style={[styles.input, key === "notes" && styles.textarea]}
-                value={String(renewalDraft[key as keyof typeof renewalDraft] || "")}
-                onChangeText={(value) => setRenewalDraft((draft) => ({ ...draft, [key]: value }))}
+                defaultValue={String(renewalDraftRef.current[0][key as keyof typeof renewalDraft] || "")}
+                onChangeText={(value) => { renewalDraftRef.current[0] = { ...renewalDraftRef.current[0], [key]: value }; }}
                 multiline={key === "notes"}
               />
             </View>
           ))}
-          <Pressable style={styles.primaryButton} onPress={saveRenewal} disabled={loading || !renewalDraft.customer_id}>
-            <Text style={styles.primaryButtonText}>Save renewal</Text>
-          </Pressable>
+          {!data?.customers.length && (
+            <Pressable style={styles.primaryButton} onPress={() => saveRenewal(renewalDraftRef.current[0], (record) => {
+              prependRenewalRow(record);
+              setRenewalDraft(emptyRenewalDraft);
+            })} disabled={loading}>
+              <Text style={styles.primaryButtonText}>Save renewal</Text>
+            </Pressable>
+          )}
         </View>
 
         <Text style={styles.sectionTitle}>Renewal Records</Text>
-        {!!renewals.length && <Text style={styles.muted}>Showing {visibleRenewals.length} of {renewals.length}</Text>}
+        {!!renewalCount && <Text style={styles.muted}>Showing {visibleRenewals.length} of {renewalCount}</Text>}
         <View style={styles.limitedList}>
         {visibleRenewals.map((item, index) => {
           const id = recordIdentity(item) || String(item.id || `REN-LEGACY-${index + 1}`);
+          const patchRenderedRenewal = (updated: Record<string, unknown>) => patchRenewalRow(id, updated);
           return (
             <View key={id} style={styles.card}>
               <View style={styles.cardHeaderRow}>
                 <Text style={styles.cardTitle}>{fieldText(item, ["customer", "building", "name"])}</Text>
-                <Text style={styles.statusPill}>{fieldText(item, ["value", "status"])}</Text>
+                <Text style={styles.statusPill}>{fieldText(item, ["status", "value"])}</Text>
               </View>
               <Text style={styles.muted}>Customer ID: {fieldText(item, ["customer_id"])} - Renewal: {fieldText(item, ["renewal_date", "date"])} - Days: {fieldText(item, ["days"])}</Text>
               <Text style={styles.bodyText}>Contact: {fieldText(item, ["contact_email"])} - Contacted: {String(item.contacted || false)}</Text>
               <Text style={styles.bodyText}>{fieldText(item, ["notes", "last_draft"])}</Text>
               <View style={styles.inlineActions}>
-                <Pressable style={styles.smallButton} onPress={() => updateRenewal(id, { contacted: true, status: "Contacted" })} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateRenewal(id, { contacted: true, status: "Contacted" }, patchRenderedRenewal)} disabled={loading}>
                   <Text style={styles.smallButtonText}>Mark contacted</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateRenewal(id, { status: "Renewed" })} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateRenewal(id, { status: "Renewed" }, patchRenderedRenewal)} disabled={loading}>
                   <Text style={styles.smallButtonText}>Renewed</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateRenewal(id, { status: "Lost" })} disabled={loading}>
+                <Pressable style={styles.smallButton} onPress={() => updateRenewal(id, { status: "Lost" }, patchRenderedRenewal)} disabled={loading}>
                   <Text style={styles.smallButtonText}>Lost</Text>
                 </Pressable>
               </View>
             </View>
           );
         })}
-        {renderListControls(renewalListKey, renewals.length)}
+        {renderListControls(renewalListKey, renewalCount)}
         </View>
       </View>
     );
@@ -11296,20 +15658,46 @@ export default function App() {
     return `${greeting}, FUZI manufactures elevator parts and lift kits internationally. We are looking for USA and Canada elevator companies that can install locally while FUZI supplies manufactured parts and kits. Please reply if you would like our catalog, landed-cost sheet, and partnership terms.`;
   }
 
-  function renderInternationalVendorPage() {
-    const vendors = asRecords(data?.international_vendors);
+  function renderInternationalVendorPage(
+    internationalVendorState: InternationalVendorState,
+    internationalVendorDraftState: InternationalVendorDraftState,
+    {
+      internationalVendorRows,
+      setInternationalVendorRows,
+      internationalVendorActionLoading,
+      internationalVendorNotice,
+      setInternationalVendorActionLoading,
+      setInternationalVendorNotice,
+    }: {
+      internationalVendorRows: Record<string, unknown>[];
+      setInternationalVendorRows: LocalStateSetter<Record<string, unknown>[]>;
+      internationalVendorActionLoading: boolean;
+      internationalVendorNotice: string;
+      setInternationalVendorActionLoading: LocalStateSetter<boolean>;
+      setInternationalVendorNotice: LocalStateSetter<string>;
+    }
+  ) {
+    const {
+      internationalVendorSearch,
+      setInternationalVendorSearch,
+      internationalVendorFilter,
+      setInternationalVendorFilter,
+      setInternationalVendorPage,
+    } = internationalVendorState;
+    const { internationalVendorDraft, internationalVendorDraftRef, setInternationalVendorDraft, setInternationalVendorDraftRefOnly } = internationalVendorDraftState;
+    const vendors = internationalVendorRows;
     const query = internationalVendorSearch.trim().toLowerCase();
-    const filteredByStatus = vendors.filter((item) => {
+    const vendorMatches = (item: Record<string, unknown>) => {
       if (internationalVendorFilter === "Has email") return Boolean(String(item.email || "").trim());
       if (internationalVendorFilter === "Needs email") return !String(item.email || "").trim();
       if (internationalVendorFilter === "Tender matched") return Boolean(String(item.tender_title || item.closest_tender_title || "").trim());
       if (internationalVendorFilter === "Needs deadline") return !String(item.tender_deadline || item.closest_tender_deadline || "").trim() || ["tbd", "unknown"].includes(String(item.tender_deadline || item.closest_tender_deadline || "").trim().toLowerCase());
       if (internationalVendorFilter === "OpenClaw sent") return Boolean(String(item.last_outreach_at || item.delivery_status || "").trim());
       return true;
-    });
-    const visibleVendors = filteredByStatus.filter((item) => !query || JSON.stringify(item).toLowerCase().includes(query));
+    };
     const vendorListKey = "international-vendors";
-    const pagedVendors = visibleVendors.slice(0, listVisibleCount(vendorListKey, visibleVendors.length));
+    const { total: visibleVendorsCount, visible: pagedVendors } = collectVisibleItems(vendorListKey, vendors, (item) => vendorMatches(item) && (!query || JSON.stringify(item).toLowerCase().includes(query)));
+    const visibleVendors = vendors.filter((item) => vendorMatches(item) && (!query || JSON.stringify(item).toLowerCase().includes(query)));
     const activeVendors = vendors.filter((item) => !String(item.status || "").toLowerCase().includes("lost"));
     const tenderPartners = vendors.filter((item) => String(item.followup_stage || "").toLowerCase().includes("tender") || String(item.tender_source || "").trim());
     const sentVendors = vendors.filter((item) => String(item.last_outreach_at || item.delivery_status || "").trim());
@@ -11317,6 +15705,21 @@ export default function App() {
     const missingEmail = vendors.filter((item) => !String(item.email || "").trim());
     const needsTenderVerification = vendors.filter((item) => ["tbd", "unknown"].includes(String(item.tender_deadline || item.closest_tender_deadline || "").trim().toLowerCase()));
     const draftCost = internationalVendorCost(internationalVendorDraft);
+    const patchInternationalVendorRow = (updatedRecord: Record<string, unknown>) => {
+      const updatedId = recordIdentity(updatedRecord) || String(updatedRecord.id || "");
+      setInternationalVendorRows((rows) => rows.map((row) => {
+        const rowId = recordIdentity(row) || String(row.id || "");
+        return updatedId && rowId === updatedId ? { ...row, ...updatedRecord } : row;
+      }));
+    };
+    const createInternationalVendorRow = (savedRecord: Record<string, unknown>) => {
+      const savedId = recordIdentity(savedRecord) || String(savedRecord.id || "");
+      setInternationalVendorRows((rows) => [savedRecord, ...rows.filter((row) => {
+        const rowId = recordIdentity(row) || String(row.id || "");
+        return !savedId || rowId !== savedId;
+      })]);
+      setInternationalVendorDraft({ ...emptyInternationalVendorDraft });
+    };
     if (!isAdmin) {
       return (
         <View style={styles.card}>
@@ -11382,6 +15785,7 @@ export default function App() {
 
         <View style={styles.formCard}>
           <Text style={styles.cardLabel}>New USA/Canada vendor prospect</Text>
+          {!!internationalVendorNotice && <Text style={styles.banner}>{internationalVendorNotice}</Text>}
           <View style={styles.formGrid}>
             {[
               ["company", "Company name"],
@@ -11397,8 +15801,8 @@ export default function App() {
                 <Text style={styles.label}>{label}</Text>
                 <TextInput
                   style={styles.input}
-                  value={String(internationalVendorDraft[key as keyof typeof internationalVendorDraft] || "")}
-                  onChangeText={(value) => setInternationalVendorDraft((draft) => ({ ...draft, [key]: value }))}
+                  defaultValue={String(internationalVendorDraftRef.current[0][key as keyof typeof internationalVendorDraft] || "")}
+                  onChangeText={(value) => { internationalVendorDraftRef.current[0] = { ...internationalVendorDraftRef.current[0], [key]: value }; }}
                 />
               </View>
             ))}
@@ -11417,8 +15821,8 @@ export default function App() {
                 <Text style={styles.label}>{label}</Text>
                 <TextInput
                   style={styles.input}
-                  value={String(internationalVendorDraft[key as keyof typeof internationalVendorDraft] || "")}
-                  onChangeText={(value) => setInternationalVendorDraft((draft) => ({ ...draft, [key]: value }))}
+                  defaultValue={String(internationalVendorDraftRef.current[0][key as keyof typeof internationalVendorDraft] || "")}
+                  onChangeText={(value) => setInternationalVendorDraftRefOnly((draft) => ({ ...draft, [key]: value }))}
                   keyboardType="numeric"
                 />
               </View>
@@ -11446,8 +15850,8 @@ export default function App() {
                 <Text style={styles.label}>{label}</Text>
                 <TextInput
                   style={styles.input}
-                  value={String(internationalVendorDraft[key as keyof typeof internationalVendorDraft] || "")}
-                  onChangeText={(value) => setInternationalVendorDraft((draft) => ({ ...draft, [key]: value }))}
+                  defaultValue={String(internationalVendorDraftRef.current[0][key as keyof typeof internationalVendorDraft] || "")}
+                  onChangeText={(value) => setInternationalVendorDraftRefOnly((draft) => ({ ...draft, [key]: value }))}
                   keyboardType={["package_count", "length_cm", "width_cm", "height_cm", "actual_weight_kg", "freight_rate", "customs_duty_percent", "import_tax_percent", "broker_fee", "port_fee", "insurance_percent"].includes(key) ? "numeric" : "default"}
                 />
               </View>
@@ -11512,39 +15916,54 @@ export default function App() {
                 <Text style={styles.label}>{label}</Text>
                 <TextInput
                   style={styles.input}
-                  value={String(internationalVendorDraft[key as keyof typeof internationalVendorDraft] || "")}
-                  onChangeText={(value) => setInternationalVendorDraft((draft) => ({ ...draft, [key]: value }))}
+                  defaultValue={String(internationalVendorDraftRef.current[0][key as keyof typeof internationalVendorDraft] || "")}
+                  onChangeText={(value) => setInternationalVendorDraftRefOnly((draft) => ({ ...draft, [key]: value }))}
                 />
               </View>
             ))}
           </View>
           <View style={styles.inlineActions}>
             {["1. Catalog intro", "2. Tender partner pitch", "3. Cost sheet follow-up", "4. Meeting requested", "5. Bid support follow-up"].map((stage) => (
-              <Pressable key={stage} style={styles.smallButton} onPress={() => setInternationalVendorDraft((draft) => ({ ...draft, followup_stage: stage }))}>
+              <Pressable
+                key={stage}
+                style={styles.smallButton}
+                onPress={() => {
+                  setInternationalVendorDraft((draft) => ({ ...draft, followup_stage: stage }));
+                  setInternationalVendorNotice(`International vendor follow-up stage set to ${stage}.`);
+                }}
+              >
                 <Text style={styles.smallButtonText}>{stage}</Text>
               </Pressable>
             ))}
           </View>
           <View style={styles.statusSelectorPanel}>
             <Text style={styles.cardLabel}>Pipeline stage</Text>
-            <View style={styles.statusChoiceGrid}>
-              {internationalVendorPipelineStages.map((stage) => (
-                <Pressable
-                  key={`ivendor-stage-${stage}`}
-                  style={[styles.statusChoice, internationalVendorDraft.pipeline_stage === stage && styles.statusChoiceActive]}
-                  onPress={() => setInternationalVendorDraft((draft) => ({ ...draft, pipeline_stage: stage, status: stage === "Lost" ? "Lost" : draft.status }))}
-                >
-                  <Text style={[styles.statusChoiceText, internationalVendorDraft.pipeline_stage === stage && styles.statusChoiceTextActive]}>{stage}</Text>
-                </Pressable>
-              ))}
-            </View>
+            <LocalValue initialValue={internationalVendorDraftRef.current[0].pipeline_stage}>
+              {(selectedStage, setSelectedStage) => (
+                <View style={styles.statusChoiceGrid}>
+                  {internationalVendorPipelineStages.map((stage) => (
+                    <Pressable
+                      key={`ivendor-stage-${stage}`}
+                      style={[styles.statusChoice, selectedStage === stage && styles.statusChoiceActive]}
+                      onPress={() => {
+                        setSelectedStage(stage);
+                        setInternationalVendorDraft((draft) => ({ ...draft, pipeline_stage: stage, status: stage === "Lost" ? "Lost" : draft.status }));
+                        setInternationalVendorNotice(`International vendor pipeline stage set to ${stage}.`);
+                      }}
+                    >
+                      <Text style={[styles.statusChoiceText, selectedStage === stage && styles.statusChoiceTextActive]}>{stage}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </LocalValue>
           </View>
           <View style={styles.field}>
             <Text style={styles.label}>Notes / missing ideas</Text>
             <TextInput
               style={[styles.input, styles.textarea]}
-              value={internationalVendorDraft.notes}
-              onChangeText={(value) => setInternationalVendorDraft((draft) => ({ ...draft, notes: value }))}
+              defaultValue={internationalVendorDraftRef.current[0].notes}
+              onChangeText={(value) => setInternationalVendorDraftRefOnly((draft) => ({ ...draft, notes: value }))}
               placeholder="Add certifications, catalog sent, local code requirements, insurance, dealer margin, exclusivity, or territory notes"
               multiline
             />
@@ -11553,7 +15972,11 @@ export default function App() {
             <Text style={styles.cardLabel}>Email sequence preview</Text>
             <Text style={styles.muted}>{internationalVendorEmailText(internationalVendorDraft)}</Text>
           </View>
-          <Pressable style={styles.primaryButton} onPress={saveInternationalVendor} disabled={loading || !internationalVendorDraft.company.trim()}>
+          <Pressable
+            style={styles.primaryButton}
+            onPress={() => saveInternationalVendor(internationalVendorDraftRef.current[0], createInternationalVendorRow, setInternationalVendorNotice, setInternationalVendorActionLoading)}
+            disabled={internationalVendorActionLoading}
+          >
             <Text style={styles.primaryButtonText}>Save international vendor</Text>
           </Pressable>
         </View>
@@ -11577,6 +16000,7 @@ export default function App() {
                 onPress={() => {
                   setInternationalVendorFilter(filter);
                   setInternationalVendorPage(1);
+                  setInternationalVendorNotice(`International vendor filter set to ${filter}.`);
                 }}
               >
                 <Text style={styles.smallButtonText}>{filter}</Text>
@@ -11612,7 +16036,7 @@ export default function App() {
                       <Text style={styles.bodyText}>Tender: {fieldText(vendor, ["tender_title", "closest_tender_title", "tender_area"])}</Text>
                       <Text style={styles.bodyText}>Freight: {fieldText(vendor, ["freight_mode"])} - {fieldText(vendor, ["shipment_status"])}</Text>
                       <View style={styles.inlineActions}>
-                        <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: nextStage, status: nextStage })} disabled={loading || !recordIdentity(vendor)}>
+                        <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: nextStage, status: nextStage }, patchInternationalVendorRow, setInternationalVendorNotice, setInternationalVendorActionLoading)} disabled={internationalVendorActionLoading || !recordIdentity(vendor)}>
                           <Text style={styles.smallButtonText}>Move next</Text>
                         </Pressable>
                       </View>
@@ -11625,13 +16049,13 @@ export default function App() {
           })}
         </ScrollView>
         <View style={styles.limitedList}>
-        {!visibleVendors.length && (
+        {!visibleVendorsCount && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No vendors yet</Text>
             <Text style={styles.muted}>Add Canadian and USA elevator companies, then use OpenClaw/email to run the catalog and tender-partner follow-up sequence.</Text>
           </View>
         )}
-        {!!visibleVendors.length && <Text style={styles.muted}>Showing {pagedVendors.length} of {visibleVendors.length}</Text>}
+        {!!visibleVendorsCount && <Text style={styles.muted}>Showing {pagedVendors.length} of {visibleVendorsCount}</Text>}
         {pagedVendors.map((vendor, index) => {
           const id = recordIdentity(vendor) || String(vendor.id || index);
           const cost = internationalVendorCost(vendor);
@@ -11684,58 +16108,85 @@ export default function App() {
               <Text style={styles.muted}>{String(vendor.email_template || internationalVendorEmailText(vendor))}</Text>
               {!!vendor.delivery_status && <Text style={styles.bodyText}>Delivery: {String(vendor.delivery_status)} - {String(vendor.last_outreach_at || "-")}</Text>}
               <View style={styles.inlineActions}>
-                <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "1. Catalog intro")} disabled={loading || !recordIdentity(vendor)}>
+                <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "1. Catalog intro", patchInternationalVendorRow, setInternationalVendorNotice, setInternationalVendorActionLoading)} disabled={internationalVendorActionLoading || !recordIdentity(vendor)}>
                   <Text style={styles.smallButtonText}>Draft catalog intro</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "2. Tender partner pitch")} disabled={loading || !recordIdentity(vendor)}>
+                <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "2. Tender partner pitch", patchInternationalVendorRow, setInternationalVendorNotice, setInternationalVendorActionLoading)} disabled={internationalVendorActionLoading || !recordIdentity(vendor)}>
                   <Text style={styles.smallButtonText}>Draft tender pitch</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "OpenClaw email drafted")} disabled={loading || !recordIdentity(vendor)}>
+                <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "OpenClaw email drafted", patchInternationalVendorRow, setInternationalVendorNotice, setInternationalVendorActionLoading)} disabled={internationalVendorActionLoading || !recordIdentity(vendor)}>
                   <Text style={styles.smallButtonText}>OpenClaw draft</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "4. Meeting requested")} disabled={loading || !recordIdentity(vendor)}>
+                <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "4. Meeting requested", patchInternationalVendorRow, setInternationalVendorNotice, setInternationalVendorActionLoading)} disabled={internationalVendorActionLoading || !recordIdentity(vendor)}>
                   <Text style={styles.smallButtonText}>Draft meeting email</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "5. Bid support follow-up")} disabled={loading || !recordIdentity(vendor)}>
+                <Pressable style={styles.smallButton} onPress={() => sendInternationalVendorOutreach(vendor, "5. Bid support follow-up", patchInternationalVendorRow, setInternationalVendorNotice, setInternationalVendorActionLoading)} disabled={internationalVendorActionLoading || !recordIdentity(vendor)}>
                   <Text style={styles.smallButtonText}>Bid follow-up</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { status: "Replied", followup_stage: "3. Cost sheet follow-up" })} disabled={loading || !recordIdentity(vendor)}>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { status: "Replied", followup_stage: "3. Cost sheet follow-up" }, patchInternationalVendorRow, setInternationalVendorNotice, setInternationalVendorActionLoading)} disabled={internationalVendorActionLoading || !recordIdentity(vendor)}>
                   <Text style={styles.smallButtonText}>Mark replied</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Meeting booked", status: "Meeting booked", followup_stage: "Meeting booked" })} disabled={loading || !recordIdentity(vendor)}>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Meeting booked", status: "Meeting booked", followup_stage: "Meeting booked" }, patchInternationalVendorRow, setInternationalVendorNotice, setInternationalVendorActionLoading)} disabled={internationalVendorActionLoading || !recordIdentity(vendor)}>
                   <Text style={styles.smallButtonText}>Meeting booked</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "PO requested", status: "PO requested" })} disabled={loading || !recordIdentity(vendor)}>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "PO requested", status: "PO requested" }, patchInternationalVendorRow, setInternationalVendorNotice, setInternationalVendorActionLoading)} disabled={internationalVendorActionLoading || !recordIdentity(vendor)}>
                   <Text style={styles.smallButtonText}>PO requested</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Production planned", production_status: "Planned", status: "Production planned" })} disabled={loading || !recordIdentity(vendor)}>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Production planned", production_status: "Planned", status: "Production planned" }, patchInternationalVendorRow, setInternationalVendorNotice, setInternationalVendorActionLoading)} disabled={internationalVendorActionLoading || !recordIdentity(vendor)}>
                   <Text style={styles.smallButtonText}>Plan production</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Export docs ready", export_docs_status: "Commercial invoice, packing list, COO/HS review ready", status: "Export docs ready" })} disabled={loading || !recordIdentity(vendor)}>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Export docs ready", export_docs_status: "Commercial invoice, packing list, COO/HS review ready", status: "Export docs ready" }, patchInternationalVendorRow, setInternationalVendorNotice, setInternationalVendorActionLoading)} disabled={internationalVendorActionLoading || !recordIdentity(vendor)}>
                   <Text style={styles.smallButtonText}>Docs ready</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Freight booked", shipment_status: "Freight booked", status: "Freight booked" })} disabled={loading || !recordIdentity(vendor)}>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Freight booked", shipment_status: "Freight booked", status: "Freight booked" }, patchInternationalVendorRow, setInternationalVendorNotice, setInternationalVendorActionLoading)} disabled={internationalVendorActionLoading || !recordIdentity(vendor)}>
                   <Text style={styles.smallButtonText}>Book freight</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Shipped", shipment_status: "Shipped", status: "Shipped" })} disabled={loading || !recordIdentity(vendor)}>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Shipped", shipment_status: "Shipped", status: "Shipped" }, patchInternationalVendorRow, setInternationalVendorNotice, setInternationalVendorActionLoading)} disabled={internationalVendorActionLoading || !recordIdentity(vendor)}>
                   <Text style={styles.smallButtonText}>Shipped</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Delivered", shipment_status: "Delivered", status: "Delivered" })} disabled={loading || !recordIdentity(vendor)}>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Delivered", shipment_status: "Delivered", status: "Delivered" }, patchInternationalVendorRow, setInternationalVendorNotice, setInternationalVendorActionLoading)} disabled={internationalVendorActionLoading || !recordIdentity(vendor)}>
                   <Text style={styles.smallButtonText}>Delivered</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Lost", status: "Lost" })} disabled={loading || !recordIdentity(vendor)}>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Lost", status: "Lost" }, patchInternationalVendorRow, setInternationalVendorNotice, setInternationalVendorActionLoading)} disabled={internationalVendorActionLoading || !recordIdentity(vendor)}>
                   <Text style={styles.smallButtonText}>Lost</Text>
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Partner active", status: "Partner active" })} disabled={loading || !recordIdentity(vendor)}>
+                <Pressable style={styles.smallButton} onPress={() => updateInternationalVendor(vendor, { pipeline_stage: "Partner active", status: "Partner active" }, patchInternationalVendorRow, setInternationalVendorNotice, setInternationalVendorActionLoading)} disabled={internationalVendorActionLoading || !recordIdentity(vendor)}>
                   <Text style={styles.smallButtonText}>Partner active</Text>
                 </Pressable>
               </View>
             </View>
           );
         })}
-        {renderListControls(vendorListKey, visibleVendors.length)}
+        {renderListControls(vendorListKey, visibleVendorsCount)}
         </View>
       </View>
+    );
+  }
+
+  function renderInternationalVendorBoundary() {
+    return (
+      <LocalValue key="international-vendor-rows" initialValue={asRecords(data?.international_vendors)}>
+        {(internationalVendorRows, setInternationalVendorRows) => (
+          <LocalValue key="international-vendor-action-status" initialValue={{ loading: false, notice: "" }}>
+            {(internationalVendorActionStatus, setInternationalVendorActionStatus) => (
+              <InternationalVendorStateBoundary vendorCount={internationalVendorRows.length}>
+                {(internationalVendorState) => (
+                  <InternationalVendorDraftBoundary>
+                    {(internationalVendorDraftState) => renderInternationalVendorPage(internationalVendorState, internationalVendorDraftState, {
+                      internationalVendorRows,
+                      setInternationalVendorRows,
+                      internationalVendorActionLoading: internationalVendorActionStatus.loading,
+                      internationalVendorNotice: internationalVendorActionStatus.notice,
+                      setInternationalVendorActionLoading: (next) => setInternationalVendorActionStatus((current) => ({ ...current, loading: resolveLocalState(next, current.loading) })),
+                      setInternationalVendorNotice: (next) => setInternationalVendorActionStatus((current) => ({ ...current, notice: resolveLocalState(next, current.notice) })),
+                    })}
+                  </InternationalVendorDraftBoundary>
+                )}
+              </InternationalVendorStateBoundary>
+            )}
+          </LocalValue>
+        )}
+      </LocalValue>
     );
   }
 
@@ -11753,11 +16204,12 @@ export default function App() {
     return String(record.ai_prompt || `Create a premium advertising image for FUZI Classic Elevators. Product: ${product}. Audience: ${audience}. Channel: ${channel}. Visual style: clean modern elevator showroom or real installation setting, red/white/black FUZI branding, safety and engineering confidence, no clutter, space for headline text. Tone: ${tone}.`);
   }
 
-  function renderMarketingPlatformPage() {
+  function renderMarketingPlatformPage(marketingState: MarketingState, { marketingDraft, marketingDraftRef, setMarketingDraft }: MarketingDraftState) {
+    const { marketingSearch, setMarketingSearch } = marketingState;
     const assets = asRecords(data?.marketing_assets);
     const query = marketingSearch.trim().toLowerCase();
-    const visibleAssets = assets.filter((asset) => !query || JSON.stringify(asset).toLowerCase().includes(query));
     const marketingAssetListKey = "marketing-assets";
+    const { total: visibleAssetsCount, visible: visibleAssets } = collectVisibleItems(marketingAssetListKey, assets, (asset) => !query || JSON.stringify(asset).toLowerCase().includes(query));
     const imageAssets = assets.filter((asset) => String(asset.asset_type || "").toLowerCase().includes("image"));
     const catalogAssets = assets.filter((asset) => String(asset.asset_type || asset.catalog_title || "").toLowerCase().includes("catalog"));
     const openclawTouched = assets.filter((asset) => String(asset.last_openclaw_at || asset.delivery_status || "").trim());
@@ -11794,6 +16246,15 @@ export default function App() {
 
         <View style={styles.formCard}>
           <Text style={styles.cardLabel}>Create marketing asset</Text>
+          <LocalValue initialValue={marketingDraftRef.current[0]}>
+            {(localMarketingDraft, setLocalMarketingDraft) => {
+              const setLocalMarketingDraftAndRef: LocalStateSetter<typeof emptyMarketingDraft> = (next) => {
+                const resolved = resolveLocalState(next, marketingDraftRef.current[0]);
+                marketingDraftRef.current[0] = resolved;
+                setLocalMarketingDraft(resolved);
+              };
+              return (
+          <>
           <View style={styles.formGrid}>
             {[
               ["campaign_name", "Campaign name"],
@@ -11809,80 +16270,85 @@ export default function App() {
               <View key={`marketing-${key}`} style={styles.field}>
                 <Text style={styles.label}>{label}</Text>
                 <TextInput
+                  key={`marketing-${key}-${String(localMarketingDraft[key as keyof typeof marketingDraft] || "")}`}
                   style={styles.input}
-                  value={String(marketingDraft[key as keyof typeof marketingDraft] || "")}
-                  onChangeText={(value) => setMarketingDraft((draft) => ({ ...draft, [key]: value }))}
+                  defaultValue={String(localMarketingDraft[key as keyof typeof marketingDraft] || "")}
+                  onChangeText={(value) => { marketingDraftRef.current[0] = { ...marketingDraftRef.current[0], [key]: value }; }}
                 />
               </View>
             ))}
           </View>
           <View style={styles.field}>
             <Text style={styles.label}>Ad copy</Text>
-            <TextInput style={[styles.input, styles.textarea]} value={marketingDraft.ad_copy} onChangeText={(value) => setMarketingDraft((draft) => ({ ...draft, ad_copy: value }))} multiline />
+            <TextInput key={`marketing-ad-copy-${localMarketingDraft.ad_copy}`} style={[styles.input, styles.textarea]} defaultValue={localMarketingDraft.ad_copy} onChangeText={(value) => { marketingDraftRef.current[0].ad_copy = value; }} multiline />
           </View>
           <View style={styles.field}>
             <Text style={styles.label}>AI image prompt</Text>
-            <TextInput style={[styles.input, styles.textarea]} value={marketingDraft.ai_prompt} onChangeText={(value) => setMarketingDraft((draft) => ({ ...draft, ai_prompt: value }))} multiline />
+            <TextInput key={`marketing-ai-prompt-${localMarketingDraft.ai_prompt}`} style={[styles.input, styles.textarea]} defaultValue={localMarketingDraft.ai_prompt} onChangeText={(value) => { marketingDraftRef.current[0].ai_prompt = value; }} multiline />
           </View>
           <View style={styles.formGrid}>
             <View style={styles.field}>
               <Text style={styles.label}>Catalog title</Text>
-              <TextInput style={styles.input} value={marketingDraft.catalog_title} onChangeText={(value) => setMarketingDraft((draft) => ({ ...draft, catalog_title: value }))} />
+              <TextInput key={`marketing-catalog-title-${localMarketingDraft.catalog_title}`} style={styles.input} defaultValue={localMarketingDraft.catalog_title} onChangeText={(value) => { marketingDraftRef.current[0].catalog_title = value; }} />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Catalog sections</Text>
-              <TextInput style={[styles.input, styles.textarea]} value={marketingDraft.catalog_sections} onChangeText={(value) => setMarketingDraft((draft) => ({ ...draft, catalog_sections: value }))} multiline />
+              <TextInput key={`marketing-catalog-sections-${localMarketingDraft.catalog_sections}`} style={[styles.input, styles.textarea]} defaultValue={localMarketingDraft.catalog_sections} onChangeText={(value) => { marketingDraftRef.current[0].catalog_sections = value; }} multiline />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Design notes</Text>
-              <TextInput style={[styles.input, styles.textarea]} value={marketingDraft.design_notes} onChangeText={(value) => setMarketingDraft((draft) => ({ ...draft, design_notes: value }))} multiline />
+              <TextInput key={`marketing-design-notes-${localMarketingDraft.design_notes}`} style={[styles.input, styles.textarea]} defaultValue={localMarketingDraft.design_notes} onChangeText={(value) => { marketingDraftRef.current[0].design_notes = value; }} multiline />
             </View>
           </View>
-          <View style={styles.linkedSystemsPanel}>
-            <Text style={styles.cardLabel}>OpenClaw image generation brief</Text>
-            <Text style={styles.muted}>{marketingPromptFor(marketingDraft, "generate-image")}</Text>
-          </View>
-          <View style={styles.inlineActions}>
-            <Pressable style={styles.smallButton} onPress={() => setMarketingDraft((draft) => ({ ...draft, asset_type: "AI ad image", ai_prompt: marketingPromptFor(draft, "generate-image") }))}>
-              <Text style={styles.smallButtonText}>Build image prompt</Text>
-            </Pressable>
-            <Pressable style={styles.smallButton} onPress={() => setMarketingDraft((draft) => ({ ...draft, asset_type: "Ad copy", ai_prompt: marketingPromptFor(draft, "draft-ad-copy") }))}>
-              <Text style={styles.smallButtonText}>Build ad copy brief</Text>
-            </Pressable>
-            <Pressable style={styles.smallButton} onPress={() => setMarketingDraft((draft) => ({ ...draft, asset_type: "Company catalog", ai_prompt: marketingPromptFor(draft, "draft-catalog") }))}>
-              <Text style={styles.smallButtonText}>Build catalog brief</Text>
-            </Pressable>
-          </View>
-          <Pressable style={styles.primaryButton} onPress={() => saveMarketingAsset()} disabled={loading || !marketingDraft.campaign_name.trim()}>
+                  <View style={styles.linkedSystemsPanel}>
+                    <Text style={styles.cardLabel}>OpenClaw image generation brief</Text>
+                    <Text style={styles.muted}>{marketingPromptFor(localMarketingDraft, "generate-image")}</Text>
+                  </View>
+                  <View style={styles.inlineActions}>
+                    <Pressable style={styles.smallButton} onPress={() => { setMessage("Image prompt brief built."); setLocalMarketingDraftAndRef((draft) => ({ ...draft, asset_type: "AI ad image", ai_prompt: marketingPromptFor({ ...draft, ai_prompt: "" }, "generate-image") })); }}>
+                      <Text style={styles.smallButtonText}>Build image prompt</Text>
+                    </Pressable>
+                    <Pressable style={styles.smallButton} onPress={() => { setMessage("Ad copy brief built."); setLocalMarketingDraftAndRef((draft) => ({ ...draft, asset_type: "Ad copy", ai_prompt: marketingPromptFor(draft, "draft-ad-copy") })); }}>
+                      <Text style={styles.smallButtonText}>Build ad copy brief</Text>
+                    </Pressable>
+                    <Pressable style={styles.smallButton} onPress={() => { setMessage("Catalog brief built."); setLocalMarketingDraftAndRef((draft) => ({ ...draft, asset_type: "Company catalog", ai_prompt: marketingPromptFor(draft, "draft-catalog") })); }}>
+                      <Text style={styles.smallButtonText}>Build catalog brief</Text>
+                    </Pressable>
+                  </View>
+          <Pressable style={styles.primaryButton} onPress={() => saveMarketingAsset(marketingDraftRef.current[0], undefined, () => setLocalMarketingDraftAndRef({ ...emptyMarketingDraft }))} disabled={loading}>
             <Text style={styles.primaryButtonText}>Save marketing asset</Text>
           </Pressable>
           <View style={styles.inlineActions}>
-            <Pressable style={styles.smallButton} onPress={() => saveMarketingAsset("generate-image")} disabled={loading || !marketingDraft.campaign_name.trim()}>
+            <Pressable style={styles.smallButton} onPress={() => saveMarketingAsset(marketingDraftRef.current[0], "generate-image", () => setLocalMarketingDraftAndRef({ ...emptyMarketingDraft }))} disabled={loading}>
               <Text style={styles.smallButtonText}>Save & generate image</Text>
             </Pressable>
-            <Pressable style={styles.smallButton} onPress={() => saveMarketingAsset("draft-ad-copy")} disabled={loading || !marketingDraft.campaign_name.trim()}>
+            <Pressable style={styles.smallButton} onPress={() => saveMarketingAsset(marketingDraftRef.current[0], "draft-ad-copy", () => setLocalMarketingDraftAndRef({ ...emptyMarketingDraft }))} disabled={loading}>
               <Text style={styles.smallButtonText}>Save & draft ad copy</Text>
             </Pressable>
-            <Pressable style={styles.smallButton} onPress={() => saveMarketingAsset("draft-catalog")} disabled={loading || !marketingDraft.campaign_name.trim()}>
+            <Pressable style={styles.smallButton} onPress={() => saveMarketingAsset(marketingDraftRef.current[0], "draft-catalog", () => setLocalMarketingDraftAndRef({ ...emptyMarketingDraft }))} disabled={loading}>
               <Text style={styles.smallButtonText}>Save & draft catalog</Text>
             </Pressable>
           </View>
+          </>
+              );
+            }}
+          </LocalValue>
         </View>
 
         <View style={styles.formCard}>
           <Text style={styles.cardLabel}>Find marketing work</Text>
-          <TextInput style={styles.input} value={marketingSearch} onChangeText={setMarketingSearch} placeholder="Search campaign, catalog, audience, channel, OpenClaw status" />
+          <TextInput controlled style={styles.input} value={marketingSearch} onChangeText={setMarketingSearch} placeholder="Search campaign, catalog, audience, channel, OpenClaw status" />
         </View>
 
         <Text style={styles.sectionTitle}>Marketing Studio</Text>
         <View style={styles.limitedList}>
-        {!visibleAssets.length && (
+        {!visibleAssetsCount && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>No marketing assets yet</Text>
             <Text style={styles.muted}>Create an ad image prompt or company catalog draft, then send it to OpenClaw for AI creative generation.</Text>
           </View>
         )}
-        {limitedItems(marketingAssetListKey, visibleAssets).map((asset, index) => {
+        {visibleAssets.map((asset, index) => {
           const id = recordIdentity(asset) || String(asset.id || index);
           return (
             <View key={`marketing-${id}`} style={styles.card}>
@@ -11914,29 +16380,40 @@ export default function App() {
             </View>
           );
         })}
-        {renderListControls(marketingAssetListKey, visibleAssets.length)}
+        {renderListControls(marketingAssetListKey, visibleAssetsCount)}
         </View>
       </View>
     );
   }
 
-  function renderInventoryPage() {
-    const inventory = asRecords(data?.inventory);
+  function renderMarketingPlatformBoundary() {
+    return (
+      <MarketingStateBoundary>
+        {(marketingState) => (
+          <MarketingDraftBoundary>
+            {(marketingDraftState) => renderMarketingPlatformPage(marketingState, marketingDraftState)}
+          </MarketingDraftBoundary>
+        )}
+      </MarketingStateBoundary>
+    );
+  }
+
+  function renderInventoryPage(inventoryState: InventoryState, inventoryDraftState: InventoryDraftState) {
+    const { inventorySearch, inventoryRows, inventoryEditsRef, setInventorySearch, setInventoryEditsRefOnly, patchInventoryRow, prependInventoryRow } = inventoryState;
+    const { inventoryDraft, inventoryDraftRef, setInventoryDraft, setInventoryDraftRefOnly } = inventoryDraftState;
+    const inventory = inventoryRows;
     const offers = asRecords(data?.estimates);
     const query = inventorySearch.trim().toLowerCase();
-    const visibleInventory = inventory.filter((item) => !query || JSON.stringify(item).toLowerCase().includes(query));
     const reorderItems = inventory.filter((item) => inventoryAvailable(item) <= inventoryQuantity(item, "reorder_point", inventoryQuantity(item, "min_stock")));
     const onOrderItems = inventory.filter((item) => inventoryDisplayStatus(item) === "On Order");
     const totalAvailable = inventory.reduce((sum, item) => sum + inventoryAvailable(item), 0);
     const customerReservedItems = inventory.filter((item) => String(item.customer_id || item.customer_name || item.offer_id || "").trim());
-    const selectedOffer = offers.find((offer) => recordIdentity(offer) === inventoryDraft.offer_id);
     const offerOptions = offers;
-    const reorderList = reorderItems.filter((item) => !query || JSON.stringify(item).toLowerCase().includes(query));
     const reorderListKey = "inventory-reorder";
     const stockListKey = "inventory-stock";
     const inventoryOfferListKey = "inventory-offers";
-    const visibleReorderItems = reorderList.slice(0, listVisibleCount(reorderListKey, reorderList.length));
-    const visibleStockItems = visibleInventory.slice(0, listVisibleCount(stockListKey, visibleInventory.length));
+    const { total: reorderListCount, visible: visibleReorderItems } = collectVisibleItems(reorderListKey, reorderItems, (item) => !query || JSON.stringify(item).toLowerCase().includes(query));
+    const { total: visibleInventoryCount, visible: visibleStockItems } = collectVisibleItems(stockListKey, inventory, (item) => !query || JSON.stringify(item).toLowerCase().includes(query));
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -11982,6 +16459,11 @@ export default function App() {
             </View>
           )}
           {!!offerOptions.length && (
+            <LocalValue initialValue={inventoryDraftRef.current[0].offer_id}>
+              {(localOfferId, setLocalOfferId) => {
+                const selectedOffer = offers.find((offer) => recordIdentity(offer) === localOfferId);
+                return (
+            <>
             <View style={styles.selectorList}>
               {limitedItems(inventoryOfferListKey, offerOptions).map((offer) => {
                 const offerId = recordIdentity(offer);
@@ -11989,18 +16471,22 @@ export default function App() {
                 return (
                   <Pressable
                     key={`inventory-offer-${offerId || customerName}`}
-                    style={[styles.selectorPill, inventoryDraft.offer_id === offerId && styles.selectorPillActive]}
-                    onPress={() => setInventoryDraft((draft) => ({
-                      ...draft,
-                      offer_id: offerId,
-                      offer_name: String(offer.offer_name || offer.job_no || offerId),
-                      customer_id: String(offer.customer_id || draft.customer_id || ""),
-                      customer_name: customerName,
-                      source_inquiry_id: String(offer.source_inquiry_id || ""),
-                      reserved_for: customerName,
-                    }))}
+                    style={[styles.selectorPill, localOfferId === offerId && styles.selectorPillActive]}
+                    onPress={() => {
+                      setLocalOfferId(offerId);
+                      setInventoryDraft((draft) => ({
+                        ...draft,
+                        offer_id: offerId,
+                        offer_name: String(offer.offer_name || offer.job_no || offerId),
+                        customer_id: String(offer.customer_id || draft.customer_id || ""),
+                        customer_name: customerName,
+                        source_inquiry_id: String(offer.source_inquiry_id || ""),
+                        reserved_for: customerName,
+                      }));
+                      setMessage(`Inventory offer selected: ${offerId || customerName || "offer"}.`);
+                    }}
                   >
-                    <Text style={[styles.selectorText, inventoryDraft.offer_id === offerId && styles.selectorTextActive]}>
+                    <Text style={[styles.selectorText, localOfferId === offerId && styles.selectorTextActive]}>
                       {offerId || "Offer"} - {customerName || "Customer"} - {formatMoney(Number(offer.total_cost || 0))}
                     </Text>
                   </Pressable>
@@ -12008,7 +16494,6 @@ export default function App() {
             })}
             {renderListControls(inventoryOfferListKey, offerOptions.length)}
           </View>
-        )}
           {!!selectedOffer && (
             <View style={styles.linkedSystemsPanel}>
               <Text style={styles.cardLabel}>Selected offer</Text>
@@ -12017,79 +16502,87 @@ export default function App() {
               </Text>
             </View>
           )}
+          </>
+                );
+              }}
+            </LocalValue>
+        )}
           <View style={styles.formGrid}>
             <View style={styles.field}>
               <Text style={styles.label}>Item name</Text>
-              <TextInput style={styles.input} value={inventoryDraft.name} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, name: value }))} />
+              <TextInput style={styles.input} defaultValue={inventoryDraftRef.current[0].name} onChangeText={(value) => { inventoryDraftRef.current[0] = { ...inventoryDraftRef.current[0], name: value }; }} />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Category</Text>
-              <TextInput style={styles.input} value={inventoryDraft.category} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, category: value }))} />
+              <TextInput style={styles.input} defaultValue={inventoryDraftRef.current[0].category} onChangeText={(value) => { inventoryDraftRef.current[0] = { ...inventoryDraftRef.current[0], category: value }; }} />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>On hand</Text>
-              <TextInput style={styles.input} value={inventoryDraft.qty_on_hand} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, qty_on_hand: value }))} keyboardType="numeric" />
+              <TextInput style={styles.input} defaultValue={inventoryDraftRef.current[0].qty_on_hand} onChangeText={(value) => { inventoryDraftRef.current[0] = { ...inventoryDraftRef.current[0], qty_on_hand: value }; }} keyboardType="numeric" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Reserved</Text>
-              <TextInput style={styles.input} value={inventoryDraft.qty_reserved} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, qty_reserved: value }))} keyboardType="numeric" />
+              <TextInput style={styles.input} defaultValue={inventoryDraftRef.current[0].qty_reserved} onChangeText={(value) => { inventoryDraftRef.current[0] = { ...inventoryDraftRef.current[0], qty_reserved: value }; }} keyboardType="numeric" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Reorder trigger</Text>
-              <TextInput style={styles.input} value={inventoryDraft.reorder_point} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, reorder_point: value }))} keyboardType="numeric" />
+              <TextInput style={styles.input} defaultValue={inventoryDraftRef.current[0].reorder_point} onChangeText={(value) => { inventoryDraftRef.current[0] = { ...inventoryDraftRef.current[0], reorder_point: value }; }} keyboardType="numeric" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Target stock</Text>
-              <TextInput style={styles.input} value={inventoryDraft.target_stock} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, target_stock: value }))} keyboardType="numeric" />
+              <TextInput style={styles.input} defaultValue={inventoryDraftRef.current[0].target_stock} onChangeText={(value) => { inventoryDraftRef.current[0] = { ...inventoryDraftRef.current[0], target_stock: value }; }} keyboardType="numeric" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Unit</Text>
-              <TextInput style={styles.input} value={inventoryDraft.unit} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, unit: value }))} />
+              <TextInput style={styles.input} defaultValue={inventoryDraftRef.current[0].unit} onChangeText={(value) => { inventoryDraftRef.current[0] = { ...inventoryDraftRef.current[0], unit: value }; }} />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Vendor</Text>
-              <TextInput style={styles.input} value={inventoryDraft.vendor} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, vendor: value }))} />
+              <TextInput style={styles.input} defaultValue={inventoryDraftRef.current[0].vendor} onChangeText={(value) => { inventoryDraftRef.current[0] = { ...inventoryDraftRef.current[0], vendor: value }; }} />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Purchase price</Text>
-              <TextInput style={styles.input} value={inventoryDraft.purchase_price} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, purchase_price: value, unit_cost: value }))} keyboardType="numeric" />
+              <TextInput style={styles.input} defaultValue={inventoryDraftRef.current[0].purchase_price} onChangeText={(value) => { inventoryDraftRef.current[0] = { ...inventoryDraftRef.current[0], purchase_price: value, unit_cost: value }; }} keyboardType="numeric" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Current selling price</Text>
-              <TextInput style={styles.input} value={inventoryDraft.current_price} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, current_price: value, sale_price: value }))} keyboardType="numeric" />
+              <TextInput style={styles.input} defaultValue={inventoryDraftRef.current[0].current_price} onChangeText={(value) => { inventoryDraftRef.current[0] = { ...inventoryDraftRef.current[0], current_price: value, sale_price: value }; }} keyboardType="numeric" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Price date</Text>
-              <TextInput style={styles.input} value={inventoryDraft.price_date} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, price_date: value }))} placeholder="YYYY-MM-DD" />
+              <TextInput style={styles.input} defaultValue={inventoryDraftRef.current[0].price_date} onChangeText={(value) => { inventoryDraftRef.current[0] = { ...inventoryDraftRef.current[0], price_date: value }; }} placeholder="YYYY-MM-DD" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Lead time days</Text>
-              <TextInput style={styles.input} value={inventoryDraft.lead_time_days} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, lead_time_days: value }))} keyboardType="numeric" />
+              <TextInput style={styles.input} defaultValue={inventoryDraftRef.current[0].lead_time_days} onChangeText={(value) => { inventoryDraftRef.current[0] = { ...inventoryDraftRef.current[0], lead_time_days: value }; }} keyboardType="numeric" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Bin location</Text>
-              <TextInput style={styles.input} value={inventoryDraft.bin_location} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, bin_location: value }))} />
+              <TextInput style={styles.input} defaultValue={inventoryDraftRef.current[0].bin_location} onChangeText={(value) => { inventoryDraftRef.current[0] = { ...inventoryDraftRef.current[0], bin_location: value }; }} />
             </View>
           </View>
           <View style={styles.formGrid}>
             <View style={styles.field}>
               <Text style={styles.label}>Customer ID</Text>
-              <TextInput style={styles.input} value={inventoryDraft.customer_id} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, customer_id: value }))} placeholder="From selected offer" />
+              <TextInput style={styles.input} defaultValue={inventoryDraftRef.current[0].customer_id} onChangeText={(value) => { inventoryDraftRef.current[0] = { ...inventoryDraftRef.current[0], customer_id: value }; }} placeholder="From selected offer" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Customer name</Text>
-              <TextInput style={styles.input} value={inventoryDraft.customer_name} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, customer_name: value, reserved_for: value }))} placeholder="From selected offer" />
+              <TextInput style={styles.input} defaultValue={inventoryDraftRef.current[0].customer_name} onChangeText={(value) => { inventoryDraftRef.current[0] = { ...inventoryDraftRef.current[0], customer_name: value, reserved_for: value }; }} placeholder="From selected offer" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Offer ID</Text>
-              <TextInput style={styles.input} value={inventoryDraft.offer_id} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, offer_id: value }))} placeholder="Offer/costing record" />
+              <TextInput style={styles.input} defaultValue={inventoryDraftRef.current[0].offer_id} onChangeText={(value) => { inventoryDraftRef.current[0] = { ...inventoryDraftRef.current[0], offer_id: value }; }} placeholder="Offer/costing record" />
             </View>
           </View>
           <View style={styles.field}>
             <Text style={styles.label}>Notes</Text>
-            <TextInput style={[styles.input, styles.textarea]} value={inventoryDraft.notes} onChangeText={(value) => setInventoryDraft((draft) => ({ ...draft, notes: value }))} multiline />
+            <TextInput style={[styles.input, styles.textarea]} defaultValue={inventoryDraftRef.current[0].notes} onChangeText={(value) => { inventoryDraftRef.current[0] = { ...inventoryDraftRef.current[0], notes: value }; }} multiline />
           </View>
-          <Pressable style={styles.primaryButton} onPress={saveInventoryItem} disabled={loading || !inventoryDraft.name.trim()}>
+          <Pressable style={styles.primaryButton} onPress={() => saveInventoryItem(inventoryDraftRef.current[0], (record) => {
+            prependInventoryRow(record);
+            setInventoryDraft(emptyInventoryDraft);
+          })} disabled={loading}>
             <Text style={styles.primaryButtonText}>Save warehouse item</Text>
           </Pressable>
         </View>
@@ -12112,21 +16605,34 @@ export default function App() {
             <Text style={styles.muted}>Available stock is above every configured reorder point.</Text>
           </View>
         )}
-        {visibleReorderItems.map((item, index) => renderInventoryCard(item, index, true))}
-        {renderListControls(reorderListKey, reorderList.length)}
+        {visibleReorderItems.map((item, index) => renderInventoryCard(item, index, true, inventoryState))}
+        {renderListControls(reorderListKey, reorderListCount)}
         </View>
 
         <Text style={styles.sectionTitle}>Warehouse Stock</Text>
-        {!!visibleInventory.length && <Text style={styles.muted}>Showing {visibleStockItems.length} of {visibleInventory.length}</Text>}
+        {!!visibleInventoryCount && <Text style={styles.muted}>Showing {visibleStockItems.length} of {visibleInventoryCount}</Text>}
         <View style={styles.limitedList}>
-        {visibleStockItems.map((item, index) => renderInventoryCard(item, index, false))}
-        {renderListControls(stockListKey, visibleInventory.length)}
+        {visibleStockItems.map((item, index) => renderInventoryCard(item, index, false, inventoryState))}
+        {renderListControls(stockListKey, visibleInventoryCount)}
         </View>
       </View>
     );
   }
 
-  function renderInventoryCard(item: Record<string, unknown>, index: number, compact: boolean) {
+  function renderInventoryBoundary() {
+    return (
+      <InventoryStateBoundary rows={asRecords(data?.inventory)}>
+        {(inventoryState) => (
+          <InventoryDraftBoundary>
+            {(inventoryDraftState) => renderInventoryPage(inventoryState, inventoryDraftState)}
+          </InventoryDraftBoundary>
+        )}
+      </InventoryStateBoundary>
+    );
+  }
+
+  function renderInventoryCard(item: Record<string, unknown>, index: number, compact: boolean, inventoryState: InventoryState) {
+    const { inventoryEditsRef, setInventoryEditsRefOnly, patchInventoryRow } = inventoryState;
     const id = recordIdentity(item) || String(item.id || index);
     const onHand = inventoryQuantity(item, "qty_on_hand", inventoryQuantity(item, "stock"));
     const reserved = inventoryQuantity(item, "qty_reserved");
@@ -12137,7 +16643,7 @@ export default function App() {
     const needsOrder = available <= reorderPoint;
     const purchasePrice = offerNumber(item.purchase_price || item.unit_cost);
     const currentPrice = inventoryPrice(item);
-    const edit = inventoryEdits[id] || {
+    const edit = inventoryEditsRef.current[id] || {
       reorder_point: String(reorderPoint),
       target_stock: String(target),
       current_price: String(currentPrice || ""),
@@ -12199,7 +16705,7 @@ export default function App() {
               >
                 <Text style={styles.smallButtonText}>Open CRM</Text>
               </Pressable>
-              <Pressable style={styles.smallButton} onPress={() => setActiveTab("offerManager")} disabled={loading}>
+              <Pressable style={styles.smallButton} onPress={() => { setActiveTab("offerManager"); setMessage("Opening Offer Manager."); }} disabled={loading}>
                 <Text style={styles.smallButtonText}>Open offers</Text>
               </Pressable>
             </View>
@@ -12212,8 +16718,8 @@ export default function App() {
             <Text style={styles.label}>Trigger</Text>
             <TextInput
               style={styles.compactInput}
-              value={edit.reorder_point}
-              onChangeText={(value) => setInventoryEdits((draft) => ({ ...draft, [id]: { ...edit, reorder_point: value } }))}
+              defaultValue={edit.reorder_point}
+              onChangeText={(value) => setInventoryEditsRefOnly((draft) => ({ ...draft, [id]: { ...(draft[id] || edit), reorder_point: value } }))}
               keyboardType="numeric"
             />
           </View>
@@ -12221,8 +16727,8 @@ export default function App() {
             <Text style={styles.label}>Target</Text>
             <TextInput
               style={styles.compactInput}
-              value={edit.target_stock}
-              onChangeText={(value) => setInventoryEdits((draft) => ({ ...draft, [id]: { ...edit, target_stock: value } }))}
+              defaultValue={edit.target_stock}
+              onChangeText={(value) => setInventoryEditsRefOnly((draft) => ({ ...draft, [id]: { ...(draft[id] || edit), target_stock: value } }))}
               keyboardType="numeric"
             />
           </View>
@@ -12230,8 +16736,8 @@ export default function App() {
             <Text style={styles.label}>Current price</Text>
             <TextInput
               style={styles.compactInput}
-              value={edit.current_price}
-              onChangeText={(value) => setInventoryEdits((draft) => ({ ...draft, [id]: { ...edit, current_price: value } }))}
+              defaultValue={edit.current_price}
+              onChangeText={(value) => setInventoryEditsRefOnly((draft) => ({ ...draft, [id]: { ...(draft[id] || edit), current_price: value } }))}
               keyboardType="numeric"
             />
           </View>
@@ -12239,8 +16745,8 @@ export default function App() {
             <Text style={styles.label}>Purchase price</Text>
             <TextInput
               style={styles.compactInput}
-              value={edit.purchase_price}
-              onChangeText={(value) => setInventoryEdits((draft) => ({ ...draft, [id]: { ...edit, purchase_price: value } }))}
+              defaultValue={edit.purchase_price}
+              onChangeText={(value) => setInventoryEditsRefOnly((draft) => ({ ...draft, [id]: { ...(draft[id] || edit), purchase_price: value } }))}
               keyboardType="numeric"
             />
           </View>
@@ -12248,36 +16754,40 @@ export default function App() {
             <Text style={styles.label}>Price date</Text>
             <TextInput
               style={styles.compactInput}
-              value={edit.price_date}
-              onChangeText={(value) => setInventoryEdits((draft) => ({ ...draft, [id]: { ...edit, price_date: value } }))}
+              defaultValue={edit.price_date}
+              onChangeText={(value) => setInventoryEditsRefOnly((draft) => ({ ...draft, [id]: { ...(draft[id] || edit), price_date: value } }))}
               placeholder="YYYY-MM-DD"
             />
           </View>
           <Pressable
             style={styles.smallButton}
-            onPress={() => updateInventoryItem(item, {
-              reorder_point: edit.reorder_point,
-              target_stock: edit.target_stock,
-              current_price: edit.current_price,
-              sale_price: edit.current_price,
-              unit_price: edit.current_price,
-              purchase_price: edit.purchase_price,
-              unit_cost: edit.purchase_price,
-              price_date: edit.price_date,
-            })}
+            onPress={() => {
+              setMessage("Saving inventory stock and pricing.");
+              const latestEdit = inventoryEditsRef.current[id] || edit;
+              updateInventoryItem(item, {
+                reorder_point: latestEdit.reorder_point,
+                target_stock: latestEdit.target_stock,
+                current_price: latestEdit.current_price,
+                sale_price: latestEdit.current_price,
+                unit_price: latestEdit.current_price,
+                purchase_price: latestEdit.purchase_price,
+                unit_cost: latestEdit.purchase_price,
+                price_date: latestEdit.price_date,
+              }, (record) => patchInventoryRow(id, record));
+            }}
             disabled={loading}
           >
             <Text style={styles.smallButtonText}>Save stock/pricing</Text>
           </Pressable>
         </View>
         <View style={styles.inlineActions}>
-          <Pressable style={styles.smallButton} onPress={() => adjustInventoryItem(item, 1, "Received one unit")} disabled={loading}>
+          <Pressable style={styles.smallButton} onPress={() => adjustInventoryItem(item, 1, "Received one unit", (record) => patchInventoryRow(id, record))} disabled={loading}>
             <Text style={styles.smallButtonText}>Receive +1</Text>
           </Pressable>
-          <Pressable style={styles.smallButton} onPress={() => adjustInventoryItem(item, -1, "Issued one unit")} disabled={loading}>
+          <Pressable style={styles.smallButton} onPress={() => adjustInventoryItem(item, -1, "Issued one unit", (record) => patchInventoryRow(id, record))} disabled={loading}>
             <Text style={styles.smallButtonText}>Issue -1</Text>
           </Pressable>
-          <Pressable style={styles.smallButton} onPress={() => raiseInventoryPo(item)} disabled={loading || reorderQty <= 0 || displayStatus === "On Order"}>
+          <Pressable style={styles.smallButton} onPress={() => raiseInventoryPo(item, (record) => patchInventoryRow(id, record))} disabled={loading || reorderQty <= 0 || displayStatus === "On Order"}>
             <Text style={styles.smallButtonText}>Order missing</Text>
           </Pressable>
         </View>
@@ -12285,7 +16795,8 @@ export default function App() {
     );
   }
 
-  function renderSalesPage() {
+  function renderSalesPage(salesInquiryDraftState: SalesInquiryDraftState) {
+    const { salesInquiryDraft, setSalesInquiryDraft } = salesInquiryDraftState;
     const inquiries = asRecords((data as Record<string, unknown> | null)?.sales_inquiries);
     const openInquiries = inquiries.filter((item) => !String(item.status || item.lead_status || "").toLowerCase().includes("lost"));
     const reportImported = inquiries.filter((item) => item.source_enquiry_no || item.enquiry_no).length;
@@ -12297,7 +16808,7 @@ export default function App() {
     const topStatuses = Object.entries(statusCounts).sort((a, b) => b[1] - a[1]);
     const salesListKey = "sales-enquiries";
     const salesStatusListKey = "sales-statuses";
-    const visibleSalesInquiries = inquiries.slice(0, listVisibleCount(salesListKey, inquiries.length));
+    const { total: salesInquiryCount, visible: visibleSalesInquiries } = collectVisibleItems(salesListKey, inquiries);
     return (
       <View>
         <View style={styles.moduleHero}>
@@ -12329,62 +16840,62 @@ export default function App() {
           <View style={styles.formGrid}>
             <View style={styles.field}>
               <Text style={styles.label}>Enquiry no</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.enquiry_no} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, enquiry_no: value }))} placeholder="Auto if blank" />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.enquiry_no} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, enquiry_no: value } }; }} placeholder="Auto if blank" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Lead / customer name</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.customer} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, customer: value }))} />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.customer} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, customer: value } }; }} />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Lead status</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.lead_status} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, lead_status: value }))} placeholder="Enquiry Pending" />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.lead_status} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, lead_status: value } }; }} placeholder="Enquiry Pending" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Lead type</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.lead_type} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, lead_type: value }))} placeholder="New / Modification / AMC / OneTime" />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.lead_type} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, lead_type: value } }; }} placeholder="New / Modification / AMC / OneTime" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Phone</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.phone} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, phone: value }))} keyboardType="phone-pad" />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.phone} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, phone: value } }; }} keyboardType="phone-pad" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Full address</Text>
-              <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.address} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, address: value }))} multiline />
+              <TextInput style={[styles.input, styles.textarea]} defaultValue={salesInquiryDraft.address} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, address: value } }; }} multiline />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>WhatsApp</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.whatsapp_no} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, whatsapp_no: value }))} keyboardType="phone-pad" />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.whatsapp_no} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, whatsapp_no: value } }; }} keyboardType="phone-pad" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Quantity</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.qty} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, qty: value }))} keyboardType="numeric" />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.qty} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, qty: value } }; }} keyboardType="numeric" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Created date</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.received_date} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, received_date: value }))} placeholder="YYYY-MM-DD" />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.received_date} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, received_date: value } }; }} placeholder="YYYY-MM-DD" />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Referral by</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.referral_by} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, referral_by: value }))} />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.referral_by} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, referral_by: value } }; }} />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Created by</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.createdbyname} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, createdbyname: value }))} />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.createdbyname} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, createdbyname: value } }; }} />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Assigned to</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.assigned_to} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, assigned_to: value }))} />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.assigned_to} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, assigned_to: value } }; }} />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Next follow-up</Text>
-              <TextInput style={styles.input} value={salesInquiryDraft.next_followup} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, next_followup: value }))} placeholder="YYYY-MM-DD" />
+              <TextInput style={styles.input} defaultValue={salesInquiryDraft.next_followup} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, next_followup: value } }; }} placeholder="YYYY-MM-DD" />
             </View>
           </View>
           <View style={styles.field}>
             <Text style={styles.label}>Enquiry remark</Text>
-            <TextInput style={[styles.input, styles.textarea]} value={salesInquiryDraft.enquiry_remark} onChangeText={(value) => setSalesInquiryDraft((draft) => ({ ...draft, enquiry_remark: value }))} multiline />
+            <TextInput style={[styles.input, styles.textarea]} defaultValue={salesInquiryDraft.enquiry_remark} onChangeText={(value) => { salesInquiryDraftStateRef.current = { ...salesInquiryDraftStateRef.current, salesInquiryDraft: { ...salesInquiryDraftStateRef.current.salesInquiryDraft, enquiry_remark: value } }; }} multiline />
           </View>
-          <Pressable style={styles.primaryButton} onPress={() => saveSalesInquiry()} disabled={loading || !salesInquiryDraft.customer.trim()}>
+          <Pressable style={styles.primaryButton} onPress={() => saveSalesInquiry()} disabled={loading}>
             <Text style={styles.primaryButtonText}>Save enquiry intake</Text>
           </Pressable>
         </View>
@@ -12407,7 +16918,7 @@ export default function App() {
           const id = recordIdentity(item) || String(item.enquiry_no || index);
           const status = String(item.status || item.lead_status || "New");
           return (
-            <View key={`${id}-${index}`} style={[styles.card, compactLists && styles.compactCard]}>
+            <View key={`${id}-${index}`} style={[styles.card, compactListsRef.current && styles.compactCard]}>
               <View style={styles.cardHeaderRow}>
                 <View style={styles.cardTitleBlock}>
                   <Text style={styles.cardTitle}>{String(item.customer || item.lead_name || item.name || "-")}</Text>
@@ -12436,7 +16947,7 @@ export default function App() {
             </View>
           );
         })}
-        {renderListControls(salesListKey, inquiries.length)}
+        {renderListControls(salesListKey, salesInquiryCount)}
         </View>
 
       </View>
@@ -12472,7 +16983,7 @@ export default function App() {
     return status;
   }
 
-  function tenderItemsFromDraft() {
+  function tenderItemsFromDraft(tenderDraft: TenderDraft) {
     if (tenderDraft.product_type === "Escalator") {
       const quantity = Math.max(1, Number(tenderDraft.escalator_quantity || 1));
       return Array.from({ length: quantity }, (_, index) => ({ item_no: index + 1, type: "Escalator", location_type: tenderDraft.location_type, degree: tenderDraft.escalator_degree, step_width_mm: tenderDraft.step_width_mm, quoted_price: tenderMoney(tenderDraft.quoted_price), quantity: 1 }));
@@ -12481,7 +16992,7 @@ export default function App() {
     return Array.from({ length: quantity }, (_, index) => ({ item_no: index + 1, type: "Lift", passenger_capacity: tenderDraft.passenger_capacity, number_of_stops: tenderDraft.number_of_stops, speed: tenderDraft.speed, door_finish: tenderDraft.door_finish || "Hairline", cabin_finish: tenderDraft.cabin_finish || "Hairline", door_size: tenderDraft.door_size, door_width_mm: tenderDraft.door_width_mm, door_height_mm: tenderDraft.door_height_mm, quantity: 1, quoted_price: tenderMoney(tenderDraft.quoted_price) }));
   }
 
-  function tenderPayloadFromDraft() {
+  function tenderPayloadFromDraft(tenderDraft: TenderDraft) {
     return {
       ...tenderDraft,
       title: tenderDraft.party_name || tenderDraft.tender_invited_by || tenderDraft.file_number,
@@ -12494,7 +17005,7 @@ export default function App() {
       basic_value: tenderMoney(tenderDraft.basic_value),
       gst_amount: tenderMoney(tenderDraft.gst_amount),
       gross_order_amount: tenderMoney(tenderDraft.gross_order_amount),
-      items: tenderItemsFromDraft(),
+      items: tenderItemsFromDraft(tenderDraft),
       participants: tenderDraft.party_name_entry.trim() || tenderDraft.quoted_rates_entry.trim() ? [{ party_name: tenderDraft.party_name_entry, quoted_rates: tenderMoney(tenderDraft.quoted_rates_entry) }] : [],
       bills: tenderDraft.bill_number.trim() || tenderDraft.bill_amount.trim() ? [{ our_bill_number: tenderDraft.bill_number, bill_date: tenderDraft.bill_date, amount: tenderMoney(tenderDraft.bill_amount), billing_period: tenderDraft.billing_period, payment_received: tenderDraft.payment_received, payment_received_date: tenderDraft.payment_received_date }] : [],
       emd_records: tenderDraft.emd_amount.trim() || tenderDraft.emd_deposit_amount.trim() ? [{ emd_amount: tenderMoney(tenderDraft.emd_amount), deposited_by: tenderDraft.emd_deposited_by, deposit_date: tenderDraft.emd_deposit_date, deposit_amount: tenderMoney(tenderDraft.emd_deposit_amount), return_status: tenderDraft.status === "EMD Returned" ? "Returned" : "Pending" }] : [],
@@ -12502,31 +17013,38 @@ export default function App() {
     };
   }
 
-  async function saveTender() {
+  async function saveTender(
+    tenderDraft: TenderDraft,
+    onLocalUpsert?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     if (!tenderDraft.tender_invited_by.trim() && !tenderDraft.party_name.trim()) {
       const text = "Tender invited by / party name is required.";
-      Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
+      Platform.OS === "web" ? onNotice(text) : Alert.alert("Missing field", text);
       return;
     }
-    setLoading(true);
+    onLoading(true);
     try {
       const id = tenderDraft.id;
-      await apiFetch(id ? `/api/portal/tender/${encodeURIComponent(id)}` : "/api/portal/tender", {
+      const result = await apiFetch<Record<string, unknown>>(id ? `/api/portal/tender/${encodeURIComponent(id)}` : "/api/portal/tender", {
         method: id ? "PATCH" : "POST",
         token,
-        body: JSON.stringify(tenderPayloadFromDraft()),
+        body: JSON.stringify(tenderPayloadFromDraft(tenderDraft)),
       });
-      setTenderDraft(emptyTenderDraft);
-      await loadPortal();
-      setMessage(id ? "Tender updated." : "Tender saved.");
+      const savedTender = savedRecordFromModuleResponse("/api/portal/tender", result, { ...tenderPayloadFromDraft(tenderDraft), id });
+      if (id) patchDisplayedPortalRecordRefOnly("tenders", id, savedTender);
+      else prependDisplayedPortalRecordRefOnly("tenders", savedTender);
+      onLocalUpsert?.(savedTender);
+      onNotice(id ? "Tender updated." : "Tender saved.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Tender could not be saved.");
+      onNotice(error instanceof Error ? error.message : "Tender could not be saved.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  function editTender(record: Record<string, unknown>) {
+  function editTender(record: Record<string, unknown>, setTenderDraft: LocalStateSetter<TenderDraft>) {
     const item = asRecords(record.items)[0] || {};
     const participant = asRecords(record.participants)[0] || {};
     const bill = asRecords(record.bills)[0] || {};
@@ -12561,32 +17079,72 @@ export default function App() {
     });
   }
 
-  async function updateTenderStatus(record: Record<string, unknown>, status: string) {
+  async function updateTenderStatus(
+    record: Record<string, unknown>,
+    status: string,
+    onLocalUpdate?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     const id = recordIdentity(record);
-    if (!id) return;
-    setLoading(true);
+    if (!id) {
+      onNotice("This tender cannot be updated because it has no saved record ID.");
+      return;
+    }
+    onLoading(true);
+    const optimisticRecord = { ...record, status };
+    onLocalUpdate?.(optimisticRecord);
     try {
-      await apiFetch(`/api/portal/tender/${encodeURIComponent(id)}`, { method: "PATCH", token, body: JSON.stringify({ status }) });
-      await loadPortal();
-      setMessage(`Tender marked ${status}.`);
+      const result = await apiFetch<Record<string, unknown>>(`/api/portal/tender/${encodeURIComponent(id)}`, { method: "PATCH", token, body: JSON.stringify({ status }) });
+      const updatedTender = savedRecordFromModuleResponse("/api/portal/tender", result, optimisticRecord);
+      patchDisplayedPortalRecordRefOnly("tenders", id, updatedTender);
+      onLocalUpdate?.(updatedTender);
+      onNotice(`Tender marked ${status}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Tender status could not be updated.");
+      onNotice(error instanceof Error ? error.message : "Tender status could not be updated.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  function renderTenderField(label: string, key: keyof typeof emptyTenderDraft, placeholder = "") {
+  function renderTenderField(label: string, key: keyof TenderDraft, draftState: TenderDraftState, placeholder = "") {
+    const { tenderDraftRef } = draftState;
     return (
       <View style={styles.field}>
         <Text style={styles.label}>{label}</Text>
-        <TextInput style={styles.input} value={String(tenderDraft[key] || "")} onChangeText={(value) => setTenderDraft((draft) => ({ ...draft, [key]: value }))} placeholder={placeholder} />
+        <TextInput
+          style={styles.input}
+          defaultValue={String(tenderDraftRef.current[0][key] || "")}
+          onChangeText={(value) => { tenderDraftRef.current[0] = { ...tenderDraftRef.current[0], [key]: value }; }}
+          placeholder={placeholder}
+        />
       </View>
     );
   }
 
-  function renderTenderPortal() {
-    const tenders = asRecords(data?.tenders);
+  function renderTenderPortal(
+    tenderState: TenderState,
+    tenderDraftState: TenderDraftState,
+    {
+      tenderRows,
+      setTenderRows,
+      tenderActionLoading,
+      tenderNotice,
+      setTenderActionLoading,
+      setTenderNotice,
+    }: {
+      tenderRows: Record<string, unknown>[];
+      setTenderRows: LocalStateSetter<Record<string, unknown>[]>;
+      tenderActionLoading: boolean;
+      tenderNotice: string;
+      setTenderActionLoading: LocalStateSetter<boolean>;
+      setTenderNotice: LocalStateSetter<string>;
+    }
+  ) {
+    const { tenderSearch, setTenderSearch, tenderStatusFilter, setTenderStatusFilter } = tenderState;
+    const { tenderDraft, tenderDraftRef, setTenderDraft } = tenderDraftState;
+    const tenderField = (label: string, key: keyof TenderDraft, placeholder = "") => renderTenderField(label, key, tenderDraftState, placeholder);
+    const tenders = tenderRows;
     const query = tenderSearch.trim().toLowerCase();
     const filtered = tenders.filter((record) => tenderStatusFilter === "All" || tenderStatus(record) === tenderStatusFilter).filter((record) => !query || JSON.stringify(record).toLowerCase().includes(query)).sort((a, b) => String(a.tender_due_at || "").localeCompare(String(b.tender_due_at || "")));
     const statuses = ["All", "Tender Pending", "Tender Submitted", "Tender Opened", "Tender Lost", "Order Pending", "Work In Progress", "Completed", "EMD Pending", "EMD Returned", "SD Pending", "SD Due", "SD Refunded"];
@@ -12614,6 +17172,8 @@ export default function App() {
     const tenderListKey = "tender-records";
     const tenderRateListKey = "tender-rate-analysis";
     const tenderCompetitorListKey = "tender-competitors";
+    const { total: filteredTenderCount, visible: visibleTenderRows } = collectVisibleItems(tenderListKey, filtered);
+    const visibleTenderRateRows = collectVisibleItems(tenderRateListKey, filtered).visible;
     const competitorRowsList = [...competitorRows.values()];
     return (
       <View>
@@ -12642,99 +17202,132 @@ export default function App() {
         </View>
         <View style={styles.formCard}>
           <Text style={styles.cardLabel}>{tenderDraft.id ? "Edit tender" : "New tender entry"}</Text>
+          {!!tenderNotice && <Text style={styles.banner}>{tenderNotice}</Text>}
           <View style={styles.formGrid}>
-            {renderTenderField("Job Number", "job_number", "Auto if blank")}
-            {renderTenderField("File Number", "file_number")}
-            {renderTenderField("Tender invited by / Party name", "tender_invited_by")}
-            {renderTenderField("Party name", "party_name")}
-            {renderTenderField("Tender due date and time", "tender_due_at", "YYYY-MM-DDTHH:mm")}
-            {renderTenderField("Status", "status")}
-            <View style={styles.field}>
-              <Text style={styles.label}>Product type</Text>
-              <View style={styles.inlineActions}>
-                {["Lift", "Escalator"].map((type) => (
-                  <Pressable key={type} style={[styles.smallButton, tenderDraft.product_type === type && styles.selectorPillActive]} onPress={() => setTenderDraft((draft) => ({ ...draft, product_type: type }))}>
-                    <Text style={styles.smallButtonText}>{type}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-            {renderTenderField("Price in NIT", "price_in_nit")}
-            {renderTenderField("Warranty period", "warranty_period")}
-            {renderTenderField("DLP period days", "dlp_period")}
-            {renderTenderField("EMD amount as per tender", "emd_amount")}
-            {renderTenderField("EMD deposited by", "emd_deposited_by", "DD / FDR / BG / eGrass / Online / Other")}
-            {renderTenderField("EMD deposit date", "emd_deposit_date")}
-            {renderTenderField("EMD deposit amount", "emd_deposit_amount")}
-          </View>
-          <Text style={styles.sectionTitle}>{tenderDraft.product_type === "Escalator" ? "Escalator Details" : "Lift Details"}</Text>
-          <View style={styles.formGrid}>
-            {tenderDraft.product_type === "Escalator" ? (
-              <>
-                {renderTenderField("Location type", "location_type", "Indoor / Semi Outdoor / Fully Outdoor")}
-                {renderTenderField("Degree", "escalator_degree", "30 or 35")}
-                {renderTenderField("Step width mm", "step_width_mm")}
-                {renderTenderField("Quoted price", "quoted_price")}
-                {renderTenderField("Quantity", "escalator_quantity")}
-              </>
-            ) : (
-              <>
-                {renderTenderField("Passenger capacity", "passenger_capacity")}
-                {renderTenderField("Number of stops", "number_of_stops")}
-                {renderTenderField("Speed", "speed")}
-                {renderTenderField("Door finish", "door_finish", "Hairline / Honeycomb / Moonrock")}
-                {renderTenderField("Cabin finish", "cabin_finish", "Hairline / Honeycomb / Moonrock")}
-                {renderTenderField("Door size", "door_size")}
-                {renderTenderField("Door width mm", "door_width_mm")}
-                {renderTenderField("Door height mm", "door_height_mm")}
-                {renderTenderField("Quantity", "lift_quantity")}
-                {renderTenderField("Quoted price", "quoted_price")}
-              </>
-            )}
+            {tenderField("Job Number", "job_number", "Auto if blank")}
+            {tenderField("File Number", "file_number")}
+            {tenderField("Tender invited by / Party name", "tender_invited_by")}
+            {tenderField("Party name", "party_name")}
+            {tenderField("Tender due date and time", "tender_due_at", "YYYY-MM-DDTHH:mm")}
+            {tenderField("Status", "status")}
+            <LocalValue initialValue={tenderDraftRef.current[0].product_type}>
+              {(localProductType, setLocalProductType) => (
+                <>
+                  <View style={styles.field}>
+                    <Text style={styles.label}>Product type</Text>
+                    <View style={styles.inlineActions}>
+                      {["Lift", "Escalator"].map((type) => (
+                        <Pressable
+                          key={type}
+                          style={[styles.smallButton, localProductType === type && styles.selectorPillActive]}
+                          onPress={() => {
+                            setLocalProductType(type);
+                            tenderDraftRef.current[0] = { ...tenderDraftRef.current[0], product_type: type };
+                            setTenderNotice(`Tender product type set to ${type}.`);
+                          }}
+                        >
+                          <Text style={styles.smallButtonText}>{type}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                  {tenderField("Price in NIT", "price_in_nit")}
+                  {tenderField("Warranty period", "warranty_period")}
+                  {tenderField("DLP period days", "dlp_period")}
+                  {tenderField("EMD amount as per tender", "emd_amount")}
+                  {tenderField("EMD deposited by", "emd_deposited_by", "DD / FDR / BG / eGrass / Online / Other")}
+                  {tenderField("EMD deposit date", "emd_deposit_date")}
+                  {tenderField("EMD deposit amount", "emd_deposit_amount")}
+                  <Text style={styles.sectionTitle}>{localProductType === "Escalator" ? "Escalator Details" : "Lift Details"}</Text>
+                  <View style={styles.formGrid}>
+                    {localProductType === "Escalator" ? (
+                      <>
+                        {tenderField("Location type", "location_type", "Indoor / Semi Outdoor / Fully Outdoor")}
+                        {tenderField("Degree", "escalator_degree", "30 or 35")}
+                        {tenderField("Step width mm", "step_width_mm")}
+                        {tenderField("Quoted price", "quoted_price")}
+                        {tenderField("Quantity", "escalator_quantity")}
+                      </>
+                    ) : (
+                      <>
+                        {tenderField("Passenger capacity", "passenger_capacity")}
+                        {tenderField("Number of stops", "number_of_stops")}
+                        {tenderField("Speed", "speed")}
+                        {tenderField("Door finish", "door_finish", "Hairline / Honeycomb / Moonrock")}
+                        {tenderField("Cabin finish", "cabin_finish", "Hairline / Honeycomb / Moonrock")}
+                        {tenderField("Door size", "door_size")}
+                        {tenderField("Door width mm", "door_width_mm")}
+                        {tenderField("Door height mm", "door_height_mm")}
+                        {tenderField("Quantity", "lift_quantity")}
+                        {tenderField("Quoted price", "quoted_price")}
+                      </>
+                    )}
+                  </View>
+                </>
+              )}
+            </LocalValue>
           </View>
           <Text style={styles.sectionTitle}>Opening, Order, Billing, SD</Text>
           <View style={styles.formGrid}>
-            {renderTenderField("Opening date", "opening_date")}
-            {renderTenderField("Total parties participated", "total_parties_participated")}
-            {renderTenderField("Participant party name", "party_name_entry")}
-            {renderTenderField("Participant quoted rates", "quoted_rates_entry")}
-            {renderTenderField("Lowest party name", "lowest_party_name")}
-            {renderTenderField("Lowest rates", "lowest_rates")}
-            {renderTenderField("Order number", "order_number")}
-            {renderTenderField("Order date", "order_date")}
-            {renderTenderField("Order value", "order_value")}
-            {renderTenderField("Agreement number", "agreement_number")}
-            {renderTenderField("Basic value", "basic_value")}
-            {renderTenderField("GST amount", "gst_amount")}
-            {renderTenderField("Gross order amount", "gross_order_amount")}
-            {renderTenderField("Work start date", "stipulated_work_start_date")}
-            {renderTenderField("Completion date as per order", "completion_date")}
-            {renderTenderField("Our bill number", "bill_number")}
-            {renderTenderField("Bill date", "bill_date")}
-            {renderTenderField("Bill amount", "bill_amount")}
-            {renderTenderField("Billing period", "billing_period")}
-            {renderTenderField("Payment received Yes/No", "payment_received")}
-            {renderTenderField("Payment received date", "payment_received_date")}
-            {renderTenderField("SD amount", "sd_amount")}
-            {renderTenderField("SD deposited by", "sd_deposited_by")}
-            {renderTenderField("SD deposit date", "sd_deposit_date")}
+            {tenderField("Opening date", "opening_date")}
+            {tenderField("Total parties participated", "total_parties_participated")}
+            {tenderField("Participant party name", "party_name_entry")}
+            {tenderField("Participant quoted rates", "quoted_rates_entry")}
+            {tenderField("Lowest party name", "lowest_party_name")}
+            {tenderField("Lowest rates", "lowest_rates")}
+            {tenderField("Order number", "order_number")}
+            {tenderField("Order date", "order_date")}
+            {tenderField("Order value", "order_value")}
+            {tenderField("Agreement number", "agreement_number")}
+            {tenderField("Basic value", "basic_value")}
+            {tenderField("GST amount", "gst_amount")}
+            {tenderField("Gross order amount", "gross_order_amount")}
+            {tenderField("Work start date", "stipulated_work_start_date")}
+            {tenderField("Completion date as per order", "completion_date")}
+            {tenderField("Our bill number", "bill_number")}
+            {tenderField("Bill date", "bill_date")}
+            {tenderField("Bill amount", "bill_amount")}
+            {tenderField("Billing period", "billing_period")}
+            {tenderField("Payment received Yes/No", "payment_received")}
+            {tenderField("Payment received date", "payment_received_date")}
+            {tenderField("SD amount", "sd_amount")}
+            {tenderField("SD deposited by", "sd_deposited_by")}
+            {tenderField("SD deposit date", "sd_deposit_date")}
           </View>
           <View style={styles.inlineActions}>
-            <Pressable style={styles.primaryButtonInline} onPress={saveTender} disabled={loading}>
+            <Pressable style={styles.primaryButtonInline} onPress={() => saveTender(tenderDraftRef.current[0], (record) => {
+              const savedId = recordIdentity(record) || String(record.id || "");
+              setTenderRows((rows) => {
+                const nextRows = savedId ? rows.filter((row) => recordIdentity(row) !== savedId && String(row.id || "") !== savedId) : rows;
+                return [record, ...nextRows];
+              });
+              setTenderDraft({ ...emptyTenderDraft });
+            }, setTenderNotice, setTenderActionLoading)} disabled={tenderActionLoading}>
               <Text style={styles.primaryButtonText}>{tenderDraft.id ? "Update tender" : "Save tender"}</Text>
             </Pressable>
-            {!!tenderDraft.id && <Pressable style={styles.secondaryButton} onPress={() => setTenderDraft(emptyTenderDraft)} disabled={loading}><Text style={styles.secondaryButtonText}>Cancel edit</Text></Pressable>}
+            {!!tenderDraft.id && <Pressable style={styles.secondaryButton} onPress={() => { setTenderDraft({ ...emptyTenderDraft }); setTenderNotice("Tender edit cancelled."); }} disabled={tenderActionLoading}><Text style={styles.secondaryButtonText}>Cancel edit</Text></Pressable>}
           </View>
         </View>
         <Text style={styles.sectionTitle}>Tender Pending List</Text>
         <View style={styles.formCard}>
           <TextInput style={styles.input} value={tenderSearch} onChangeText={setTenderSearch} placeholder="Search job, file, party, product, competitor" />
           <View style={styles.inlineActions}>
-            {statuses.map((status) => <Pressable key={status} style={[styles.smallButton, tenderStatusFilter === status && styles.selectorPillActive]} onPress={() => setTenderStatusFilter(status)}><Text style={styles.smallButtonText}>{status}</Text></Pressable>)}
+            {statuses.map((status) => (
+              <Pressable
+                key={status}
+                style={[styles.smallButton, tenderStatusFilter === status && styles.selectorPillActive]}
+                onPress={() => {
+                  setTenderStatusFilter(status);
+                  setTenderNotice(`Tender list filtered to ${status}.`);
+                }}
+              >
+                <Text style={styles.smallButtonText}>{status}</Text>
+              </Pressable>
+            ))}
           </View>
         </View>
         <View style={styles.limitedList}>
-        {limitedItems(tenderListKey, filtered).map((record, index) => {
+        {visibleTenderRows.map((record, index) => {
           const status = tenderStatus(record);
           const bills = asRecords(record.bills);
           const sdDueText = asRecords(record.sd_records).map((sd) => String(sd.refund_due_date || "")).filter(Boolean).sort()[0] || "";
@@ -12757,19 +17350,22 @@ export default function App() {
                 {!asRecords(record.participants).length && <Text style={styles.muted}>No competitor/participant rates recorded.</Text>}
               </View>
               <View style={styles.inlineActions}>
-                <Pressable style={styles.smallButton} onPress={() => editTender(record)} disabled={loading}><Text style={styles.smallButtonText}>Edit</Text></Pressable>
-                {["Tender Submitted", "Tender Opened", "Tender Lost", "Order Pending", "Work In Progress", "Completed", "EMD Returned", "SD Refunded"].map((nextStatus) => <Pressable key={`${recordIdentity(record)}-${nextStatus}`} style={styles.smallButton} onPress={() => updateTenderStatus(record, nextStatus)} disabled={loading}><Text style={styles.smallButtonText}>{nextStatus}</Text></Pressable>)}
+                <Pressable style={styles.smallButton} onPress={() => { editTender(record, setTenderDraft); setTenderNotice(`Tender editor opened for ${String(record.job_number || record.id || "record")}.`); }} disabled={tenderActionLoading}><Text style={styles.smallButtonText}>Edit</Text></Pressable>
+                {["Tender Submitted", "Tender Opened", "Tender Lost", "Order Pending", "Work In Progress", "Completed", "EMD Returned", "SD Refunded"].map((nextStatus) => <Pressable key={`${recordIdentity(record)}-${nextStatus}`} style={styles.smallButton} onPress={() => updateTenderStatus(record, nextStatus, (updatedRecord) => {
+                  const updatedId = recordIdentity(updatedRecord) || recordIdentity(record);
+                  setTenderRows((rows) => rows.map((row) => (recordIdentity(row) === updatedId || String(row.id || "") === updatedId ? { ...row, ...updatedRecord } : row)));
+                }, setTenderNotice, setTenderActionLoading)} disabled={tenderActionLoading}><Text style={styles.smallButtonText}>{nextStatus}</Text></Pressable>)}
               </View>
             </View>
           );
         })}
-        {!filtered.length && <View style={styles.card}><Text style={styles.cardTitle}>No tenders found</Text><Text style={styles.muted}>Create the first tender above or change filters.</Text></View>}
-        {renderListControls(tenderListKey, filtered.length)}
+        {!filteredTenderCount && <View style={styles.card}><Text style={styles.cardTitle}>No tenders found</Text><Text style={styles.muted}>Create the first tender above or change filters.</Text></View>}
+        {renderListControls(tenderListKey, filteredTenderCount)}
         </View>
         <Text style={styles.sectionTitle}>Rate Analysis</Text>
         <View style={styles.analyticsPanel}>
-          {limitedItems(tenderRateListKey, filtered).map((record, index) => <View key={`rate-${recordIdentity(record) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{String(record.product_type || "-")} - {String(record.party_name || record.tender_invited_by || "-")}</Text><Text style={styles.statusPill}>{formatMoney(tenderMoney(record.quoted_price || record.price_in_nit))}</Text></View><Text style={styles.muted}>{asRecords(record.items).map((item) => `${String(item.passenger_capacity || item.step_width_mm || "-")} / ${String(item.number_of_stops || item.degree || "-")} / ${String(item.speed || item.door_finish || "-")}`).join(" - ")}</Text></View>)}
-          {renderListControls(tenderRateListKey, filtered.length)}
+          {visibleTenderRateRows.map((record, index) => <View key={`rate-${recordIdentity(record) || index}`} style={styles.analyticsRow}><View style={styles.analyticsRowHeader}><Text style={styles.cardTitle}>{String(record.product_type || "-")} - {String(record.party_name || record.tender_invited_by || "-")}</Text><Text style={styles.statusPill}>{formatMoney(tenderMoney(record.quoted_price || record.price_in_nit))}</Text></View><Text style={styles.muted}>{asRecords(record.items).map((item) => `${String(item.passenger_capacity || item.step_width_mm || "-")} / ${String(item.number_of_stops || item.degree || "-")} / ${String(item.speed || item.door_finish || "-")}`).join(" - ")}</Text></View>)}
+          {renderListControls(tenderRateListKey, filteredTenderCount)}
         </View>
         <Text style={styles.sectionTitle}>Competitor Analysis</Text>
         <View style={styles.metricGrid}>
@@ -12781,16 +17377,43 @@ export default function App() {
     );
   }
 
-  function renderActiveFeaturePage() {
+  function renderTenderBoundary() {
+    return (
+      <LocalValue key="tender-rows" initialValue={asRecords(data?.tenders)}>
+        {(tenderRows, setTenderRows) => (
+          <LocalValue key="tender-action-status" initialValue={{ loading: false, notice: "" }}>
+            {(tenderActionStatus, setTenderActionStatus) => (
+              <TenderStateBoundary>
+                {(tenderState) => (
+                  <TenderDraftBoundary>
+                    {(tenderDraftState) => renderTenderPortal(tenderState, tenderDraftState, {
+                      tenderRows,
+                      setTenderRows,
+                      tenderActionLoading: tenderActionStatus.loading,
+                      tenderNotice: tenderActionStatus.notice,
+                      setTenderActionLoading: (next) => setTenderActionStatus((current) => ({ ...current, loading: resolveLocalState(next, current.loading) })),
+                      setTenderNotice: (next) => setTenderActionStatus((current) => ({ ...current, notice: resolveLocalState(next, current.notice) })),
+                    })}
+                  </TenderDraftBoundary>
+                )}
+              </TenderStateBoundary>
+            )}
+          </LocalValue>
+        )}
+      </LocalValue>
+    );
+  }
+
+  function renderActiveFeaturePage(activeTab: TabKey) {
     switch (activeTab) {
       case "intelligence":
-        return renderCommandIntelligencePage();
+        return renderCommandIntelligenceBoundary();
       case "backlog":
-        return renderOperationsBacklogPage();
+        return renderOperationsBacklogBoundary();
       case "approvals":
-        return renderApprovalsPage();
+        return renderApprovalsBoundary();
       case "documents":
-        return renderDocumentVaultPage();
+        return renderDocumentVaultBoundary();
       case "engineer":
         return renderEngineerMobileJobView();
       case "modules":
@@ -12800,49 +17423,49 @@ export default function App() {
       case "projects":
         return renderDepartmentProjectDashboard();
       case "installations":
-        return renderInstallationPage();
+        return renderInstallationBoundary();
       case "team":
-        return renderInstallTeamPage();
+        return renderInstallTeamBoundary();
       case "accounts":
-        return renderAccountsPage();
+        return renderAccountsBoundary();
       case "renewals":
-        return renderRenewalsPage();
+        return renderRenewalsBoundary();
       case "workorders":
-        return renderFeaturePage("Work Orders", "Site walkthrough and work order queue.", asRecords(data?.work_orders), ["title", "id"], [["customer"], ["status"], ["assigned_to", "owner"]]);
+        return renderFeaturePage("Work Orders", "Site walkthrough and work order queue.", asRecords(data?.work_orders), ["title", "id"], [["customer"], ["status"], ["urgency"], ["body", "notes"], ["assigned_to", "owner"]]);
       case "inventory":
-        return renderInventoryPage();
+        return renderInventoryBoundary();
       case "orgchart":
-        return renderStaffManagementPage();
+        return renderStaffManagementBoundary();
       case "siteVisits":
-        return renderSiteVisitReportsPage();
+        return renderSiteVisitReportsBoundary();
       case "costingImport":
-        return renderCostingWorkbookImportPage();
+        return renderCostingWorkbookImportBoundary();
       case "offerManager":
-        return renderOfferManagerPage();
+        return renderOfferManagerBoundary();
       case "marketing":
-        return renderMarketingPlatformPage();
+        return renderMarketingPlatformBoundary();
       case "sales":
-        return renderCustomerCrmPage();
+        return renderCustomerCrmBoundary();
       case "installation_dept":
         return renderFeaturePage("Installation Dept", "Department view for active installation execution.", asRecords(data?.install_jobs), ["job_id", "id"], [["customer"], ["site"], ["status"]]);
       case "breakdown":
-        return renderBreakdownPage();
+        return renderBreakdownBoundary();
       case "service":
-        return renderServicePage();
+        return renderServiceBoundary();
       case "gad":
         return renderFeaturePage("GAD Drawings", "Drawing submissions, revisions, and approval workflow.", asRecords((data as Record<string, unknown> | null)?.gad_records), ["drawing_no", "id"], [["customer"], ["status"], ["unit"]]);
       case "finance":
-        return renderPaymentAccountsPage();
+        return renderPaymentAccountsBoundary();
       case "commissioning":
-        return renderCommissioningPage();
+        return renderCommissioningBoundary();
       case "backoffice":
         return renderFeaturePage("Back Office", "Customer, site, product, and document back-office records.", asRecords(data?.customers), ["name"], [["id"], ["address"], ["status"]]);
       case "tender":
-        return renderTenderPortal();
+        return renderTenderBoundary();
       case "factory":
-        return renderFeaturePage("Factory", "Factory jobs, dispatch status, and material readiness.", asRecords((data as Record<string, unknown> | null)?.factory_jobs), ["order_ref", "id"], [["customer"], ["stage"], ["materials"]]);
+        return renderFeaturePage("Factory", "Factory jobs, dispatch status, and material readiness.", asRecords((data as Record<string, unknown> | null)?.factory_jobs), ["order_ref", "id"], [["customer"], ["stage", "status", "production_status"], ["materials", "components"]]);
       case "internationalVendor":
-        return renderInternationalVendorPage();
+        return renderInternationalVendorBoundary();
       case "comms":
         return renderFeaturePage("Dept Comms", "Department communications and read status.", asRecords((data as Record<string, unknown> | null)?.dept_comms), ["subject", "title", "id"], [["department"], ["message"], ["status"]]);
       default:
@@ -12920,9 +17543,10 @@ export default function App() {
     }
   }
 
-  async function loadPortal(nextToken = token) {
+  async function loadPortal(nextToken = token, options: { display?: boolean } = {}) {
+    const shouldDisplay = options.display ?? !dataRef.current[0];
     const cachedPortalData = await readCachedPortal(nextToken);
-    if (!data && cachedPortalData) {
+    if (shouldDisplay && !dataRef.current[0] && cachedPortalData) {
       setData(stripRawTransportPayloads(cachedPortalData));
       setMessage("Showing cached data while refreshing live records.");
     }
@@ -12931,11 +17555,11 @@ export default function App() {
       const portalData = await apiFetch<PortalData>("/api/portal/data", { token: nextToken });
       // WARNING: Frontend state stores FUZI domain records only. Never store raw Discord/OpenClaw message history or transport payloads here.
       const sanitizedPortalData = stripRawTransportPayloads(portalData);
-      setData(sanitizedPortalData);
+      if (shouldDisplay) setData(sanitizedPortalData);
       await writeCachedPortal(nextToken, sanitizedPortalData);
       if (offlineSync.synced) {
         setMessage(`Synced ${offlineSync.synced} offline change${offlineSync.synced === 1 ? "" : "s"} to the server.`);
-      } else if (cachedPortalData) {
+      } else if (cachedPortalData && shouldDisplay) {
         setMessage("");
       }
     } catch (error) {
@@ -12947,21 +17571,48 @@ export default function App() {
     }
   }
 
-  async function syncDiscordBreakdowns() {
+  function refreshPortalCache() {
+    void loadPortal(token, { display: false }).catch((error) => {
+      setMessage(error instanceof Error ? `Background refresh failed: ${error.message}` : "Background refresh failed.");
+    });
+  }
+
+  function manualRefreshPortal() {
     setLoading(true);
+    setMessage("Refreshing portal data...");
+    setTimeout(() => {
+      void loadPortal(token, { display: true })
+        .then(() => setMessage("Portal refreshed."))
+        .catch((error) => {
+          setMessage(error instanceof Error ? error.message : "Portal refresh failed.");
+        })
+        .finally(() => setLoading(false));
+    }, 0);
+  }
+
+  async function syncDiscordBreakdowns(
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading,
+    onLocalCreate?: (record: Record<string, unknown>) => void
+  ) {
+    onLoading(true);
     try {
       // WARNING: This endpoint must stay OpenClaw-only. Do not add Discord REST fetches in the app.
-      const result = await apiFetch<{ imported?: number; message?: string }>("/api/portal/breakdown/sync-discord", {
+      const result = await apiFetch<{ imported?: number; message?: string; records?: Record<string, unknown>[]; breakdowns?: Record<string, unknown>[]; imported_records?: Record<string, unknown>[] }>("/api/portal/breakdown/sync-discord", {
         method: "POST",
         token,
         body: JSON.stringify({ force: true, limit: 50 }),
       });
-      await loadPortal();
-      setMessage(result.imported ? `Synced ${result.imported} Discord breakdown update${result.imported === 1 ? "" : "s"}.` : "Discord breakdown channel is already synced.");
+      const importedRecords = result.records || result.breakdowns || result.imported_records || [];
+      importedRecords.forEach((record) => {
+        onLocalCreate?.(record);
+        prependDisplayedPortalRecordRefOnly("breakdowns", record);
+      });
+      onNotice(result.imported ? `Synced ${result.imported} Discord breakdown update${result.imported === 1 ? "" : "s"}.` : "Discord breakdown channel is already synced.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Discord breakdown sync failed.");
+      onNotice(error instanceof Error ? error.message : "Discord breakdown sync failed.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
@@ -12980,13 +17631,15 @@ export default function App() {
     clearQueuedOfflineWrites().catch(() => {});
   }
 
-  async function signIn(nextUsername = username, nextPassword = password) {
+  async function signIn(nextUsername = loginUsernameRef.current, nextPassword = loginPasswordRef.current) {
+    const cleanUsername = String(nextUsername || "").trim();
+    updateLoginUsername(cleanUsername);
     setLoading(true);
     setMessage("");
     try {
       const response = await apiFetch<{ token: string; must_change_password?: boolean; access?: { default_view?: string } }>("/api/portal/auth/login", {
         method: "POST",
-        body: JSON.stringify({ username: nextUsername, password: nextPassword }),
+        body: JSON.stringify({ username: cleanUsername, password: nextPassword }),
       });
       if (response.must_change_password) {
         setMessage("This user must change the temporary password in the web portal before mobile access.");
@@ -13003,6 +17656,7 @@ export default function App() {
   }
 
   async function saveCustomer(allowDuplicatePhone = false) {
+    const { customerDraft, customerInstalledDateDraft } = customerDraftStateRef.current;
     if (!customerDraft.name?.trim()) {
       const text = "Customer name is required.";
       Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
@@ -13052,10 +17706,19 @@ export default function App() {
       });
       const savedCustomer = savedCustomerResponse.record || savedCustomerResponse.customer || { ...customerDraft, id };
       if (installedDateValue.trim() || id) await saveInstalledDateForCrmRecord(savedCustomer, installedDateValue);
-      setCustomerDraft(emptyCustomer);
+      const savedCustomerId = String(savedCustomer.id || id || "");
+      if (savedCustomerId) {
+        if (id) {
+          patchDisplayedPortalRecord("customers", savedCustomerId, savedCustomer);
+        } else {
+          prependDisplayedPortalRecord("customers", savedCustomer);
+        }
+      }
+      setCustomerDraft({ ...emptyCustomer });
       setCustomerInstalledDateDraft("");
-      setCustomerEditorOpen(false);
-      await loadPortal();
+      setCrmRecordView("Customers");
+      setCrmSearch(String(savedCustomer.name || savedCustomer.id || ""));
+      refreshPortalCache();
       setMessage(id ? "Customer CRM record updated." : "Customer CRM record saved. Select that customer before adding a site visit report.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Customer could not be saved.");
@@ -13065,6 +17728,7 @@ export default function App() {
   }
 
   async function saveInlineCustomer(customerId: string) {
+    const { customerInlineDrafts, customerInlineInstalledDates } = customerDraftStateRef.current;
     const draft = customerInlineDrafts[customerId];
     if (!draft?.name?.trim()) {
       const text = "Customer name is required.";
@@ -13083,17 +17747,9 @@ export default function App() {
       if (installedDateValue.trim() || customerId) {
         await saveInstalledDateForCrmRecord({ ...savedCustomer, id: customerId }, installedDateValue);
       }
-      setCustomerInlineDrafts((drafts) => {
-        const next = { ...drafts };
-        delete next[customerId];
-        return next;
-      });
-      setCustomerInlineInstalledDates((dates) => {
-        const next = { ...dates };
-        delete next[customerId];
-        return next;
-      });
-      await loadPortal();
+      patchDisplayedPortalRecord("customers", customerId, { ...savedCustomer, id: customerId });
+      cancelInlineCustomerEdit(customerId);
+      refreshPortalCache();
       setMessage("Customer CRM record updated.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Customer could not be updated.");
@@ -13103,19 +17759,19 @@ export default function App() {
   }
 
   function cancelInlineCustomerEdit(customerId: string) {
-    setCustomerInlineDrafts((drafts) => {
-      const next = { ...drafts };
-      delete next[customerId];
-      return next;
-    });
-    setCustomerInlineInstalledDates((dates) => {
-      const next = { ...dates };
-      delete next[customerId];
-      return next;
-    });
+    const nextDrafts = { ...customerDraftStateRef.current.customerInlineDrafts };
+    const nextDates = { ...customerDraftStateRef.current.customerInlineInstalledDates };
+    delete nextDrafts[customerId];
+    delete nextDates[customerId];
+    customerDraftStateRef.current = {
+      ...customerDraftStateRef.current,
+      customerInlineDrafts: nextDrafts,
+      customerInlineInstalledDates: nextDates,
+    };
+    customerInlineEditorControllersRef.current[customerId]?.close();
   }
 
-  async function saveSiteVisit() {
+  async function saveSiteVisit(siteVisitDraft: Partial<SiteVisit>) {
     if (!siteVisitDraft.customer_id?.trim()) {
       const text = "Select a CRM customer before saving the site visit report.";
       Platform.OS === "web" ? setMessage(text) : Alert.alert("Customer required", text);
@@ -13131,7 +17787,7 @@ export default function App() {
     try {
       const siteVisitId = String(siteVisitDraft.id || "");
       const viewer = data?.viewer || {};
-      await apiFetch(siteVisitId ? `/api/portal/site-visits/${encodeURIComponent(siteVisitId)}` : "/api/portal/site-visits", {
+      const result = await apiFetch<{ record?: Record<string, unknown>; site_visit?: Record<string, unknown> }>(siteVisitId ? `/api/portal/site-visits/${encodeURIComponent(siteVisitId)}` : "/api/portal/site-visits", {
         method: siteVisitId ? "PATCH" : "POST",
         token,
         body: JSON.stringify({
@@ -13148,9 +17804,13 @@ export default function App() {
           submitted_by_staff_id: viewer.linked_org_node || viewer.linked_team_member || "",
         }),
       });
-      setSiteVisitDraft(emptySiteVisit);
+      const savedSiteVisit = result.record || result.site_visit || siteVisitDraft as Record<string, unknown>;
+      const savedSiteVisitId = recordIdentity(savedSiteVisit) || siteVisitId || String(savedSiteVisit.id || "");
+      if (savedSiteVisitId) {
+        if (siteVisitId) patchDisplayedPortalRecord("site_visits", savedSiteVisitId, savedSiteVisit);
+        else prependDisplayedPortalRecord("site_visits", savedSiteVisit);
+      }
       setSiteVisitEditorOpen(false);
-      await loadPortal();
       setMessage(siteVisitId ? "Site visit report updated." : "Site visit report saved.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Site visit report could not be saved.");
@@ -13159,21 +17819,75 @@ export default function App() {
     }
   }
 
-  async function saveModuleRecord(config: ModuleConfig) {
+  function portalCollectionKeyForRoute(route: string): keyof PortalData | null {
+    if (route === "/api/portal/install-jobs") return "install_jobs";
+    if (route === "/api/portal/project-tickets") return "project_tickets";
+    if (route === "/api/portal/comms") return "dept_comms";
+    if (route === "/api/portal/install-team") return "install_team";
+    if (route === "/api/portal/inventory") return "inventory";
+    if (route === "/api/portal/payments") return "payments";
+    if (route === "/api/portal/customers") return "customers";
+    if (route === "/api/portal/service") return "service_records";
+    if (route === "/api/portal/breakdown") return "breakdowns";
+    if (route === "/api/portal/gad") return "gad_records";
+    if (route === "/api/portal/factory") return "factory_jobs";
+    if (route === "/api/portal/work-orders") return "work_orders";
+    if (route === "/api/portal/commissioning") return "commissionings";
+    if (route === "/api/portal/approvals") return "approvals";
+    if (route === "/api/portal/documents") return "documents";
+    if (route === "/api/portal/marketing-assets") return "marketing_assets";
+    if (route === "/api/portal/international-vendors") return "international_vendors";
+    if (route === "/api/portal/renewals") return "renewals";
+    if (route === "/api/portal/tender") return "tenders";
+    return null;
+  }
+
+  function savedRecordFromModuleResponse(route: string, response: Record<string, unknown>, fallback: Record<string, unknown>) {
+    const collectionKey = portalCollectionKeyForRoute(route);
+    if (response.record && typeof response.record === "object") return response.record as Record<string, unknown>;
+    if (collectionKey && response[collectionKey] && typeof response[collectionKey] === "object" && !Array.isArray(response[collectionKey])) {
+      return response[collectionKey] as Record<string, unknown>;
+    }
+    const aliases: Record<string, string> = {
+      "/api/portal/customers": "customer",
+      "/api/portal/payments": "payment",
+      "/api/portal/comms": "comm",
+      "/api/portal/install-jobs": "install_job",
+      "/api/portal/project-tickets": "project_ticket",
+      "/api/portal/work-orders": "work_order",
+      "/api/portal/documents": "document",
+      "/api/portal/international-vendors": "international_vendor",
+    };
+    const alias = aliases[route];
+    if (alias && response[alias] && typeof response[alias] === "object") return response[alias] as Record<string, unknown>;
+    return fallback;
+  }
+
+  async function saveModuleRecord(
+    config: ModuleConfig,
+    moduleDraft: typeof emptyModuleDraft,
+    onSaved?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     if (!moduleDraft.title.trim()) {
       const text = `${config.titleLabel} is required.`;
-      Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
+      Platform.OS === "web" ? onNotice(text) : Alert.alert("Missing field", text);
       return;
     }
     if (config.route === "/api/portal/install-jobs" && !moduleDraft.customer_id.trim()) {
       const text = "Select a customer before creating an installation job.";
-      Platform.OS === "web" ? setMessage(text) : Alert.alert("Customer required", text);
+      Platform.OS === "web" ? onNotice(text) : Alert.alert("Customer required", text);
       return;
     }
     const payload: Record<string, string> = {
       [config.titleKey]: moduleDraft.title,
       status: moduleDraft.status || "Open",
     };
+    if (config.route === "/api/portal/factory") {
+      payload.stage = moduleDraft.status || "Open";
+      payload.production_status = moduleDraft.status || "Open";
+    }
     if (config.customerKey) payload[config.customerKey] = moduleDraft.customer;
     if (moduleDraft.customer_id) payload.customer_id = moduleDraft.customer_id;
     if (config.route === "/api/portal/service" && moduleDraft.customer_id) {
@@ -13181,44 +17895,93 @@ export default function App() {
       if (selectedCustomer?.source_inquiry_id) payload.source_inquiry_id = selectedCustomer.source_inquiry_id;
     }
     if (config.notesKey) payload[config.notesKey] = moduleDraft.notes;
-    setLoading(true);
+    onLoading(true);
     try {
-      await apiFetch(config.route, {
+      const response = await apiFetch<Record<string, unknown>>(config.route, {
         method: "POST",
         token,
         body: JSON.stringify(payload),
       });
-      setModuleDraft(emptyModuleDraft);
-      await loadPortal();
-      setMessage("Module record saved.");
+      const savedRecord = savedRecordFromModuleResponse(config.route, response, payload);
+      onSaved?.(savedRecord);
+      const collectionKey = portalCollectionKeyForRoute(config.route);
+      if (collectionKey) prependDisplayedPortalRecordRefOnly(collectionKey, savedRecord);
+      onNotice(config.route === "/api/portal/comms" ? "Communication saved." : "Module record saved.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Module record could not be saved.");
+      onNotice(error instanceof Error ? error.message : config.route === "/api/portal/comms" ? "Communication could not be saved." : "Module record could not be saved.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function updateModuleRecord(record: Record<string, unknown>, status: string) {
-    const config = moduleConfigs[activeTab];
+  async function updateModuleRecord(
+    record: Record<string, unknown>,
+    status: string,
+    onLocalUpdate?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
+    const config = moduleConfigs[activeTabRef.current];
     const id = recordIdentity(record);
-    if (!config || !id) return;
-    setLoading(true);
+    if (!config) {
+      onNotice("This module action is not available from the current view.");
+      return;
+    }
+    if (!id) {
+      onNotice("This record cannot be updated because it has no saved record ID.");
+      return;
+    }
+    onLoading(true);
+    const patch = config.route === "/api/portal/factory"
+      ? { status, stage: status, production_status: status }
+      : { status };
+    const optimisticRecord = { ...record, ...patch };
+    onLocalUpdate?.(optimisticRecord);
     try {
-      await apiFetch(`${config.route}/${encodeURIComponent(id)}`, {
+      const result = await apiFetch<{ record?: Record<string, unknown> }>(`${config.route}/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(patch),
       });
-      await loadPortal();
-      setMessage(`Record marked ${status}.`);
+      const updatedRecord = result.record || optimisticRecord;
+      onLocalUpdate?.(updatedRecord);
+      const collectionKey = portalCollectionKeyForRoute(config.route);
+      if (collectionKey) patchDisplayedPortalRecordRefOnly(collectionKey, id, updatedRecord);
+      onNotice(`Record marked ${status}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Record could not be updated.");
+      onNotice(error instanceof Error ? error.message : "Record could not be updated.");
+    } finally {
+      onLoading(false);
+    }
+  }
+
+  async function updateCommsReadStatus(record: Record<string, unknown>, read: boolean) {
+    const id = recordIdentity(record);
+    if (!id) {
+      setMessage("This communication cannot be updated because it has no saved record ID.");
+      return;
+    }
+    const patch = read
+      ? { read: true, status: "Read" }
+      : { read: false, status: "Unread" };
+    setLoading(true);
+    try {
+      await apiFetch(read ? `/api/portal/comms/${encodeURIComponent(id)}/read` : `/api/portal/comms/${encodeURIComponent(id)}`, {
+        method: read ? "POST" : "PATCH",
+        token,
+        body: JSON.stringify(patch),
+      });
+      patchDisplayedPortalRecord("dept_comms", id, patch);
+      setMessage(read ? "Communication marked read." : "Communication marked unread.");
+      refreshPortalCache();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Communication status could not be updated.");
     } finally {
       setLoading(false);
     }
   }
 
-  async function saveInventoryItem() {
+  async function saveInventoryItem(inventoryDraft: InventoryDraft, onSaved?: (record: Record<string, unknown>) => void) {
     if (!inventoryDraft.name.trim()) {
       const text = "Inventory item name is required.";
       Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
@@ -13226,13 +17989,15 @@ export default function App() {
     }
     setLoading(true);
     try {
-      await apiFetch("/api/portal/inventory", {
+      const result = await apiFetch<{ record?: Record<string, unknown>; inventory?: Record<string, unknown>; item?: Record<string, unknown> }>("/api/portal/inventory", {
         method: "POST",
         token,
         body: JSON.stringify(inventoryDraft),
       });
-      setInventoryDraft(emptyInventoryDraft);
-      await loadPortal();
+      const savedRecord = result.record || result.inventory || result.item || inventoryDraft;
+      onSaved?.(savedRecord);
+      prependDisplayedPortalRecord("inventory", savedRecord);
+      refreshPortalCache();
       setMessage("Warehouse inventory item saved.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Inventory item could not be saved.");
@@ -13241,22 +18006,26 @@ export default function App() {
     }
   }
 
-  async function updateInventoryItem(record: Record<string, unknown>, patch: Record<string, unknown>) {
+  async function updateInventoryItem(record: Record<string, unknown>, patch: Record<string, unknown>, onLocalUpdate?: (record: Record<string, unknown>) => void) {
     const id = recordIdentity(record);
-    if (!id) return;
+    if (!id) {
+      setMessage("This inventory item cannot be updated because it has no saved record ID.");
+      return;
+    }
     setLoading(true);
+    const optimisticRecord = { ...record, ...patch };
+    onLocalUpdate?.(optimisticRecord);
+    patchDisplayedPortalRecord("inventory", id, optimisticRecord);
     try {
-      await apiFetch(`/api/portal/inventory/${encodeURIComponent(id)}`, {
+      const result = await apiFetch<{ record?: Record<string, unknown>; item?: Record<string, unknown> }>(`/api/portal/inventory/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
         body: JSON.stringify(patch),
       });
-      setInventoryEdits((draft) => {
-        const next = { ...draft };
-        delete next[id];
-        return next;
-      });
-      await loadPortal();
+      const updatedRecord = result.record || result.item || optimisticRecord;
+      onLocalUpdate?.(updatedRecord);
+      patchDisplayedPortalRecord("inventory", id, updatedRecord);
+      refreshPortalCache();
       setMessage("Inventory trigger updated.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Inventory item could not be updated.");
@@ -13265,17 +18034,27 @@ export default function App() {
     }
   }
 
-  async function adjustInventoryItem(record: Record<string, unknown>, delta: number, reason: string) {
+  async function adjustInventoryItem(record: Record<string, unknown>, delta: number, reason: string, onLocalUpdate?: (record: Record<string, unknown>) => void) {
     const id = recordIdentity(record);
-    if (!id) return;
+    if (!id) {
+      setMessage("This inventory item cannot be adjusted because it has no saved record ID.");
+      return;
+    }
     setLoading(true);
+    const currentQty = Number(record.qty_on_hand ?? record.stock ?? 0);
+    const optimisticRecord = { ...record, qty_on_hand: currentQty + delta };
+    onLocalUpdate?.(optimisticRecord);
+    patchDisplayedPortalRecord("inventory", id, optimisticRecord);
     try {
-      await apiFetch(`/api/portal/inventory/${encodeURIComponent(id)}/adjust`, {
+      const result = await apiFetch<{ item?: Record<string, unknown>; record?: Record<string, unknown> }>(`/api/portal/inventory/${encodeURIComponent(id)}/adjust`, {
         method: "POST",
         token,
         body: JSON.stringify({ delta, reason }),
       });
-      await loadPortal();
+      const updatedRecord = result.item || result.record || optimisticRecord;
+      onLocalUpdate?.(updatedRecord);
+      patchDisplayedPortalRecord("inventory", id, updatedRecord);
+      refreshPortalCache();
       setMessage(delta > 0 ? "Inventory received into warehouse." : "Inventory issued from warehouse.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Inventory stock could not be adjusted.");
@@ -13284,13 +18063,16 @@ export default function App() {
     }
   }
 
-  async function raiseInventoryPo(record: Record<string, unknown>) {
+  async function raiseInventoryPo(record: Record<string, unknown>, onLocalUpdate?: (record: Record<string, unknown>) => void) {
     const id = recordIdentity(record);
-    if (!id) return;
+    if (!id) {
+      setMessage("A purchase order cannot be raised because this inventory item has no saved record ID.");
+      return;
+    }
     const quantity = inventoryReorderQty(record);
     setLoading(true);
     try {
-      await apiFetch("/api/portal/inventory/raise-po", {
+      const result = await apiFetch<{ item?: Record<string, unknown>; record?: Record<string, unknown>; purchase_order?: Record<string, unknown> }>("/api/portal/inventory/raise-po", {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -13304,7 +18086,10 @@ export default function App() {
           offer_name: record.offer_name || "",
         }),
       });
-      await loadPortal();
+      const updatedRecord = result.item || result.record || { ...record, po_number: result.purchase_order?.id || "Raised", po_status: "Raised", reorder_qty: quantity };
+      onLocalUpdate?.(updatedRecord);
+      patchDisplayedPortalRecord("inventory", id, updatedRecord);
+      refreshPortalCache();
       setMessage(`Purchase order raised for ${String(record.name || record.item || id)}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Purchase order could not be raised.");
@@ -13313,76 +18098,119 @@ export default function App() {
     }
   }
 
-  async function saveInternationalVendor() {
+  async function saveInternationalVendor(
+    internationalVendorDraft: InternationalVendorDraft,
+    onSaved?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     if (!isAdmin) {
-      setMessage("Only admin can manage International Vendor records.");
+      onNotice("Only admin can manage International Vendor records.");
       return;
     }
     if (!internationalVendorDraft.company.trim()) {
       const text = "Company name is required.";
-      Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
+      Platform.OS === "web" ? onNotice(text) : Alert.alert("Missing field", text);
       return;
     }
-    setLoading(true);
+    onLoading(true);
     try {
-      await apiFetch("/api/portal/international-vendors", {
+      const response = await apiFetch<Record<string, unknown>>("/api/portal/international-vendors", {
         method: "POST",
         token,
         body: JSON.stringify(internationalVendorDraft),
       });
-      setInternationalVendorDraft(emptyInternationalVendorDraft);
-      await loadPortal();
-      setMessage("International vendor prospect saved.");
+      const savedVendor = savedRecordFromModuleResponse("/api/portal/international-vendors", response, internationalVendorDraft);
+      prependDisplayedPortalRecordRefOnly("international_vendors", savedVendor);
+      onSaved?.(savedVendor);
+      onNotice("International vendor prospect saved.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "International vendor could not be saved.");
+      onNotice(error instanceof Error ? error.message : "International vendor could not be saved.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function updateInternationalVendor(record: Record<string, unknown>, patch: Record<string, unknown>) {
+  async function updateInternationalVendor(
+    record: Record<string, unknown>,
+    patch: Record<string, unknown>,
+    onUpdated?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     const id = recordIdentity(record);
-    if (!id) return;
-    setLoading(true);
+    if (!id) {
+      onNotice("This international vendor cannot be updated because it has no saved record ID.");
+      return;
+    }
+    const optimisticRecord = { ...record, ...patch };
+    onUpdated?.(optimisticRecord);
+    onLoading(true);
     try {
-      await apiFetch(`/api/portal/international-vendors/${encodeURIComponent(id)}`, {
+      const response = await apiFetch<Record<string, unknown>>(`/api/portal/international-vendors/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
         body: JSON.stringify(patch),
       });
-      await loadPortal();
-      setMessage("International vendor updated.");
+      const updatedVendor = savedRecordFromModuleResponse("/api/portal/international-vendors", response, optimisticRecord);
+      patchDisplayedPortalRecordRefOnly("international_vendors", id, updatedVendor);
+      onUpdated?.(updatedVendor);
+      onNotice("International vendor updated.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "International vendor could not be updated.");
+      onUpdated?.(record);
+      onNotice(error instanceof Error ? error.message : "International vendor could not be updated.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function sendInternationalVendorOutreach(record: Record<string, unknown>, stage: string) {
+  async function sendInternationalVendorOutreach(
+    record: Record<string, unknown>,
+    stage: string,
+    onUpdated?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     const id = recordIdentity(record);
-    if (!id) return;
-    setLoading(true);
+    if (!id) {
+      onNotice("International vendor outreach cannot be sent because this record has no saved record ID.");
+      return;
+    }
+    const optimisticRecord = { ...record, followup_stage: stage };
+    onUpdated?.(optimisticRecord);
+    onLoading(true);
     try {
-      const response = await apiFetch<{ message?: string }>(`/api/portal/international-vendors/${encodeURIComponent(id)}/outreach`, {
+      const rawResponse = await fetch(`${apiBaseUrl}/api/portal/international-vendors/${encodeURIComponent(id)}/outreach`, {
         method: "POST",
-        token,
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
           stage,
           target: record.email || record.openclaw_target || "",
           message: internationalVendorEmailText({ ...record, followup_stage: stage }),
         }),
       });
-      await loadPortal();
-      setMessage(response.message ? "International vendor outreach sent to OpenClaw/email handoff." : "International vendor outreach queued.");
+      const responseText = await rawResponse.text();
+      const response = (responseText ? JSON.parse(responseText) : {}) as Record<string, unknown> & { message?: string };
+      if (!rawResponse.ok && !response.record) {
+        throw new Error(response.message || `International vendor outreach failed with ${rawResponse.status}.`);
+      }
+      const updatedVendor = savedRecordFromModuleResponse("/api/portal/international-vendors", response, optimisticRecord);
+      patchDisplayedPortalRecordRefOnly("international_vendors", id, updatedVendor);
+      onUpdated?.(updatedVendor);
+      onNotice(rawResponse.ok ? "International vendor outreach sent to OpenClaw/email handoff." : (response.message || "International vendor outreach saved with delivery warning."));
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "International vendor outreach could not be sent.");
+      onUpdated?.(record);
+      onNotice(error instanceof Error ? error.message : "International vendor outreach could not be sent.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function saveMarketingAsset(openClawAction?: "generate-image" | "draft-ad-copy" | "draft-catalog") {
+  async function saveMarketingAsset(marketingDraft: typeof emptyMarketingDraft, openClawAction?: "generate-image" | "draft-ad-copy" | "draft-catalog", onSaved?: () => void) {
     if (!marketingDraft.campaign_name.trim()) {
       const text = "Campaign name is required.";
       Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
@@ -13390,6 +18218,7 @@ export default function App() {
     }
     setLoading(true);
     try {
+      let openClawError = "";
       const response = await apiFetch<{ record?: Record<string, unknown> }>("/api/portal/marketing-assets", {
         method: "POST",
         token,
@@ -13398,21 +18227,41 @@ export default function App() {
           ai_prompt: marketingDraft.ai_prompt || marketingPromptFor(marketingDraft, openClawAction || "generate-image"),
         }),
       });
-      const savedId = recordIdentity(response.record || {});
+      const savedRecord = response.record || {
+        ...marketingDraft,
+        ai_prompt: marketingDraft.ai_prompt || marketingPromptFor(marketingDraft, openClawAction || "generate-image"),
+      };
+      const savedId = recordIdentity(savedRecord);
       if (openClawAction && savedId) {
-        await apiFetch(`/api/portal/marketing-assets/${encodeURIComponent(savedId)}/openclaw`, {
-          method: "POST",
-          token,
-          body: JSON.stringify({
-            action: openClawAction,
-            prompt: marketingPromptFor({ ...marketingDraft, ...(response.record || {}) }, openClawAction),
-            target: marketingDraft.openclaw_target || "",
-          }),
-        });
+        try {
+          await apiFetch(`/api/portal/marketing-assets/${encodeURIComponent(savedId)}/openclaw`, {
+            method: "POST",
+            token,
+            body: JSON.stringify({
+              action: openClawAction,
+              prompt: marketingPromptFor({ ...marketingDraft, ...(response.record || {}) }, openClawAction),
+              target: marketingDraft.openclaw_target || "",
+            }),
+          });
+        } catch (error) {
+          openClawError = error instanceof Error ? error.message : "OpenClaw request failed.";
+        }
       }
-      setMarketingDraft(emptyMarketingDraft);
-      await loadPortal();
-      setMessage(openClawAction ? "Marketing asset saved and sent to OpenClaw." : "Marketing asset saved.");
+      prependDisplayedPortalRecord("marketing_assets", {
+        ...savedRecord,
+        ...(openClawAction && !openClawError ? {
+          last_openclaw_action: openClawAction,
+          last_openclaw_at: new Date().toISOString(),
+          delivery_status: "OpenClaw requested",
+        } : {}),
+      });
+      onSaved?.();
+      refreshPortalCache();
+      setMessage(openClawAction
+        ? openClawError
+          ? `Marketing asset saved. OpenClaw handoff failed: ${openClawError}`
+          : "Marketing asset saved and sent to OpenClaw."
+        : "Marketing asset saved.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Marketing asset could not be saved.");
     } finally {
@@ -13422,15 +18271,19 @@ export default function App() {
 
   async function updateMarketingAsset(record: Record<string, unknown>, patch: Record<string, unknown>) {
     const id = recordIdentity(record);
-    if (!id) return;
+    if (!id) {
+      setMessage("This marketing asset cannot be updated because it has no saved record ID.");
+      return;
+    }
     setLoading(true);
     try {
-      await apiFetch(`/api/portal/marketing-assets/${encodeURIComponent(id)}`, {
+      const result = await apiFetch<{ record?: Record<string, unknown>; asset?: Record<string, unknown> }>(`/api/portal/marketing-assets/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
         body: JSON.stringify(patch),
       });
-      await loadPortal();
+      patchDisplayedPortalRecord("marketing_assets", id, result.record || result.asset || { ...record, ...patch });
+      refreshPortalCache();
       setMessage("Marketing asset updated.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Marketing asset could not be updated.");
@@ -13441,7 +18294,10 @@ export default function App() {
 
   async function requestMarketingOpenClaw(record: Record<string, unknown>, action: "generate-image" | "draft-ad-copy" | "draft-catalog") {
     const id = recordIdentity(record);
-    if (!id) return;
+    if (!id) {
+      setMessage("OpenClaw cannot be requested because this marketing asset has no saved record ID.");
+      return;
+    }
     setLoading(true);
     try {
       await apiFetch(`/api/portal/marketing-assets/${encodeURIComponent(id)}/openclaw`, {
@@ -13453,7 +18309,13 @@ export default function App() {
           target: record.openclaw_target || "",
         }),
       });
-      await loadPortal();
+      patchDisplayedPortalRecord("marketing_assets", id, {
+        ...record,
+        last_openclaw_action: action,
+        last_openclaw_at: new Date().toISOString(),
+        delivery_status: "OpenClaw requested",
+      });
+      refreshPortalCache();
       setMessage(action === "generate-image" ? "OpenClaw image generation request sent." : "OpenClaw marketing draft request sent.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "OpenClaw marketing request failed.");
@@ -13463,6 +18325,7 @@ export default function App() {
   }
 
   async function saveSalesInquiry(syncToCrm = false) {
+    const { salesInquiryDraft, salesInquiryInstalledDateDraft } = salesInquiryDraftStateRef.current;
     if (!salesInquiryDraft.customer.trim()) {
       const text = "Lead/customer name is required.";
       Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
@@ -13506,12 +18369,20 @@ export default function App() {
           source_inquiry_id: String(savedInquiry.enquiry_no || savedInquiry.source_enquiry_no || savedId || ""),
         }, salesInquiryInstalledDateDraft);
       }
+      if (savedId) {
+        if (id) {
+          patchDisplayedPortalRecord("sales_inquiries", savedId, savedInquiry);
+        } else {
+          prependDisplayedPortalRecord("sales_inquiries", savedInquiry);
+        }
+      }
       setSalesInquiryDraft(emptySalesInquiryDraft);
       setSalesInquiryInstalledDateDraft("");
-      setSalesInquiryEditorOpen(false);
-      setCrmRecordView(shouldConvertToCustomer ? "Customers" : "Enquiries");
-      setActiveTab(shouldConvertToCustomer ? "customers" : "enquiries");
-      await loadPortal();
+      if (!shouldConvertToCustomer) {
+        setCrmRecordView("Enquiries");
+        setCrmSearch(String(savedInquiry.customer || savedInquiry.lead_name || savedInquiry.enquiry_no || savedId || ""));
+      }
+      refreshPortalCache();
       setMessage(shouldConvertToCustomer ? "Saved to CRM customer and handover date updated." : (id ? "Enquiry record updated." : "Sales enquiry intake saved."));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Sales enquiry could not be saved.");
@@ -13552,22 +18423,25 @@ export default function App() {
     setSalesInquiryInstalledDateDraft(date);
     setSiteVisitDraft((draft) => ({ ...draft, customer_id: customerId, site_enquiry_no: enquiryNo || draft.site_enquiry_no }));
     setSiteVisitEditorOpen(false);
-    setSalesInquiryEditorOpen(true);
     setActiveTab("enquiries");
     setMessage(`Editing enquiry ${String(record.enquiry_no || record.id || "")}. Site visit entry is ready for this customer.`);
   }
 
   async function updateSalesInquiry(record: Record<string, unknown>, patch: Record<string, unknown>) {
     const id = recordIdentity(record) || String(record.enquiry_no || "");
-    if (!id) return;
+    if (!id) {
+      setMessage("This sales inquiry cannot be updated because it has no saved record ID.");
+      return;
+    }
     setLoading(true);
     try {
-      await apiFetch(`/api/portal/sales/inquiries/${encodeURIComponent(id)}`, {
+      const result = await apiFetch<{ record?: Record<string, unknown>; inquiry?: Record<string, unknown> }>(`/api/portal/sales/inquiries/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
         body: JSON.stringify(patch),
       });
-      await loadPortal();
+      patchDisplayedPortalRecord("sales_inquiries", id, result.record || result.inquiry || { ...record, ...patch });
+      refreshPortalCache();
       setMessage("Sales enquiry updated.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Sales enquiry could not be updated.");
@@ -13578,7 +18452,10 @@ export default function App() {
 
   async function convertSalesInquiryToCustomer(record: Record<string, unknown>) {
     const id = recordIdentity(record) || String(record.enquiry_no || "");
-    if (!id) return;
+    if (!id) {
+      setMessage("This sales inquiry cannot be converted because it has no saved record ID.");
+      return;
+    }
     setLoading(true);
     try {
       const result = await apiFetch<{ customer?: Customer; created?: boolean }>(`/api/portal/sales/inquiries/${encodeURIComponent(id)}/convert-customer`, {
@@ -13586,13 +18463,23 @@ export default function App() {
         token,
         body: JSON.stringify({}),
       });
-      await loadPortal();
-      setMessage(`${result.created ? "Created" : "Updated"} CRM customer ${result.customer?.id || ""} from enquiry.`);
-      if (result.customer?.id) {
-        setCrmRecordView("Customers");
-        setCrmSearch(String(result.customer.id));
-        setActiveTab("customers");
+      if (result.customer) {
+        const customerId = String(result.customer.id || "");
+        if (customerId) patchDisplayedPortalRecord("customers", customerId, result.customer);
+        if (customerId && !asRecords(dataRef.current[0]?.customers).some((customer) => String(customer.id || "") === customerId)) {
+          prependDisplayedPortalRecord("customers", result.customer as unknown as Record<string, unknown>);
+        }
       }
+      patchDisplayedPortalRecord("sales_inquiries", id, {
+        ...record,
+        customer_id: String(result.customer?.id || record.customer_id || ""),
+        lead_status: "Current Customer",
+        status: "Current Customer",
+      });
+      setCrmRecordView("Customers");
+      setCrmSearch(String(result.customer?.name || record.customer || record.lead_name || ""));
+      refreshPortalCache();
+      setMessage(`${result.created ? "Created" : "Updated"} CRM customer ${result.customer?.id || ""} from enquiry.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Enquiry could not be converted to CRM customer.");
     } finally {
@@ -13606,18 +18493,22 @@ export default function App() {
       return;
     }
     const id = recordIdentity(record) || String(record.enquiry_no || "");
-    if (!id) return;
+    if (!id) {
+      setMessage("This sales inquiry cannot be removed because it has no saved record ID.");
+      return;
+    }
     setLoading(true);
     try {
       await apiFetch(`/api/portal/sales/inquiries/${encodeURIComponent(id)}`, {
         method: "DELETE",
         token,
       });
-      if (salesInquiryDraft.id === id) {
+      if (salesInquiryDraftStateRef.current.salesInquiryDraft.id === id) {
         setSalesInquiryDraft(emptySalesInquiryDraft);
         setSalesInquiryInstalledDateDraft("");
       }
-      await loadPortal();
+      removeDisplayedPortalRecord("sales_inquiries", id);
+      refreshPortalCache();
       setMessage("Enquiry record removed.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Enquiry record could not be removed.");
@@ -13649,7 +18540,7 @@ export default function App() {
     setMessage(`Offer Manager opened for ${customerName}. CRM enquiry and linked site visit data are filled into the offer draft.`);
   }
 
-  async function saveOffer() {
+  async function saveOffer(offerDraft: OfferDraft) {
     if (!offerDraft.customer_id.trim()) {
       const text = "Select a CRM customer before creating an offer.";
       Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing customer", text);
@@ -13695,9 +18586,7 @@ export default function App() {
           body: JSON.stringify({ lead_status: draftForSave.lead_status, status: draftForSave.lead_status }),
         });
       }
-      setOfferDraft(emptyOfferDraft);
-      setCostingEditorOpen(false);
-      await loadPortal();
+      refreshPortalCache();
       setMessage("Offer saved and client offer letter prepared.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Offer could not be saved.");
@@ -13708,7 +18597,10 @@ export default function App() {
 
   async function updateOffer(record: Record<string, unknown>, patch: Record<string, unknown>) {
     const id = recordIdentity(record);
-    if (!id) return;
+    if (!id) {
+      setMessage("This offer cannot be updated because it has no saved record ID.");
+      return;
+    }
     setLoading(true);
     try {
       await apiFetch(`/api/portal/estimates/${encodeURIComponent(id)}`, {
@@ -13716,7 +18608,7 @@ export default function App() {
         token,
         body: JSON.stringify(patch),
       });
-      await loadPortal();
+      refreshPortalCache();
       setMessage("Offer updated.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Offer could not be updated.");
@@ -13749,12 +18641,21 @@ export default function App() {
   async function grantCustomerAccess(customer: Customer) {
     setLoading(true);
     try {
-      const response = await apiFetch<{ customer_user?: { username?: string; temporary_password?: string }; message?: string }>("/api/portal/customer-users", {
+      const response = await apiFetch<{ customer_user?: Record<string, unknown>; message?: string }>("/api/portal/customer-users", {
         method: "POST",
         token,
         body: JSON.stringify({ customer_id: customer.id }),
       });
-      await loadPortal();
+      if (response.customer_user) {
+        const userId = recordIdentity(response.customer_user) || String(response.customer_user.id || response.customer_user.username || "");
+        const currentUsers = asRecords(dataRef.current[0]?.customer_users);
+        if (userId && currentUsers.some((user) => recordIdentity(user) === userId || String(user.id || user.username || "") === userId)) {
+          patchDisplayedPortalRecord("customer_users", userId, response.customer_user);
+        } else {
+          prependDisplayedPortalRecord("customer_users", response.customer_user);
+        }
+      }
+      refreshPortalCache();
       const usernameText = response.customer_user?.username ? ` Username: ${response.customer_user.username}` : "";
       const passwordText = response.customer_user?.temporary_password ? ` Temporary password: ${response.customer_user.temporary_password}` : "";
       setMessage(`${response.message || "Customer portal access ready."}${usernameText}${passwordText}`);
@@ -13772,11 +18673,15 @@ export default function App() {
       return;
     }
     const { date } = crmLatestInstalledFromJobs(crmInstallationJobsForRecord(customer as unknown as Record<string, unknown>));
-    setCustomerInlineDrafts((drafts) => ({ ...drafts, [customerId]: { ...emptyCustomer, ...customer } }));
-    setCustomerInlineInstalledDates((dates) => ({ ...dates, [customerId]: date }));
-    setCustomerDraft(emptyCustomer);
-    setCustomerInstalledDateDraft("");
-    setCustomerEditorOpen(false);
+    const inlineDraft = { ...emptyCustomer, ...customer };
+    customerDraftStateRef.current = {
+      ...customerDraftStateRef.current,
+      customerDraft: { ...emptyCustomer },
+      customerInstalledDateDraft: "",
+      customerInlineDrafts: { ...customerDraftStateRef.current.customerInlineDrafts, [customerId]: inlineDraft },
+      customerInlineInstalledDates: { ...customerDraftStateRef.current.customerInlineInstalledDates, [customerId]: date },
+    };
+    customerInlineEditorControllersRef.current[customerId]?.open(inlineDraft, date);
     setSiteVisitDraft((draft) => ({ ...draft, customer_id: customer.id }));
     setSiteVisitEditorOpen(false);
     setActiveTab("customers");
@@ -13791,7 +18696,7 @@ export default function App() {
         token,
         body: JSON.stringify(payload),
       });
-      await loadPortal();
+      refreshPortalCache();
       setMessage("Customer CRM record updated.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Customer could not be updated.");
@@ -13805,18 +18710,30 @@ export default function App() {
       setMessage("Only admin can remove CRM customer records.");
       return;
     }
+    const customerName = customer.name || customer.id || "this customer";
+    const promptText = `Remove ${customerName} from CRM? This cannot be undone from the portal.`;
+    if (Platform.OS === "web" && typeof globalThis.confirm === "function") {
+      if (!globalThis.confirm(promptText)) return;
+    } else {
+      Alert.alert("Remove CRM customer", promptText, [
+        { text: "Cancel", style: "cancel" },
+        { text: "Remove", style: "destructive", onPress: () => { void deleteCustomerConfirmed(customer); } },
+      ]);
+      return;
+    }
+    await deleteCustomerConfirmed(customer);
+  }
+
+  async function deleteCustomerConfirmed(customer: Customer) {
     setLoading(true);
     try {
       await apiFetch(`/api/portal/customers/${encodeURIComponent(customer.id)}`, {
         method: "DELETE",
         token,
       });
-      if (customerDraft.id === customer.id) {
-        setCustomerDraft(emptyCustomer);
-        setCustomerInstalledDateDraft("");
-      }
+      removeDisplayedPortalRecord("customers", String(customer.id || ""));
       cancelInlineCustomerEdit(String(customer.id || ""));
-      await loadPortal();
+      refreshPortalCache();
       setMessage(`${customer.name} removed from CRM.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Customer could not be removed.");
@@ -13872,47 +18789,36 @@ export default function App() {
     }
   }
 
-  async function uploadCrmCsv() {
-    if (Platform.OS !== "web" || typeof document === "undefined") {
-      setMessage("CSV import is available from the web portal.");
+  async function importEditedCrmCsv(draft: CsvImportDraft) {
+    const csvText = draft.csvText.trim();
+    if (!csvText) {
+      setMessage("Paste CSV data or choose a CSV file before importing.");
       return;
     }
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".csv,text/csv";
-    input.onchange = () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = async () => {
-        setLoading(true);
-        try {
-          const result = await apiFetch<{ created?: number; updated?: number; skipped?: number; imported?: number; created_service_jobs?: number; errors?: string[] }>("/api/portal/crm/import-csv", {
-            method: "POST",
-            token,
-            body: JSON.stringify({
-              filename: file.name,
-              import_type: crmImportType,
-              csv_text: String(reader.result || ""),
-            }),
-          });
-          await loadPortal();
-          const errors = (result.errors || []).slice(0, 3);
-          setMessage(`CSV import complete: ${result.created || 0} created, ${result.updated || 0} updated, ${result.skipped || 0} skipped, ${result.created_service_jobs || 0} service jobs assigned.${errors.length ? ` ${errors.join(" ")}` : ""}`);
-        } catch (error) {
-          setMessage(error instanceof Error ? error.message : "CSV import failed.");
-        } finally {
-          setLoading(false);
-        }
-      };
-      reader.onerror = () => setMessage("CSV file could not be read.");
-      reader.readAsText(file);
-    };
-    input.click();
+    setLoading(true);
+    try {
+      const result = await apiFetch<{ created?: number; updated?: number; skipped?: number; imported?: number; created_service_jobs?: number; errors?: string[] }>("/api/portal/crm/import-csv", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          filename: draft.filename.trim() || "crm-import.csv",
+          import_type: crmStateRef.current.crmImportType,
+          csv_text: csvText,
+        }),
+      });
+      refreshPortalCache();
+      const errors = (result.errors || []).slice(0, 3);
+      setMessage(`CSV import complete: ${result.created || 0} created, ${result.updated || 0} updated, ${result.skipped || 0} skipped, ${result.created_service_jobs || 0} service jobs assigned.${errors.length ? ` ${errors.join(" ")}` : ""}`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "CSV import failed.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   function openCrmImportTemplate(fileName: string) {
     const url = `${apiBaseUrl}/crm-import-templates/${encodeURIComponent(fileName)}`;
+    setMessage("CRM import template download started.");
     Linking.openURL(url).catch(() => setMessage("Template could not be opened."));
   }
 
@@ -13928,7 +18834,7 @@ export default function App() {
         token,
         body: JSON.stringify({}),
       });
-      await loadPortal();
+      refreshPortalCache();
       setMessage(`${result.count || 0} customer occasion reminders queued for ${result.date || "today"}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Customer occasion reminders could not be sent.");
@@ -13945,8 +18851,7 @@ export default function App() {
         token,
         body: JSON.stringify({}),
       });
-      await loadPortal();
-      setNotificationPanelOpen(false);
+      refreshPortalCache();
       setMessage("Notifications marked read.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Notifications could not be marked read.");
@@ -13970,7 +18875,6 @@ export default function App() {
     };
     const nextTab = target[collection] || "overview";
     setActiveTab(nextTab);
-    setGlobalSearchOpen(false);
     if (collection === "customers") setCrmSearch(id || String(result.title || ""));
     if (collection === "sales_inquiries") {
       setCrmRecordView("Enquiries");
@@ -13997,36 +18901,36 @@ export default function App() {
     return raw.sort(() => Math.random() - 0.5).join("");
   }
 
-  async function copyTextToClipboard(text: string) {
+  async function copyTextToClipboard(text: string, onNotice: LocalStateSetter<string> = setMessage) {
     if (!text) return;
     try {
       if (Platform.OS === "web" && typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
-        setMessage("Password copied to clipboard.");
+        onNotice("Password copied to clipboard.");
       } else {
-        setMessage("Password generated. Copy is only available in the web portal.");
+        onNotice("Password generated. Copy is only available in the web portal.");
       }
     } catch {
-      setMessage("Password generated. Browser blocked clipboard copy.");
+      onNotice("Password generated. Browser blocked clipboard copy.");
     }
   }
 
-  async function generateAccountDraftPassword() {
+  async function generateAccountDraftPassword(onNotice: LocalStateSetter<string> = setMessage) {
     const password = generateRandomPassword();
     setAccountDraft((draft) => ({ ...draft, password }));
-    await copyTextToClipboard(password);
+    await copyTextToClipboard(password, onNotice);
   }
 
-  async function generateInlineAccountPassword(id: string) {
+  async function generateInlineAccountPassword(id: string, onNotice: LocalStateSetter<string> = setMessage) {
     const password = generateRandomPassword();
     setAccountEditDrafts((drafts) => ({ ...drafts, [id]: { ...(drafts[id] || emptyAccountDraft), password } }));
-    await copyTextToClipboard(password);
+    await copyTextToClipboard(password, onNotice);
   }
 
-  async function generateQuickAccountPassword(id: string) {
+  async function generateQuickAccountPassword(id: string, onNotice: LocalStateSetter<string> = setMessage) {
     const password = generateRandomPassword();
     setAccountPasswordDrafts((drafts) => ({ ...drafts, [id]: password }));
-    await copyTextToClipboard(password);
+    await copyTextToClipboard(password, onNotice);
   }
 
   function editAccount(user: Record<string, unknown>) {
@@ -14043,7 +18947,17 @@ export default function App() {
     setAccountEditDrafts((drafts) => ({ ...drafts, [draft.id]: draft }));
   }
 
-  async function saveAccount() {
+  async function saveAccount(
+    onLocalCreate?: (record: Record<string, unknown>) => void,
+    onLocalUpdate?: (id: string, patch: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
+    const accountDraft = accountStateRef.current.accountDraft;
+    if (!accountDraft.username.trim()) {
+      onNotice("Username is required.");
+      return;
+    }
     const payload = {
       username: accountDraft.username,
       display_name: accountDraft.display_name,
@@ -14053,53 +18967,73 @@ export default function App() {
       active: accountDraft.active.toUpperCase() !== "N",
       ...(accountDraft.password ? { password: accountDraft.password } : {}),
     };
-    setLoading(true);
+    onLoading(true);
     try {
+      let savedUser: Record<string, unknown> | undefined;
       if (accountDraft.id) {
-        await apiFetch(`/api/portal/users/${encodeURIComponent(accountDraft.id)}`, {
+        const response = await apiFetch<{ record?: Record<string, unknown>; user?: Record<string, unknown> }>(`/api/portal/users/${encodeURIComponent(accountDraft.id)}`, {
           method: "PATCH",
           token,
           body: JSON.stringify(payload),
         });
+        savedUser = response.user || response.record;
+        onLocalUpdate?.(accountDraft.id, savedUser || payload);
+        patchDisplayedPortalRecordRefOnly("users", accountDraft.id, savedUser || payload);
       } else {
-        await apiFetch("/api/portal/users", {
+        const response = await apiFetch<{ user?: Record<string, unknown>; record?: Record<string, unknown> }>("/api/portal/users", {
           method: "POST",
           token,
           body: JSON.stringify(payload),
         });
+        savedUser = response.user || response.record;
+        if (savedUser) {
+          onLocalCreate?.(savedUser);
+          prependDisplayedPortalRecordRefOnly("users", savedUser);
+        }
       }
-      setAccountDraft(emptyAccountDraft);
-      setAccountCreateOpen(false);
-      await loadPortal();
-      setMessage("Team account saved.");
+      onNotice("Team account saved.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Team account could not be saved.");
+      onNotice(error instanceof Error ? error.message : "Team account could not be saved.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function updateAccount(id: string, payload: Record<string, unknown>) {
-    setLoading(true);
+  async function updateAccount(
+    id: string,
+    payload: Record<string, unknown>,
+    onLocalUpdate?: (id: string, patch: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
+    onLoading(true);
+    onLocalUpdate?.(id, payload);
     try {
-      await apiFetch(`/api/portal/users/${encodeURIComponent(id)}`, {
+      const response = await apiFetch<{ record?: Record<string, unknown>; user?: Record<string, unknown> }>(`/api/portal/users/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
         body: JSON.stringify(payload),
       });
-      await loadPortal();
-      setMessage("Team account updated.");
+      const updatedUser = response.user || response.record || payload;
+      onLocalUpdate?.(id, updatedUser);
+      patchDisplayedPortalRecordRefOnly("users", id, updatedUser);
+      onNotice("Team account updated.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Team account could not be updated.");
+      onNotice(error instanceof Error ? error.message : "Team account could not be updated.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function saveAccountEdit(id: string) {
-    const draft = accountEditDrafts[id];
+  async function saveAccountEdit(
+    id: string,
+    onLocalUpdate?: (id: string, patch: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
+    const draft = accountStateRef.current.accountEditDrafts[id];
     if (!draft?.username) {
-      setMessage("Username is required.");
+      onNotice("Username is required.");
       return;
     }
     const payload = {
@@ -14111,74 +19045,80 @@ export default function App() {
       active: String(draft.active || "Y").toUpperCase() !== "N",
       ...(draft.password ? { password: draft.password } : {}),
     };
-    setLoading(true);
+    onLoading(true);
+    onLocalUpdate?.(id, payload);
     try {
-      await apiFetch(`/api/portal/users/${encodeURIComponent(id)}`, {
+      const response = await apiFetch<{ record?: Record<string, unknown>; user?: Record<string, unknown> }>(`/api/portal/users/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
         body: JSON.stringify(payload),
       });
-      setAccountEditDrafts((drafts) => {
-        const next = { ...drafts };
-        delete next[id];
-        return next;
-      });
-      setAccountDraft(emptyAccountDraft);
-      await loadPortal();
-      setMessage("Team account updated.");
+      const updatedUser = response.user || response.record || payload;
+      onLocalUpdate?.(id, updatedUser);
+      patchDisplayedPortalRecordRefOnly("users", id, updatedUser);
+      onNotice("Team account updated.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Team account could not be updated.");
+      onNotice(error instanceof Error ? error.message : "Team account could not be updated.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function setAccountPassword(id: string) {
-    const nextPassword = String(accountPasswordDrafts[id] || "").trim();
+  async function setAccountPassword(
+    id: string,
+    onLocalUpdate?: (id: string, patch: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
+    const nextPassword = String(accountStateRef.current.accountPasswordDrafts[id] || "").trim();
     if (!nextPassword) {
       const text = "Enter the new password first.";
-      Platform.OS === "web" ? setMessage(text) : Alert.alert("Password required", text);
+      Platform.OS === "web" ? onNotice(text) : Alert.alert("Password required", text);
       return;
     }
-    setLoading(true);
+    onLoading(true);
     try {
-      await apiFetch(`/api/portal/users/${encodeURIComponent(id)}`, {
+      const response = await apiFetch<{ record?: Record<string, unknown>; user?: Record<string, unknown> }>(`/api/portal/users/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
         body: JSON.stringify({ password: nextPassword }),
       });
-      setAccountPasswordDrafts((drafts) => {
-        const next = { ...drafts };
-        delete next[id];
-        return next;
-      });
-      await loadPortal();
-      setMessage("Team account password changed.");
+      const updatedUser = response.user || response.record || {};
+      onLocalUpdate?.(id, updatedUser);
+      patchDisplayedPortalRecordRefOnly("users", id, updatedUser);
+      onNotice("Team account password changed.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Team account password could not be changed.");
+      onNotice(error instanceof Error ? error.message : "Team account password could not be changed.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function syncStaffLogins() {
-    setLoading(true);
+  async function syncStaffLogins(
+    onRows?: (rows: Record<string, unknown>[]) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
+    onLoading(true);
     try {
-      const result = await apiFetch<{ created?: number; message?: string }>("/api/portal/users/sync-staff", {
+      const result = await apiFetch<{ created?: number; message?: string; users?: Record<string, unknown>[] }>("/api/portal/users/sync-staff", {
         method: "POST",
         token,
         body: JSON.stringify({}),
       });
-      await loadPortal();
-      setMessage(result.message || `Staff login accounts synced. Created ${result.created || 0}.`);
+      if (Array.isArray(result.users)) {
+        onRows?.(result.users);
+        dataRef.current[0] = { ...(dataRef.current[0] || {}), users: result.users } as PortalData;
+      }
+      onNotice(result.message || `Staff login accounts synced. Created ${result.created || 0}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Staff logins could not be synced.");
+      onNotice(error instanceof Error ? error.message : "Staff logins could not be synced.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function saveRenewal() {
+  async function saveRenewal(renewalDraft: typeof emptyRenewalDraft, onSaved?: (record: Record<string, unknown>) => void) {
     if (!renewalDraft.customer_id) {
       const text = "Select a customer before creating a maintenance renewal.";
       Platform.OS === "web" ? setMessage(text) : Alert.alert("Customer required", text);
@@ -14186,13 +19126,12 @@ export default function App() {
     }
     setLoading(true);
     try {
-      await apiFetch("/api/portal/renewals", {
+      const result = await apiFetch<{ renewal?: Record<string, unknown>; record?: Record<string, unknown> }>("/api/portal/renewals", {
         method: "POST",
         token,
         body: JSON.stringify(renewalDraft),
       });
-      setRenewalDraft(emptyRenewalDraft);
-      await loadPortal();
+      onSaved?.(result.renewal || result.record || renewalDraft);
       setMessage("Maintenance renewal saved.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Maintenance renewal could not be saved.");
@@ -14201,15 +19140,16 @@ export default function App() {
     }
   }
 
-  async function updateRenewal(id: string, payload: Record<string, unknown>) {
+  async function updateRenewal(id: string, payload: Record<string, unknown>, onLocalUpdate?: (record: Record<string, unknown>) => void) {
     setLoading(true);
+    onLocalUpdate?.(payload);
     try {
-      await apiFetch(`/api/portal/renewals/${encodeURIComponent(id)}`, {
+      const result = await apiFetch<{ record?: Record<string, unknown>; renewal?: Record<string, unknown> }>(`/api/portal/renewals/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
         body: JSON.stringify(payload),
       });
-      await loadPortal();
+      onLocalUpdate?.(result.renewal || result.record || payload);
       setMessage("Maintenance renewal updated.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Maintenance renewal could not be updated.");
@@ -14226,7 +19166,7 @@ export default function App() {
         token,
         body: JSON.stringify({}),
       });
-      await loadPortal();
+      refreshPortalCache();
       setMessage(action === "send" ? "Estimate marked sent." : "Offer approved.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Estimate action failed.");
@@ -14242,7 +19182,7 @@ export default function App() {
         method: "DELETE",
         token,
       });
-      await loadPortal();
+      refreshPortalCache();
       setMessage("Estimate deleted.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Estimate could not be deleted.");
@@ -14253,25 +19193,39 @@ export default function App() {
 
   async function openEstimateArtifact(id: string, artifact: "report" | "offer.pdf") {
     const url = `${apiBaseUrl}/api/portal/estimates/${encodeURIComponent(id)}/${artifact}?token=${encodeURIComponent(token)}`;
-    await Linking.openURL(url);
+    const label = artifact === "report" ? "Costing report" : "Offer letter";
+    setMessage(`Opening ${label.toLowerCase()} for ${id}.`);
+    if (Platform.OS === "web" && typeof globalThis.open === "function") {
+      const opened = globalThis.open(url, "_blank", "noopener,noreferrer");
+      setMessage(opened ? `${label} opened for ${id}.` : `${label} popup was blocked for ${id}.`);
+      return;
+    }
+    Linking.openURL(url)
+      .then(() => setMessage(`${label} opened for ${id}.`))
+      .catch((error) => setMessage(error instanceof Error ? error.message : `${label} could not be opened.`));
   }
 
-  async function savePayment() {
+  async function savePayment(
+    paymentDraft: typeof emptyPaymentDraft,
+    onLocalCreate?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     if (!paymentDraft.customer_id) {
       const text = "Select a customer before saving an accounts payment.";
-      Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
+      Platform.OS === "web" ? onNotice(text) : Alert.alert("Missing field", text);
       return;
     }
     const summary = paymentAccountSummary(paymentDraft as Record<string, unknown>);
     if (!summary.splitMatches) {
       const text = "Basic contract value must equal basic cheque value plus basic cash value plus basic credit card value.";
-      Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
+      Platform.OS === "web" ? onNotice(text) : Alert.alert("Missing field", text);
       return;
     }
     const estimate = (data?.estimates || []).find((item) => item.id === paymentDraft.estimate_id);
-    setLoading(true);
+    onLoading(true);
     try {
-      await apiFetch("/api/portal/payments", {
+      const result = await apiFetch<{ record?: Record<string, unknown>; payment?: Record<string, unknown> }>("/api/portal/payments", {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -14292,65 +19246,96 @@ export default function App() {
           status: summary.outstandingTotal > 0 ? "Outstanding" : "Paid",
         }),
       });
-      setPaymentDraft((draft) => ({ ...emptyPaymentDraft, payment_type: draft.payment_type, estimate_id: draft.estimate_id, customer_id: draft.customer_id, customer_name: draft.customer_name }));
-      await loadPortal();
-      setMessage("Accounts payment saved.");
+      const savedPayment = result.record || result.payment || { ...paymentDraft, amount: summary.finalContract };
+      prependDisplayedPortalRecordRefOnly("payments", savedPayment);
+      onLocalCreate?.(savedPayment);
+      onNotice("Accounts payment saved.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Payment could not be saved.");
+      onNotice(error instanceof Error ? error.message : "Payment could not be saved.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function autoSchedulePayments() {
+  async function autoSchedulePayments(
+    paymentDraft: typeof emptyPaymentDraft,
+    onLocalCreateMany?: (records: Record<string, unknown>[]) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     const estimate = (data?.estimates || []).find((item) => item.id === paymentDraft.estimate_id);
-    if (!estimate) return;
-    setLoading(true);
+    if (!estimate) {
+      onNotice("Select an estimate before auto-scheduling payments.");
+      return;
+    }
+    onLoading(true);
     try {
-      await apiFetch("/api/portal/payments/auto-schedule", {
+      const result = await apiFetch<{ payments?: Record<string, unknown>[] }>("/api/portal/payments/auto-schedule", {
         method: "POST",
         token,
         body: JSON.stringify({ estimate_id: estimate.id, customer_name: estimate.customer_name, amount: estimate.total_cost || paymentDraft.amount }),
       });
-      await loadPortal();
-      setMessage("Payment schedule created.");
+      const createdPayments = asRecords(result.payments);
+      createdPayments.slice().reverse().forEach((record) => prependDisplayedPortalRecordRefOnly("payments", record));
+      onLocalCreateMany?.(createdPayments);
+      onNotice("Payment schedule created.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Payment schedule could not be created.");
+      onNotice(error instanceof Error ? error.message : "Payment schedule could not be created.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function updatePayment(id: string, status: string) {
-    await updatePaymentRecord(id, { status, paid_date: status === "Paid" ? new Date().toISOString().slice(0, 10) : "" }, `Payment marked ${status}.`);
+  async function updatePayment(
+    id: string,
+    status: string,
+    onLocalPatch?: (patch: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
+    await updatePaymentRecord(id, { status, paid_date: status === "Paid" ? new Date().toISOString().slice(0, 10) : "" }, `Payment marked ${status}.`, onLocalPatch, onNotice, onLoading);
   }
 
-  async function updatePaymentRecord(id: string, payload: Record<string, unknown>, successMessage = "Payment updated.") {
-    setLoading(true);
+  async function updatePaymentRecord(
+    id: string,
+    payload: Record<string, unknown>,
+    successMessage = "Payment updated.",
+    onLocalPatch?: (patch: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
+    onLoading(true);
     try {
-      await apiFetch(`/api/portal/payments/${encodeURIComponent(id)}`, {
+      const result = await apiFetch<{ record?: Record<string, unknown> }>(`/api/portal/payments/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
         body: JSON.stringify(payload),
       });
-      await loadPortal();
-      setMessage(successMessage);
+      const updatedRecord = result.record || { id, ...payload };
+      patchDisplayedPortalRecordRefOnly("payments", id, updatedRecord);
+      onLocalPatch?.(updatedRecord);
+      onNotice(successMessage);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Payment could not be updated.");
+      onNotice(error instanceof Error ? error.message : "Payment could not be updated.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function saveBreakdown() {
+  async function saveBreakdown(
+    breakdownDraft: BreakdownDraft,
+    onLocalCreate?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     if (!breakdownDraft.customer_id.trim()) {
       const text = "Select a customer before logging a breakdown call.";
-      Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
+      Platform.OS === "web" ? onNotice(text) : Alert.alert("Missing field", text);
       return;
     }
-    setLoading(true);
+    onLoading(true);
     try {
-      await apiFetch("/api/portal/breakdown", {
+      const result = await apiFetch<{ record?: Record<string, unknown>; breakdown?: Record<string, unknown> }>("/api/portal/breakdown", {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -14361,58 +19346,86 @@ export default function App() {
           status: breakdownDraft.engineer && breakdownDraft.scheduled_at ? "Scheduled" : "Open",
         }),
       });
-      setBreakdownDraft(emptyBreakdownDraft);
-      await loadPortal();
-      setMessage("Breakdown call logged.");
+      const createdRecord = result.record || result.breakdown || breakdownDraft;
+      onLocalCreate?.(createdRecord);
+      prependDisplayedPortalRecordRefOnly("breakdowns", createdRecord);
+      onNotice("Breakdown call logged.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Breakdown could not be saved.");
+      onNotice(error instanceof Error ? error.message : "Breakdown could not be saved.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function updateBreakdown(id: string, status: string, staffName = "") {
-    setLoading(true);
+  async function updateBreakdown(
+    id: string,
+    status: string,
+    staffName = "",
+    onLocalUpdate?: (id: string, patch: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
+    onLoading(true);
+    const payload = { status, ...(staffName ? { engineer: staffName, assigned_to: staffName, assignment_source: "manual" } : {}) };
+    onLocalUpdate?.(id, payload);
     try {
-      await apiFetch(`/api/portal/breakdown/${encodeURIComponent(id)}`, {
+      const result = await apiFetch<{ record?: Record<string, unknown> }>(`/api/portal/breakdown/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
-        body: JSON.stringify({ status, ...(staffName ? { engineer: staffName, assigned_to: staffName, assignment_source: "manual" } : {}) }),
+        body: JSON.stringify(payload),
       });
-      await loadPortal();
-      setMessage(staffName ? `Breakdown assigned to ${staffName}.` : `Breakdown marked ${status}.`);
+      const updatedRecord = result.record || payload;
+      onLocalUpdate?.(id, updatedRecord);
+      patchDisplayedPortalRecordRefOnly("breakdowns", id, updatedRecord);
+      onNotice(staffName ? `Breakdown assigned to ${staffName}.` : `Breakdown marked ${status}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Breakdown could not be updated.");
+      onNotice(error instanceof Error ? error.message : "Breakdown could not be updated.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function updateBreakdownVisitPoint(record: Record<string, unknown>, point: "check_in" | "check_out") {
+  async function updateBreakdownVisitPoint(
+    record: Record<string, unknown>,
+    point: "check_in" | "check_out",
+    onLocalUpdate?: (id: string, patch: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     const id = recordIdentity(record);
-    if (!id) return;
+    if (!id) {
+      onNotice("This breakdown visit cannot be updated because it has no saved record ID.");
+      return;
+    }
     const location = await captureAttendanceLocation();
-    if (!location) return;
+    if (!location) {
+      onNotice("Location was not available, so the breakdown visit point was not saved.");
+      return;
+    }
     const now = new Date().toISOString();
-    setLoading(true);
+    const payload = point === "check_in"
+      ? { check_in_at: now, check_in_location: location, status: "In Progress" }
+      : { check_out_at: now, check_out_location: location, status: "Closed", completed_at: now, closed_at: now };
+    onLoading(true);
+    onLocalUpdate?.(id, payload);
     try {
-      await apiFetch(`/api/portal/breakdown/${encodeURIComponent(id)}`, {
+      const result = await apiFetch<{ record?: Record<string, unknown> }>(`/api/portal/breakdown/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
-        body: JSON.stringify(point === "check_in"
-          ? { check_in_at: now, check_in_location: location, status: "In Progress" }
-          : { check_out_at: now, check_out_location: location, status: "Closed", completed_at: now, closed_at: now }),
+        body: JSON.stringify(payload),
       });
-      await loadPortal();
-      setMessage(point === "check_in" ? "Breakdown check-in captured." : "Breakdown check-out captured.");
+      const updatedRecord = result.record || payload;
+      onLocalUpdate?.(id, updatedRecord);
+      patchDisplayedPortalRecordRefOnly("breakdowns", id, updatedRecord);
+      onNotice(point === "check_in" ? "Breakdown check-in captured." : "Breakdown check-out captured.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Breakdown location update could not be saved.");
+      onNotice(error instanceof Error ? error.message : "Breakdown location update could not be saved.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  function breakdownRepairDraftFor(id: string, record: Record<string, unknown>) {
+  function breakdownRepairDraftFor(id: string, record: Record<string, unknown>, breakdownRepairDrafts: Record<string, Record<string, string>>) {
     const inboundDiscordIssue = String(record.source_discord_message_id || record.channel || "").toLowerCase().includes("discord")
       ? String(record.custom_issue || record.issue || record.fault || "").trim()
       : "";
@@ -14426,72 +19439,91 @@ export default function App() {
     };
   }
 
-  function updateBreakdownRepairDraft(id: string, record: Record<string, unknown>, key: string, value: string) {
-    setBreakdownRepairDrafts((drafts) => ({
+  function updateBreakdownRepairDraft(id: string, record: Record<string, unknown>, key: string, value: string, breakdownInnerDraftState: BreakdownInnerDraftState) {
+    const { breakdownRepairDraftsRef, setBreakdownRepairDraftsRefOnly } = breakdownInnerDraftState;
+    setBreakdownRepairDraftsRefOnly((drafts) => ({
       ...drafts,
       [id]: {
-        ...breakdownRepairDraftFor(id, record),
+        ...breakdownRepairDraftFor(id, record, breakdownRepairDraftsRef.current),
         [key]: value,
       },
     }));
   }
 
-  async function saveBreakdownRepairDetails(id: string, record: Record<string, unknown>) {
-    const draft = breakdownRepairDraftFor(id, record);
+  async function saveBreakdownRepairDetails(
+    id: string,
+    record: Record<string, unknown>,
+    breakdownRepairDrafts: Record<string, Record<string, string>>,
+    onLocalUpdate?: (id: string, patch: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
+    const draft = breakdownRepairDraftFor(id, record, breakdownRepairDrafts);
     const selectedIssue = String(draft.issue_category || "").trim();
     const customIssue = String(draft.custom_issue || "").trim();
     if (!selectedIssue || (selectedIssue.toLowerCase() === "other" && !customIssue)) {
       const text = selectedIssue.toLowerCase() === "other"
         ? "Type the issue when Common elevator issue is Other."
         : "Select a common issue or type the issue before saving repair notes.";
-      Platform.OS === "web" ? setMessage(text) : Alert.alert("Issue required", text);
+      Platform.OS === "web" ? onNotice(text) : Alert.alert("Issue required", text);
       return;
     }
-    setLoading(true);
+    onLoading(true);
+    const payload = {
+      issue: customIssue || selectedIssue,
+      issue_category: selectedIssue,
+      custom_issue: customIssue,
+      parts_used: draft.parts_used,
+      parts_quantity: String(Math.max(0, Number(draft.parts_quantity || 0))),
+      action_taken: draft.action_taken,
+      customer_comments: draft.customer_comments,
+      repair_notes_updated_at: new Date().toISOString(),
+    };
+    onLocalUpdate?.(id, payload);
     try {
-      await apiFetch(`/api/portal/breakdown/${encodeURIComponent(id)}`, {
+      const result = await apiFetch<{ record?: Record<string, unknown> }>(`/api/portal/breakdown/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
-        body: JSON.stringify({
-          issue: customIssue || selectedIssue,
-          issue_category: selectedIssue,
-          custom_issue: customIssue,
-          parts_used: draft.parts_used,
-          parts_quantity: String(Math.max(0, Number(draft.parts_quantity || 0))),
-          action_taken: draft.action_taken,
-          customer_comments: draft.customer_comments,
-          repair_notes_updated_at: new Date().toISOString(),
-        }),
+        body: JSON.stringify(payload),
       });
-      setBreakdownRepairDrafts((drafts) => {
-        const next = { ...drafts };
-        delete next[id];
-        return next;
-      });
-      await loadPortal();
-      setMessage(`Repair notes saved for breakdown ${id}.`);
+      const updatedRecord = result.record || payload;
+      onLocalUpdate?.(id, updatedRecord);
+      patchDisplayedPortalRecordRefOnly("breakdowns", id, updatedRecord);
+      onNotice(`Repair notes saved for breakdown ${id}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Breakdown repair notes could not be saved.");
+      onNotice(error instanceof Error ? error.message : "Breakdown repair notes could not be saved.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function scheduleBreakdownEngineer(id: string, member: Record<string, unknown>, scheduledAt: string) {
+  async function scheduleBreakdownEngineer(
+    id: string,
+    member: Record<string, unknown>,
+    scheduledAt: string,
+    onLocalUpdate?: (id: string, patch: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     const engineerName = String(member.name || "").trim();
-    if (!engineerName) return;
-    setLoading(true);
+    if (!engineerName) {
+      onNotice("Select an engineer before scheduling a breakdown.");
+      return;
+    }
+    onLoading(true);
+    const breakdownPayload = {
+      status: "Scheduled",
+      engineer: engineerName,
+      assigned_to: engineerName,
+      assignment_source: "manual",
+      scheduled_at: scheduledAt,
+    };
+    onLocalUpdate?.(id, breakdownPayload);
     try {
-      await apiFetch(`/api/portal/breakdown/${encodeURIComponent(id)}`, {
+      const result = await apiFetch<{ record?: Record<string, unknown> }>(`/api/portal/breakdown/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
-        body: JSON.stringify({
-          status: "Scheduled",
-          engineer: engineerName,
-          assigned_to: engineerName,
-          assignment_source: "manual",
-          scheduled_at: scheduledAt,
-        }),
+        body: JSON.stringify(breakdownPayload),
       });
       const teamMember = asRecords(data?.install_team).find((item) => String(item.name || "").trim().toLowerCase() === engineerName.toLowerCase());
       const teamMemberId = teamMember ? recordIdentity(teamMember) : "";
@@ -14516,34 +19548,35 @@ export default function App() {
           }),
         });
       }
-      setBreakdownScheduleDrafts((draft) => {
-        const next = { ...draft };
-        delete next[id];
-        return next;
-      });
-      await loadPortal();
-      setMessage(`${engineerName} scheduled for breakdown ${id} at ${scheduledAt}.`);
+      const updatedRecord = result.record || breakdownPayload;
+      onLocalUpdate?.(id, updatedRecord);
+      patchDisplayedPortalRecordRefOnly("breakdowns", id, updatedRecord);
+      onNotice(`${engineerName} scheduled for breakdown ${id} at ${scheduledAt}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Engineer could not be scheduled.");
+      onNotice(error instanceof Error ? error.message : "Engineer could not be scheduled.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function updateBreakdownEngineerTask(member: Record<string, unknown>, task: string, draftKey?: string) {
+  async function updateBreakdownEngineerTask(
+    member: Record<string, unknown>,
+    task: string,
+    draftKey?: string,
+    onLocalBreakdownUpdate?: (id: string, patch: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     const engineerName = String(member.name || "").trim();
-    if (!engineerName) return;
+    if (!engineerName) {
+      onNotice("This engineer task cannot be updated because the engineer name is missing.");
+      return;
+    }
     const nextTask = task.trim();
     const engineerId = String(member.org_id || member.id || "").trim();
-    setBreakdownEngineerTaskDrafts((draft) => {
-      const next = { ...draft };
-      next[engineerName] = nextTask;
-      if (draftKey) next[draftKey] = nextTask;
-      return next;
-    });
-    setLoading(true);
+    onLoading(true);
     try {
-      await apiFetch("/api/portal/breakdown-engineer-task", {
+      const result = await apiFetch<{ record?: Record<string, unknown>; cleared_breakdowns?: string[]; assigned_waiting_breakdowns?: Record<string, unknown>[] }>("/api/portal/breakdown-engineer-task", {
         method: "PATCH",
         token,
         body: JSON.stringify({
@@ -14552,22 +19585,43 @@ export default function App() {
           current_job: nextTask,
         }),
       });
-      await loadPortal();
-      setBreakdownEngineerTaskDrafts((draft) => {
-        const next = { ...draft };
-        delete next[engineerName];
-        if (draftKey) delete next[draftKey];
-        return next;
+      if (!nextTask) {
+        (result.cleared_breakdowns || []).forEach((breakdownId) => {
+          onLocalBreakdownUpdate?.(breakdownId, {
+            scheduled_engineer: "",
+            engineer: "",
+            assigned_to: "",
+            technician: "",
+            engineer_availability: "Unassigned after task clear",
+            assignment_source: "task-cleared",
+            status: "Open",
+          });
+          patchDisplayedPortalRecordRefOnly("breakdowns", breakdownId, {
+            scheduled_engineer: "",
+            engineer: "",
+            assigned_to: "",
+            technician: "",
+            engineer_availability: "Unassigned after task clear",
+            assignment_source: "task-cleared",
+            status: "Open",
+          });
+        });
+      }
+      (result.assigned_waiting_breakdowns || []).forEach((breakdown) => {
+        const breakdownId = recordIdentity(breakdown) || String(breakdown.id || "");
+        if (!breakdownId) return;
+        onLocalBreakdownUpdate?.(breakdownId, breakdown);
+        patchDisplayedPortalRecordRefOnly("breakdowns", breakdownId, breakdown);
       });
-      setMessage(nextTask ? `${engineerName}'s current task updated to ${nextTask}.` : `${engineerName} marked available with no saved current task.`);
+      onNotice(nextTask ? `${engineerName}'s current task updated to ${nextTask}.` : `${engineerName} marked available with no saved current task.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Engineer task could not be updated.");
+      onNotice(error instanceof Error ? error.message : "Engineer task could not be updated.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function saveInstallTeamMember() {
+  async function saveInstallTeamMember(installTeamDraft: typeof emptyInstallTeamDraft, onSaved?: (record: Record<string, unknown>) => void) {
     if (!installTeamDraft.name.trim()) {
       const text = "Staff name is required.";
       Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
@@ -14575,16 +19629,18 @@ export default function App() {
     }
     setLoading(true);
     try {
-      await apiFetch("/api/portal/install-team", {
+      const payload = {
+        ...installTeamDraft,
+        skills: installTeamDraft.skills.split(",").map((skill) => skill.trim()).filter(Boolean),
+      };
+      const result = await apiFetch<{ record?: Record<string, unknown> }>("/api/portal/install-team", {
         method: "POST",
         token,
-        body: JSON.stringify({
-          ...installTeamDraft,
-          skills: installTeamDraft.skills.split(",").map((skill) => skill.trim()).filter(Boolean),
-        }),
+        body: JSON.stringify(payload),
       });
-      setInstallTeamDraft(emptyInstallTeamDraft);
-      await loadPortal();
+      const savedRecord = result.record || payload;
+      onSaved?.(savedRecord);
+      prependDisplayedPortalRecord("install_team", savedRecord);
       setMessage("Install team member saved.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Team member could not be saved.");
@@ -14593,15 +19649,18 @@ export default function App() {
     }
   }
 
-  async function updateInstallTeamMember(id: string, payload: Record<string, string>) {
+  async function updateInstallTeamMember(id: string, payload: Record<string, string>, onLocalUpdate?: (record: Record<string, unknown>) => void) {
     setLoading(true);
+    onLocalUpdate?.(payload);
     try {
-      await apiFetch(`/api/portal/install-team/${encodeURIComponent(id)}`, {
+      const result = await apiFetch<{ record?: Record<string, unknown> }>(`/api/portal/install-team/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
         body: JSON.stringify(payload),
       });
-      await loadPortal();
+      const updatedRecord = result.record || payload;
+      onLocalUpdate?.(updatedRecord);
+      patchDisplayedPortalRecord("install_team", id, updatedRecord);
       setMessage("Install team member updated.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Team member could not be updated.");
@@ -14610,15 +19669,15 @@ export default function App() {
     }
   }
 
-  async function assignInstallTeamMember(id: string, jobId: string) {
-    await updateInstallTeamMember(id, { current_job: jobId, availability: "On Site" });
+  async function assignInstallTeamMember(id: string, jobId: string, onLocalUpdate?: (record: Record<string, unknown>) => void) {
+    await updateInstallTeamMember(id, { current_job: jobId, availability: "On Site" }, onLocalUpdate);
   }
 
   async function sendInstallToCommissioning(job: Record<string, unknown>) {
     const jobId = fieldText(job, ["id", "job_id"]);
     setLoading(true);
     try {
-      await apiFetch(`/api/portal/install-jobs/${encodeURIComponent(jobId)}/send-commissioning`, {
+      const result = await apiFetch<{ commissioning?: Record<string, unknown>; message?: Record<string, unknown>; job?: Record<string, unknown> }>(`/api/portal/install-jobs/${encodeURIComponent(jobId)}/send-commissioning`, {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -14630,7 +19689,16 @@ export default function App() {
           message: `Install team completed ${fieldText(job, ["site", "id"])}. Product is installed and ready for commissioning checks.`,
         }),
       });
-      await loadPortal();
+      if (result.job) {
+        installationControllerRef.current?.patchInstallationJob(jobId, result.job);
+        patchDisplayedPortalRecord("install_jobs", jobId, result.job);
+      }
+      if (result.commissioning) {
+        const commissioningId = recordIdentity(result.commissioning);
+        if (commissioningId) patchDisplayedPortalRecord("commissionings", commissioningId, result.commissioning);
+        else prependDisplayedPortalRecord("commissionings", result.commissioning);
+      }
+      if (result.message) prependDisplayedPortalRecord("dept_comms", result.message);
       setMessage("Install team handoff sent to commissioning.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Commissioning handoff failed.");
@@ -14639,7 +19707,7 @@ export default function App() {
     }
   }
 
-  async function saveCommissioningRecord() {
+  async function saveCommissioningRecord(commissioningDraft: typeof emptyCommissioningDraft, onSaved?: (record: Record<string, unknown>) => void) {
     if (!commissioningDraft.installation_ref.trim() && !commissioningDraft.unit.trim()) {
       const text = "Installation ref or unit is required.";
       Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
@@ -14647,16 +19715,16 @@ export default function App() {
     }
     setLoading(true);
     try {
-      await apiFetch("/api/portal/commissioning", {
+      const payload = {
+        ...commissioningDraft,
+        payment_cleared: ["y", "yes", "true"].includes(commissioningDraft.payment_cleared.toLowerCase()),
+      };
+      const result = await apiFetch<{ record?: Record<string, unknown> }>("/api/portal/commissioning", {
         method: "POST",
         token,
-        body: JSON.stringify({
-          ...commissioningDraft,
-          payment_cleared: ["y", "yes", "true"].includes(commissioningDraft.payment_cleared.toLowerCase()),
-        }),
+        body: JSON.stringify(payload),
       });
-      setCommissioningDraft(emptyCommissioningDraft);
-      await loadPortal();
+      onSaved?.(result.record || payload);
       setMessage("Commissioning record saved.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Commissioning record could not be saved.");
@@ -14665,15 +19733,16 @@ export default function App() {
     }
   }
 
-  async function updateCommissioning(id: string, payload: Record<string, unknown>) {
+  async function updateCommissioning(id: string, payload: Record<string, unknown>, onLocalUpdate?: (record: Record<string, unknown>) => void) {
     setLoading(true);
+    onLocalUpdate?.(payload);
     try {
-      await apiFetch(`/api/portal/commissioning/${encodeURIComponent(id)}`, {
+      const result = await apiFetch<{ record?: Record<string, unknown> }>(`/api/portal/commissioning/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
         body: JSON.stringify(payload),
       });
-      await loadPortal();
+      onLocalUpdate?.(result.record || payload);
       setMessage("Commissioning record updated.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Commissioning record could not be updated.");
@@ -14682,11 +19751,12 @@ export default function App() {
     }
   }
 
-  async function uploadMotorNameplate(id: string) {
+  async function uploadMotorNameplate(id: string, onLocalUpdate?: (record: Record<string, unknown>) => void) {
     if (Platform.OS !== "web" || typeof document === "undefined") {
       setMessage("Motor nameplate upload is available in the web portal.");
       return;
     }
+    setMessage("Opening motor nameplate file picker.");
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
@@ -14697,7 +19767,7 @@ export default function App() {
       reader.onload = async () => {
         setLoading(true);
         try {
-          await apiFetch(`/api/portal/commissioning/${encodeURIComponent(id)}/motor-nameplate`, {
+          const result = await apiFetch<{ record?: Record<string, unknown> }>(`/api/portal/commissioning/${encodeURIComponent(id)}/motor-nameplate`, {
             method: "POST",
             token,
             body: JSON.stringify({
@@ -14706,7 +19776,7 @@ export default function App() {
               data_url: String(reader.result || ""),
             }),
           });
-          await loadPortal();
+          if (result.record) onLocalUpdate?.(result.record);
           setMessage("Motor nameplate uploaded and tied to the CRM customer commissioning record.");
         } catch (error) {
           setMessage(error instanceof Error ? error.message : "Motor nameplate could not be uploaded.");
@@ -14719,15 +19789,40 @@ export default function App() {
     input.click();
   }
 
-  async function saveAttendance() {
+  function upsertAttendanceDataRef(record: Record<string, unknown>) {
+    const currentData = dataRef.current[0] as unknown as Record<string, unknown> | null;
+    const rows = asRecords(currentData?.attendance_today);
+    const recordKey = `${String(record.date || "")}:${String(record.person_id || record.staff_id || record.person_name || record.staff_name || "")}`;
+    const nextRows = rows.some((item) => `${String(item.date || "")}:${String(item.person_id || item.staff_id || item.person_name || item.staff_name || "")}` === recordKey)
+      ? rows.map((item) => `${String(item.date || "")}:${String(item.person_id || item.staff_id || item.person_name || item.staff_name || "")}` === recordKey ? { ...item, ...record } : item)
+      : [record, ...rows];
+    dataRef.current[0] = { ...(currentData || {}), attendance_today: nextRows } as PortalData;
+  }
+
+  function upsertLeaveDataRef(record: Record<string, unknown>) {
+    const currentData = dataRef.current[0] as unknown as Record<string, unknown> | null;
+    const rows = asRecords(currentData?.leave_requests);
+    const id = recordIdentity(record) || String(record.id || record.leave_request_id || "");
+    const nextRows = id && rows.some((item) => (recordIdentity(item) || String(item.id || item.leave_request_id || "")) === id)
+      ? rows.map((item) => (recordIdentity(item) || String(item.id || item.leave_request_id || "")) === id ? { ...item, ...record } : item)
+      : [record, ...rows];
+    dataRef.current[0] = { ...(currentData || {}), leave_requests: nextRows } as PortalData;
+  }
+
+  async function saveAttendance(
+    attendanceDraft: typeof emptyAttendanceDraft,
+    onSaved?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     if (!attendanceDraft.person_id || !attendanceDraft.person_name.trim()) {
       const text = "Select a staff member before marking attendance.";
-      Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
+      Platform.OS === "web" ? onNotice(text) : Alert.alert("Missing field", text);
       return;
     }
-    setLoading(true);
+    onLoading(true);
     try {
-      await apiFetch("/api/portal/attendance", {
+      const result = await apiFetch<{ attendance?: Record<string, unknown>; record?: Record<string, unknown> }>("/api/portal/attendance", {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -14736,20 +19831,28 @@ export default function App() {
           marked_at: new Date().toISOString(),
         }),
       });
-      await loadPortal();
-      setMessage("Attendance saved.");
+      const savedAttendance = result.attendance || result.record || attendanceDraft;
+      onSaved?.(savedAttendance);
+      upsertAttendanceDataRef(savedAttendance);
+      onNotice("Attendance saved.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Attendance could not be saved.");
+      onNotice(error instanceof Error ? error.message : "Attendance could not be saved.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function markQuickAttendance(person: Record<string, unknown>, status: string) {
+  async function markQuickAttendance(
+    person: Record<string, unknown>,
+    status: string,
+    onSaved?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     const personId = fieldText(person, ["id"]);
     const personName = fieldText(person, ["name"]);
     if (!personId || !personName) {
-      setMessage("Staff record is missing an ID or name.");
+      onNotice("Staff record is missing an ID or name.");
       return;
     }
     const payload = {
@@ -14764,33 +19867,40 @@ export default function App() {
       marked_by: data?.viewer?.username || username,
       marked_at: new Date().toISOString(),
     };
-    setAttendanceDraft((draft) => ({ ...draft, ...payload }));
-    setLoading(true);
+    onLoading(true);
     try {
-      await apiFetch("/api/portal/attendance", {
+      const result = await apiFetch<{ attendance?: Record<string, unknown>; record?: Record<string, unknown> }>("/api/portal/attendance", {
         method: "POST",
         token,
         body: JSON.stringify(payload),
       });
-      await loadPortal();
-      setMessage(`${personName} marked ${status}.`);
+      const savedAttendance = result.attendance || result.record || payload;
+      onSaved?.(savedAttendance);
+      upsertAttendanceDataRef(savedAttendance);
+      onNotice(`${personName} marked ${status}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Attendance could not be saved.");
+      onNotice(error instanceof Error ? error.message : "Attendance could not be saved.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function markSelfAttendance(action: "check_in" | "check_out") {
+  async function markSelfAttendance(
+    action: "check_in" | "check_out",
+    onSaved?: (record: Record<string, unknown>) => void,
+    attendanceRows: Record<string, unknown>[] = asRecords(data?.attendance_today),
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     const staff = viewerStaffRecord(asRecords(data?.org_chart));
     if (!staff) {
-      setMessage("Your portal account is not linked to a staff profile yet.");
+      onNotice("Your portal account is not linked to a staff profile yet.");
       return;
     }
     const personId = fieldText(staff, ["id"]);
     const personName = fieldText(staff, ["name"]);
     const today = new Date().toISOString().slice(0, 10);
-    const existing = asRecords(data?.attendance_today).find((item) => (
+    const existing = attendanceRows.find((item) => (
       fieldText(item, ["date"]) === today && fieldText(item, ["person_id", "staff_id"]) === personId
     ));
     const location = await captureAttendanceLocation();
@@ -14810,31 +19920,38 @@ export default function App() {
       marked_by: data?.viewer?.username || username,
       marked_at: new Date().toISOString(),
     };
-    setLoading(true);
+    onLoading(true);
     try {
-      await apiFetch("/api/portal/attendance", {
+      const result = await apiFetch<{ attendance?: Record<string, unknown>; record?: Record<string, unknown> }>("/api/portal/attendance", {
         method: "POST",
         token,
         body: JSON.stringify(payload),
       });
-      await loadPortal();
-      setMessage(`${personName} ${action === "check_in" ? "checked in" : "checked out"}.`);
+      const savedAttendance = result.attendance || result.record || payload;
+      onSaved?.(savedAttendance);
+      upsertAttendanceDataRef(savedAttendance);
+      onNotice(`${personName} ${action === "check_in" ? "checked in" : "checked out"}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Attendance could not be saved.");
+      onNotice(error instanceof Error ? error.message : "Attendance could not be saved.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function saveLeaveRequest() {
+  async function saveLeaveRequest(
+    leaveDraft: typeof emptyLeaveDraft,
+    onSaved?: (record: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
     if (!leaveDraft.person_id || !leaveDraft.reason.trim()) {
       const text = "Select staff and enter a leave reason.";
-      Platform.OS === "web" ? setMessage(text) : Alert.alert("Missing field", text);
+      Platform.OS === "web" ? onNotice(text) : Alert.alert("Missing field", text);
       return;
     }
-    setLoading(true);
+    onLoading(true);
     try {
-      await apiFetch("/api/portal/leave-requests", {
+      const result = await apiFetch<{ leave_request?: Record<string, unknown>; record?: Record<string, unknown> }>("/api/portal/leave-requests", {
         method: "POST",
         token,
         body: JSON.stringify({
@@ -14843,34 +19960,45 @@ export default function App() {
           requested_at: new Date().toISOString(),
         }),
       });
-      setLeaveDraft((draft) => ({ ...emptyLeaveDraft, person_id: draft.person_id, person_name: draft.person_name, department: draft.department }));
-      await loadPortal();
-      setMessage("Leave request submitted for approval.");
+      const savedLeave = result.leave_request || result.record || leaveDraft;
+      onSaved?.(savedLeave);
+      upsertLeaveDataRef(savedLeave);
+      onNotice("Leave request submitted for approval.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Leave request could not be saved.");
+      onNotice(error instanceof Error ? error.message : "Leave request could not be saved.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
-  async function updateLeaveRequest(id: string, status: "Approved" | "Rejected") {
-    setLoading(true);
+  async function updateLeaveRequest(
+    id: string,
+    status: "Approved" | "Rejected",
+    onLocalUpdate?: (id: string, patch: Record<string, unknown>) => void,
+    onNotice: LocalStateSetter<string> = setMessage,
+    onLoading: LocalStateSetter<boolean> = setLoading
+  ) {
+    onLoading(true);
+    const patch = {
+      status,
+      approved_by: data?.viewer?.display_name || username,
+      approved_at: new Date().toISOString(),
+    };
+    onLocalUpdate?.(id, patch);
     try {
-      await apiFetch(`/api/portal/leave-requests/${encodeURIComponent(id)}`, {
+      const result = await apiFetch<{ leave_request?: Record<string, unknown>; record?: Record<string, unknown> }>(`/api/portal/leave-requests/${encodeURIComponent(id)}`, {
         method: "PATCH",
         token,
-        body: JSON.stringify({
-          status,
-          approved_by: data?.viewer?.display_name || username,
-          approved_at: new Date().toISOString(),
-        }),
+        body: JSON.stringify(patch),
       });
-      await loadPortal();
-      setMessage(`Leave request ${status.toLowerCase()}.`);
+      const savedLeave = result.leave_request || result.record || { id, ...patch };
+      onLocalUpdate?.(id, savedLeave);
+      upsertLeaveDataRef(savedLeave);
+      onNotice(`Leave request ${status.toLowerCase()}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Leave request could not be updated.");
+      onNotice(error instanceof Error ? error.message : "Leave request could not be updated.");
     } finally {
-      setLoading(false);
+      onLoading(false);
     }
   }
 
@@ -14911,88 +20039,11 @@ export default function App() {
       .catch(() => setLoginDirectory([]));
   }, [isSignedIn, showPortalLogin, loginDepartment]);
 
-  useEffect(() => {
-    if (!token || globalSearch.trim().length < 2) {
-      setGlobalSearchResults([]);
-      return;
-    }
-    const handle = setTimeout(() => {
-      apiFetch<{ results?: Array<Record<string, unknown>> }>(`/api/portal/global-search?q=${encodeURIComponent(globalSearch.trim())}`, { token })
-        .then((result) => setGlobalSearchResults(result.results || []))
-        .catch(() => setGlobalSearchResults([]));
-    }, 250);
-    return () => clearTimeout(handle);
-  }, [globalSearch, token]);
-
-  useEffect(() => {
+  function handleActiveTabChange(activeTab: TabKey) {
+    activeTabRef.current = activeTab;
     if (activeTab === "enquiries" || activeTab === "sales") setCrmRecordView("Enquiries");
     if (activeTab === "customers") setCrmRecordView("Customers");
-  }, [activeTab]);
-
-  useEffect(() => {
-    const allowed = data?.access?.allowed_views;
-    const hasCostingImportAccess = activeTab === "costingImport" && ["customers", "sales", "offerManager", "siteVisits"].some((key) => allowed?.includes(key));
-    const hasEnquiriesAccess = activeTab === "enquiries" && ["enquiries", "customers", "sales"].some((key) => allowed?.includes(key));
-    if (allowed?.length && !allowed.includes(activeTab) && !hasCostingImportAccess && !hasEnquiriesAccess) {
-      setActiveTab((data?.access?.default_view as TabKey) || (allowed[0] as TabKey) || "overview");
-    }
-  }, [activeTab, data?.access]);
-
-  useEffect(() => {
-    if (!token || activeTab !== "breakdown") return;
-    const interval = setInterval(() => {
-      loadPortal().catch((error) => setMessage(error.message));
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [token, activeTab]);
-
-  useEffect(() => {
-    if (!token || activeTab !== "projects") return;
-    const interval = setInterval(() => setProjectNow(Date.now()), 60000);
-    return () => clearInterval(interval);
-  }, [token, activeTab]);
-
-  useEffect(() => {
-    const staff = viewerStaffRecord(asRecords(data?.org_chart));
-    if (!staff || leaveDraft.person_id) return;
-    setLeaveDraft((draft) => ({
-      ...draft,
-      person_id: fieldText(staff, ["id"]),
-      person_name: fieldText(staff, ["name"]),
-      department: fieldText(staff, ["department"]),
-    }));
-  }, [data?.org_chart, data?.viewer, leaveDraft.person_id]);
-
-  useEffect(() => {
-    setCustomerPage(1);
-    setEnquiryPage(1);
-    setOfferPage(1);
-  }, [crmSearch, crmRecordView, crmStageFilter, crmStaffFilter, crmDepartmentFilter, crmTeamFilter, data?.customers?.length]);
-
-  useEffect(() => {
-    setOfferCustomerPage(1);
-  }, [offerCustomerSearch, offerCustomerOfferFilter, data?.customers?.length, data?.sales_inquiries]);
-
-  useEffect(() => {
-    const pageCount = Math.max(1, Math.ceil(asRecords(data?.estimates).length / 10));
-    setOfferPage((page) => Math.min(page, pageCount));
-  }, [data?.estimates]);
-
-  useEffect(() => {
-    setInternationalVendorPage(1);
-  }, [internationalVendorSearch, internationalVendorFilter, data?.international_vendors?.length]);
-
-  useEffect(() => {
-    const count = asRecords((data as Record<string, unknown> | null)?.breakdowns).length;
-    const pageCount = Math.max(1, Math.ceil(count / 10));
-    setBreakdownPage((page) => Math.min(page, pageCount));
-  }, [data?.breakdowns]);
-
-  useEffect(() => {
-    const count = asRecords((data as Record<string, unknown> | null)?.service_records).length;
-    const pageCount = Math.max(1, Math.ceil(count / 10));
-    setServicePage((page) => Math.min(page, pageCount));
-  }, [data?.service_records]);
+  }
 
   useEffect(() => {
     if (Platform.OS !== "web" || typeof document === "undefined") return;
@@ -15033,96 +20084,6 @@ export default function App() {
     return <PublicWebsite onOpenPortal={() => setShowPortalLogin(true)} />;
   }
 
-  const nav = isWide ? (
-    <ScrollView style={styles.sideNav} contentContainerStyle={styles.sideNavContent} showsVerticalScrollIndicator={false}>
-      <TextInput style={styles.navSearchInput} value={navSearch} onChangeText={setNavSearch} placeholder="Find module" placeholderTextColor="#7f8798" />
-      {navGroups.map((section) => (
-        <View key={section.group} style={styles.navGroup}>
-          <Text style={styles.navGroupLabel}>{section.group}</Text>
-          {section.items.map((item) => (
-            <Pressable
-              key={item.key}
-              style={[styles.sideLink, activeTab === item.key && styles.sideLinkActive]}
-              onPress={() => setActiveTab(item.key)}
-            >
-              <Text style={[styles.navIcon, activeTab === item.key && styles.navIconActive]}>{item.icon}</Text>
-              <Text style={[styles.sideLinkText, activeTab === item.key && styles.sideLinkTextActive]}>{item.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-      ))}
-    </ScrollView>
-  ) : isPhone ? (
-    <View style={styles.mobileMenuWrap}>
-      <Pressable
-        style={[styles.mobileMenuButton, mobileNavOpen && styles.selectorPillActive]}
-        onPress={() => setMobileNavOpen((open) => !open)}
-      >
-        <View style={styles.mobileMenuCurrent}>
-          <Text style={styles.mobileMenuIcon}>{activeNavItem?.icon || "•"}</Text>
-          <View style={styles.mobileMenuTextBlock}>
-            <Text style={styles.mobileMenuLabel}>Current module</Text>
-            <Text style={styles.mobileMenuTitle} numberOfLines={1}>{activeNavItem?.label || "Operations"}</Text>
-          </View>
-        </View>
-        <Text style={styles.dropdownChevron}>{mobileNavOpen ? "▲" : "▼"}</Text>
-      </Pressable>
-      {mobileNavOpen && (
-        <View style={styles.mobileMenuPanel}>
-          <TextInput
-            style={styles.mobileMenuSearch}
-            value={navSearch}
-            onChangeText={setNavSearch}
-            placeholder="Find module"
-            placeholderTextColor="#7f8798"
-            commitDelayMs={250}
-          />
-          <ScrollView style={styles.mobileMenuScroll} nestedScrollEnabled>
-            {navGroups.map((section) => (
-              <View key={`mobile-${section.group}`} style={styles.mobileMenuGroup}>
-                <Text style={styles.mobileMenuGroupLabel}>{section.group}</Text>
-                <View style={styles.mobileMenuGrid}>
-                  {section.items.map((item) => (
-                    <Pressable
-                      key={`mobile-${item.key}`}
-                      style={[styles.mobileMenuItem, activeTab === item.key && styles.mobileMenuItemActive]}
-                      onPress={() => {
-                        setActiveTab(item.key);
-                        setMobileNavOpen(false);
-                      }}
-                    >
-                      <Text style={[styles.mobileMenuItemIcon, activeTab === item.key && styles.activeTabText]}>{item.icon}</Text>
-                      <Text style={[styles.mobileMenuItemText, activeTab === item.key && styles.activeTabText]} numberOfLines={2}>{item.label}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-      )}
-    </View>
-  ) : (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      showsVerticalScrollIndicator={false}
-      style={[styles.tabs, isPhone && styles.tabsPhone]}
-      contentContainerStyle={[styles.mobileNavRail, isPhone && styles.mobileNavRailPhone]}
-    >
-      {navGroups.flatMap((section) => section.items).map((item) => (
-        <Pressable
-          key={item.key}
-          style={[styles.tab, isPhone && styles.tabPhone, activeTab === item.key && styles.activeTab]}
-          onPress={() => setActiveTab(item.key)}
-        >
-          <Text style={[styles.tabIcon, isPhone && styles.tabIconPhone, activeTab === item.key && styles.activeTabText]}>{item.icon}</Text>
-          <Text style={[styles.tabText, isPhone && styles.tabTextPhone, activeTab === item.key && styles.activeTabText]} numberOfLines={1}>{item.label}</Text>
-        </Pressable>
-      ))}
-    </ScrollView>
-  );
-
   if (!isSignedIn && !showPortalLogin) {
     return renderWebsiteHome();
   }
@@ -15144,6 +20105,7 @@ export default function App() {
             <Pressable
               style={styles.homeLinkButton}
               onPress={() => {
+                setMessage("Opening website home.");
                 if (Platform.OS === "web" && typeof window !== "undefined" && window.location.pathname.startsWith("/portal")) {
                   window.location.href = "/";
                   return;
@@ -15155,11 +20117,11 @@ export default function App() {
             </Pressable>
             <View style={styles.loginField}>
               <Text style={styles.label}>Username</Text>
-              <TextInput style={styles.loginInput} value={username} onChangeText={setUsername} autoCapitalize="none" placeholder="Enter username" placeholderTextColor="#7f8798" />
+              <TextInput style={styles.loginInput} value={username} onChangeText={updateLoginUsername} autoCapitalize="none" placeholder="Enter username" placeholderTextColor="#7f8798" />
             </View>
             <View style={styles.loginField}>
               <Text style={styles.label}>Password</Text>
-              <TextInput style={styles.loginInput} value={password} onChangeText={setPassword} secureTextEntry placeholder="Enter password" placeholderTextColor="#7f8798" />
+              <TextInput style={styles.loginInput} value={password} onChangeText={updateLoginPassword} secureTextEntry placeholder="Enter password" placeholderTextColor="#7f8798" />
             </View>
             <Pressable style={[styles.primaryButton, loading && styles.disabledButton]} onPress={() => signIn()} disabled={loading}>
               <Text style={styles.primaryButtonText}>{loading ? "Signing in..." : "Sign in"}</Text>
@@ -15169,70 +20131,95 @@ export default function App() {
               <Text style={styles.hint}>Connected to operations API</Text>
             </View>
             <Text style={styles.muted}>Choose your department, then pick your staff login and enter the staff portal password.</Text>
-            <Pressable
-              style={[styles.dropdownButton, loginDepartmentOpen && styles.selectorPillActive]}
-              onPress={() => {
-                setLoginDepartmentOpen((open) => !open);
-                setLoginUserOpen(false);
-              }}
-              disabled={loading || !loginDepartments.length}
-            >
-              <Text style={styles.selectorText}>{selectedLoginDepartment || "Select department"}</Text>
-              <Text style={styles.dropdownChevron}>{loginDepartmentOpen ? "▲" : "▼"}</Text>
-            </Pressable>
-            {loginDepartmentOpen && (
-              <ScrollView style={styles.dropdownScroll} contentContainerStyle={styles.dropdownPanel} nestedScrollEnabled>
-                {loginDepartments.map((department) => {
-                  const loginCount = department === "Admin / CEO"
-                    ? adminLoginUsers.length
-                    : loginDirectory.filter((user) => (fieldText(user, ["department"]) || "Unassigned") === department).length;
-                  return (
-                    <Pressable
-                      key={`login-dept-${department}`}
-                      style={styles.dropdownOption}
-                      onPress={() => {
-                        setLoginDepartment(department);
-                        setLoginDepartmentOpen(false);
-                        setLoginUserOpen(true);
-                      }}
-                    >
-                      <Text style={styles.quickLoginText}>{department}</Text>
-                      <Text style={styles.quickLoginSub}>{loginCount} logins</Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            )}
-            <Pressable
-              style={[styles.dropdownButton, loginUserOpen && styles.selectorPillActive]}
-              onPress={() => {
-                setLoginUserOpen((open) => !open);
-                setLoginDepartmentOpen(false);
-              }}
-              disabled={loading || !loginUsersForDepartment.length}
-            >
-              <Text style={styles.selectorText}>{username || "Select staff login"}</Text>
-              <Text style={styles.dropdownChevron}>{loginUserOpen ? "▲" : "▼"}</Text>
-            </Pressable>
-            {loginUserOpen && (
-              <ScrollView style={styles.dropdownScroll} contentContainerStyle={styles.dropdownPanel} nestedScrollEnabled>
-                {loginUsersForDepartment.map((account) => (
+            <LocalToggle>
+              {(loginDepartmentOpen, setLoginDepartmentOpen) => (
+                <>
                   <Pressable
-                    key={`login-user-${String(account.username)}`}
-                    style={styles.dropdownOption}
+                    style={[styles.dropdownButton, loginDepartmentOpen && styles.selectorPillActive]}
                     onPress={() => {
-                      setUsername(String(account.username || ""));
-                      setPassword("");
-                      setLoginUserOpen(false);
+                      setLoginDepartmentOpen((open) => {
+                        setMessage(open ? "Login department selector closed." : "Login department selector opened.");
+                        return !open;
+                      });
                     }}
-                    disabled={loading}
+                    disabled={loading || !loginDepartments.length}
                   >
-                    <Text style={styles.quickLoginText}>{fieldText(account, ["display_name", "username"])}</Text>
-                    <Text style={styles.quickLoginSubLink}>{fieldText(account, ["username"])} - {fieldText(account, ["role"])}</Text>
+                    <Text style={styles.selectorText}>{selectedLoginDepartment || "Select department"}</Text>
+                    <Text style={styles.dropdownChevron}>{loginDepartmentOpen ? "^" : "v"}</Text>
                   </Pressable>
-                ))}
-              </ScrollView>
-            )}
+                  {loginDepartmentOpen && (
+                    <ScrollView style={styles.dropdownScroll} contentContainerStyle={styles.dropdownPanel} nestedScrollEnabled>
+                      {loginDepartments.map((department) => {
+                        const loginCount = department === "Admin / CEO"
+                          ? adminLoginUsers.length
+                          : loginDirectory.filter((user) => (fieldText(user, ["department"]) || "Unassigned") === department).length;
+                        return (
+                          <Pressable
+                            key={`login-dept-${department}`}
+                            style={styles.dropdownOption}
+                            onPress={() => {
+                              const nextUsers = department === "Admin / CEO"
+                                ? adminLoginUsers
+                                : loginDirectory.filter((user) => (fieldText(user, ["department"]) || "Unassigned") === department);
+                              const currentUserStillVisible = nextUsers.some((user) => fieldText(user, ["username"]) === loginUsernameRef.current);
+                              if (!currentUserStillVisible) {
+                                updateLoginUsername(fieldText(nextUsers[0], ["username"]));
+                                updateLoginPassword("");
+                              }
+                              setLoginDepartment(department);
+                              setLoginDepartmentOpen(false);
+                              setMessage(`Login department selected: ${department}.`);
+                            }}
+                          >
+                            <Text style={styles.quickLoginText}>{department}</Text>
+                            <Text style={styles.quickLoginSub}>{loginCount} logins</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
+                </>
+              )}
+            </LocalToggle>
+            <LocalToggle>
+              {(loginUserOpen, setLoginUserOpen) => (
+                <>
+                  <Pressable
+                    style={[styles.dropdownButton, loginUserOpen && styles.selectorPillActive]}
+                    onPress={() => {
+                      setLoginUserOpen((open) => {
+                        setMessage(open ? "Staff login selector closed." : "Staff login selector opened.");
+                        return !open;
+                      });
+                    }}
+                    disabled={loading || !loginUsersForDepartment.length}
+                  >
+                    <Text style={styles.selectorText}>{username || "Select staff login"}</Text>
+                    <Text style={styles.dropdownChevron}>{loginUserOpen ? "^" : "v"}</Text>
+                  </Pressable>
+                  {loginUserOpen && (
+                    <ScrollView style={styles.dropdownScroll} contentContainerStyle={styles.dropdownPanel} nestedScrollEnabled>
+                      {loginUsersForDepartment.map((account) => (
+                        <Pressable
+                          key={`login-user-${String(account.username)}`}
+                          style={styles.dropdownOption}
+                          onPress={() => {
+                            updateLoginUsername(String(account.username || ""));
+                            updateLoginPassword("");
+                            setLoginUserOpen(false);
+                            setMessage(`Staff login selected: ${fieldText(account, ["username"])}.`);
+                          }}
+                          disabled={loading}
+                        >
+                          <Text style={styles.quickLoginText}>{fieldText(account, ["display_name", "username"])}</Text>
+                          <Text style={styles.quickLoginSubLink}>{fieldText(account, ["username"])} - {fieldText(account, ["role"])}</Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  )}
+                </>
+              )}
+            </LocalToggle>
             {!!message && <Text style={styles.error}>{message}</Text>}
           </View>
         </ScrollView>
@@ -15250,7 +20237,7 @@ export default function App() {
             <Text style={styles.title}>Loading portal data</Text>
             <Text style={styles.muted}>Fetching the latest records from {apiBaseUrl}.</Text>
             {!!message && <Text style={styles.error}>{message}</Text>}
-            <Pressable style={styles.primaryButton} onPress={() => loadPortal().catch((error) => setMessage(error.message))} disabled={loading}>
+            <Pressable style={styles.primaryButton} onPress={manualRefreshPortal} disabled={loading}>
               <Text style={styles.primaryButtonText}>{loading ? "Loading..." : "Retry"}</Text>
             </Pressable>
             <Pressable style={styles.ghostButton} onPress={signOut}>
@@ -15267,6 +20254,37 @@ export default function App() {
     <SafeAreaView style={[styles.safe, styles.portalSafe]}>
       <StatusBar style="dark" />
       <View style={[styles.appShell, isWide && styles.appShellWide]}>
+        <PortalNavigationBoundary
+          activeTabControllerRef={activeTabControllerRef}
+          activeTabRef={activeTabRef}
+          allowedViews={data?.access?.allowed_views}
+          defaultView={data?.access?.default_view as TabKey}
+          onProjectMinute={() => {
+            projectNowRef.current = Date.now();
+          }}
+          onRefreshBreakdown={refreshPortalCache}
+          onTabChange={handleActiveTabChange}
+          token={token}
+        >
+          {(activeTab) => {
+            const nav = (
+              <PortalNav
+                activeTab={activeTab}
+                isPhone={isPhone}
+                isWide={isWide}
+                onSelectTab={setActiveTab}
+                portalLanguage={portalLanguage}
+                setMessage={setMessage}
+                visibleNavItems={visibleNavItems}
+              />
+            );
+            const activeNavItem = activeNavItemFor(activeTab);
+            return (
+              <LocalToggle initialOpen>
+                {(compactLists, setCompactLists) => {
+                  compactListsRef.current = compactLists;
+                  return (
+              <>
         {isWide && (
           <View style={styles.sidebar}>
             <View style={styles.sideBrand}>
@@ -15294,42 +20312,88 @@ export default function App() {
                 <Text style={styles.languageLabel}>Language</Text>
                 <Pressable
                   style={[styles.languageButton, portalLanguage === "en" && styles.languageButtonActive]}
-                  onPress={() => setPortalLanguage("en")}
+                  onPress={() => {
+                    setPortalLanguage("en");
+                    setMessage("Language set to English.");
+                  }}
                 >
                   <Text style={[styles.languageButtonText, portalLanguage === "en" && styles.languageButtonTextActive]}>English</Text>
                 </Pressable>
                 <Pressable
                   style={[styles.languageButton, portalLanguage === "hi" && styles.languageButtonActive]}
-                  onPress={() => setPortalLanguage("hi")}
+                  onPress={() => {
+                    setPortalLanguage("hi");
+                    setMessage("Language set to Hindi.");
+                  }}
                 >
                   <Text style={[styles.languageButtonText, portalLanguage === "hi" && styles.languageButtonTextActive]}>Hindi</Text>
                 </Pressable>
               </View>
-              <View style={[styles.globalSearchBox, !isWide && styles.globalSearchBoxMobile]}>
-                <TextInput
-                  style={styles.globalSearchInput}
-                  value={globalSearch}
-                  onChangeText={(value) => {
-                    setGlobalSearch(value);
-                    setGlobalSearchOpen(value.trim().length >= 2);
-                  }}
-                  onFocus={() => setGlobalSearchOpen(globalSearch.trim().length >= 2)}
-                  placeholder="Search CRM, service, jobs"
-                />
-              </View>
-              <Pressable style={[styles.ghostButton, !isWide && styles.mobileActionButton, isPhone && styles.mobileActionButtonPhone]} onPress={() => setCompactLists((value) => !value)}>
+              <PortalGlobalSearch
+                containerStyle={!isWide && styles.globalSearchBoxMobile}
+                onOpenResult={openGlobalSearchResult}
+                setMessage={setMessage}
+                token={token}
+              />
+              <Pressable
+                style={[styles.ghostButton, !isWide && styles.mobileActionButton, isPhone && styles.mobileActionButtonPhone]}
+                onPress={() => {
+                  setCompactLists((value) => {
+                    const nextValue = !value;
+                    setMessage(nextValue ? "Comfort view enabled." : "Compact view enabled.");
+                    return nextValue;
+                  });
+                }}
+              >
                 <Text style={styles.ghostButtonText}>{compactLists ? "Comfort view" : "Compact view"}</Text>
               </Pressable>
-              <Pressable style={[styles.ghostButton, !isWide && styles.mobileActionButton, isPhone && styles.mobileActionButtonPhone]} onPress={() => setNotificationPanelOpen((open) => !open)}>
+              <LocalToggle>
+                {(notificationPanelOpen, setNotificationPanelOpen) => (
+                  <>
+              <Pressable
+                style={[styles.ghostButton, !isWide && styles.mobileActionButton, isPhone && styles.mobileActionButtonPhone]}
+                onPress={() => {
+                  setNotificationPanelOpen((open) => {
+                    setMessage(open ? "Notification center closed." : "Notification center opened.");
+                    return !open;
+                  });
+                }}
+              >
                 <Text style={styles.ghostButtonText}>Inbox {unreadNotifications.length ? `(${unreadNotifications.length})` : ""}</Text>
               </Pressable>
+              {notificationPanelOpen && (
+                <View style={styles.quickPanel}>
+                  <View style={styles.cardHeaderRow}>
+                    <Text style={styles.cardLabel}>Notification center</Text>
+                    <View style={styles.inlineActions}>
+                      <Pressable style={styles.smallButton} onPress={() => { setActiveTab("comms"); setMessage("Opening Dept Comms."); }}>
+                        <Text style={styles.smallButtonText}>Open Dept Comms</Text>
+                      </Pressable>
+                      <Pressable style={styles.smallButton} onPress={markAllNotificationsRead} disabled={loading || !unreadNotifications.length}>
+                        <Text style={styles.smallButtonText}>Mark all read</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                  {limitedItems(notificationListKey, unreadNotifications).map((item, index) => (
+                    <View key={`notif-${String(item.id || index)}`} style={styles.quickPanelRow}>
+                      <Text style={styles.cardTitle}>{String(item.subject || item.title || item.notification_type || "-")}</Text>
+                      <Text style={styles.muted}>{String(item.department || "-")} - {String(item.message || "").slice(0, 140)}</Text>
+                    </View>
+                  ))}
+                  {!unreadNotifications.length && <Text style={styles.muted}>No unread notifications.</Text>}
+                  {renderListControls(notificationListKey, unreadNotifications.length)}
+                </View>
+              )}
+                  </>
+                )}
+              </LocalToggle>
               <View style={[styles.syncPill, !isWide && styles.mobileMetaPill, isPhone && styles.phoneHidden]}>
                 <Text style={styles.syncPillText}>Synced {data?.synced_at || "now"}</Text>
               </View>
               <View style={[styles.userPill, !isWide && styles.mobileMetaPill, isPhone && styles.phoneHidden]}>
                 <Text style={styles.userPillText}>{data?.viewer?.display_name || username}</Text>
               </View>
-              <Pressable style={[styles.ghostButton, !isWide && styles.mobileActionButton, isPhone && styles.mobileActionButtonPhone]} onPress={() => loadPortal().catch((error) => setMessage(error.message))}>
+              <Pressable style={[styles.ghostButton, !isWide && styles.mobileActionButton, isPhone && styles.mobileActionButtonPhone]} onPress={manualRefreshPortal}>
                 <Text style={styles.ghostButtonText}>Refresh</Text>
               </Pressable>
               <Pressable style={[styles.ghostButton, !isWide && styles.mobileActionButton, isPhone && styles.mobileActionButtonPhone]} onPress={signOut}>
@@ -15337,48 +20401,6 @@ export default function App() {
               </Pressable>
             </View>
           </View>
-
-          {globalSearchOpen && (
-            <View style={styles.quickPanel}>
-              <View style={styles.cardHeaderRow}>
-                <Text style={styles.cardLabel}>Global search</Text>
-                <Pressable style={styles.smallButton} onPress={() => setGlobalSearchOpen(false)}>
-                  <Text style={styles.smallButtonText}>Close</Text>
-                </Pressable>
-              </View>
-              {globalSearchResults.length ? limitedItems(globalSearchListKey, globalSearchResults).map((result, index) => (
-                <Pressable key={`global-result-${String(result.collection)}-${String(result.id)}-${index}`} style={styles.quickPanelRow} onPress={() => openGlobalSearchResult(result)}>
-                  <Text style={styles.cardTitle}>{String(result.title || "-")}</Text>
-                  <Text style={styles.muted}>{String(result.collection || "-")} - {String(result.subtitle || result.status || "")}</Text>
-                </Pressable>
-              )) : <Text style={styles.muted}>{globalSearch.trim().length < 2 ? "Type at least 2 characters." : "No matching records found."}</Text>}
-              {renderListControls(globalSearchListKey, globalSearchResults.length)}
-            </View>
-          )}
-
-          {notificationPanelOpen && (
-            <View style={styles.quickPanel}>
-              <View style={styles.cardHeaderRow}>
-                <Text style={styles.cardLabel}>Notification center</Text>
-                <View style={styles.inlineActions}>
-                  <Pressable style={styles.smallButton} onPress={() => setActiveTab("comms")}>
-                    <Text style={styles.smallButtonText}>Open Dept Comms</Text>
-                  </Pressable>
-                  <Pressable style={styles.smallButton} onPress={markAllNotificationsRead} disabled={loading || !unreadNotifications.length}>
-                    <Text style={styles.smallButtonText}>Mark all read</Text>
-                  </Pressable>
-                </View>
-              </View>
-              {limitedItems(notificationListKey, unreadNotifications).map((item, index) => (
-                <View key={`notif-${String(item.id || index)}`} style={styles.quickPanelRow}>
-                  <Text style={styles.cardTitle}>{String(item.subject || item.title || item.notification_type || "-")}</Text>
-                  <Text style={styles.muted}>{String(item.department || "-")} - {String(item.message || "").slice(0, 140)}</Text>
-                </View>
-              ))}
-              {!unreadNotifications.length && <Text style={styles.muted}>No unread notifications.</Text>}
-              {renderListControls(notificationListKey, unreadNotifications.length)}
-            </View>
-          )}
 
           {!isWide && (
             <View style={[styles.mobileBrandRow, isPhone && styles.mobileBrandRowPhone]}>
@@ -15394,46 +20416,62 @@ export default function App() {
 
           {!isWide && nav}
 
-          {loading && <ActivityIndicator style={styles.loader} />}
-          {!!message && <Text style={styles.banner}>{message}</Text>}
+          <PortalStatus loading={loading} message={message} statusRef={portalStatusRef} />
 
-          {Platform.OS === "web" ? (
-            <View style={[styles.content, isWide && styles.contentWide, isPhone && styles.contentPhone]}>
-              {activeTab === "overview" && renderOverviewAnalytics()}
-              {activeTab === "today" && renderTodayActionQueue()}
+          <ListLimitBoundary controllerRef={listLimitControllerRef}>
+            {() => Platform.OS === "web" ? (
+              <View style={[styles.content, isWide && styles.contentWide, isPhone && styles.contentPhone]}>
+                {activeTab === "overview" && renderOverviewAnalyticsBoundary()}
+                {activeTab === "today" && renderTodayActionQueue()}
 
-              {(activeTab === "enquiries" || activeTab === "customers") && (
-                renderCustomerCrmPage()
-              )}
+                {(activeTab === "enquiries" || activeTab === "customers") && (
+                  renderCustomerCrmBoundary()
+                )}
 
-              {renderActiveFeaturePage()}
+                {renderActiveFeaturePage(activeTab)}
 
-              {activeTab === "estimator" && renderEstimatorPage()}
-            </View>
-          ) : (
-            <ScrollView style={styles.contentScroll} contentContainerStyle={[styles.content, isWide && styles.contentWide, isPhone && styles.contentPhone]}>
-              {activeTab === "overview" && renderOverviewAnalytics()}
-              {activeTab === "today" && renderTodayActionQueue()}
+                {activeTab === "estimator" && renderEstimatorBoundary()}
+              </View>
+            ) : (
+              <ScrollView style={styles.contentScroll} contentContainerStyle={[styles.content, isWide && styles.contentWide, isPhone && styles.contentPhone]}>
+                {activeTab === "overview" && renderOverviewAnalyticsBoundary()}
+                {activeTab === "today" && renderTodayActionQueue()}
 
-              {(activeTab === "enquiries" || activeTab === "customers") && (
-                renderCustomerCrmPage()
-              )}
+                {(activeTab === "enquiries" || activeTab === "customers") && (
+                  renderCustomerCrmBoundary()
+                )}
 
-              {renderActiveFeaturePage()}
+                {renderActiveFeaturePage(activeTab)}
 
-              {activeTab === "estimator" && renderEstimatorPage()}
-            </ScrollView>
-          )}
+                {activeTab === "estimator" && renderEstimatorBoundary()}
+              </ScrollView>
+            )}
+          </ListLimitBoundary>
+          <SiteVisitDraftBoundary controllerRef={siteVisitDraftControllerRef} draftRef={siteVisitDraftRef}>
+            {(siteVisitDraftState) => renderSiteVisitEditorModal(siteVisitDraftState)}
+          </SiteVisitDraftBoundary>
         </View>
+              </>
+                  );
+                }}
+              </LocalToggle>
+            );
+          }}
+        </PortalNavigationBoundary>
       </View>
     </SafeAreaView>
     </LanguageContext.Provider>
   );
+});
+
+export default function App() {
+  return <PortalApp />;
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#eef1f5" },
   portalSafe: Platform.OS === "web" ? { minHeight: "100vh" as never } : {},
+  portalStatusOverlay: { left: 8, position: "fixed" as any, right: 8, top: 8, zIndex: 1000 },
   homeSafe: { flex: 1, backgroundColor: "#0f1117" },
   homeScroll: { flex: 1, backgroundColor: "#0f1117" },
   homeContent: { minHeight: "100%", paddingBottom: 40 },
@@ -15488,6 +20526,7 @@ const styles = StyleSheet.create({
   navIconActive: { color: "#fff" },
   sideLinkText: { color: "#c5cad6", fontWeight: "800", fontSize: 13 },
   sideLinkTextActive: { color: "#fff" },
+  sideLinkCurrent: { color: "#fff", fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
   connectorCard: { borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(255,255,255,0.06)", padding: 14, gap: 8 },
   connectorStatus: { color: "#fff", fontWeight: "900", fontSize: 13 },
   connectorCopy: { color: "rgba(255,255,255,0.62)", fontSize: 12, lineHeight: 18 },
@@ -15655,6 +20694,11 @@ const styles = StyleSheet.create({
   openingSchedulePanel: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#fff", padding: 12, gap: 10 },
   openingScheduleRow: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 10, gap: 8 },
   openingScheduleField: { gap: 6 },
+  offerInventoryEditor: { borderWidth: 1, borderColor: "#c8d3e3", borderRadius: 8, backgroundColor: "#f8fafc", padding: 12, gap: 10 },
+  offerInventoryEditorGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  offerInventoryEditorField: { flexGrow: 1, flexBasis: 150, minWidth: 140, gap: 6 },
+  offerInventoryEditorFieldWide: { flexGrow: 2, flexBasis: 260, minWidth: 220, gap: 6 },
+  offerInventoryInput: { minHeight: 44, borderWidth: 1, borderColor: "#b8c4d6", borderRadius: 8, backgroundColor: "#fff", paddingHorizontal: 12, color: "#11131b", fontWeight: "800" },
   statusSelectorPanel: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#fff", padding: 12, gap: 10, marginTop: 10 },
   statusChoiceGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   statusChoice: { minHeight: 34, borderRadius: 8, borderWidth: 1, borderColor: "#d5dae4", backgroundColor: "#f3f5f8", paddingHorizontal: 10, paddingVertical: 7, justifyContent: "center" },

@@ -6965,6 +6965,40 @@ app.patch("/api/portal/renewals/:id", authRequired, async (req, res) => {
   await updateOperationsRecord("renewals", req.params.id, req.body, res);
 });
 
+app.get("/api/portal/work-orders", authRequired, async (_req, res) => {
+  const state = await readOperationsState();
+  const workOrders = Array.isArray(state.work_orders)
+    ? state.work_orders.map((item, index) => normalizedOpsRecord(item, operationsPrefixes.work_orders, index))
+    : [];
+  res.json({ ok: true, work_orders: workOrders });
+});
+
+app.post("/api/portal/work-orders", authRequired, async (req, res) => {
+  const state = await readOperationsState();
+  const workOrders = Array.isArray(state.work_orders) ? state.work_orders : [];
+  const now = new Date().toISOString();
+  const workOrder = {
+    id: nextId(workOrders, operationsPrefixes.work_orders),
+    title: String(req.body?.title || req.body?.name || "Work order").trim(),
+    customer: String(req.body?.customer || req.body?.owner || "").trim(),
+    body: String(req.body?.body || req.body?.notes || "").trim(),
+    status: String(req.body?.status || "Draft").trim(),
+    urgency: String(req.body?.urgency || "Medium").trim(),
+    pushed_at: "",
+    created_at: now,
+    updated_at: now
+  };
+  workOrders.unshift(workOrder);
+  state.work_orders = workOrders;
+  await writeOperationsState(state);
+  await appendAuditLog({ user: req.user || {}, collection: "work_orders", recordId: workOrder.id, action: "create", before: null, after: workOrder });
+  res.json({ ok: true, record: workOrder, work_order: workOrder });
+});
+
+app.patch("/api/portal/work-orders/:id", authRequired, async (req, res) => {
+  await updateOperationsRecord("work_orders", req.params.id, req.body, res);
+});
+
 app.post("/api/portal/customers", authRequired, async (req, res) => {
   const customers = await readJson(listFiles.customers, []);
   const name = String(req.body?.name || "").trim();
@@ -8018,13 +8052,16 @@ app.post("/api/portal/install-jobs/:jobId/send-commissioning", authRequired, asy
   jobs[jobIndex] = { ...job, status: "Installed - Sent to Commissioning", commissioning_id: commissioning.id, commissioning_handoff_at: now };
   await writeJson(listFiles.install_jobs, jobs);
 
-  const delivery = await communicationService.sendBusinessChannelUpdate("installation-complete", {
-    agent: "Field Installation Manager",
-    job_id: job.id || job.job_id,
-    site: job.site,
-    crew: job.crew,
-    summary: `Install handoff sent for ${job.site || job.id}.`
-  });
+  const delivery = await Promise.race([
+    communicationService.sendBusinessChannelUpdate("installation-complete", {
+      agent: "Field Installation Manager",
+      job_id: job.id || job.job_id,
+      site: job.site,
+      crew: job.crew,
+      summary: `Install handoff sent for ${job.site || job.id}.`
+    }),
+    new Promise((resolve) => setTimeout(() => resolve({ ok: false, skipped: true, message: "Business channel delivery timed out." }), 5000))
+  ]).catch((error) => ({ ok: false, message: error instanceof Error ? error.message : "Business channel delivery failed." }));
   res.json({ ok: true, commissioning, message, job: jobs[jobIndex], delivery });
 });
 
@@ -8200,6 +8237,60 @@ app.patch("/api/portal/leave-requests/:id", authRequired, async (req, res) => {
   };
   await writeJson(listFiles.leave_requests, records);
   res.json({ ok: true, record: records[index], leave_request: records[index] });
+});
+
+app.post("/api/portal/service/reset-assignments", authRequired, async (req, res) => {
+  if (!canManageServiceRecords(req.user || {})) {
+    return res.status(403).json({ ok: false, message: "Only Service Manager, CEO, or Admin can reset service assignments." });
+  }
+  const serviceStaff = await readAssignableServiceStaff();
+  const engineerOptions = serviceStaff
+    .map((member) => ({ ...member, name: serviceAssignableName(member) }))
+    .filter((member) => member.name);
+  if (!engineerOptions.length) {
+    return res.status(400).json({ ok: false, message: "Add active Service staff in Team Accounts before resetting service assignments." });
+  }
+  const records = await readJson(listFiles.service_records, []);
+  const openRecordIndexes = records
+    .map((record, index) => ({ record, index }))
+    .filter(({ record }) => !serviceRecordIsClosed(record))
+    .sort((a, b) => String(a.record.scheduled_date || a.record.service_date || a.record.next_service_date || a.record.created_at || "").localeCompare(String(b.record.scheduled_date || b.record.service_date || b.record.next_service_date || b.record.created_at || "")));
+  if (!openRecordIndexes.length) {
+    return res.json({ ok: true, updated: 0, engineers: engineerOptions.length, message: "No open service records need reassignment." });
+  }
+  const now = new Date().toISOString();
+  const beforeSummary = openRecordIndexes.slice(0, 25).map(({ record }) => ({
+    id: recordIdentityForAudit(record),
+    assigned_engineer: serviceAssignmentName(record),
+  }));
+  openRecordIndexes.forEach(({ index }, assignmentIndex) => {
+    const engineer = engineerOptions[assignmentIndex % engineerOptions.length];
+    records[index] = {
+      ...records[index],
+      assigned_engineer: engineer.name,
+      technician: engineer.name,
+      assignment_source: "team-account-reset",
+      assignment_reset_at: now,
+      updated_at: now,
+    };
+  });
+  const updatedRecords = openRecordIndexes.map(({ index }) => records[index]);
+  await writeJson(listFiles.service_records, records);
+  await appendAuditLog({
+    user: req.user || {},
+    collection: "service_records",
+    recordId: "bulk-service-assignment-reset",
+    action: "bulk-reset-assignments",
+    before: { count: openRecordIndexes.length, sample: beforeSummary },
+    after: { count: openRecordIndexes.length, engineers: engineerOptions.length, assignment_reset_at: now },
+  });
+  res.json({
+    ok: true,
+    updated: openRecordIndexes.length,
+    engineers: engineerOptions.length,
+    records: publicRecords("service_records", updatedRecords),
+    message: `Reset ${openRecordIndexes.length} open service assignments across ${engineerOptions.length} active service staff.`,
+  });
 });
 
 for (const routeName of Object.keys(routeCollections).filter((route) => !route.includes("/"))) {
