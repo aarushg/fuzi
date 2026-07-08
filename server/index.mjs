@@ -5834,6 +5834,502 @@ async function cachedPortalData(user) {
   return payload;
 }
 
+const portalDataPartKeys = [
+  "metrics",
+  "dashboard_overview",
+  "refresh_interval_minutes",
+  "projects",
+  "installations",
+  "renewals",
+  "work_orders",
+  "project_tickets",
+  "install_jobs",
+  "install_team",
+  "installation_contractors",
+  "users",
+  "customers",
+  "customer_assignments",
+  "department_assignments",
+  "time_tracking",
+  "department_history",
+  "site_visits",
+  "platform_modules",
+  "inventory",
+  "inventory_insights",
+  "viewer",
+  "access",
+  "department_options",
+  "org_chart",
+  "attendance_today",
+  "leave_requests",
+  "estimates",
+  "payments",
+  "customer_users",
+  "sales_inquiries",
+  "sales_admin_panel",
+  "breakdowns",
+  "service_records",
+  "gad_records",
+  "commissionings",
+  "factory_jobs",
+  "tenders",
+  "international_vendors",
+  "marketing_assets",
+  "dept_comms",
+  "approvals",
+  "documents",
+  "escalation_rules",
+  "conversations",
+  "audit_logs",
+  "warranty_records",
+  "dispatch_records",
+  "readiness_checklists",
+  "skill_matrix",
+  "handover_packs",
+  "lift_assets",
+  "parts_usage",
+  "safety_incidents",
+  "tender_checklists",
+  "amc_contracts",
+  "service_reports",
+  "daily_briefs",
+  "synced_at"
+];
+
+const portalDataListDisplayStep = 3;
+const portalDataChunkFallbackProfile = {
+  rows_per_view: portalDataListDisplayStep,
+  pages_per_chunk: 4,
+  usage: "fallback list profile"
+};
+const portalDataChunkProfilesByPart = {
+  metrics: { rows_per_view: 4, pages_per_chunk: 1, usage: "overview metric cards" },
+  projects: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "project workspace cards" },
+  installations: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "legacy installation state cards" },
+  renewals: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "renewal pipeline rows" },
+  work_orders: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "work-order queue rows" },
+  project_tickets: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 10, usage: "backlog/project ticket board" },
+  install_jobs: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 12, usage: "installation job boards and pickers" },
+  install_team: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 12, usage: "team roster and engineer pickers" },
+  installation_contractors: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "contractor roster rows" },
+  users: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 16, usage: "team account and staff lookup rows" },
+  customers: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 30, usage: "CRM list plus customer pickers/searches" },
+  customer_assignments: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 12, usage: "customer assignment summaries" },
+  department_assignments: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 12, usage: "department project assignment rows" },
+  time_tracking: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 12, usage: "project time tracking history" },
+  department_history: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 12, usage: "department transfer history" },
+  site_visits: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 12, usage: "site visit lists and offer pickers" },
+  platform_modules: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 12, usage: "module catalog list" },
+  department_options: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 4, usage: "small department option list" },
+  org_chart: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 18, usage: "org chart, attendance, and staff directory" },
+  attendance_today: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 18, usage: "daily attendance register" },
+  leave_requests: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 10, usage: "leave approval/history rows" },
+  estimates: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 30, usage: "offer manager, estimator, and finance pickers" },
+  payments: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 12, usage: "payment ledger rows and estimate links" },
+  customer_users: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "customer portal account rows" },
+  sales_inquiries: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 30, usage: "enquiry CRM list plus lead pickers/searches" },
+  sales_admin_panel: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "sales admin KPI rows" },
+  breakdowns: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 12, usage: "breakdown board, engineer queue, and customer history" },
+  service_records: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 18, usage: "service board, engineer queue, and customer history" },
+  gad_records: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "GAD drawing records" },
+  commissionings: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 10, usage: "commissioning board rows" },
+  factory_jobs: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "factory production cards" },
+  tenders: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 10, usage: "tender board, rate table, and approvals links" },
+  international_vendors: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 15, usage: "international vendor pipeline stages" },
+  marketing_assets: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "marketing asset library" },
+  dept_comms: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 10, usage: "department messages and notifications" },
+  approvals: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "approval queue rows" },
+  documents: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "document library rows" },
+  escalation_rules: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 6, usage: "command intelligence escalation rules" },
+  conversations: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 6, usage: "command intelligence conversation summaries" },
+  audit_logs: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "audit timeline rows" },
+  warranty_records: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "service warranty summaries" },
+  dispatch_records: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "dispatch history summaries" },
+  readiness_checklists: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "installation readiness checklists" },
+  skill_matrix: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 10, usage: "engineer skill matrix rows" },
+  handover_packs: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "handover pack rows" },
+  lift_assets: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 10, usage: "lift asset registry rows" },
+  parts_usage: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 12, usage: "parts usage and stock analysis" },
+  safety_incidents: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "safety incident rows" },
+  tender_checklists: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "tender checklist rows" },
+  amc_contracts: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "AMC contract summaries" },
+  service_reports: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 8, usage: "service report summaries" },
+  daily_briefs: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 4, usage: "daily management brief rows" }
+};
+
+const portalDataChunkProfilesByScope = {
+  core: {
+    metrics: { rows_per_view: 4, pages_per_chunk: 1, usage: "login/home boot metrics" },
+    dept_comms: { rows_per_view: portalDataListDisplayStep, pages_per_chunk: 2, usage: "boot notification preview" }
+  },
+  overview: {
+    customers: { pages_per_chunk: 12, usage: "overview assigned-customer cards" },
+    sales_inquiries: { pages_per_chunk: 10, usage: "overview pipeline rows" },
+    estimates: { pages_per_chunk: 10, usage: "overview estimate indicators" },
+    payments: { pages_per_chunk: 10, usage: "overview payment indicators" },
+    inventory: { pages_per_chunk: 12, usage: "overview stock-risk cards" }
+  },
+  today: {
+    customers: { pages_per_chunk: 10, usage: "today customer context" },
+    breakdowns: { pages_per_chunk: 10, usage: "today active breakdown cards" },
+    service_records: { pages_per_chunk: 10, usage: "today service schedule cards" },
+    payments: { pages_per_chunk: 8, usage: "today payment follow-ups" },
+    tenders: { pages_per_chunk: 8, usage: "today tender follow-ups" },
+    approvals: { pages_per_chunk: 6, usage: "today approval actions" }
+  },
+  intelligence: {
+    audit_logs: { pages_per_chunk: 6, usage: "intelligence audit timeline" },
+    conversations: { pages_per_chunk: 4, usage: "intelligence conversation cards" },
+    escalation_rules: { pages_per_chunk: 4, usage: "intelligence escalation rules" },
+    service_reports: { pages_per_chunk: 6, usage: "intelligence service reports" },
+    daily_briefs: { pages_per_chunk: 3, usage: "intelligence daily brief drafts" }
+  },
+  customers: {
+    customers: { pages_per_chunk: 30, usage: "CRM customer list/search" },
+    sales_inquiries: { pages_per_chunk: 30, usage: "CRM enquiry list/search" },
+    site_visits: { pages_per_chunk: 16, usage: "CRM site visit history" },
+    estimates: { pages_per_chunk: 20, usage: "CRM quote history" },
+    payments: { pages_per_chunk: 12, usage: "CRM payment history" },
+    service_records: { pages_per_chunk: 12, usage: "CRM service history" },
+    breakdowns: { pages_per_chunk: 12, usage: "CRM breakdown history" },
+    install_jobs: { pages_per_chunk: 12, usage: "CRM installation history" }
+  },
+  sales: {
+    customers: { pages_per_chunk: 30, usage: "sales customer lookup" },
+    sales_inquiries: { pages_per_chunk: 30, usage: "sales enquiry board" }
+  },
+  offerManager: {
+    estimates: { pages_per_chunk: 24, usage: "offer manager estimate list" },
+    customers: { pages_per_chunk: 24, usage: "offer customer picker" },
+    sales_inquiries: { pages_per_chunk: 24, usage: "offer enquiry picker" }
+  },
+  estimator: {
+    estimates: { pages_per_chunk: 24, usage: "estimator saved offers" },
+    inventory: { pages_per_chunk: 20, usage: "estimator inventory picker" }
+  },
+  siteVisits: {
+    site_visits: { pages_per_chunk: 16, usage: "site visit register" },
+    customers: { pages_per_chunk: 24, usage: "site visit customer picker" },
+    sales_inquiries: { pages_per_chunk: 24, usage: "site visit enquiry picker" }
+  },
+  service: {
+    service_records: { pages_per_chunk: 18, usage: "service board rows" },
+    breakdowns: { pages_per_chunk: 10, usage: "service breakdown context" },
+    customers: { pages_per_chunk: 24, usage: "service customer picker" },
+    install_jobs: { pages_per_chunk: 12, usage: "service install context" },
+    install_team: { pages_per_chunk: 12, usage: "service engineer picker" }
+  },
+  breakdown: {
+    breakdowns: { pages_per_chunk: 16, usage: "breakdown call board" },
+    customers: { pages_per_chunk: 24, usage: "breakdown customer picker" },
+    sales_inquiries: { pages_per_chunk: 20, usage: "breakdown enquiry/customer picker" },
+    install_team: { pages_per_chunk: 12, usage: "breakdown engineer picker" }
+  },
+  installations: {
+    install_jobs: { pages_per_chunk: 16, usage: "installation board rows" },
+    customers: { pages_per_chunk: 24, usage: "installation customer picker" },
+    install_team: { pages_per_chunk: 12, usage: "installation team picker" },
+    installation_contractors: { pages_per_chunk: 8, usage: "installation contractor picker" }
+  },
+  team: {
+    install_team: { pages_per_chunk: 16, usage: "install team roster" },
+    install_jobs: { pages_per_chunk: 12, usage: "install team job picker" }
+  },
+  orgchart: {
+    org_chart: { pages_per_chunk: 18, usage: "staff directory/org chart" },
+    attendance_today: { pages_per_chunk: 18, usage: "attendance register" },
+    leave_requests: { pages_per_chunk: 10, usage: "leave request lists" },
+    users: { pages_per_chunk: 16, usage: "staff account coverage" }
+  },
+  inventory: {
+    inventory: { pages_per_chunk: 24, usage: "inventory stock and reorder lists" }
+  },
+  finance: {
+    payments: { pages_per_chunk: 16, usage: "finance payment ledger" },
+    estimates: { pages_per_chunk: 20, usage: "finance estimate picker" },
+    customers: { pages_per_chunk: 20, usage: "finance customer lookup" }
+  },
+  tender: {
+    tenders: { pages_per_chunk: 16, usage: "tender board and rate rows" },
+    estimates: { pages_per_chunk: 12, usage: "tender estimate links" },
+    customers: { pages_per_chunk: 16, usage: "tender customer links" }
+  },
+  internationalVendor: {
+    international_vendors: { pages_per_chunk: 18, usage: "international vendor pipeline" }
+  },
+  marketing: {
+    marketing_assets: { pages_per_chunk: 12, usage: "marketing asset library" },
+    customers: { pages_per_chunk: 16, usage: "marketing customer targeting" },
+    estimates: { pages_per_chunk: 12, usage: "marketing offer targeting" },
+    international_vendors: { pages_per_chunk: 12, usage: "marketing vendor targeting" }
+  },
+  approvals: {
+    approvals: { pages_per_chunk: 12, usage: "approval action queue" },
+    estimates: { pages_per_chunk: 12, usage: "approval estimate links" },
+    tenders: { pages_per_chunk: 12, usage: "approval tender links" },
+    payments: { pages_per_chunk: 12, usage: "approval payment links" },
+    install_jobs: { pages_per_chunk: 12, usage: "approval installation links" },
+    inventory: { pages_per_chunk: 12, usage: "approval inventory links" },
+    customers: { pages_per_chunk: 12, usage: "approval customer links" }
+  },
+  documents: {
+    documents: { pages_per_chunk: 12, usage: "document library" },
+    customers: { pages_per_chunk: 12, usage: "document customer links" },
+    site_visits: { pages_per_chunk: 10, usage: "document site visit links" },
+    tenders: { pages_per_chunk: 10, usage: "document tender links" },
+    install_jobs: { pages_per_chunk: 10, usage: "document installation links" },
+    service_records: { pages_per_chunk: 10, usage: "document service links" },
+    breakdowns: { pages_per_chunk: 10, usage: "document breakdown links" }
+  },
+  comms: {
+    dept_comms: { pages_per_chunk: 12, usage: "department communication inbox" }
+  },
+  engineer: {
+    breakdowns: { pages_per_chunk: 12, usage: "engineer breakdown queue" },
+    service_records: { pages_per_chunk: 12, usage: "engineer service queue" },
+    install_jobs: { pages_per_chunk: 12, usage: "engineer install queue" },
+    attendance_today: { pages_per_chunk: 8, usage: "engineer attendance status" },
+    customers: { pages_per_chunk: 10, usage: "engineer customer context" }
+  }
+};
+
+async function cachedPortalDataPart(user, part) {
+  if (!portalDataPartKeys.includes(part)) return null;
+  const access = accessForUser(user);
+  if (!portalDataPartAllowed(part, access)) return emptyPortalDataPart(part);
+  return loadPortalDataPart(user, part, access);
+}
+
+const portalArrayPartKeys = new Set([
+  "metrics",
+  "projects",
+  "installations",
+  "renewals",
+  "work_orders",
+  "project_tickets",
+  "install_jobs",
+  "install_team",
+  "installation_contractors",
+  "users",
+  "customers",
+  "customer_assignments",
+  "department_assignments",
+  "time_tracking",
+  "department_history",
+  "site_visits",
+  "platform_modules",
+  "department_options",
+  "org_chart",
+  "attendance_today",
+  "leave_requests",
+  "estimates",
+  "payments",
+  "customer_users",
+  "sales_inquiries",
+  "sales_admin_panel",
+  "breakdowns",
+  "service_records",
+  "gad_records",
+  "commissionings",
+  "factory_jobs",
+  "tenders",
+  "international_vendors",
+  "marketing_assets",
+  "dept_comms",
+  "approvals",
+  "documents",
+  "escalation_rules",
+  "conversations",
+  "audit_logs",
+  "warranty_records",
+  "dispatch_records",
+  "readiness_checklists",
+  "skill_matrix",
+  "handover_packs",
+  "lift_assets",
+  "parts_usage",
+  "safety_incidents",
+  "tender_checklists",
+  "amc_contracts",
+  "service_reports",
+  "daily_briefs"
+]);
+
+const missingPortalChunkProfiles = [...portalArrayPartKeys].filter((part) => !portalDataChunkProfilesByPart[part]);
+if (missingPortalChunkProfiles.length) {
+  throw new Error(`Missing portal data chunk profiles for: ${missingPortalChunkProfiles.join(", ")}`);
+}
+
+function portalDataPartAllowed(part, access) {
+  if (!access.is_restricted) return true;
+  const allowedKeys = new Set(["metrics", "dashboard_overview", "refresh_interval_minutes", "viewer", "access", "department_options", "synced_at"]);
+  for (const view of access.allowed_views || []) {
+    for (const key of viewDataKeys[view] || []) allowedKeys.add(key);
+  }
+  return allowedKeys.has(part);
+}
+
+function emptyPortalDataPart(part) {
+  return portalArrayPartKeys.has(part) ? [] : {};
+}
+
+async function readPortalCollectionPart(part) {
+  const file = listFiles[part];
+  if (!file) return null;
+  await ensurePortalCollectionIntegrity();
+  return slimPortalCollection(part, await readJson(file, []));
+}
+
+async function serviceScopeForPortalPart(user, orgChart = null) {
+  if (!isServiceManagerScopedUser(user)) return null;
+  const nextOrgChart = orgChart || await readPortalCollectionPart("org_chart");
+  return serviceTeamScopeFromOrgChart(nextOrgChart || []);
+}
+
+async function loadPortalDataPart(user, part, access = accessForUser(user)) {
+  if (part === "viewer") return publicUser(user);
+  if (part === "access") return access;
+  if (part === "dashboard_overview") return {};
+  if (part === "refresh_interval_minutes") return 5;
+  if (part === "synced_at") return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  if (part === "department_options") return [];
+  if (part === "platform_modules") return platformModules;
+  if (part === "inventory_insights") return {};
+
+  if (["projects", "installations", "renewals", "work_orders"].includes(part)) {
+    const operationsState = await readJson("operations_state.json", {});
+    return operationsState?.[part] || [];
+  }
+
+  if (part === "metrics") {
+    const [operationsState, projectTickets, inventory] = await Promise.all([
+      readJson("operations_state.json", {}),
+      readPortalCollectionPart("project_tickets"),
+      readPortalCollectionPart("inventory")
+    ]);
+    return buildMetrics({ operations_state: operationsState, project_tickets: projectTickets || [], inventory: inventory || [] });
+  }
+
+  if (part === "users") {
+    const [users, orgChart] = await Promise.all([readPortalCollectionPart("users"), readPortalCollectionPart("org_chart")]);
+    const serviceScope = await serviceScopeForPortalPart(user, orgChart || []);
+    const scopedUsers = serviceScope
+      ? (users || []).filter((record) => recordMatchesServiceTeamScope(record, serviceScope) || attendanceRecordIsSelf(record, user))
+      : (users || []);
+    return scopedUsers.map(publicUser);
+  }
+
+  if (part === "org_chart") {
+    const orgChart = await readPortalCollectionPart("org_chart");
+    const serviceScope = await serviceScopeForPortalPart(user, orgChart || []);
+    return serviceScope
+      ? (orgChart || []).filter((record) => recordMatchesServiceTeamScope(record, serviceScope) || attendanceRecordIsSelf(record, user))
+      : (orgChart || []);
+  }
+
+  if (part === "attendance_today") {
+    const [attendance, orgChart] = await Promise.all([readPortalCollectionPart("attendance"), readPortalCollectionPart("org_chart")]);
+    const serviceScope = await serviceScopeForPortalPart(user, orgChart || []);
+    const managerScopedAttendance = serviceScope
+      ? (attendance || []).filter((record) => recordMatchesServiceTeamScope(record, serviceScope) || attendanceRecordIsSelf(record, user))
+      : (attendance || []);
+    return canManageStaffAttendance(user)
+      ? managerScopedAttendance
+      : (attendance || []).filter((record) => attendanceRecordBelongsToUser(record, user));
+  }
+
+  if (part === "leave_requests") {
+    const [leaveRequests, orgChart] = await Promise.all([readPortalCollectionPart("leave_requests"), readPortalCollectionPart("org_chart")]);
+    const serviceScope = await serviceScopeForPortalPart(user, orgChart || []);
+    return applyServiceManagerCollectionScope("leave_requests", leaveRequests || [], serviceScope);
+  }
+
+  if (part === "service_records") {
+    const serviceRecords = await readPortalCollectionPart("service_records");
+    return canManageServiceRecords(user)
+      ? (serviceRecords || [])
+      : (serviceRecords || []).filter((record) => serviceRecordAssignedToUser(record, user));
+  }
+
+  if (part === "inventory") {
+    const inventory = await readPortalCollectionPart("inventory");
+    return Array.isArray(inventory) ? inventory.map(normalizeInventoryItem) : [];
+  }
+
+  const collection = await readPortalCollectionPart(part);
+  return collection === null ? emptyPortalDataPart(part) : collection;
+}
+
+function portalDataChunkIndex(rawValue) {
+  const value = Number.parseInt(String(rawValue ?? "0"), 10);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function portalDataChunkSizeFromProfile(profile = portalDataChunkFallbackProfile) {
+  const rowsPerView = Math.max(1, Number.parseInt(String(profile.rows_per_view ?? portalDataListDisplayStep), 10) || portalDataListDisplayStep);
+  const pagesPerChunk = Math.max(1, Number.parseInt(String(profile.pages_per_chunk ?? 1), 10) || 1);
+  return rowsPerView * pagesPerChunk;
+}
+
+function portalDataChunkSizePreview(profiles) {
+  return Object.fromEntries(Object.entries(profiles).map(([key, profile]) => [key, portalDataChunkSizeFromProfile(profile)]));
+}
+
+function portalDataChunkPolicyFor(scope, part, value) {
+  if (!Array.isArray(value)) return null;
+  const partProfile = portalDataChunkProfilesByPart[part] || portalDataChunkFallbackProfile;
+  const scopeProfile = portalDataChunkProfilesByScope[scope]?.[part] || null;
+  const scopeUsesPart = !scopeProfile && Array.isArray(viewDataKeys[scope]) && viewDataKeys[scope].includes(part);
+  const profile = {
+    ...partProfile,
+    ...(scopeProfile || {}),
+    ...(scopeUsesPart ? { usage: `${scope} workspace uses ${part}` } : {})
+  };
+  return {
+    size: portalDataChunkSizeFromProfile(profile),
+    policy: scopeProfile ? "scope-part-profile" : (scopeUsesPart ? "scope-view-profile" : (portalDataChunkProfilesByPart[part] ? "part-profile" : "fallback-profile")),
+    profile: {
+      rows_per_view: Math.max(1, Number.parseInt(String(profile.rows_per_view ?? portalDataListDisplayStep), 10) || portalDataListDisplayStep),
+      pages_per_chunk: Math.max(1, Number.parseInt(String(profile.pages_per_chunk ?? 1), 10) || 1),
+      usage: String(profile.usage || partProfile.usage || "")
+    }
+  };
+}
+
+function portalDataPartResponse(req, scope, part, value) {
+  if (!Array.isArray(value)) return { ok: true, scope, part, [part]: value };
+  const chunkPolicy = portalDataChunkPolicyFor(scope, part, value);
+  const chunkSize = chunkPolicy.size;
+  const totalItems = value.length;
+  const totalChunks = Math.max(1, Math.ceil(totalItems / chunkSize));
+  const requestedChunk = portalDataChunkIndex(req.params.chunkIndex ?? req.query.chunk);
+  const chunkIndex = Math.min(requestedChunk, totalChunks - 1);
+  const start = chunkIndex * chunkSize;
+  const items = value.slice(start, start + chunkSize);
+  return {
+    ok: true,
+    scope,
+    part,
+    [part]: items,
+    chunk: {
+      index: chunkIndex,
+      requested_index: requestedChunk,
+      size: chunkSize,
+      policy: chunkPolicy.policy,
+      profile: chunkPolicy.profile,
+      start,
+      end: start + items.length,
+      returned_items: items.length,
+      total_items: totalItems,
+      total_chunks: totalChunks,
+      has_previous: chunkIndex > 0,
+      has_next: chunkIndex < totalChunks - 1,
+      previous_index: chunkIndex > 0 ? chunkIndex - 1 : null,
+      next_index: chunkIndex < totalChunks - 1 ? chunkIndex + 1 : null
+    }
+  };
+}
+
 const app = express();
 app.disable("x-powered-by");
 app.use(cors({ origin: true, credentials: true }));
@@ -6063,10 +6559,45 @@ app.post("/api/portal/auth/logout", authRequired, (req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/api/portal/data", authRequired, async (req, res) => {
-  await ensureSharedStaffPortalPassword();
+app.get("/api/portal/data", authRequired, (_req, res) => {
   res.setHeader("Cache-Control", "private, max-age=15, stale-while-revalidate=60");
-  res.json(await cachedPortalData(req.user));
+  res.json({
+    ok: true,
+    parts: portalDataPartKeys,
+    chunk_sizes: {
+      by_part: portalDataChunkSizePreview(portalDataChunkProfilesByPart),
+      by_scope: Object.fromEntries(Object.entries(portalDataChunkProfilesByScope).map(([scope, profiles]) => [scope, portalDataChunkSizePreview({
+        ...Object.fromEntries(Object.keys(profiles).map((part) => [part, portalDataChunkProfilesByPart[part] || portalDataChunkFallbackProfile])),
+        ...profiles
+      })]))
+    },
+    chunk_profiles: {
+      display_step: portalDataListDisplayStep,
+      by_part: portalDataChunkProfilesByPart,
+      by_scope: portalDataChunkProfilesByScope
+    },
+    scopes: ["core", ...Object.keys(viewDataKeys)]
+  });
+});
+
+app.get("/api/portal/data/:scope/:part/chunks/:chunkIndex", authRequired, async (req, res) => {
+  await ensureSharedStaffPortalPassword();
+  const scope = String(req.params.scope || "").trim();
+  const part = String(req.params.part || "").trim();
+  const value = await cachedPortalDataPart(req.user, part);
+  if (value === null) return res.status(404).json({ ok: false, message: "Unknown portal data part." });
+  res.setHeader("Cache-Control", "private, max-age=15, stale-while-revalidate=60");
+  res.json(portalDataPartResponse(req, scope, part, value));
+});
+
+app.get("/api/portal/data/:scope/:part", authRequired, async (req, res) => {
+  await ensureSharedStaffPortalPassword();
+  const scope = String(req.params.scope || "").trim();
+  const part = String(req.params.part || "").trim();
+  const value = await cachedPortalDataPart(req.user, part);
+  if (value === null) return res.status(404).json({ ok: false, message: "Unknown portal data part." });
+  res.setHeader("Cache-Control", "private, max-age=15, stale-while-revalidate=60");
+  res.json(portalDataPartResponse(req, scope, part, value));
 });
 
 app.get("/api/portal/global-search", authRequired, async (req, res) => {

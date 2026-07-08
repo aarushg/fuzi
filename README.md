@@ -39,7 +39,9 @@ npm run android
 |---|---|
 | `http://127.0.0.1:5000` | Node API plus the stable exported single-page app when `expo-app/dist/index.html` exists |
 | `http://127.0.0.1:8082` | Latest development UI served by Expo; API calls still go to port `5000` |
-| `http://127.0.0.1:5000/api/portal/data` | Authenticated portal data API |
+| `http://127.0.0.1:5000/api/portal/data` | Authenticated portal data parts index |
+| `http://127.0.0.1:5000/api/portal/data/<workspace>/<part>` | Authenticated portal data part API, returning the first profile-sized chunk for array/list parts |
+| `http://127.0.0.1:5000/api/portal/data/<workspace>/<part>/chunks/<index>` | Specific profile-sized chunk of a portal data list |
 | `http://127.0.0.1:5000/api/app` | App/export status API |
 
 **Default admin credentials:**
@@ -219,7 +221,7 @@ Customer/Site Visit rule:
 - A Site Visit Report must include an existing CRM `customer_id`; the API rejects reports that are not tied to a CRM customer.
 - The Site Visit form asks "How many stops?" and creates one opening row per stop/opening for floor, floor-to-floor height, and lintel height.
 
-API: `POST /api/portal/auth/login`, `GET /api/portal/auth/session`, `POST /api/portal/auth/logout`, `GET /api/portal/data`, `POST /api/portal/customers`, `POST /api/portal/site-visits`, `GET /api/portal/costing-source-data`, plus legacy-compatible collection routes like `GET/POST/PATCH /api/portal/inventory`, `GET/POST/PATCH /api/portal/tender`, and `GET/POST/PATCH /api/portal/sales/inquiries`.
+API: `POST /api/portal/auth/login`, `GET /api/portal/auth/session`, `POST /api/portal/auth/logout`, `GET /api/portal/data`, `GET /api/portal/data/<workspace>/<part>`, `GET /api/portal/data/<workspace>/<part>/chunks/<index>`, `POST /api/portal/customers`, `POST /api/portal/site-visits`, `GET /api/portal/costing-source-data`, plus legacy-compatible collection routes like `GET/POST/PATCH /api/portal/inventory`, `GET/POST/PATCH /api/portal/tender`, and `GET/POST/PATCH /api/portal/sales/inquiries`.
 
 ---
 
@@ -1076,7 +1078,8 @@ node -e "const db=require('better-sqlite3')('fuzi.sqlite3'); console.log(db.prep
 **After starting the Node API and Expo app, verify:**
 
 - Staff login works in the Expo app at `http://127.0.0.1:8082`.
-- `GET /api/portal/data` returns `401` without a bearer token.
+- `GET /api/portal/data`, `GET /api/portal/data/core/metrics`, and `GET /api/portal/data/inventory/inventory` return `401` without a bearer token.
+- The portal UI loads `/api/portal/data/<workspace>/<part>` routes on demand as each workspace is used. Every array/list part has an explicit server-side transport profile (`rows_per_view`, `pages_per_chunk`, and usage), responses include `chunk` metadata, and "show more" can request later `/chunks/<index>` responses instead of loading the whole list up front.
 - Customer CRM and Site Visit Reports work in the Expo app.
 - Site Visit Reports create opening rows from stops/openings and save floor, FF height, and lintel height.
 - Customer/enquiry status can only be changed after clicking Edit; lost statuses require a reason.

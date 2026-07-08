@@ -37,6 +37,30 @@ type ListLimitController = {
   setListStepInput: LocalStateSetter<string>;
   setListCount: (key: string, total: number, nextCount: number) => void;
 };
+type PortalDataChunkMeta = {
+  index: number;
+  requested_index: number;
+  size: number;
+  policy: string;
+  start: number;
+  end: number;
+  returned_items: number;
+  total_items: number;
+  total_chunks: number;
+  has_previous: boolean;
+  has_next: boolean;
+  previous_index: number | null;
+  next_index: number | null;
+  profile?: {
+    rows_per_view?: number;
+    pages_per_chunk?: number;
+    usage?: string;
+  };
+};
+type PortalDataPartFetch = {
+  value: unknown;
+  chunk?: PortalDataChunkMeta;
+};
 
 const LanguageContext = createContext<PortalLanguage>("en");
 const DEFAULT_LIST_STEP = 3;
@@ -3907,6 +3931,7 @@ const PortalApp = memo(function PortalApp() {
   const setActiveTab = (nextTab: TabKey | ((current: TabKey) => TabKey)) => {
     const resolvedTab = typeof nextTab === "function" ? nextTab(activeTabRef.current) : nextTab;
     activeTabRef.current = resolvedTab;
+    ensurePortalDataForTab(resolvedTab);
     if (resolvedTab === "customers" || resolvedTab === "enquiries" || resolvedTab === "sales") {
       const nextCrmRecordView: CrmRecordView = resolvedTab === "customers" ? "Customers" : "Enquiries";
       crmStateRef.current = { ...crmStateRef.current, crmRecordView: nextCrmRecordView, customerPage: 1, enquiryPage: 1, offerPage: 1 };
@@ -3931,6 +3956,10 @@ const PortalApp = memo(function PortalApp() {
   const showPortalLoginRef = useRef([showPortalLogin]);
   const loadingRef = useRef([loadingState]);
   const messageRef = useRef([messageState]);
+  const loadedPortalPartsRef = useRef<Set<string>>(new Set());
+  const loadingPortalPartsRef = useRef<Map<string, Promise<void>>>(new Map());
+  const portalChunkMetaRef = useRef<Record<string, PortalDataChunkMeta>>({});
+  const loadingPortalChunksRef = useRef<Map<string, Promise<void>>>(new Map());
   const portalStatusRef = useRef<((next: { loading?: boolean; message?: string }) => void) | null>(null);
   const actionScrollRef = useRef({ x: 0, y: 0, restore: false });
   const loading = loadingRef.current[0];
@@ -4272,13 +4301,71 @@ const PortalApp = memo(function PortalApp() {
   const asRecords = (value: unknown): Array<Record<string, unknown>> => (Array.isArray(value) ? (value as Array<Record<string, unknown>>) : []);
   const isAdmin = ["admin", "ceo"].includes(String(data?.viewer?.role || "").trim().toLowerCase());
   const normalizedKey = (value: unknown) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  const portalListDataPartForKey = (key: string) => {
+    const normalized = normalizedKey(key);
+    const aliases: Array<[string, string[]]> = [
+      ["dept_comms", ["notification", "notifications", "comms", "communication", "message", "messages"]],
+      ["platform_modules", ["platform module", "platform modules", "modules"]],
+      ["marketing_assets", ["marketing asset", "marketing assets"]],
+      ["international_vendors", ["international vendor", "international vendors", "vendor", "vendors"]],
+      ["sales_inquiries", ["sales inquiry", "sales inquiries", "sales", "enquiry", "enquiries", "inquiry", "inquiries"]],
+      ["site_visits", ["site visit", "site visits", "sitevisit", "visit", "visits"]],
+      ["customers", ["customer", "customers", "crm"]],
+      ["estimates", ["estimate", "estimates", "offer", "offers", "costing"]],
+      ["payments", ["payment", "payments", "ledger", "finance"]],
+      ["breakdowns", ["breakdown", "breakdowns", "call", "calls"]],
+      ["service_records", ["service record", "service records", "service"]],
+      ["project_tickets", ["project ticket", "project tickets", "ticket", "tickets", "backlog"]],
+      ["install_jobs", ["install job", "install jobs", "installation job", "installation jobs", "handoff", "job", "jobs"]],
+      ["install_team", ["install team", "engineer", "engineers", "roster", "team"]],
+      ["installation_contractors", ["contractor", "contractors"]],
+      ["users", ["user", "users", "account", "accounts", "login", "logins"]],
+      ["org_chart", ["org chart", "orgchart", "staff directory", "staff"]],
+      ["attendance_today", ["attendance"]],
+      ["leave_requests", ["leave"]],
+      ["renewals", ["renewal", "renewals"]],
+      ["work_orders", ["work order", "work orders", "workorder", "workorders"]],
+      ["inventory", ["inventory", "stock", "reorder"]],
+      ["approvals", ["approval", "approvals"]],
+      ["documents", ["document", "documents", "doc", "docs"]],
+      ["tenders", ["tender", "tenders", "competitor", "competitors"]],
+      ["commissionings", ["commissioning", "commissionings"]],
+      ["factory_jobs", ["factory"]],
+      ["gad_records", ["gad"]],
+      ["audit_logs", ["audit"]],
+      ["escalation_rules", ["escalation"]],
+      ["conversations", ["conversation", "conversations"]],
+      ["warranty_records", ["warranty"]],
+      ["dispatch_records", ["dispatch"]],
+      ["readiness_checklists", ["readiness"]],
+      ["skill_matrix", ["skill"]],
+      ["handover_packs", ["handover pack", "handover packs"]],
+      ["lift_assets", ["lift asset", "lift assets"]],
+      ["parts_usage", ["parts usage", "part usage"]],
+      ["safety_incidents", ["safety"]],
+      ["tender_checklists", ["tender checklist", "tender checklists"]],
+      ["amc_contracts", ["amc"]],
+      ["service_reports", ["service report", "service reports"]],
+      ["daily_briefs", ["daily brief", "daily briefs", "brief"]]
+    ];
+    const match = aliases.find(([part, keys]) => portalDataPartsFallback.includes(part) && keys.some((candidate) => normalized.includes(candidate)));
+    return match?.[0] || "";
+  };
+  const portalKnownListTotal = (key: string, total: number) => {
+    const part = portalListDataPartForKey(key);
+    const chunk = part ? portalChunkMetaRef.current[part] : undefined;
+    const loadedRows = part ? asRecords(dataRef.current[0]?.[part]).length : 0;
+    if (!chunk || total < loadedRows) return total;
+    return Math.max(total, Number(chunk.total_items || 0));
+  };
   const listsLimitedAfterLogin = Boolean(data?.viewer);
   const listLimitSnapshot = () => listLimitControllerRef.current?.stateRef.current ?? { listStepInput: String(DEFAULT_LIST_STEP), listVisibleCounts: {} };
   const listStep = () => Math.max(1, Number.parseInt(listLimitSnapshot().listStepInput, 10) || DEFAULT_LIST_STEP);
   const listVisibleCount = (key: string, total: number) => {
+    const knownTotal = portalKnownListTotal(key, total);
     if (!listsLimitedAfterLogin) return total;
     const visibleCounts = listLimitSnapshot().listVisibleCounts;
-    return Math.min(total, Math.max(0, visibleCounts[key] ?? Math.min(DEFAULT_LIST_STEP, total)));
+    return Math.min(knownTotal, Math.max(0, visibleCounts[key] ?? Math.min(DEFAULT_LIST_STEP, knownTotal)));
   };
   const visibleListLimit = (key: string) => {
     if (!listsLimitedAfterLogin) return Number.POSITIVE_INFINITY;
@@ -4298,14 +4385,22 @@ const PortalApp = memo(function PortalApp() {
   };
   const limitedItems = <T,>(key: string, items: T[]) => collectVisibleItems(key, items).visible;
   function setListCount(key: string, total: number, nextCount: number) {
-    listLimitControllerRef.current?.setListCount(key, total, nextCount);
+    const knownTotal = portalKnownListTotal(key, total);
+    listLimitControllerRef.current?.setListCount(key, knownTotal, nextCount);
+    const part = portalListDataPartForKey(key);
+    if (part) {
+      void ensurePortalDataPartRows(part, nextCount, { scope: activeTabRef.current }).catch((error) => {
+        setMessage(error instanceof Error ? `Could not load more ${part}: ${error.message}` : `Could not load more ${part}.`);
+      });
+    }
   }
   function renderListControls(key: string, total: number) {
+    const knownTotal = portalKnownListTotal(key, total);
     if (!listsLimitedAfterLogin) return null;
-    if (total <= DEFAULT_LIST_STEP) return null;
-    const visibleCount = listVisibleCount(key, total);
-    const minimumCount = Math.min(DEFAULT_LIST_STEP, total);
-    const canShowMore = visibleCount < total;
+    if (knownTotal <= DEFAULT_LIST_STEP) return null;
+    const visibleCount = listVisibleCount(key, knownTotal);
+    const minimumCount = Math.min(DEFAULT_LIST_STEP, knownTotal);
+    const canShowMore = visibleCount < knownTotal;
     const canShowLess = visibleCount > minimumCount;
     const step = listStep();
     return (
@@ -4322,9 +4417,9 @@ const PortalApp = memo(function PortalApp() {
             style={styles.listControlButton}
             onPress={() => {
               if (!canShowMore) return;
-              const nextCount = Math.min(total, visibleCount + step);
-              setListCount(key, total, nextCount);
-              setMessage(`Showing ${nextCount} of ${total}.`);
+              const nextCount = Math.min(knownTotal, visibleCount + step);
+              setListCount(key, knownTotal, nextCount);
+              setMessage(`Showing ${nextCount} of ${knownTotal}.`);
             }}
           >
             <Text style={styles.smallButtonText}>show more</Text>
@@ -4337,8 +4432,8 @@ const PortalApp = memo(function PortalApp() {
             onPress={() => {
               if (!canShowLess) return;
               const nextCount = Math.max(minimumCount, visibleCount - step);
-              setListCount(key, total, nextCount);
-              setMessage(`Showing ${nextCount} of ${total}.`);
+              setListCount(key, knownTotal, nextCount);
+              setMessage(`Showing ${nextCount} of ${knownTotal}.`);
             }}
           >
             <Text style={styles.smallButtonText}>show less</Text>
@@ -17543,19 +17638,296 @@ const PortalApp = memo(function PortalApp() {
     }
   }
 
+  const portalDataBootParts = ["metrics", "viewer", "access", "synced_at", "dept_comms"];
+  const portalDataPartsFallback = [
+    "metrics",
+    "dashboard_overview",
+    "refresh_interval_minutes",
+    "projects",
+    "installations",
+    "renewals",
+    "work_orders",
+    "project_tickets",
+    "install_jobs",
+    "install_team",
+    "installation_contractors",
+    "users",
+    "customers",
+    "customer_assignments",
+    "department_assignments",
+    "time_tracking",
+    "department_history",
+    "site_visits",
+    "platform_modules",
+    "inventory",
+    "inventory_insights",
+    "viewer",
+    "access",
+    "department_options",
+    "org_chart",
+    "attendance_today",
+    "leave_requests",
+    "estimates",
+    "payments",
+    "customer_users",
+    "sales_inquiries",
+    "sales_admin_panel",
+    "breakdowns",
+    "service_records",
+    "gad_records",
+    "commissionings",
+    "factory_jobs",
+    "tenders",
+    "international_vendors",
+    "marketing_assets",
+    "dept_comms",
+    "approvals",
+    "documents",
+    "escalation_rules",
+    "conversations",
+    "audit_logs",
+    "warranty_records",
+    "dispatch_records",
+    "readiness_checklists",
+    "skill_matrix",
+    "handover_packs",
+    "lift_assets",
+    "parts_usage",
+    "safety_incidents",
+    "tender_checklists",
+    "amc_contracts",
+    "service_reports",
+    "daily_briefs",
+    "synced_at",
+  ];
+
+  const portalDataVisiblePartsByTab: Partial<Record<TabKey, string[]>> = {
+    overview: ["metrics", "dashboard_overview", "refresh_interval_minutes"],
+    today: ["customers", "sales_inquiries", "site_visits", "breakdowns", "service_records", "payments", "install_jobs", "renewals", "inventory", "approvals", "tenders"],
+    intelligence: [
+      "customers",
+      "sales_inquiries",
+      "estimates",
+      "payments",
+      "site_visits",
+      "breakdowns",
+      "service_records",
+      "install_jobs",
+      "project_tickets",
+      "work_orders",
+      "renewals",
+      "inventory",
+      "install_team",
+      "org_chart",
+      "audit_logs",
+      "lift_assets",
+      "parts_usage",
+      "safety_incidents",
+      "service_reports",
+      "daily_briefs",
+      "conversations",
+      "escalation_rules",
+      "documents",
+      "approvals",
+      "tenders",
+    ],
+    backlog: ["project_tickets", "work_orders", "breakdowns", "install_jobs", "approvals"],
+    enquiries: ["customers", "sales_inquiries", "site_visits", "estimates"],
+    customers: ["customers", "sales_inquiries", "site_visits", "estimates", "payments", "service_records", "breakdowns", "install_jobs"],
+    sales: ["customers", "sales_inquiries", "site_visits", "estimates"],
+    offerManager: ["customers", "sales_inquiries", "site_visits", "estimates", "payments"],
+    estimator: ["customers", "sales_inquiries", "estimates", "payments"],
+    costingImport: ["customers", "sales_inquiries", "site_visits", "estimates"],
+    siteVisits: ["customers", "sales_inquiries", "site_visits"],
+    tickets: ["project_tickets"],
+    projects: ["customers", "project_tickets", "install_jobs", "department_assignments", "time_tracking"],
+    installations: ["install_jobs", "install_team", "installation_contractors", "project_tickets"],
+    installation_dept: ["install_jobs"],
+    team: ["install_team", "installation_contractors"],
+    accounts: ["users", "org_chart"],
+    renewals: ["renewals", "customers"],
+    workorders: ["work_orders"],
+    inventory: ["inventory"],
+    orgchart: ["org_chart", "attendance_today", "leave_requests", "users"],
+    breakdown: ["breakdowns"],
+    service: ["service_records"],
+    engineer: ["breakdowns", "service_records", "install_jobs", "attendance_today"],
+    finance: ["payments", "estimates"],
+    gad: ["gad_records"],
+    commissioning: ["commissionings", "install_jobs"],
+    backoffice: ["customers"],
+    tender: ["tenders"],
+    factory: ["factory_jobs"],
+    internationalVendor: ["international_vendors"],
+    marketing: ["marketing_assets"],
+    approvals: ["approvals"],
+    documents: ["documents"],
+    comms: ["dept_comms"],
+    modules: ["platform_modules"],
+  };
+
+  function uniquePortalParts(parts: string[]) {
+    return Array.from(new Set(parts.filter((part) => portalDataPartsFallback.includes(part))));
+  }
+
+  function normalizePortalChunkMeta(value: unknown): PortalDataChunkMeta | undefined {
+    if (!value || typeof value !== "object") return undefined;
+    const chunk = value as Record<string, unknown>;
+    return {
+      index: Number(chunk.index || 0),
+      requested_index: Number(chunk.requested_index || 0),
+      size: Number(chunk.size || 0),
+      policy: String(chunk.policy || ""),
+      start: Number(chunk.start || 0),
+      end: Number(chunk.end || 0),
+      returned_items: Number(chunk.returned_items || 0),
+      total_items: Number(chunk.total_items || 0),
+      total_chunks: Number(chunk.total_chunks || 0),
+      has_previous: Boolean(chunk.has_previous),
+      has_next: Boolean(chunk.has_next),
+      previous_index: typeof chunk.previous_index === "number" ? chunk.previous_index : null,
+      next_index: typeof chunk.next_index === "number" ? chunk.next_index : null,
+      profile: chunk.profile && typeof chunk.profile === "object" ? chunk.profile as PortalDataChunkMeta["profile"] : undefined,
+    };
+  }
+
+  function mergePortalChunkRecords(current: Array<Record<string, unknown>>, incoming: Array<Record<string, unknown>>) {
+    const seen = new Set<string>();
+    const merged: Array<Record<string, unknown>> = [];
+    [...current, ...incoming].forEach((record, index) => {
+      const identity = recordIdentity(record) || String(record.id || record.item_id || record.job_id || record.username || "");
+      const key = identity ? `id:${identity}` : `row:${index}:${JSON.stringify(record)}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      merged.push(record);
+    });
+    return merged;
+  }
+
+  function mergePortalPartValue(currentData: PortalData | null, part: string, value: unknown, chunk?: PortalDataChunkMeta) {
+    if (!Array.isArray(value) || !chunk || chunk.index <= 0) return value;
+    return mergePortalChunkRecords(asRecords(currentData?.[part]), value as Array<Record<string, unknown>>);
+  }
+
+  function rememberPortalChunk(part: string, chunk?: PortalDataChunkMeta) {
+    if (chunk) portalChunkMetaRef.current[part] = chunk;
+  }
+
+  async function fetchPortalPart(nextToken: string, scope: string, part: string, chunkIndex = 0): Promise<PortalDataPartFetch> {
+    const route = chunkIndex > 0
+      ? `/api/portal/data/${encodeURIComponent(scope)}/${encodeURIComponent(part)}/chunks/${encodeURIComponent(String(chunkIndex))}`
+      : `/api/portal/data/${encodeURIComponent(scope)}/${encodeURIComponent(part)}`;
+    const response = await apiFetch<Record<string, unknown>>(route, { token: nextToken });
+    const chunk = normalizePortalChunkMeta(response.chunk);
+    if (Object.prototype.hasOwnProperty.call(response, part)) return { value: response[part], chunk };
+    const fallbackEntry = Object.entries(response).find(([key]) => key !== "ok" && key !== "scope" && key !== "part");
+    return { value: fallbackEntry ? fallbackEntry[1] : undefined, chunk };
+  }
+
+  async function loadPortalDataParts(nextToken: string, requestedParts = portalDataBootParts, scope = "core"): Promise<PortalData> {
+    const index = await apiFetch<{ ok?: boolean; parts?: string[] }>("/api/portal/data", { token: nextToken });
+    const availableParts = Array.isArray(index.parts) && index.parts.length ? index.parts : portalDataPartsFallback;
+    const parts = uniquePortalParts(requestedParts).filter((part) => availableParts.includes(part));
+    const partResponses = await Promise.all(parts.map(async (part) => {
+      const result = await fetchPortalPart(nextToken, scope, part);
+      return { part, ...result };
+    }));
+    const assembled: Record<string, unknown> = {};
+    partResponses.forEach(({ part, value, chunk }) => {
+      assembled[part] = value;
+      rememberPortalChunk(part, chunk);
+      loadedPortalPartsRef.current.add(part);
+    });
+    return assembled as PortalData;
+  }
+
+  async function ensurePortalDataParts(parts: string[], options: { display?: boolean; scope?: string; tokenOverride?: string } = {}) {
+    const nextToken = options.tokenOverride || token;
+    const scope = options.scope || "workspace";
+    if (!nextToken) return;
+    const missingParts = uniquePortalParts(parts).filter((part) => !loadedPortalPartsRef.current.has(part));
+    if (!missingParts.length) return;
+    const loadPromises = missingParts.map((part) => {
+      const existing = loadingPortalPartsRef.current.get(part);
+      if (existing) return existing;
+      const promise = fetchPortalPart(nextToken, scope, part)
+        .then(({ value, chunk }) => {
+          const currentData = dataRef.current[0] || ({} as PortalData);
+          const nextData = { ...currentData, [part]: mergePortalPartValue(currentData, part, value, chunk) } as PortalData;
+          dataRef.current[0] = nextData;
+          rememberPortalChunk(part, chunk);
+          loadedPortalPartsRef.current.add(part);
+          if (options.display !== false) setData(nextData);
+        })
+        .finally(() => {
+          loadingPortalPartsRef.current.delete(part);
+        });
+      loadingPortalPartsRef.current.set(part, promise);
+      return promise;
+    });
+    await Promise.all(loadPromises);
+  }
+
+  async function ensurePortalDataPartRows(part: string, neededRows: number, options: { scope?: string; tokenOverride?: string } = {}) {
+    const nextToken = options.tokenOverride || token;
+    const scope = options.scope || activeTabRef.current || "workspace";
+    if (!nextToken || !portalDataPartsFallback.includes(part)) return;
+    if (!loadedPortalPartsRef.current.has(part)) {
+      await ensurePortalDataParts([part], { scope, tokenOverride: nextToken });
+    }
+    const chunk = portalChunkMetaRef.current[part];
+    const currentRows = asRecords(dataRef.current[0]?.[part]).length;
+    const targetRows = chunk ? Math.min(Math.max(neededRows, currentRows), Number(chunk.total_items || neededRows)) : neededRows;
+    if (!chunk || !chunk.has_next || currentRows >= targetRows) return;
+    const nextIndex = typeof chunk.next_index === "number" ? chunk.next_index : chunk.index + 1;
+    const loadKey = `${scope}:${part}:${nextIndex}`;
+    const existing = loadingPortalChunksRef.current.get(loadKey);
+    if (existing) {
+      await existing;
+      return ensurePortalDataPartRows(part, neededRows, options);
+    }
+    const promise = fetchPortalPart(nextToken, scope, part, nextIndex)
+      .then(({ value, chunk: nextChunk }) => {
+        const currentData = dataRef.current[0] || ({} as PortalData);
+        const nextData = { ...currentData, [part]: mergePortalPartValue(currentData, part, value, nextChunk) } as PortalData;
+        dataRef.current[0] = nextData;
+        rememberPortalChunk(part, nextChunk);
+        setData(nextData);
+      })
+      .finally(() => {
+        loadingPortalChunksRef.current.delete(loadKey);
+      });
+    loadingPortalChunksRef.current.set(loadKey, promise);
+    await promise;
+    return ensurePortalDataPartRows(part, neededRows, options);
+  }
+
+  function ensurePortalDataForTab(activeTab: TabKey) {
+    const tabParts = portalDataVisiblePartsByTab[activeTab] || [];
+    const parts = uniquePortalParts([...portalDataBootParts, ...tabParts]);
+    void ensurePortalDataParts(parts, { scope: activeTab }).catch((error) => {
+      setMessage(error instanceof Error ? `Could not load ${activeTab} data: ${error.message}` : `Could not load ${activeTab} data.`);
+    });
+  }
+
   async function loadPortal(nextToken = token, options: { display?: boolean } = {}) {
     const shouldDisplay = options.display ?? !dataRef.current[0];
     const cachedPortalData = await readCachedPortal(nextToken);
     if (shouldDisplay && !dataRef.current[0] && cachedPortalData) {
+      portalDataBootParts.forEach((part) => loadedPortalPartsRef.current.add(part));
       setData(stripRawTransportPayloads(cachedPortalData));
       setMessage("Showing cached data while refreshing live records.");
     }
     try {
       const offlineSync = await syncQueuedOfflineWrites();
-      const portalData = await apiFetch<PortalData>("/api/portal/data", { token: nextToken });
+      const refreshParts = options.display === false
+        ? uniquePortalParts([...portalDataBootParts, ...Array.from(loadedPortalPartsRef.current)])
+        : portalDataBootParts;
+      const portalData = await loadPortalDataParts(nextToken, refreshParts);
       // WARNING: Frontend state stores FUZI domain records only. Never store raw Discord/OpenClaw message history or transport payloads here.
-      const sanitizedPortalData = stripRawTransportPayloads(portalData);
+      const sanitizedPortalData = stripRawTransportPayloads({ ...(dataRef.current[0] || {}), ...portalData } as PortalData);
       if (shouldDisplay) setData(sanitizedPortalData);
+      dataRef.current[0] = sanitizedPortalData;
       await writeCachedPortal(nextToken, sanitizedPortalData);
       if (offlineSync.synced) {
         setMessage(`Synced ${offlineSync.synced} offline change${offlineSync.synced === 1 ? "" : "s"} to the server.`);
