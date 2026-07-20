@@ -9662,7 +9662,10 @@ app.get("/api/portal/offer-manager/inventory-templates", authRequired, async (re
   if (!portalDataPartAllowed("estimates", accessForUser(req.user))) {
     return res.status(403).json({ ok: false, message: "Offer Manager access is required." });
   }
-  const estimates = await readJson(listFiles.estimates, []);
+  const [estimates, inventory] = await Promise.all([
+    readJson(listFiles.estimates, []),
+    readJson(listFiles.inventory, [])
+  ]);
   const workbookOffers = estimates.filter((estimate) => (
     String(estimate.createdbyname || "").trim().toLowerCase() === "openclaw"
     &&
@@ -9673,16 +9676,26 @@ app.get("/api/portal/offer-manager/inventory-templates", authRequired, async (re
       || (Array.isArray(estimate.costing_travel_segments) && estimate.costing_travel_segments.length > 0)
     )
   ));
-  const items = offerInventoryTemplates(workbookOffers.flatMap((estimate) => estimate.inventory_items));
+  const workbookItems = workbookOffers.flatMap((estimate) => estimate.inventory_items).map((item) => ({
+    ...item,
+    template_source: String(item?.template_source || "Workbook costing templates").trim()
+  }));
+  const inventoryItems = (Array.isArray(inventory) ? inventory : []).map((item) => ({
+    ...item,
+    template_source: String(item?.template_source || "FUZI inventory").trim()
+  }));
+  const items = offerInventoryTemplates([...workbookItems, ...inventoryItems]);
   res.setHeader("Cache-Control", "private, no-store");
   return res.json({
     ok: true,
     total: items.length,
     workbook_offer_count: workbookOffers.length,
+    workbook_item_count: workbookItems.length,
+    inventory_item_count: inventoryItems.length,
     items: items.map((item, index) => ({
       ...item,
       id: `workbook-inventory-template-${index + 1}`,
-      template_source: "Workbook costing templates"
+      template_source: String(item.template_source || "FUZI inventory").trim()
     }))
   });
 });
