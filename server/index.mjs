@@ -9,6 +9,9 @@ import zlib from "node:zlib";
 import express from "express";
 import cors from "cors";
 import Database from "better-sqlite3";
+import { createOpenClawCalculationContract, validateOpenClawCalculatedData } from "./openclaw-calculated-data.mjs";
+import { offerCostSummary, offerInventoryAmountBasis, offerInventoryDescription, offerInventoryLineAmount, offerInventoryTemplates, offerInventoryTotal, offerReadOnlyCalculation, offerRecordWithServerCalculations, offerTravelFieldsFromSegments, workbookCostingSummary, workbookMarginInput } from "./offer-costing.mjs";
+import { costingOfferInventoryFields as workbookOfferInventoryFields, costingTechnicalOfferFields as workbookTechnicalOfferFields } from "./workbook-offer-semantics.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -141,7 +144,7 @@ const writeAppSecretStmt = db.prepare(`
 `);
 const collectionCache = new Map();
 const portalResponseCache = new Map();
-const costingArtifactPasswords = new Map();
+const costingConversionTransfers = new Map();
 let dataVersion = 0;
 const portalCacheTtlMs = Number(process.env.FUZI_PORTAL_CACHE_TTL_SECONDS || 20) * 1000;
 const portalIntegrityTtlMs = Number(process.env.FUZI_PORTAL_INTEGRITY_TTL_SECONDS || 300) * 1000;
@@ -976,7 +979,7 @@ for path in sorted(root.glob("*.xlsx")):
                 formula = cell.find("a:f", ns)
                 formula_text = formula.text if formula is not None else None
                 if val not in (None, "") or formula_text:
-                    entry = {"sheet": sheet_name, "cell": ref, "value": val}
+                    entry = {"sheet": sheet_name, "cell": ref, "value": None if formula_text else val}
                     if formula_text:
                         entry["formula"] = formula_text
                     cells.append(entry)
@@ -1324,6 +1327,23 @@ async function ensureOfferInquiryLinks() {
   if (changed) await writeJson(listFiles.estimates, nextEstimates);
 }
 
+async function ensureOfferCostingSourceMetadataRemoved() {
+  const estimates = await readJson(listFiles.estimates, []);
+  if (Array.isArray(estimates) && estimates.length) {
+    const nextEstimates = estimates.map((estimate) => stripOfferCostingSourceMetadata(estimate));
+    const changed = nextEstimates.some((estimate, index) => JSON.stringify(estimate) !== JSON.stringify(estimates[index]));
+    if (changed) await writeJson(listFiles.estimates, nextEstimates);
+  }
+  const auditLogs = await readJson(listFiles.audit_logs, []);
+  if (Array.isArray(auditLogs) && auditLogs.length) {
+    const nextAuditLogs = auditLogs.map((entry) => (
+      String(entry?.collection || "") === "estimates" ? stripOfferCostingSourceMetadata(entry) : entry
+    ));
+    const changed = nextAuditLogs.some((entry, index) => JSON.stringify(entry) !== JSON.stringify(auditLogs[index]));
+    if (changed) await writeJson(listFiles.audit_logs, nextAuditLogs);
+  }
+}
+
 function resolvedSiteVisitCrmLink(body, customers, inquiries) {
   const customerId = String(body?.customer_id || "").trim();
   if (!customerId) return null;
@@ -1386,6 +1406,27 @@ function cleanPayload(body = {}) {
   return cleaned;
 }
 
+function stripOfferCostingSourceMetadata(value) {
+  if (Array.isArray(value)) return value.map((item) => stripOfferCostingSourceMetadata(item));
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => ![
+      "costing_source_file",
+      "source_file",
+      "workbook_source_file",
+      "workbook_sheet",
+      "workbook_cell",
+      "workbook_row",
+      "workbook_line_total",
+      "workbook_quantity",
+      "workbook_actual",
+      "expanded_costing_data",
+      "expanded_costing_data_status",
+      "costing_rows"
+    ].includes(key))
+    .map(([key, item]) => [key, stripOfferCostingSourceMetadata(item)]));
+}
+
 function htmlEscape(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -1396,6 +1437,10 @@ function htmlEscape(value) {
 
 function moneyInr(value) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Number(value || 0));
+}
+
+function moneyInrExact(value) {
+  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 4 }).format(Number(value || 0));
 }
 
 function paymentNumber(value, fallback = 0) {
@@ -2238,28 +2283,6 @@ function decodeDataUrl(value = "") {
   };
 }
 
-function numberFromInput(value, fallback = 0) {
-  const parsed = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function offerCostSummary(record = {}) {
-  const materialCost = numberFromInput(record.material_cost);
-  const installCost = numberFromInput(record.install_cost);
-  const overheadCost = numberFromInput(record.overhead_cost);
-  const marginPercent = numberFromInput(record.margin_percent, 15);
-  const discount = numberFromInput(record.discount);
-  const gstPercent = numberFromInput(record.gst_percent, 18);
-  const baseCost = materialCost + installCost + overheadCost;
-  const marginAmount = Math.round((baseCost * marginPercent) / 100);
-  const subtotal = Math.max(0, baseCost + marginAmount - discount);
-  const gstAmount = Math.round((subtotal * gstPercent) / 100);
-  const calculatedTotal = subtotal + gstAmount;
-  const savedTotal = numberFromInput(record.total_cost);
-  const totalCost = savedTotal || calculatedTotal;
-  return { materialCost, installCost, overheadCost, marginPercent, marginAmount, discount, gstPercent, gstAmount, baseCost, subtotal, totalCost };
-}
-
 function inventoryNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -2389,7 +2412,9 @@ function normalizedLookup(value) {
 }
 
 function publicRecords(key, records) {
-  return key === "users" ? records.map(publicUser) : records;
+  if (key === "users") return records.map(publicUser);
+  if (key === "estimates") return records.map((record) => stripOfferCostingSourceMetadata(record));
+  return records;
 }
 
 const auditSnapshotKeys = [
@@ -5051,27 +5076,75 @@ async function offerCrmCustomerPayload(body, res) {
   };
 }
 
+function offerManagerSaveButtonPayload(draft = {}) {
+  const cleanDraft = stripOfferCostingSourceMetadata(cleanPayload(draft));
+  const payload = offerRecordWithServerCalculations(cleanDraft);
+  const existingSnapshot = payload.source_snapshot && typeof payload.source_snapshot === "object"
+    ? payload.source_snapshot
+    : {};
+  return {
+    ...payload,
+    offer_name: String(payload.offer_name || payload.customer_name || "").trim(),
+    offer_number: String(payload.offer_number || payload.job_no || "").trim(),
+    status: String(payload.lead_status || payload.status || "Offer Pending").trim(),
+    material_cost: payload.material_cost,
+    install_cost: payload.install_cost,
+    overhead_cost: payload.overhead_cost,
+    margin_percent: payload.margin_percent,
+    margin_amount: payload.margin_amount,
+    total_cost: payload.total_cost,
+    calculated_total_cost: payload.calculated_total_cost,
+    source: "CRM Offer Manager",
+    offer_source: String(payload.offer_source || "CRM").trim(),
+    source_snapshot: {
+      ...existingSnapshot,
+      customer_id: String(payload.customer_id || "").trim(),
+      customer_name: String(payload.customer_name || "").trim(),
+      source_inquiry_id: String(payload.source_inquiry_id || "").trim(),
+      site_visit_id: String(payload.site_visit_id || "").trim(),
+      site_measurements_source: String(payload.site_measurements_source || "").trim(),
+      linked_customer_source: String(payload.linked_customer_source || existingSnapshot.linked_customer_source || "").trim()
+    },
+    offer_letter_status: String(payload.offer_letter_status || "Prepared").trim()
+  };
+}
+
+async function createOfferManagerRecord(draft, res) {
+  return createCollectionRecord("estimates", draft, res);
+}
+
+async function updateOfferManagerRecord(id, draft, res) {
+  return updateCollectionRecord("estimates", id, draft, res);
+}
+
 async function normalizeOfferPayload(body, res) {
   const customerLink = await offerCrmCustomerPayload(body, res);
   if (!customerLink) return null;
-  const payload = cleanPayload(body);
-  const allowedOfferInventoryNames = new Set(["guide rail", "bracket"]);
-  const inventoryItems = Array.isArray(payload.inventory_items) ? payload.inventory_items.map((item) => ({
-    item_id: String(item?.item_id || item?.id || "").trim(),
-    name: String(item?.name || item?.item || "").trim(),
-    description: String(item?.description || item?.specification || "").trim(),
-    category: String(item?.category || "").trim(),
-    unit: String(item?.unit || "pcs").trim(),
-    qty: inventoryNumber(item?.qty ?? item?.quantity, 1),
-    actual: item?.actual === undefined || item?.actual === null || String(item?.actual).trim() === "" ? "" : inventoryNumber(item?.actual),
-    current_price: inventoryNumber(item?.current_price ?? item?.unit_price ?? item?.sale_price ?? item?.unit_cost),
-    purchase_price: inventoryNumber(item?.purchase_price ?? item?.unit_cost),
-    price_date: String(item?.price_date || "").trim(),
-    vendor: String(item?.vendor || "").trim()
-  })).filter((item) => allowedOfferInventoryNames.has(String(item.name || item.item_id).trim().toLowerCase())) : [];
-  const inventoryMaterialTotal = inventoryItems.reduce((sum, item) => sum + (item.actual === "" ? item.qty : item.actual) * item.current_price, 0);
-  const costPayload = inventoryMaterialTotal && !payload.material_cost ? { ...payload, material_cost: inventoryMaterialTotal } : payload;
-  const cost = offerCostSummary(costPayload);
+  const cleanOffer = stripOfferCostingSourceMetadata(cleanPayload(body));
+  const inventoryItems = Array.isArray(cleanOffer.inventory_items) ? cleanOffer.inventory_items.map((item) => {
+    const rawQuantity = item?.qty ?? item?.quantity;
+    const normalized = {
+      item_id: String(item?.item_id || item?.id || item?.name || item?.item || "").trim(),
+      serial_no: String(item?.serial_no ?? "").trim(),
+      name: String(item?.name || item?.item || "").trim(),
+      description: offerInventoryDescription(item),
+      costing_basis: String(item?.costing_basis || "").trim(),
+      costing_notes: String(item?.costing_notes || "").trim(),
+      category: String(item?.category || "").trim(),
+      unit: String(item?.unit ?? "pcs").trim(),
+      qty: rawQuantity === undefined || rawQuantity === null ? 1 : String(rawQuantity).trim() === "" ? "" : inventoryNumber(rawQuantity),
+      actual: item?.actual === undefined || item?.actual === null || String(item?.actual).trim() === "" ? "" : inventoryNumber(item?.actual),
+      purchase_price: inventoryNumber(item?.purchase_price ?? item?.unit_cost),
+      current_price: inventoryNumber(item?.current_price ?? item?.unit_price ?? item?.sale_price ?? item?.unit_cost),
+      amount_basis: offerInventoryAmountBasis(item),
+      line_total: item?.line_total === undefined || item?.line_total === null || String(item?.line_total).trim() === "" ? "" : inventoryNumber(item?.line_total),
+      price_date: String(item?.price_date || "").trim(),
+      vendor: String(item?.vendor || "").trim()
+    };
+    normalized.line_total = offerInventoryLineAmount(normalized);
+    return normalized;
+  }).filter((item) => String(item.name || "").trim()) : [];
+  const payload = offerRecordWithServerCalculations({ ...cleanOffer, inventory_items: inventoryItems });
   const measurementKeys = [
     "site_visit_id",
     "site_measurements_source",
@@ -5105,18 +5178,19 @@ async function normalizeOfferPayload(body, res) {
     elevator_type: String(payload.elevator_type || payload.offer_type || "Passenger Elevator").trim(),
     status: String(payload.status || payload.lead_status || "Offer Pending").trim(),
     lead_status: String(payload.lead_status || payload.status || "Offer Pending").trim(),
-    material_cost: cost.materialCost,
-    install_cost: cost.installCost,
-    overhead_cost: cost.overheadCost,
-    margin_percent: cost.marginPercent,
-    margin_amount: cost.marginAmount,
-    discount: cost.discount,
-    gst_percent: cost.gstPercent,
-    gst_amount: cost.gstAmount,
-    base_cost: cost.baseCost,
-    subtotal: cost.subtotal,
-    total_cost: cost.totalCost,
-    calculated_total_cost: cost.totalCost,
+    material_cost: payload.material_cost,
+    install_cost: payload.install_cost,
+    overhead_cost: payload.overhead_cost,
+    margin_mode: payload.margin_mode,
+    margin_percent: payload.margin_percent,
+    margin_amount: payload.margin_amount,
+    discount: payload.discount,
+    gst_percent: payload.gst_percent,
+    gst_amount: payload.gst_amount,
+    base_cost: payload.base_cost,
+    subtotal: payload.subtotal,
+    total_cost: payload.total_cost,
+    calculated_total_cost: payload.calculated_total_cost,
     payment_terms: String(payload.payment_terms || "40% advance, 50% before dispatch, 10% after installation").trim(),
     delivery_timeline: String(payload.delivery_timeline || "As per final technical approval and material readiness").trim(),
     warranty_terms: String(payload.warranty_terms || "12 months from handover against manufacturing defects").trim(),
@@ -5125,10 +5199,8 @@ async function normalizeOfferPayload(body, res) {
     offer_source: String(payload.offer_source || "CRM").trim(),
     offer_number: String(payload.offer_number || payload.job_no || "").trim(),
     source_snapshot: payload.source_snapshot && typeof payload.source_snapshot === "object" ? payload.source_snapshot : {},
-    expanded_costing_data: payload.expanded_costing_data && typeof payload.expanded_costing_data === "object" ? payload.expanded_costing_data : {},
-    costing_source_file: String(payload.costing_source_file || "").trim(),
-    inventory_items: inventoryItems,
-    inventory_material_total: inventoryMaterialTotal,
+    inventory_items: payload.inventory_items,
+    inventory_material_total: payload.inventory_material_total,
     inventory_pricing_source: String(payload.inventory_pricing_source || (inventoryItems.length ? "Inventory current prices" : "")).trim(),
     opening_schedule: Array.isArray(payload.opening_schedule) ? payload.opening_schedule : []
   };
@@ -5148,12 +5220,14 @@ function buildOfferLetterHtml(estimate = {}, options = {}) {
   const finish = estimate.finish || "Stainless Steel Hairline Finish";
   const driveType = estimate.drive_type || "VVVF Variable Voltage Variable Frequency";
   const speed = estimate.speed || "1.0 Meter Per Second";
-  const motor = estimate.motor || "Traction (Gearless)";
+  const motor = estimate.motor_specification || estimate.motor || "Traction (Gearless)";
   const floorOpening = `${stops} stops, ${openings} openings${estimate.opening_schedule_summary ? ` (${estimate.opening_schedule_summary})` : ""}`;
-  const doorSize = estimate.door_size_width_mm || estimate.door_size_height_mm ? `${estimate.door_size_width_mm || "-"}mm (width) x ${estimate.door_size_height_mm || "-"}mm (height)` : "As per GAD";
+  const doorSize = estimate.door_size_width_mm || estimate.door_size_height_mm
+    ? `${estimate.door_size_width_mm || "-"}mm (width) x ${estimate.door_size_height_mm || "-"}mm (height)`
+    : estimate.costing_door_size || "As per GAD";
   const shaftSize = estimate.shaft_width_mm || estimate.shaft_depth_mm ? `${estimate.shaft_width_mm || "-"}mm (width) x ${estimate.shaft_depth_mm || "-"}mm (depth)` : "As per GAD";
   const carSize = estimate.car_size_width_mm || estimate.car_size_depth_mm ? `${estimate.car_size_width_mm || "-"}mm (w) x ${estimate.car_size_depth_mm || "-"}mm (d) / as per GAD` : "As per GAD";
-  const pitDepth = estimate.pit_size_mm ? `${estimate.pit_size_mm} mm` : "As per GAD";
+  const pitDepth = estimate.pit_size_mm || estimate.costing_pit_mm ? `${estimate.pit_size_mm || estimate.costing_pit_mm} mm` : "As per GAD";
   const machineRoom = String(estimate.machine_room_available || "").toUpperCase() === "Y" ? "Machine room available as per site" : "Top-Machine Room Less";
   const serviceType = estimate.elevator_type || estimate.offer_type || "Passenger";
   const priceText = moneyInr(cost.totalCost);
@@ -5164,7 +5238,7 @@ function buildOfferLetterHtml(estimate = {}, options = {}) {
     ["No. of Elevators", "One (01) no."],
     ["Capacity", capacity],
     ["Speed", speed],
-    ["Control", driveType],
+    ["Control", estimate.controller_configuration || driveType],
     ["Operation", estimate.operation || "Simplex Full Collective"],
     ["Motor", motor],
     ["Floors & Opening", floorOpening],
@@ -5174,15 +5248,17 @@ function buildOfferLetterHtml(estimate = {}, options = {}) {
     ["Car Internal Size", carSize],
     ["Power Supply", "440V AC 50 Hz"],
     ["Lighting Supply", "220 V AC 50 Hz"],
-    ["Travel", estimate.floor_height_profile || "As per site and GAD"],
-    ["Overhead Required", estimate.overhead_required || "As per GAD"],
+    ["Travel", estimate.floor_height_profile || estimate.costing_travel_profile || (estimate.costing_total_travel_mm ? `${estimate.costing_total_travel_mm} mm` : "As per site and GAD")],
+    ["Overhead Required", estimate.overhead_required || (estimate.costing_overhead_mm ? `${estimate.costing_overhead_mm} mm` : "As per GAD")],
     ["Pit Depth Required", pitDepth],
-    ["Machine Room Location", machineRoom]
+    ["Machine Room Location", machineRoom],
+    ["Door Vision", estimate.door_vision || "As selected"],
+    ["Compliance", estimate.compliance_standard || "Applicable elevator standard"]
   ];
   const carRows = [
     ["Ceiling / Lighting", estimate.ceiling_lighting || "Stainless Steel Mirror finish with decorative lumasite"],
-    ["Car Construction", `${finish} with sheet thickness as per approved specification`],
-    ["Car Door", `${finish} small / big vision glass door as selected`],
+    ["Car Construction", estimate.car_construction || `${finish} with sheet thickness as per approved specification`],
+    ["Car Door", estimate.door_construction || `${finish} small / big vision glass door as selected`],
     ["Flooring", estimate.flooring || "PVC / granite recess as per final scope"]
   ];
   const signalRows = [
@@ -5190,12 +5266,16 @@ function buildOfferLetterHtml(estimate = {}, options = {}) {
     ["Hall Button", "Micro push button in stainless steel hairline Braille panel"]
   ];
   const inventoryRows = Array.isArray(estimate.inventory_items) ? estimate.inventory_items.map((item) => [
+    item.serial_no === undefined || item.serial_no === null || item.serial_no === "" ? "-" : item.serial_no,
     item.name || item.item_id || "-",
-    item.description || "-",
-    item.unit || "pcs",
-    item.qty || 1,
-    moneyInr(item.current_price || item.unit_price || 0),
-    item.actual === undefined || item.actual === null || item.actual === "" ? item.qty || 1 : item.actual
+    [offerInventoryDescription(item), item.costing_basis, item.costing_notes].map((value) => String(value || "").trim()).filter(Boolean).join(" / ") || "-",
+    item.unit || "-",
+    item.qty === undefined || item.qty === null || item.qty === "" ? "-" : item.qty,
+    item.actual === undefined || item.actual === null || item.actual === "" ? "-" : item.actual,
+    moneyInrExact(item.purchase_price || 0),
+    moneyInrExact(item.current_price || item.unit_price || 0),
+    offerInventoryAmountBasis(item),
+    moneyInrExact(offerInventoryLineAmount(item))
   ]) : [];
   const standardMakesImage = options.standardMakesImage || "/assets/offer/standard-makes.jpg";
   return `<!doctype html>
@@ -5309,7 +5389,7 @@ function buildOfferLetterHtml(estimate = {}, options = {}) {
 
     <h2>Price</h2>
     <p class="price">Our price for one number ${htmlEscape(capacity)} ${htmlEscape(motor)} elevator for ${htmlEscape(stops)} stops as per Annexure-I with ${htmlEscape(finish)} car and ${htmlEscape(doorType)} serving the above site will be @ ${htmlEscape(priceText)}.</p>
-    ${inventoryRows.length ? `<h3>Inventory Pricing Used For Internal Costing</h3><table><tr><th>Item</th><th>Description</th><th>Unit</th><th>QTY</th><th>Current price</th><th>Actual</th></tr>${inventoryRows.map((row) => `<tr>${row.map((cell) => `<td>${htmlEscape(cell)}</td>`).join("")}</tr>`).join("")}</table>` : ""}
+    ${inventoryRows.length ? `<h3>Inventory Pricing Used For Internal Costing</h3><table><tr><th>S.No.</th><th>Item</th><th>Description</th><th>Unit</th><th>QTY</th><th>Actual</th><th>Base price</th><th>Current price</th><th>Amount basis</th><th>Line amount</th></tr>${inventoryRows.map((row) => `<tr>${row.map((cell) => `<td>${htmlEscape(cell)}</td>`).join("")}</tr>`).join("")}</table>` : ""}
     <h3>The above offer is Inclusive of:</h3>
     ${bulletList(["Installation charges along with 12 months warranty from the date of handing over", "Freight up to the site"])}
     <h3>The above offer is Exclusive of:</h3>
@@ -5686,6 +5766,7 @@ async function ensurePortalCollectionIntegrity() {
     await ensureFourDigitCustomerIds();
     await ensureSalesInquiryCustomerIds();
     await ensureOfferInquiryLinks();
+    await ensureOfferCostingSourceMetadataRemoved();
     await ensureRenewalCustomerLinks();
     await ensureSiteVisitCustomerLinks();
     await ensureServiceJobsForCustomers();
@@ -5699,8 +5780,7 @@ async function ensurePortalCollectionIntegrity() {
 function slimPortalRecord(collectionKey, record = {}) {
   if (!record || typeof record !== "object") return record;
   if (collectionKey === "estimates") {
-    const { expanded_costing_data, costing_rows, ...rest } = record;
-    return rest;
+    return stripOfferCostingSourceMetadata(record);
   }
   if (collectionKey === "service_records") {
     const { service_history, ...rest } = record;
@@ -6804,56 +6884,185 @@ function openClawCostingNextPrompt(reason, details = {}) {
     `Reason: ${reason}`,
     "",
     "Required behavior:",
-    "- OpenClaw must decide A1 or 1A ordering, convert every .xlsx workbook, fetch the full converted JSON, then POST the converted payload to the backend action that emulates typing into the Offer Manager section containing the Save offer button.",
-    "- That backend action must save the offer through the same normalization and storage path as the real Save offer button.",
-    "- The saved offer must include `costing_source_file` and `expanded_costing_data` from the converted workbook JSON.",
+    "- OpenClaw must decide A1 or 1A ordering, convert every .xlsx workbook, fetch the full converted JSON, and evaluate every formula in every workbook itself.",
+    "- OpenClaw must remove formulas before calling the Offer Manager action. FUZI accepts only formula-free calculated_data and must report endpoint_evaluated_formula_count as 0.",
+    "- OpenClaw must first request the no-write FUZI Save offer calculation preview, verify the canonical receipt for every formula-free workbook cell value, compare every user-operable Offer Manager field, every travel-segment value, and every inventory row value (S.No., quantity, actual, base price, current price, amount basis, and line amount) with the evaluated workbook, compare every FUZI total, and only then submit its calculation check to authorize Save offer.",
+    "- That backend action must build one user-editable Offer Manager form per workbook and save each form through the same normalization and storage path as the real Save offer button.",
+    "- Workbook filenames are conversion-only metadata. Do not store or show them on offers; save only the calculated visible offer fields and workbook item rows in `inventory_items`.",
+    "- Never retain the full converted workbook arrays as files, database fields, or long-lived conversion artifacts. They may exist only in the one-time conversion transfer and OpenClaw's temporary terminal file while the Save offer request is in flight.",
+    "- If the converted workbook requires a field or action that is absent from the user-operable Offer Manager UI, save nothing and return an `OFFER_MANAGER_UI_FEATURE_MISSING` warning plus `exact_next_prompt_for_codex` naming the app feature that should already exist.",
     "- If a required customer/offer field cannot be chosen from backend context, return `exact_next_prompt_for_codex` with the missing field and no work for the user to invent.",
     "",
     `Backend details: ${JSON.stringify(details, null, 2)}`
   ].join("\n");
 }
 
-async function writeCostingConversionArtifact(data, orderDecisions = {}, options = {}) {
-  const artifactDir = path.join(rootDir, "docs", "6-passenger-costing", "openclaw-import-results");
-  await fs.mkdir(artifactDir, { recursive: true });
+function costingConversionTransferTtlMs() {
+  const configuredMinutes = Number(process.env.FUZI_OPENCLAW_COSTING_TRANSFER_TTL_MINUTES || 15);
+  const minutes = Number.isFinite(configuredMinutes) ? Math.max(1, Math.min(30, configuredMinutes)) : 15;
+  return minutes * 60 * 1000;
+}
+
+function canonicalJsonValue(value) {
+  if (Array.isArray(value)) return value.map((item) => canonicalJsonValue(item));
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJsonValue(value[key])]));
+}
+
+function costingConversionDigest(value) {
+  return crypto.createHash("sha256").update(JSON.stringify(canonicalJsonValue(value))).digest("hex");
+}
+
+function costingTerminalCleanupCommand(artifactId = "") {
+  const safeId = String(artifactId || "fuzi-costing-converted").replace(/[^a-zA-Z0-9_-]/g, "");
+  return `rm -f -- "/tmp/${safeId || "fuzi-costing-converted"}.json"`;
+}
+
+function releaseCostingConversionPayload(record) {
+  if (!record) return;
+  record.data = null;
+  record.payloadReleasedAt = Date.now();
+}
+
+function deleteCostingConversionTransfer(artifactId) {
+  const record = costingConversionTransfers.get(artifactId);
+  if (record?.expiryTimer) clearTimeout(record.expiryTimer);
+  releaseCostingConversionPayload(record);
+  costingConversionTransfers.delete(artifactId);
+}
+
+function costingTransferConsumedFields(artifactId) {
+  return {
+    artifact_id: artifactId,
+    conversion_transfer_id: artifactId,
+    conversion_transfer_consumed: true,
+    converted_arrays_retained: false,
+    terminal_cleanup_command: costingTerminalCleanupCommand(artifactId)
+  };
+}
+
+function openClawMissingUiFeatureWarning(reason, details = {}, artifactId = "") {
+  const saveAttempted = details.save_attempted === true;
+  const missingFeatures = [
+    ...(Array.isArray(details.missing_ui_fields) ? details.missing_ui_fields : []),
+    ...(Array.isArray(details.missing_offer_manager_fields) ? details.missing_offer_manager_fields : []),
+    ...(details.required_field ? [details.required_field] : [])
+  ];
+  return {
+    ok: false,
+    warning_code: "OFFER_MANAGER_UI_FEATURE_MISSING",
+    warning: saveAttempted
+      ? "The converted workbook exposed incomplete Offer Manager functionality that should exist in the user-operable app. FUZI did not accept this conversion as complete."
+      : "The converted workbook needs Offer Manager functionality that should exist in the user-operable app. No offer was saved from this request.",
+    app_feature_missing: true,
+    database_write_attempted: saveAttempted,
+    database_write_count: 0,
+    missing_features: [...new Set(missingFeatures)],
+    ...costingTransferConsumedFields(artifactId),
+    exact_next_prompt_for_codex: openClawCostingNextPrompt(reason, {
+      ...details,
+      warning_code: "OFFER_MANAGER_UI_FEATURE_MISSING",
+      converted_arrays_retained: false,
+      save_attempted: saveAttempted
+    })
+  };
+}
+
+function openClawNonUiDatabaseEditWarning(reason, details = {}, artifactId = "") {
+  return {
+    ok: false,
+    warning_code: "OPENCLAW_NON_UI_DATABASE_EDIT_REJECTED",
+    warning: "The request was not equivalent to an action available in the Offer Manager UI. FUZI rejected it before any database handler ran.",
+    database_write_attempted: false,
+    database_write_count: 0,
+    ...costingTransferConsumedFields(artifactId),
+    exact_next_prompt_for_codex: openClawCostingNextPrompt(reason, {
+      ...details,
+      warning_code: "OPENCLAW_NON_UI_DATABASE_EDIT_REJECTED",
+      database_write_attempted: false,
+      database_write_count: 0,
+      converted_arrays_retained: false
+    })
+  };
+}
+
+function openClawCalculationWarning(reason, details = {}, artifactId = "") {
+  return {
+    ok: false,
+    warning_code: "OPENCLAW_COSTING_CALCULATION_REJECTED",
+    warning: "OpenClaw did not provide a complete formula-free calculation and comparison for every workbook. No offer was saved.",
+    database_write_attempted: false,
+    database_write_count: 0,
+    ...costingTransferConsumedFields(artifactId),
+    exact_next_prompt_for_codex: openClawCostingNextPrompt(reason, {
+      ...details,
+      warning_code: "OPENCLAW_COSTING_CALCULATION_REJECTED",
+      database_write_attempted: false,
+      database_write_count: 0,
+      endpoint_evaluated_formula_count: 0,
+      converted_arrays_retained: false
+    })
+  };
+}
+
+function openClawCostingContextLimit(value, fallback = 12, max = 30) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.max(1, Math.min(max, Math.floor(parsed)));
+}
+
+async function createCostingConversionTransfer(data, orderDecisions = {}, options = {}) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const artifactId = `costing-import-${timestamp}-${crypto.randomBytes(4).toString("hex")}`;
   const password = crypto.randomBytes(18).toString("base64url");
-  const artifactPath = path.join(artifactDir, `${artifactId}.json`);
-  await fs.writeFile(artifactPath, JSON.stringify({
-    generated_at: new Date().toISOString(),
-    artifact_id: artifactId,
-    order_decisions: orderDecisions,
-    ...data
-  }, null, 2), "utf8");
-  costingArtifactPasswords.set(artifactId, {
+  const createdAt = Date.now();
+  const ttlMs = costingConversionTransferTtlMs();
+  const calculationContract = createOpenClawCalculationContract(data);
+  const record = {
     password,
-    artifactPath,
     data,
+    dataKeys: Object.keys(data).sort(),
+    dataDigest: costingConversionDigest(data),
+    calculationContract,
     manifest: options.manifest || null,
     orderDecisions,
     sessionKey: options.sessionKey || costingImportSessionKey,
-    createdAt: Date.now(),
-    expiresAt: Date.now() + (Number(process.env.FUZI_OPENCLAW_COSTING_PASSWORD_TTL_MINUTES || 240) * 60 * 1000)
-  });
-  return { artifactId, artifactPath, password };
+    generatedAt: new Date(createdAt).toISOString(),
+    createdAt,
+    expiresAt: createdAt + ttlMs,
+    expiryTimer: null
+  };
+  record.expiryTimer = setTimeout(() => deleteCostingConversionTransfer(artifactId), ttlMs);
+  record.expiryTimer.unref?.();
+  costingConversionTransfers.set(artifactId, record);
+  return {
+    artifactId,
+    password,
+    expiresAt: record.expiresAt,
+    storage: "one-time-memory-transfer",
+    formulaCount: calculationContract.formula_count,
+    sourceFormulaCounts: calculationContract.source_formula_counts
+  };
 }
 
 function costingConversionOpenClawMessage(data, manifest, orderDecisions = {}, artifact = {}, req = null) {
   const sources = Array.isArray(data.sources) ? data.sources : [];
   const backendUrl = req ? openClawTerminalBackendUrl(req) : "";
-  const fetchUrl = backendUrl && artifact.artifactId ? `${backendUrl}/api/openclaw/costing/result/${encodeURIComponent(artifact.artifactId)}` : "";
+  const fetchUrlBase = backendUrl && artifact.artifactId ? `${backendUrl}/api/openclaw/costing/result/${encodeURIComponent(artifact.artifactId)}` : "";
+  const fetchUrl = fetchUrlBase && artifact.password ? `${fetchUrlBase}?password=${encodeURIComponent(artifact.password)}` : fetchUrlBase;
   const contextUrl = backendUrl && artifact.artifactId ? `${backendUrl}/api/openclaw/costing/offer-manager/context` : "";
   const saveOfferUrl = backendUrl && artifact.artifactId ? `${backendUrl}/api/openclaw/costing/offer-manager/save` : "";
   const terminalOutputPath = artifact.artifactId ? `/tmp/${artifact.artifactId}.json` : "/tmp/fuzi-costing-converted.json";
   const commandOptions = fetchUrl && artifact.password ? {
-    curl: `curl -sS -H "X-FUZI-OpenClaw-Costing-Password: ${artifact.password}" "${fetchUrl}" -o "${terminalOutputPath}"`,
+    curl: `curl -sS "${fetchUrl}" -o "${terminalOutputPath}"`,
+    curl_with_header: `curl -sS -H "X-FUZI-OpenClaw-Costing-Password: ${artifact.password}" "${fetchUrlBase}" -o "${terminalOutputPath}"`,
     powershell: `$out = "${terminalOutputPath}"; Invoke-RestMethod -Uri "${fetchUrl}" -Headers @{ "X-FUZI-OpenClaw-Costing-Password" = "${artifact.password}" } | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $out -Encoding UTF8`,
     node_fetch: `node -e "const fs=require('fs'); fetch('${fetchUrl}',{headers:{'X-FUZI-OpenClaw-Costing-Password':'${artifact.password}'}}).then(r=>r.text()).then(t=>{fs.writeFileSync('${terminalOutputPath}',t);})"`
   } : {};
   return [
     "FUZI costing workbook conversion result.",
-    "Full converted cell arrays are not pasted into chat. OpenClaw must decide which terminal command to run, using the backend URL and password below, to receive the complete JSON.",
+    "Full converted cell arrays are not pasted into chat or written to a FUZI artifact file. OpenClaw must run one terminal_command_options command exactly as written to consume the one-time in-memory transfer. The primary backend_result_url includes the transfer password as a query fallback; do not fetch the passwordless URL.",
+    "OpenClaw web UI stability rule: do not print full converted JSON, full CRM context JSON, or full save request bodies into the chat. Keep the converted response only in terminal_output_path while the Save offer request is in flight, then run terminal_cleanup_command even when the backend returns a missing-feature warning.",
     "",
     JSON.stringify({
       session_key: manifest.session_key,
@@ -6861,12 +7070,25 @@ function costingConversionOpenClawMessage(data, manifest, orderDecisions = {}, a
       total_values: sources.reduce((sum, source) => sum + Number(source.non_empty_cell_count || 0), 0),
       order_decisions: orderDecisions,
       artifact_id: artifact.artifactId || "",
-      full_result_path: artifact.artifactPath || "",
+      conversion_transfer_id: artifact.artifactId || "",
+      conversion_transfer_storage: artifact.storage || "one-time-memory-transfer",
+      conversion_transfer_expires_at: artifact.expiresAt ? new Date(artifact.expiresAt).toISOString() : null,
+      converted_arrays_retained_by_backend_after_fetch: false,
       backend_result_url: fetchUrl,
+      backend_result_url_without_password: fetchUrlBase,
       backend_password: artifact.password || "",
+      password_query_param: "password",
       terminal_output_path: terminalOutputPath,
       terminal_command_decision_required: true,
       terminal_command_options: commandOptions,
+      formula_evaluation: {
+        evaluator: "OpenClaw",
+        formula_result_count_required: Number(artifact.formulaCount || 0),
+        source_formula_counts: Array.isArray(artifact.sourceFormulaCounts) ? artifact.sourceFormulaCounts : [],
+        backend_cached_formula_values_exposed: false,
+        endpoint_evaluates_formulas: false,
+        required_output: "Create formula-free calculated_data by replacing every formula cell in cells and sheets_matrix with OpenClaw's evaluated result and removing every formula property and leading-equals formula string. Preserve all non-formula data and metadata unchanged."
+      },
       offer_manager_save_action: {
         method: "POST",
         url: saveOfferUrl,
@@ -6874,35 +7096,60 @@ function costingConversionOpenClawMessage(data, manifest, orderDecisions = {}, a
         password: artifact.password || "",
         required_body: {
           artifact_id: artifact.artifactId || "",
-          converted_data_source: "Read the full JSON from terminal_output_path after running one terminal_command_options command.",
+          request_type: "First preview, then save after OpenClaw compares every preview row.",
+          calculated_data_source: "Read the full JSON from terminal_output_path, evaluate every formula, remove all formulas, and send the resulting formula-free calculated_data. Never send converted_data to this endpoint.",
+          save_all_workbooks: true,
+          offer_manager_action: {
+            type: "start_offer",
+            source: "customer or inquiry",
+            record_id: "Use the exact record_id returned by offer_manager_context_action."
+          },
           offer_fields: {
-            customer_id: "OpenClaw must choose or provide the CRM customer id for the Offer Manager draft.",
             customer_name: "Customer name shown in the Offer Manager Save offer section.",
-            lead_status: "Offer Pending",
-            source: "CRM Offer Manager",
-            offer_source: "OpenClaw costing import"
+            lead_status: "Offer Pending"
+          },
+          calculation_preview_id: "Required only for request_type save; copy it unchanged from the preview response.",
+          calculation_check: {
+            checked_by: "OpenClaw",
+            all_workbooks_match: true,
+            checked_offer_count: "The number of preview rows OpenClaw compared.",
+            checked_workbook_value_count: "The workbook_value_receipt.value_count OpenClaw checked.",
+            checked_offer_value_count: "The sum of every offer_manager_value_preview.value_count OpenClaw checked.",
+            workbook_value_receipt_digest: "The locally computed sha256-canonical-workbook-cells-v1 aggregate digest.",
+            all_values_match: true,
+            mismatches: []
           }
         },
-        behavior: "This endpoint emulates typing the converted costing fields into the Offer Manager section that contains Save offer, then uses the same backend save logic as the Save offer button.",
-        if_logic_missing: "Return exact_next_prompt_for_codex. Do not ask the user to invent the next prompt."
+        offer_manager_ui_control_contract: offerManagerUiControlContract,
+        offer_manager_request_field_contract: offerManagerOpenClawRequestFieldContract,
+        server_resolved_ui_action_fields: Object.fromEntries(offerManagerOpenClawServerResolvedFieldNames.map((key) => [key, offerManagerUiControlContract[key]])),
+        read_only_calculated_fields: Object.fromEntries(offerManagerReadOnlyCalculatedFieldNames.map((key) => [key, offerManagerUiControlContract[key]])),
+        request_security: "The endpoint rejects formulas, converted_data, missing formula results, changed non-formula data, unknown top-level fields, non-scalar offer fields, hidden fields, read-only calculated fields, and client-supplied server-resolved action fields before any database handler runs.",
+        behavior: "For request_type preview, build every visible Offer Manager form and return the normal Save offer calculation with zero writes, a receipt for every workbook cell value received, and every visible Offer Manager field/inventory value. OpenClaw must compare all receipts, values, and totals with the evaluated .xlsx data. For request_type save, require the matching preview id and complete all-value comparison attestation before invoking the same backend save logic as one Save offer button press per workbook.",
+        if_logic_missing: "Before saving anything, return warning_code OFFER_MANAGER_UI_FEATURE_MISSING and exact_next_prompt_for_codex naming each missing UI field/control. The conversion transfer is consumed, terminal_output_path must be deleted, and the user must not invent the next prompt."
       },
       offer_manager_context_action: {
         method: "POST",
         url: contextUrl,
         password_header: "X-FUZI-OpenClaw-Costing-Password",
         password: artifact.password || "",
-        body: { artifact_id: artifact.artifactId || "" },
-        behavior: "Use this if OpenClaw needs minimal CRM customer/enquiry choices before deciding the offer_fields for offer_manager_save_action."
+        body: { artifact_id: artifact.artifactId || "", response_mode: "compact", limit: 12 },
+        behavior: "Call this before every save and submit one returned offer_manager_action unchanged. If the first compact page does not contain the needed customer or enquiry, retry with a `search` string or a higher `limit` up to 30."
       },
       files: sources.map((source) => ({
         source_file: source.source_file,
         size_bytes: manifest.files.find((file) => file.source_file === source.source_file)?.size_bytes || 0
       })),
-      save_offer_fields: {
-        costing_source_file: sources.map((source) => source.source_file),
-        expanded_costing_data: "OpenClaw decides and runs one terminal command using backend_result_url plus backend_password to receive the full converted sources, including all sheets_matrix cell arrays and samples."
+      conversion_metadata: {
+        source_file: "Used only to keep workbook inputs separate during conversion. It is never stored on an offer or shown in Offer Manager."
       },
-      after_terminal_command: "After OpenClaw runs one terminal_command_options command, POST the full converted JSON plus chosen Offer Manager fields to offer_manager_save_action.url. Do not stop at a short command summary."
+      save_offer_fields: {
+        offer_count: sources.length,
+        costing_travel_segments: "Every workbook travel leg mapped to visible label and millimetre controls; pit, overhead, total travel, and travel profile are derived from these rows.",
+        inventory_items: "Workbook item rows mapped to visible controls for S.No., description, costing basis/notes, unit, quantity, actual, base price, current price, amount basis, and line amount."
+      },
+      retention_policy: "Converted workbook arrays, calculated workbook arrays, formulas, and workbook filenames are never persisted on offers. The backend conversion copy is released by the one-time fetch; only a compact formula-location contract and calculation-preview digest remain until save or expiry. OpenClaw deletes its terminal copy after the save response or warning.",
+      after_terminal_command: "Evaluate every formula in every source, create formula-free calculated_data, and compute sha256-canonical-workbook-cells-v1 over every cells entry exactly as sent. Call offer_manager_context_action, then POST request_type preview. Verify workbook_value_receipt source-by-source and in aggregate; compare every path in offer_manager_value_preview.values with the evaluated .xlsx data; compare every returned total. Only when every receipt, value, and total matches, POST request_type save with the same data, preview id, and the exact eight-field calculation_check. Otherwise POST reject with path-level mismatches. Then run terminal_cleanup_command. Never send formulas or converted_data to Save offer."
     }, null, 2)
   ].join("\n");
 }
@@ -6920,6 +7167,603 @@ function attachCostingManifestToSources(data, manifest) {
         modified_at: file.modified_at || ""
       };
     })
+  };
+}
+
+function costingNumber(value, fallback = 0) {
+  const parsed = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizedCostingLabel(value = "") {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function costingOfferFieldsFromConvertedSource(source = {}) {
+  const cells = Array.isArray(source.cells) ? source.cells : [];
+  if (!cells.length) return { fields: {}, summary: {} };
+  const workbookSummary = workbookCostingSummary(cells);
+  if (!workbookSummary) return { fields: {}, summary: {} };
+  const {
+    final_offer: finalOffer,
+    material_total: materialTotal,
+    installation_local: installationLocal,
+    commissioning,
+    warranty,
+    pre_margin_total: preMarginTotal,
+    margin_amount: marginAmount
+  } = workbookSummary;
+  const installCost = installationLocal + commissioning;
+  const overheadCost = warranty;
+  const baseCost = materialTotal + installCost + overheadCost;
+  const marginInput = workbookMarginInput(preMarginTotal || baseCost, marginAmount);
+  const technicalFields = workbookTechnicalOfferFields(source);
+  const fields = { ...technicalFields };
+  if (materialTotal > 0) fields.material_cost = materialTotal;
+  if (installationLocal > 0) fields.installation_local_cost = installationLocal;
+  if (commissioning > 0) fields.commissioning_cost = commissioning;
+  if (warranty > 0) fields.warranty_cost = warranty;
+  if (installCost > 0) fields.install_cost = installCost;
+  if (overheadCost > 0) fields.overhead_cost = overheadCost;
+  fields.margin_mode = marginInput.margin_mode;
+  fields.margin_percent = marginInput.margin_percent;
+  fields.margin_amount = marginInput.margin_amount;
+  fields.discount = 0;
+  fields.gst_percent = 0;
+  return {
+    fields,
+    summary: {
+      source_file: String(source.source_file || "").trim(),
+      final_offer: finalOffer,
+      material_total: materialTotal,
+      installation_local: installationLocal,
+      commissioning,
+      warranty,
+      pre_margin_total: preMarginTotal,
+      margin_amount: marginAmount,
+      margin_mode: marginInput.margin_mode,
+      margin_percent: marginInput.margin_percent,
+      summary_rows: workbookSummary.rows,
+      technical_fields: technicalFields
+    }
+  };
+}
+
+const offerManagerDraftFieldNames = Object.freeze([
+  "job_no",
+  "offer_number",
+  "offer_date",
+  "customer_name",
+  "offer_name",
+  "offer_type",
+  "lead_status",
+  "elevator_type",
+  "stops",
+  "capacity",
+  "speed",
+  "drive_type",
+  "door_type",
+  "finish",
+  "car_construction",
+  "door_construction",
+  "door_operation",
+  "door_opening_type",
+  "door_vision",
+  "costing_door_size",
+  "flooring",
+  "compliance_standard",
+  "controller_configuration",
+  "motor_specification",
+  "car_cabin_specification",
+  "safety_specification",
+  "rope_specification",
+  "costing_configuration",
+  "costing_pit_mm",
+  "costing_overhead_mm",
+  "costing_total_travel_mm",
+  "costing_travel_profile",
+  "costing_travel_segments",
+  "material_cost",
+  "installation_local_cost",
+  "commissioning_cost",
+  "warranty_cost",
+  "install_cost",
+  "overhead_cost",
+  "margin_mode",
+  "margin_percent",
+  "margin_amount",
+  "discount",
+  "gst_percent",
+  "offer_valid_until",
+  "payment_terms",
+  "delivery_timeline",
+  "warranty_terms",
+  "createdbyname",
+  "lastmodifiedbyname",
+  "notes",
+  "customer_id",
+  "source_inquiry_id",
+  "offer_source",
+  "linked_customer_source",
+  "inventory_items",
+  "inventory_material_total",
+  "inventory_pricing_source",
+  "site_visit_id",
+  "site_measurements_source",
+  "site_address",
+  "pit_size_mm",
+  "machine_room_available",
+  "floor_height_profile",
+  "site_stops",
+  "site_number_of_openings",
+  "site_opening_type",
+  "door_size_width_mm",
+  "door_size_height_mm",
+  "car_size_width_mm",
+  "car_size_depth_mm",
+  "site_capacity_persons",
+  "site_capacity_kg",
+  "shaft_width_mm",
+  "shaft_depth_mm",
+  "brick_wall_available",
+  "civil_door_height_mm",
+  "opening_schedule_summary",
+  "opening_schedule"
+]);
+
+const offerManagerUiControlContract = Object.freeze({
+  customer_id: "offer-field-customer_id (pre-filled by Start offer; editable; must identify a saved CRM customer)",
+  job_no: "offer-field-job_no",
+  offer_date: "offer-field-offer_date",
+  customer_name: "offer-field-customer_name",
+  offer_type: "offer-field-offer_type",
+  lead_status: "offer-field-lead_status",
+  elevator_type: "offer-field-elevator_type",
+  stops: "offer-field-stops",
+  capacity: "offer-field-capacity",
+  speed: "offer-field-speed",
+  drive_type: "offer-field-drive_type",
+  door_type: "offer-field-door_type",
+  finish: "offer-field-finish",
+  car_construction: "offer-field-car_construction",
+  door_construction: "offer-field-door_construction",
+  door_operation: "offer-field-door_operation",
+  door_opening_type: "offer-field-door_opening_type",
+  door_vision: "offer-field-door_vision",
+  costing_door_size: "offer-field-costing_door_size",
+  flooring: "offer-field-flooring",
+  compliance_standard: "offer-field-compliance_standard",
+  controller_configuration: "offer-field-controller_configuration",
+  motor_specification: "offer-field-motor_specification",
+  car_cabin_specification: "offer-field-car_cabin_specification",
+  safety_specification: "offer-field-safety_specification",
+  rope_specification: "offer-field-rope_specification",
+  costing_configuration: "offer-field-costing_configuration",
+  costing_pit_mm: "offer-field-costing_pit_mm (read-only; calculated from travel segment rows)",
+  costing_overhead_mm: "offer-field-costing_overhead_mm (read-only; calculated from travel segment rows)",
+  costing_total_travel_mm: "offer-field-costing_total_travel_mm (read-only; calculated from travel segment rows)",
+  costing_travel_profile: "offer-field-costing_travel_profile (read-only; calculated from travel segment rows)",
+  costing_travel_segments: "Add travel segment, then offer-costing-travel-segment-*-label/mm; remove with offer-costing-travel-segment-*-remove",
+  material_cost: "offer-field-material_cost (read-only; calculated from inventory item rows)",
+  installation_local_cost: "offer-field-installation_local_cost",
+  commissioning_cost: "offer-field-commissioning_cost",
+  warranty_cost: "offer-field-warranty_cost",
+  install_cost: "offer-field-install_cost (read-only; calculated from installation_local_cost and commissioning_cost)",
+  overhead_cost: "offer-field-overhead_cost (read-only; calculated from warranty_cost)",
+  margin_mode: "offer-field-margin-mode-percentage or offer-field-margin-mode-fixed",
+  margin_percent: "offer-field-margin_percent",
+  margin_amount: "offer-field-margin_amount",
+  discount: "offer-field-discount",
+  gst_percent: "offer-field-gst_percent",
+  offer_valid_until: "offer-field-offer_valid_until",
+  site_visit_id: "offer-field-site_visit_id (pre-filled when a linked site visit is selected; editable)",
+  site_measurements_source: "offer-field-site_measurements_source",
+  site_address: "offer-field-site_address",
+  pit_size_mm: "offer-field-pit_size_mm",
+  machine_room_available: "offer-field-machine_room_available",
+  site_stops: "offer-field-site_stops",
+  site_number_of_openings: "offer-field-site_number_of_openings",
+  site_opening_type: "offer-field-site_opening_type",
+  door_size_width_mm: "offer-field-door_size_width_mm",
+  door_size_height_mm: "offer-field-door_size_height_mm",
+  car_size_width_mm: "offer-field-car_size_width_mm",
+  car_size_depth_mm: "offer-field-car_size_depth_mm",
+  site_capacity_persons: "offer-field-site_capacity_persons",
+  site_capacity_kg: "offer-field-site_capacity_kg",
+  shaft_width_mm: "offer-field-shaft_width_mm",
+  shaft_depth_mm: "offer-field-shaft_depth_mm",
+  brick_wall_available: "offer-field-brick_wall_available",
+  civil_door_height_mm: "offer-field-civil_door_height_mm",
+  floor_height_profile: "offer-field-floor_height_profile",
+  opening_schedule_summary: "offer-field-opening_schedule_summary",
+  opening_schedule: "Use linked site visit",
+  inventory_items: "Add custom inventory item, then offer-inventory-*-serial_no/name/description/costing_basis/costing_notes/unit/qty/actual/purchase_price/current_price/amount_basis/line_total; line_total is editable only for Direct amount",
+  payment_terms: "offer-field-payment_terms",
+  delivery_timeline: "offer-field-delivery_timeline",
+  warranty_terms: "offer-field-warranty_terms",
+  notes: "offer-field-notes"
+});
+
+const offerManagerSaveControlFieldNames = Object.freeze(Object.keys(offerManagerUiControlContract));
+const offerManagerReadOnlyCalculatedFieldNames = Object.freeze([
+  "material_cost",
+  "install_cost",
+  "overhead_cost",
+  "costing_pit_mm",
+  "costing_overhead_mm",
+  "costing_total_travel_mm",
+  "costing_travel_profile"
+]);
+const offerManagerOpenClawServerResolvedFieldNames = Object.freeze([
+  "opening_schedule",
+  "costing_travel_segments",
+  "inventory_items"
+]);
+const offerManagerOpenClawRequestFieldNames = Object.freeze(offerManagerSaveControlFieldNames.filter((key) => (
+  !offerManagerOpenClawServerResolvedFieldNames.includes(key)
+  && !offerManagerReadOnlyCalculatedFieldNames.includes(key)
+)));
+const offerManagerOpenClawRequestFieldContract = Object.freeze(Object.fromEntries(
+  offerManagerOpenClawRequestFieldNames.map((key) => [key, offerManagerUiControlContract[key]])
+));
+const offerManagerOpenClawTopLevelRequestFieldNames = Object.freeze([
+  "artifact_id",
+  "artifactId",
+  "request_type",
+  "calculated_data",
+  "save_all_workbooks",
+  "saveAllWorkbooks",
+  "offer_manager_action",
+  "offer_fields",
+  "calculation_preview_id",
+  "calculation_check",
+  "backend_password",
+  "password"
+]);
+const openClawCalculationCheckFieldNames = Object.freeze([
+  "checked_by",
+  "all_workbooks_match",
+  "checked_offer_count",
+  "checked_workbook_value_count",
+  "checked_offer_value_count",
+  "workbook_value_receipt_digest",
+  "all_values_match",
+  "mismatches"
+]);
+const offerManagerUiDerivedFieldNames = Object.freeze([
+  "offer_number",
+  "offer_name",
+  "status",
+  "total_cost",
+  "calculated_total_cost",
+  "createdbyname",
+  "lastmodifiedbyname",
+  "source_inquiry_id",
+  "source",
+  "offer_source",
+  "linked_customer_source",
+  "inventory_material_total",
+  "inventory_pricing_source",
+  "offer_letter_status",
+  "source_snapshot"
+]);
+
+function normalizedOpenClawOfferFields(fields = {}) {
+  return Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, String(value ?? "").trim()]));
+}
+
+function openClawOfferManagerUiSubmissionPayload(draft = {}, actor = {}) {
+  const payload = Object.fromEntries(offerManagerSaveControlFieldNames.map((key) => [key, draft[key]]));
+  return {
+    ...payload,
+    source_inquiry_id: String(draft.source_inquiry_id || "").trim(),
+    linked_customer_source: String(draft.linked_customer_source || "").trim(),
+    inventory_pricing_source: Array.isArray(draft.inventory_items) && draft.inventory_items.length ? "Offer Manager manual entry" : "",
+    createdbyname: String(actor.display_name || actor.username || "OpenClaw").trim(),
+    lastmodifiedbyname: String(actor.display_name || actor.username || "OpenClaw").trim(),
+    source: "CRM Offer Manager",
+    offer_source: "CRM",
+    offer_letter_status: "Prepared"
+  };
+}
+
+function offerManagerPreviewScalarCount(value) {
+  if (Array.isArray(value)) return value.reduce((sum, item) => sum + offerManagerPreviewScalarCount(item), 0);
+  if (value && typeof value === "object") {
+    return Object.values(value).reduce((sum, item) => sum + offerManagerPreviewScalarCount(item), 0);
+  }
+  return 1;
+}
+
+function openClawOfferManagerValuePreview(prepared = {}) {
+  const payload = prepared.offerPayloadInput && typeof prepared.offerPayloadInput === "object"
+    ? prepared.offerPayloadInput
+    : {};
+  const values = Object.fromEntries(offerManagerSaveControlFieldNames.map((key) => [
+    key,
+    payload[key] === undefined ? null : payload[key]
+  ]));
+  return {
+    source_index: prepared.sourceIndex,
+    value_count: offerManagerPreviewScalarCount(values),
+    values_digest: costingConversionDigest(values),
+    values
+  };
+}
+
+function offerManagerMissingUiControlFields(values = {}) {
+  return Object.keys(values).filter((key) => (
+    !Object.prototype.hasOwnProperty.call(offerManagerUiControlContract, key)
+    && !offerManagerUiDerivedFieldNames.includes(key)
+  ));
+}
+
+function offerManagerInventoryInputMismatches(expectedItems = [], savedItems = []) {
+  if (expectedItems.length !== savedItems.length) return [{ field: "line_count", expected: expectedItems.length, saved: savedItems.length }];
+  const textFields = ["serial_no", "name", "description", "costing_basis", "costing_notes", "unit", "amount_basis"];
+  const numberFields = ["qty", "actual", "purchase_price", "current_price", "line_total"];
+  const mismatches = [];
+  expectedItems.forEach((expected, index) => {
+    const saved = savedItems[index] || {};
+    for (const field of textFields) {
+      if (String(expected?.[field] || "").trim() !== String(saved?.[field] || "").trim()) {
+        mismatches.push({ index, field, expected: expected?.[field] ?? "", saved: saved?.[field] ?? "" });
+      }
+    }
+    for (const field of numberFields) {
+      const expectedText = String(expected?.[field] ?? "").trim();
+      const savedText = String(saved?.[field] ?? "").trim();
+      if (Boolean(expectedText) !== Boolean(savedText) || (expectedText && Math.abs(inventoryNumber(expectedText) - inventoryNumber(savedText)) > 0.000001)) {
+        mismatches.push({ index, field, expected: expected?.[field] ?? "", saved: saved?.[field] ?? "" });
+      }
+    }
+  });
+  return mismatches;
+}
+
+function offerManagerDraftDefaults() {
+  return {
+    job_no: "",
+    offer_number: "",
+    offer_date: new Date().toISOString().slice(0, 10),
+    customer_name: "",
+    offer_name: "",
+    offer_type: "Individual",
+    lead_status: "Offer Pending",
+    elevator_type: "Passenger Elevator",
+    stops: "",
+    capacity: "",
+    speed: "",
+    drive_type: "",
+    door_type: "",
+    finish: "",
+    car_construction: "",
+    door_construction: "",
+    door_operation: "",
+    door_opening_type: "",
+    door_vision: "",
+    costing_door_size: "",
+    flooring: "",
+    compliance_standard: "",
+    controller_configuration: "",
+    motor_specification: "",
+    car_cabin_specification: "",
+    safety_specification: "",
+    rope_specification: "",
+    costing_configuration: "",
+    costing_pit_mm: "",
+    costing_overhead_mm: "",
+    costing_total_travel_mm: "",
+    costing_travel_profile: "",
+    costing_travel_segments: [],
+    material_cost: "",
+    installation_local_cost: "",
+    commissioning_cost: "",
+    warranty_cost: "",
+    install_cost: "",
+    overhead_cost: "",
+    margin_mode: "percentage",
+    margin_percent: "15",
+    margin_amount: "",
+    discount: "",
+    gst_percent: "18",
+    offer_valid_until: "",
+    payment_terms: "40% advance, 50% before dispatch, 10% after installation",
+    delivery_timeline: "As per final technical approval and material readiness",
+    warranty_terms: "12 months from handover against manufacturing defects",
+    createdbyname: "OpenClaw",
+    lastmodifiedbyname: "OpenClaw",
+    notes: "",
+    customer_id: "",
+    source_inquiry_id: "",
+    offer_source: "CRM",
+    linked_customer_source: "",
+    inventory_items: [],
+    inventory_material_total: "",
+    inventory_pricing_source: "",
+    site_visit_id: "",
+    site_measurements_source: "",
+    site_address: "",
+    pit_size_mm: "",
+    machine_room_available: "",
+    floor_height_profile: "",
+    site_stops: "",
+    site_number_of_openings: "",
+    site_opening_type: "",
+    door_size_width_mm: "",
+    door_size_height_mm: "",
+    car_size_width_mm: "",
+    car_size_depth_mm: "",
+    site_capacity_persons: "",
+    site_capacity_kg: "",
+    shaft_width_mm: "",
+    shaft_depth_mm: "",
+    brick_wall_available: "",
+    civil_door_height_mm: "",
+    opening_schedule_summary: "",
+    opening_schedule: []
+  };
+}
+
+function offerOpeningScheduleSummary(rows = []) {
+  if (!Array.isArray(rows)) return "";
+  return rows.map((item, index) => {
+    const row = item && typeof item === "object" ? item : {};
+    const floor = String(row.floor || (index === 0 ? "Ground" : index)).trim();
+    const ff = String(row.ff_height_mm || "").trim();
+    const lintel = String(row.lintel_height_mm || "").trim();
+    return `${floor}: FF ${ff || "-"} mm, lintel ${lintel || "-"} mm`;
+  }).join("; ");
+}
+
+function offerManagerSiteVisitFields(visit = {}, fallbackAddress = "") {
+  if (!visit || typeof visit !== "object" || !Object.keys(visit).length) {
+    return { site_measurements_source: "No site visit linked yet", site_address: String(fallbackAddress || "").trim() };
+  }
+  const visitId = String(visit.id || visit.site_visit_id || visit.report_id || "").trim();
+  const capacityKg = String(visit.site_capacity_kg || "").trim();
+  const capacityPersons = String(visit.site_capacity_persons || "").trim();
+  const openingSchedule = Array.isArray(visit.opening_schedule) ? visit.opening_schedule : [];
+  return {
+    site_visit_id: visitId,
+    site_measurements_source: `Site visit ${visitId}${visit.site_visit_date ? ` on ${visit.site_visit_date}` : ""}`.trim(),
+    site_address: String(visit.address || visit.site_address || fallbackAddress || "").trim(),
+    pit_size_mm: String(visit.pit_size_mm || "").trim(),
+    machine_room_available: String(visit.machine_room_available || "").trim(),
+    floor_height_profile: String(visit.floor_height_profile || "").trim(),
+    site_stops: String(visit.site_stops || "").trim(),
+    site_number_of_openings: String(visit.site_number_of_openings || "").trim(),
+    site_opening_type: String(visit.site_opening_type || "").trim(),
+    door_size_width_mm: String(visit.door_size_width_mm || "").trim(),
+    door_size_height_mm: String(visit.door_size_height_mm || "").trim(),
+    car_size_width_mm: String(visit.car_size_width_mm || "").trim(),
+    car_size_depth_mm: String(visit.car_size_depth_mm || "").trim(),
+    site_capacity_persons: capacityPersons,
+    site_capacity_kg: capacityKg,
+    shaft_width_mm: String(visit.shaft_width_mm || "").trim(),
+    shaft_depth_mm: String(visit.shaft_depth_mm || "").trim(),
+    brick_wall_available: String(visit.brick_wall_available || "").trim(),
+    civil_door_height_mm: String(visit.civil_door_height_mm || "").trim(),
+    opening_schedule_summary: offerOpeningScheduleSummary(openingSchedule),
+    opening_schedule: openingSchedule,
+    stops: String(visit.site_stops || "").trim(),
+    capacity: capacityKg ? `${capacityKg} kg` : capacityPersons ? `${capacityPersons} persons` : "",
+    door_type: String(visit.site_door_required || visit.site_opening_type || "").trim(),
+    finish: String(visit.site_finish_required || "").trim(),
+    offer_type: String(visit.site_offer_type || "").trim()
+  };
+}
+
+function nonBlankOfferFields(fields = {}) {
+  return Object.fromEntries(Object.entries(fields).filter(([, value]) => {
+    if (value === undefined || value === null) return false;
+    if (typeof value === "string") return value.trim() !== "";
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === "object") return Object.keys(value).length > 0;
+    return true;
+  }));
+}
+
+function resolveOpenClawOfferManagerAction(action = {}, crmData = {}) {
+  if (!action || typeof action !== "object" || Array.isArray(action)) return null;
+  const type = String(action.type || "").trim();
+  const source = String(action.source || "").trim().toLowerCase();
+  const recordId = String(action.record_id || "").trim();
+  if (type !== "start_offer" || !["customer", "inquiry"].includes(source) || !recordId) return null;
+  const customers = Array.isArray(crmData.customers) ? crmData.customers : [];
+  const inquiries = Array.isArray(crmData.inquiries) ? crmData.inquiries : [];
+  if (source === "customer") {
+    const customer = customers.find((item) => String(item.id || item.customer_id || "").trim() === recordId);
+    if (!customer) return null;
+    return {
+      type,
+      source,
+      recordId,
+      customer,
+      inquiry: null,
+      crmRecord: customer,
+      customerId: String(customer.id || customer.customer_id || "").trim(),
+      sourceInquiryId: ""
+    };
+  }
+  const inquiry = inquiries.find((item) => (
+    String(item.id || "").trim() === recordId
+    || String(item.enquiry_no || item.source_enquiry_no || "").trim() === recordId
+  ));
+  if (!inquiry) return null;
+  const customerId = String(inquiry.customer_id || "").trim();
+  if (!customerId) return null;
+  return {
+    type,
+    source,
+    recordId,
+    customer: null,
+    inquiry,
+    crmRecord: inquiry,
+    customerId,
+    sourceInquiryId: String(inquiry.id || inquiry.enquiry_no || recordId).trim()
+  };
+}
+
+async function openClawOfferManagerDraft({ selection, offerFields, selectedSource, costingCalculation, crmData = null }) {
+  const { customers, inquiries, siteVisits } = crmData || {
+    customers: await readJson(listFiles.customers, []),
+    inquiries: await readJson(listFiles.sales_inquiries, []),
+    siteVisits: await readJson(listFiles.site_visits, [])
+  };
+  const customerId = String(selection?.customerId || "").trim();
+  const customer = selection?.customer || null;
+  const inquiry = selection?.inquiry || null;
+  const crmRecord = selection?.crmRecord || {};
+  const sourceInquiryId = String(selection?.sourceInquiryId || "").trim();
+  const latestSiteVisit = siteVisits
+    .filter((visit) => (
+      String(visit.customer_id || "").trim() === customerId
+      || (sourceInquiryId && String(visit.site_enquiry_no || visit.enquiry_no || "").trim() === sourceInquiryId)
+    ))
+    .sort((a, b) => String(b.updated_at || b.site_visit_date || b.created_at || "").localeCompare(String(a.updated_at || a.site_visit_date || a.created_at || "")))[0];
+  const customerName = String(offerFields.customer_name || crmRecord.name || crmRecord.customer || crmRecord.lead_name || customerId).trim();
+  const workbookInventory = workbookOfferInventoryFields(selectedSource);
+  const workbookFields = {
+    ...costingCalculation.fields,
+    ...workbookInventory,
+    offer_type: String(selectedSource.variant || costingCalculation.fields.offer_type || "Individual").trim()
+  };
+  const crmFields = {
+    customer_id: customerId,
+    customer_name: customerName,
+    offer_name: customerName,
+    source_inquiry_id: sourceInquiryId,
+    linked_customer_source: selection?.source === "inquiry" ? "CRM enquiry" : "CRM customer",
+    site_address: String(crmRecord.address || crmRecord.site_address || crmRecord.site || "").trim(),
+    notes: String(inquiry?.enquiry_remark || inquiry?.requirement || "").trim()
+  };
+  const layers = [
+    { source: "offer-manager-default", values: offerManagerDraftDefaults() },
+    { source: "crm-selection", values: crmFields },
+    { source: latestSiteVisit ? "crm-site-visit" : "no-site-visit", values: offerManagerSiteVisitFields(latestSiteVisit, crmFields.site_address) },
+    { source: "converted-workbook", values: workbookFields },
+    { source: "openclaw-offer-fields", values: nonBlankOfferFields(offerFields) }
+  ];
+  const draft = {};
+  const fieldSources = {};
+  for (const layer of layers) {
+    for (const [key, value] of Object.entries(layer.values)) {
+      draft[key] = value;
+      if (offerManagerDraftFieldNames.includes(key)) fieldSources[key] = layer.source;
+    }
+  }
+  draft.customer_name = String(draft.customer_name || customerName).trim();
+  draft.offer_name = String(draft.offer_name || draft.customer_name).trim();
+  draft.source = "CRM Offer Manager";
+  draft.offer_source = String(draft.offer_source || "CRM").trim();
+  draft.offer_letter_status = String(draft.offer_letter_status || "Prepared").trim();
+  return {
+    draft,
+    fieldSources,
+    latestSiteVisit,
+    workbookInventory,
+    missingUiFields: offerManagerMissingUiControlFields(draft)
   };
 }
 
@@ -6958,14 +7802,26 @@ app.post("/api/openclaw/costing/manifest/send", async (req, res) => {
 
 app.get("/api/openclaw/costing/result/:artifactId", async (req, res) => {
   const artifactId = String(req.params.artifactId || "").trim();
-  const record = costingArtifactPasswords.get(artifactId);
+  const record = costingConversionTransfers.get(artifactId);
   const password = String(req.get("X-FUZI-OpenClaw-Costing-Password") || req.query.password || "").trim();
   if (!record || record.expiresAt < Date.now()) {
-    if (record) costingArtifactPasswords.delete(artifactId);
-    return res.status(404).json({ ok: false, message: "Costing conversion artifact was not found or has expired." });
+    if (record) deleteCostingConversionTransfer(artifactId);
+    return res.status(404).json({
+      ok: false,
+      message: "The one-time costing conversion transfer was not found or has expired.",
+      converted_arrays_retained: false,
+      exact_next_prompt_for_codex: openClawCostingNextPrompt("The one-time costing conversion transfer expired before OpenClaw could fetch the full JSON result.", { artifact_id: artifactId })
+    });
   }
   if (!password || password !== record.password) {
-    return res.status(401).json({ ok: false, message: "Costing conversion password is required." });
+    return res.status(401).json({
+      ok: false,
+      message: "Costing conversion password is required.",
+      exact_next_prompt_for_codex: openClawCostingNextPrompt("OpenClaw fetched the converted costing result without the one-time transfer password. Update the OpenClaw costing import flow to run terminal_command_options exactly as written or use backend_result_url with its password query fallback.", {
+        artifact_id: artifactId,
+        password_location: "conversion prompt backend_result_url or X-FUZI-OpenClaw-Costing-Password header"
+      })
+    });
   }
   try {
     if (String(req.query.response || req.query.format || "").trim().toLowerCase() === "prompt") {
@@ -6976,26 +7832,50 @@ app.get("/api/openclaw/costing/result/:artifactId", async (req, res) => {
       res.type("text/plain");
       return res.send(costingConversionOpenClawMessage(record.data, record.manifest, record.orderDecisions || {}, {
         artifactId,
-        artifactPath: record.artifactPath,
-        password: record.password
+        password: record.password,
+        expiresAt: record.expiresAt,
+        storage: "one-time-memory-transfer",
+        formulaCount: Number(record.calculationContract?.formula_count || 0),
+        sourceFormulaCounts: record.calculationContract?.source_formula_counts || []
       }, req));
     }
+    if (!record.data) {
+      return res.status(410).json({
+        ok: false,
+        message: "The one-time converted payload was already fetched. Use the temporary terminal copy for Save offer or run conversion again if that copy was lost.",
+        converted_arrays_retained: false,
+        exact_next_prompt_for_codex: openClawCostingNextPrompt("OpenClaw attempted to fetch a one-time converted payload more than once after the backend copy had already been released.", { artifact_id: artifactId })
+      });
+    }
+    const payload = JSON.stringify({
+      generated_at: record.generatedAt,
+      artifact_id: artifactId,
+      conversion_transfer_id: artifactId,
+      order_decisions: record.orderDecisions || {},
+      ...record.data
+    }, null, 2);
+    releaseCostingConversionPayload(record);
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Content-Disposition", `attachment; filename="${artifactId}.json"`);
     res.type("application/json");
-    res.send(await fs.readFile(record.artifactPath, "utf8"));
+    res.send(payload);
   } catch (error) {
-    res.status(500).json({ ok: false, message: error instanceof Error ? error.message : "Could not read costing conversion artifact." });
+    deleteCostingConversionTransfer(artifactId);
+    res.status(500).json({ ok: false, converted_arrays_retained: false, message: error instanceof Error ? error.message : "Could not read the one-time costing conversion transfer." });
   }
 });
 
 app.post("/api/openclaw/costing/offer-manager/context", async (req, res) => {
   const artifactId = String(req.body?.artifact_id || req.body?.artifactId || "").trim();
-  const artifact = costingArtifactPasswords.get(artifactId);
-  const password = String(req.get("X-FUZI-OpenClaw-Costing-Password") || req.body?.backend_password || req.body?.password || "").trim();
+  const artifact = costingConversionTransfers.get(artifactId);
+  const password = String(req.get("X-FUZI-OpenClaw-Costing-Password") || req.body?.backend_password || req.body?.password || req.query.password || "").trim();
+  const responseMode = String(req.body?.response_mode || req.body?.responseMode || req.query.response_mode || req.query.responseMode || "compact").trim().toLowerCase();
+  const maxLimit = responseMode === "full" ? 100 : 30;
+  const limit = openClawCostingContextLimit(req.body?.limit || req.query.limit, responseMode === "full" ? 100 : 12, maxLimit);
+  const search = normalizedCostingLabel(req.body?.search || req.query.search || "");
   if (!artifact || artifact.expiresAt < Date.now()) {
-    if (artifact) costingArtifactPasswords.delete(artifactId);
-    return res.status(404).json({ ok: false, exact_next_prompt_for_codex: openClawCostingNextPrompt("The costing artifact expired before OpenClaw could read Offer Manager context.", { artifact_id: artifactId }) });
+    if (artifact) deleteCostingConversionTransfer(artifactId);
+    return res.status(404).json({ ok: false, converted_arrays_retained: false, exact_next_prompt_for_codex: openClawCostingNextPrompt("The one-time costing conversion transfer expired before OpenClaw could read Offer Manager context.", { artifact_id: artifactId }) });
   }
   if (!password || password !== artifact.password) {
     return res.status(401).json({ ok: false, exact_next_prompt_for_codex: openClawCostingNextPrompt("Offer Manager context requires the artifact password from the conversion prompt.", { artifact_id: artifactId }) });
@@ -7019,10 +7899,27 @@ app.post("/api/openclaw/costing/offer-manager/context", async (req, res) => {
       if (!key) continue;
       offerCountByCustomer.set(key, (offerCountByCustomer.get(key) || 0) + 1);
     }
-    const customerOptions = customers.slice(0, 100).map((customer) => {
+    const matchesSearch = (item) => {
+      if (!search) return true;
+      return normalizedCostingLabel([
+        item.customer_id,
+        item.customer_name,
+        item.phone,
+        item.address,
+        item.source_inquiry_id,
+        item.status
+      ].filter(Boolean).join(" ")).includes(search);
+    };
+    const byOperationalRelevance = (a, b) => (
+      Number(b.site_visit_count || 0) - Number(a.site_visit_count || 0)
+      || Number(b.offer_count || 0) - Number(a.offer_count || 0)
+      || String(a.customer_name || "").localeCompare(String(b.customer_name || ""))
+    );
+    const allCustomerOptions = customers.map((customer) => {
       const id = String(customer.id || customer.customer_id || "").trim();
       return {
         customer_id: id,
+        offer_manager_action: { type: "start_offer", source: "customer", record_id: id },
         customer_name: String(customer.name || customer.customer || "").trim(),
         phone: String(customer.phone || customer.mobile || "").trim(),
         address: String(customer.address || customer.site_address || "").trim(),
@@ -7031,12 +7928,13 @@ app.post("/api/openclaw/costing/offer-manager/context", async (req, res) => {
         offer_count: offerCountByCustomer.get(id) || 0
       };
     }).filter((item) => item.customer_id && item.customer_name);
-    const inquiryOptions = inquiries.slice(0, 100).map((inquiry) => {
+    const allInquiryOptions = inquiries.map((inquiry) => {
       const customerId = String(inquiry.customer_id || inquiry.id || inquiry.enquiry_no || "").trim();
       return {
         customer_id: customerId,
         customer_name: String(inquiry.customer || inquiry.lead_name || inquiry.name || "").trim(),
         source_inquiry_id: String(inquiry.id || inquiry.enquiry_no || "").trim(),
+        offer_manager_action: { type: "start_offer", source: "inquiry", record_id: String(inquiry.id || inquiry.enquiry_no || "").trim() },
         phone: String(inquiry.phone || inquiry.whatsapp_no || "").trim(),
         address: String(inquiry.address || inquiry.site_address || inquiry.site || "").trim(),
         status: String(inquiry.status || inquiry.lead_status || "").trim(),
@@ -7045,12 +7943,24 @@ app.post("/api/openclaw/costing/offer-manager/context", async (req, res) => {
         offer_count: offerCountByCustomer.get(customerId) || 0
       };
     }).filter((item) => item.customer_id && item.customer_name);
+    const customerOptions = allCustomerOptions.filter(matchesSearch).sort(byOperationalRelevance).slice(0, limit);
+    const inquiryOptions = allInquiryOptions.filter(matchesSearch).sort(byOperationalRelevance).slice(0, limit);
     res.json({
       ok: true,
       artifact_id: artifactId,
-      instruction: "OpenClaw should choose the best Offer Manager customer/enquiry, then POST that choice as offer_fields to /api/openclaw/costing/offer-manager/save with converted_data.",
+      response_mode: responseMode,
+      limit,
+      counts: {
+        customers_total: allCustomerOptions.length,
+        inquiries_total: allInquiryOptions.length,
+        customers_returned: customerOptions.length,
+        inquiries_returned: inquiryOptions.length,
+        search: search || null
+      },
+      instruction: "OpenClaw should choose the best Offer Manager customer/enquiry from this compact page, evaluate every workbook formula, and POST its exact offer_manager_action with formula-free calculated_data to the Save offer preview. Do not send converted_data, formulas, customer_id, source_inquiry_id, or other record ids in offer_fields.",
       customers: customerOptions,
-      inquiries: inquiryOptions
+      inquiries: inquiryOptions,
+      exact_next_prompt_for_codex: null
     });
   } catch (error) {
     res.status(500).json({ ok: false, exact_next_prompt_for_codex: openClawCostingNextPrompt("The backend could not provide Offer Manager context for OpenClaw.", { artifact_id: artifactId, error: error instanceof Error ? error.message : String(error) }) });
@@ -7059,127 +7969,524 @@ app.post("/api/openclaw/costing/offer-manager/context", async (req, res) => {
 
 app.post("/api/openclaw/costing/offer-manager/save", async (req, res) => {
   const artifactId = String(req.body?.artifact_id || req.body?.artifactId || "").trim();
-  const artifact = costingArtifactPasswords.get(artifactId);
-  const password = String(req.get("X-FUZI-OpenClaw-Costing-Password") || req.body?.backend_password || req.body?.password || "").trim();
+  const artifact = costingConversionTransfers.get(artifactId);
+  const password = String(req.get("X-FUZI-OpenClaw-Costing-Password") || req.body?.backend_password || req.body?.password || req.query.password || "").trim();
   if (!artifact || artifact.expiresAt < Date.now()) {
-    if (artifact) costingArtifactPasswords.delete(artifactId);
-    const exactPrompt = openClawCostingNextPrompt("The costing conversion artifact is missing or expired before OpenClaw could type the converted data into Offer Manager Save offer.", { artifact_id: artifactId });
-    return res.status(404).json({ ok: false, exact_next_prompt_for_codex: exactPrompt });
+    if (artifact) deleteCostingConversionTransfer(artifactId);
+    const exactPrompt = openClawCostingNextPrompt("The one-time costing conversion transfer is missing or expired before OpenClaw could complete its calculation and Offer Manager preview.", { artifact_id: artifactId });
+    return res.status(404).json({ ok: false, converted_arrays_retained: false, exact_next_prompt_for_codex: exactPrompt });
   }
   if (!password || password !== artifact.password) {
     return res.status(401).json({ ok: false, exact_next_prompt_for_codex: openClawCostingNextPrompt("The Offer Manager save emulation endpoint needs the artifact password from the conversion prompt.", { artifact_id: artifactId }) });
   }
+  let retainArtifactForPreview = false;
   try {
-    const convertedData = req.body?.converted_data && typeof req.body.converted_data === "object"
-      ? req.body.converted_data
-      : JSON.parse(await fs.readFile(artifact.artifactPath, "utf8"));
-    const sources = Array.isArray(convertedData.sources) ? convertedData.sources : [];
-    const sourceFiles = sources.map((source) => String(source.source_file || "").trim()).filter(Boolean);
-    const selectedSourceFile = String(req.body?.selected_source_file || req.body?.selectedSourceFile || sourceFiles[0] || "").trim();
-    const selectedSource = sources.find((source) => String(source.source_file || "") === selectedSourceFile) || sources[0] || {};
-    const offerFields = req.body?.offer_fields && typeof req.body.offer_fields === "object" ? req.body.offer_fields : {};
-    const customerId = String(offerFields.customer_id || req.body?.customer_id || "").trim();
-    if (!customerId) {
-      const exactPrompt = openClawCostingNextPrompt("OpenClaw has converted the workbooks but did not choose the CRM customer id required by the Offer Manager Save offer section.", {
+    const requestBody = req.body && typeof req.body === "object" ? req.body : {};
+    const requestType = String(requestBody.request_type || "").trim().toLowerCase();
+    const unsupportedRequestFields = Object.keys(requestBody).filter((key) => !offerManagerOpenClawTopLevelRequestFieldNames.includes(key));
+    if (unsupportedRequestFields.length) {
+      const warning = openClawNonUiDatabaseEditWarning("OpenClaw sent top-level Save offer request fields that do not exist in the formula-free Offer Manager command.", {
         endpoint: "/api/openclaw/costing/offer-manager/save",
-        missing_field: "offer_fields.customer_id",
-        available_action: "Call a FUZI context endpoint or select a CRM customer before retrying the same save endpoint with the converted_data payload."
-      });
-      return res.status(409).json({ ok: false, exact_next_prompt_for_codex: exactPrompt });
+        rejected_request_fields: unsupportedRequestFields,
+        allowed_request_fields: offerManagerOpenClawTopLevelRequestFieldNames,
+        converted_data_allowed: false
+      }, artifactId);
+      return res.status(409).json(warning);
     }
-    const offerPayloadInput = {
+    if (!["preview", "save", "reject"].includes(requestType)) {
+      return res.status(422).json(openClawCalculationWarning("OpenClaw must request a no-write preview, compare every FUZI Save offer total, then send either save or reject.", {
+        artifact_id: artifactId,
+        required_request_type_sequence: ["preview", "save or reject"]
+      }, artifactId));
+    }
+    const calculatedData = requestBody.calculated_data && typeof requestBody.calculated_data === "object" && !Array.isArray(requestBody.calculated_data)
+      ? requestBody.calculated_data
+      : null;
+    if (!calculatedData) {
+      return res.status(422).json(openClawCalculationWarning("OpenClaw called Offer Manager without formula-free calculated_data for every workbook.", {
+        artifact_id: artifactId,
+        required_body_field: "calculated_data",
+        forbidden_body_field: "converted_data"
+      }, artifactId));
+    }
+    const expectedDataKeys = Array.isArray(artifact.dataKeys) ? artifact.dataKeys : [];
+    const calculatedEnvelopeFields = ["generated_at", "artifact_id", "conversion_transfer_id", "order_decisions"];
+    const unexpectedCalculatedFields = Object.keys(calculatedData).filter((key) => !expectedDataKeys.includes(key) && !calculatedEnvelopeFields.includes(key));
+    const calculatedDataForValidation = Object.fromEntries(expectedDataKeys.map((key) => [key, calculatedData[key]]));
+    const calculationValidation = validateOpenClawCalculatedData(calculatedDataForValidation, artifact.calculationContract || {});
+    if (unexpectedCalculatedFields.length || !calculationValidation.ok) {
+      const warning = openClawCalculationWarning("OpenClaw must evaluate every formula itself, remove every formula before the FUZI request, and preserve all non-formula workbook data unchanged.", {
+        artifact_id: artifactId,
+        unexpected_calculated_fields: unexpectedCalculatedFields,
+        calculation_errors: calculationValidation.errors,
+        formula_processing: calculationValidation.audit
+      }, artifactId);
+      return res.status(422).json(warning);
+    }
+    const sources = Array.isArray(calculatedData.sources) ? calculatedData.sources : [];
+    const selectedSource = sources[0] || {};
+    const offerManagerAction = requestBody.offer_manager_action && typeof requestBody.offer_manager_action === "object" && !Array.isArray(requestBody.offer_manager_action)
+      ? requestBody.offer_manager_action
+      : {};
+    const unsupportedActionFields = Object.keys(offerManagerAction).filter((key) => !["type", "source", "record_id"].includes(key));
+    const nonScalarActionFields = Object.entries(offerManagerAction).filter(([, value]) => value !== null && !["string", "number", "boolean"].includes(typeof value)).map(([key]) => key);
+    if (unsupportedActionFields.length || nonScalarActionFields.length) {
+      const warning = openClawNonUiDatabaseEditWarning("OpenClaw sent a Start offer action that is not equivalent to clicking a CRM customer or enquiry in the UI.", {
+        endpoint: "/api/openclaw/costing/offer-manager/save",
+        rejected_action_fields: [...new Set([...unsupportedActionFields, ...nonScalarActionFields])],
+        allowed_action_shape: { type: "start_offer", source: "customer or inquiry", record_id: "context record id" }
+      }, artifactId);
+      return res.status(409).json(warning);
+    }
+    const rawOfferFields = requestBody.offer_fields && typeof requestBody.offer_fields === "object" && !Array.isArray(requestBody.offer_fields) ? requestBody.offer_fields : {};
+    const nonScalarOfferFields = Object.entries(rawOfferFields).filter(([, value]) => value !== null && !["string", "number", "boolean"].includes(typeof value)).map(([key]) => key);
+    if (nonScalarOfferFields.length) {
+      const warning = openClawNonUiDatabaseEditWarning("OpenClaw sent non-scalar Offer Manager values that a user cannot type into the corresponding UI controls.", {
+        endpoint: "/api/openclaw/costing/offer-manager/save",
+        rejected_offer_fields: nonScalarOfferFields,
+        required_value_shape: "string, number, boolean, or null"
+      }, artifactId);
+      return res.status(409).json(warning);
+    }
+    const offerFields = normalizedOpenClawOfferFields(rawOfferFields);
+    if (Object.prototype.hasOwnProperty.call(offerFields, "total_cost")) {
+      return res.status(409).json(openClawNonUiDatabaseEditWarning("OpenClaw attempted to set total_cost, but Offer Manager has no Client offer value override control.", {
+        endpoint: "/api/openclaw/costing/offer-manager/save",
+        rejected_offer_field: "total_cost",
+        required_margin_fields: ["margin_mode", "margin_percent", "margin_amount"],
+        required_behavior: "Omit total_cost. FUZI derives and stores it from the same costs, margin, discount, and GST used by the Save offer button."
+      }, artifactId));
+    }
+    const readOnlyOfferFields = Object.keys(offerFields).filter((key) => offerManagerReadOnlyCalculatedFieldNames.includes(key));
+    if (readOnlyOfferFields.length) {
+      return res.status(409).json(openClawNonUiDatabaseEditWarning("OpenClaw attempted to type read-only calculated Offer Manager values.", {
+        endpoint: "/api/openclaw/costing/offer-manager/save",
+        rejected_offer_fields: readOnlyOfferFields,
+        required_behavior: "Change the editable inventory, installation, commissioning, warranty, or travel segment controls and let FUZI recalculate their read-only summaries."
+      }, artifactId));
+    }
+    const unsupportedOfferFields = Object.keys(offerFields).filter((key) => (
+      !Object.prototype.hasOwnProperty.call(offerManagerOpenClawRequestFieldContract, key)
+    ));
+    if (unsupportedOfferFields.length) {
+      const warning = openClawMissingUiFeatureWarning("OpenClaw attempted to change offer fields that a user cannot change through the current Offer Manager UI.", {
+        endpoint: "/api/openclaw/costing/offer-manager/save",
+        missing_ui_fields: unsupportedOfferFields,
+        required_code_change: "If these values are genuinely required, add user-operable Offer Manager features in expo-app/src/App.tsx and register them in offerManagerOpenClawRequestFieldContract in server/index.mjs. Otherwise OpenClaw must stop sending them.",
+        available_ui_controls: offerManagerOpenClawRequestFieldContract,
+        save_attempted: false
+      }, artifactId);
+      return res.status(409).json(warning);
+    }
+    if (!sources.length) {
+      const exactPrompt = openClawCostingNextPrompt("The one-time converted payload contains no workbook sources that can be entered into Offer Manager.", { artifact_id: artifactId });
+      return res.status(422).json({ ok: false, ...costingTransferConsumedFields(artifactId), exact_next_prompt_for_codex: exactPrompt });
+    }
+    const saveAllWorkbooks = requestBody.save_all_workbooks !== false && requestBody.saveAllWorkbooks !== false;
+    const sourcesToSave = saveAllWorkbooks ? sources : [selectedSource];
+    const sanitizedOfferFields = {
       ...offerFields,
-      customer_id: customerId,
-      customer_name: String(offerFields.customer_name || req.body?.customer_name || "").trim(),
-      offer_name: String(offerFields.offer_name || offerFields.customer_name || req.body?.customer_name || "").trim(),
-      offer_type: String(offerFields.offer_type || selectedSource.variant || "Individual").trim(),
-      lead_status: String(offerFields.lead_status || offerFields.status || "Offer Pending").trim(),
-      source: "CRM Offer Manager",
-      offer_source: String(offerFields.offer_source || "OpenClaw costing import").trim(),
-      costing_source_file: String(offerFields.costing_source_file || sourceFiles.join(", ")).trim(),
-      expanded_costing_data: convertedData,
-      expanded_costing_data_status: String(offerFields.expanded_costing_data_status || `OpenClaw typed converted costing data from ${sourceFiles.length || 1} workbook${sourceFiles.length === 1 ? "" : "s"} into Offer Manager Save offer`).trim(),
-      source_snapshot: {
-        ...(offerFields.source_snapshot && typeof offerFields.source_snapshot === "object" ? offerFields.source_snapshot : {}),
-        costing_artifact_id: artifactId,
-        costing_source_file: String(offerFields.costing_source_file || sourceFiles.join(", ")).trim(),
-        openclaw_session_key: artifact.sessionKey || costingImportSessionKey,
-        save_emulation: "OpenClaw backend Offer Manager Save offer section"
-      },
-      offer_letter_status: String(offerFields.offer_letter_status || "Prepared").trim()
+      customer_name: offerFields.customer_name || ""
     };
+    for (const key of [
+      "id",
+      "status",
+      "calculated_total_cost",
+      "source",
+      "offer_source",
+      "offer_letter_status",
+      "costing_source_file",
+      "expanded_costing_data",
+      "expanded_costing_data_status",
+      "inventory_items",
+      "inventory_material_total",
+      "inventory_pricing_source",
+      "costing_calculation_summary",
+      "source_snapshot"
+    ]) delete sanitizedOfferFields[key];
+    if (sourcesToSave.length > 1) {
+      delete sanitizedOfferFields.job_no;
+      delete sanitizedOfferFields.offer_number;
+    }
+    const [customers, inquiries, siteVisits] = await Promise.all([
+      readJson(listFiles.customers, []),
+      readJson(listFiles.sales_inquiries, []),
+      readJson(listFiles.site_visits, [])
+    ]);
+    const crmData = { customers, inquiries, siteVisits };
+    const selection = resolveOpenClawOfferManagerAction(offerManagerAction, crmData);
+    if (!selection) {
+      const warning = openClawNonUiDatabaseEditWarning("OpenClaw did not provide a valid Start offer action from the current Offer Manager CRM context.", {
+        endpoint: "/api/openclaw/costing/offer-manager/save",
+        rejected_offer_manager_action: offerManagerAction,
+        required_action: "Call offer_manager_context_action and submit one returned offer_manager_action without changing its type, source, or record_id."
+      }, artifactId);
+      return res.status(409).json(warning);
+    }
     const openClawUser = { username: "openclaw", display_name: "OpenClaw", role: "agent", department: "CRM & Sales" };
-    const normalizeRes = {
-      req: { user: openClawUser },
-      statusCode: 200,
-      body: null,
-      status(code) {
-        this.statusCode = code;
-        return this;
-      },
-      json(payload) {
-        this.body = payload;
-        return payload;
+    const offerManagerTypedFields = offerManagerSaveControlFieldNames.filter((key) => (
+      !offerManagerOpenClawServerResolvedFieldNames.includes(key)
+      && !offerManagerReadOnlyCalculatedFieldNames.includes(key)
+    ));
+    const preparedOffers = [];
+    for (const [preparedIndex, source] of sourcesToSave.entries()) {
+      const sourceFile = String(source.source_file || "").trim();
+      const costingCalculation = costingOfferFieldsFromConvertedSource(source);
+      if (costingNumber(costingCalculation.summary.final_offer) <= 0) {
+        const warning = openClawCalculationWarning("OpenClaw's formula-free calculated_data does not contain a positive evaluated FINAL OFFER result for one workbook.", {
+          artifact_id: artifactId,
+          source_index: sources.indexOf(source),
+          expected_workbook_label: "FINAL OFFER",
+          formula_processing: calculationValidation.audit
+        }, artifactId);
+        return res.status(422).json(warning);
       }
-    };
-    const normalizedOffer = await normalizeOfferPayload(offerPayloadInput, normalizeRes);
-    if (!normalizedOffer) {
-      const exactPrompt = openClawCostingNextPrompt("FUZI rejected the Offer Manager Save offer emulation payload during normal offer validation.", {
-        status: normalizeRes.statusCode,
-        response: normalizeRes.body || null,
-        sent_fields: Object.keys(offerPayloadInput)
+      const emulation = await openClawOfferManagerDraft({
+        selection,
+        offerFields: sanitizedOfferFields,
+        selectedSource: source,
+        costingCalculation,
+        crmData
       });
-      return res.status(normalizeRes.statusCode >= 400 ? normalizeRes.statusCode : 400).json({ ok: false, exact_next_prompt_for_codex: exactPrompt, validation: normalizeRes.body || null });
-    }
-    const records = await readJson(listFiles.estimates, []);
-    const now = new Date().toISOString();
-    const recordId = nextId(records, "EST");
-    const offer = {
-      id: recordId,
-      ...normalizedOffer,
-      job_no: String(normalizedOffer.job_no || "").trim() || recordId,
-      offer_number: String(normalizedOffer.offer_number || normalizedOffer.job_no || "").trim() || recordId,
-      created_at: now,
-      updated_at: now,
-      createdbyname: String(normalizedOffer.createdbyname || "OpenClaw").trim(),
-      lastmodifiedbyname: String(normalizedOffer.lastmodifiedbyname || "OpenClaw").trim()
-    };
-    records.unshift(offer);
-    await writeJson(listFiles.estimates, records);
-    await appendAuditLog({ user: openClawUser, collection: "estimates", recordId: offer.id, action: "create", before: null, after: offer });
-    if (offer.source_inquiry_id) {
-      const inquiries = await readJson(listFiles.sales_inquiries, []);
-      const inquiryIndex = findRecordIndex(inquiries, offer.source_inquiry_id);
-      if (inquiryIndex >= 0) {
-        const previousInquiry = inquiries[inquiryIndex];
-        inquiries[inquiryIndex] = { ...inquiries[inquiryIndex], lead_status: offer.lead_status, status: offer.lead_status, updated_at: now };
-        await writeJson(listFiles.sales_inquiries, inquiries);
-        await appendAuditLog({ user: openClawUser, collection: "sales_inquiries", recordId: recordIdentityForAudit(inquiries[inquiryIndex]), action: "update", before: previousInquiry, after: inquiries[inquiryIndex] });
+      if (emulation.missingUiFields.length) {
+        const warning = openClawMissingUiFeatureWarning("A converted workbook requires offer fields that do not have user-operable controls in the current Offer Manager UI.", {
+          artifact_id: artifactId,
+          source_file: sourceFile,
+          missing_ui_fields: emulation.missingUiFields,
+          required_code_change: "Add the missing user-operable Offer Manager inputs/actions that the app should already provide in expo-app/src/App.tsx and register their control identifiers in offerManagerUiControlContract in server/index.mjs.",
+          available_ui_controls: offerManagerUiControlContract,
+          save_attempted: false
+        }, artifactId);
+        return res.status(409).json(warning);
       }
+      const offerPayloadInput = openClawOfferManagerUiSubmissionPayload(emulation.draft, openClawUser);
+      const saveButtonPayload = offerManagerSaveButtonPayload(offerPayloadInput);
+      const missingPayloadFields = offerManagerSaveControlFieldNames.filter((key) => !Object.prototype.hasOwnProperty.call(saveButtonPayload, key));
+      if (missingPayloadFields.length) {
+        const warning = openClawMissingUiFeatureWarning("FUZI could not build the complete user-editable Offer Manager form before invoking Save offer.", {
+          artifact_id: artifactId,
+          source_file: sourceFile,
+          missing_offer_manager_fields: missingPayloadFields,
+          required_code_change: "Complete the missing Offer Manager form features and Save offer payload mapping in expo-app/src/App.tsx and server/index.mjs."
+        }, artifactId);
+        return res.status(500).json(warning);
+      }
+      if (costingNumber(saveButtonPayload.total_cost || saveButtonPayload.calculated_total_cost) <= 0) {
+        const warning = openClawMissingUiFeatureWarning("FUZI could not extract a calculated final offer amount from one converted workbook before saving through Offer Manager.", {
+          artifact_id: artifactId,
+          source_file: sourceFile,
+          costing_calculation_summary: costingCalculation.summary,
+          required_field: "calculated_total_cost",
+          expected_workbook_label: "FINAL OFFER",
+          required_code_change: "Correct the ordinary Save offer calculation so it derives the final offer amount from the visible costing and margin controls."
+        }, artifactId);
+        return res.status(422).json(warning);
+      }
+      preparedOffers.push({
+        source,
+        sourceIndex: saveAllWorkbooks ? preparedIndex : sources.indexOf(source),
+        sourceFile,
+        costingCalculation,
+        emulation,
+        offerPayloadInput,
+        saveButtonPayload
+      });
     }
-    res.json({
-      ok: true,
-      action: "offer-manager-save-emulated",
-      artifact_id: artifactId,
-      exact_next_prompt_for_codex: null,
-      saved_offer: {
+
+    const comparisonTolerance = 0.01;
+    const calculationPreview = preparedOffers.map((prepared) => ({
+      source_index: prepared.sourceIndex,
+      openclaw_evaluated_total: costingNumber(prepared.costingCalculation.summary.final_offer),
+      fuzi_save_offer_total: costingNumber(prepared.saveButtonPayload.total_cost || prepared.saveButtonPayload.calculated_total_cost),
+      material_cost: costingNumber(prepared.saveButtonPayload.material_cost),
+      install_cost: costingNumber(prepared.saveButtonPayload.install_cost),
+      overhead_cost: costingNumber(prepared.saveButtonPayload.overhead_cost),
+      margin_mode: String(prepared.saveButtonPayload.margin_mode || "percentage"),
+      margin_percent: costingNumber(prepared.saveButtonPayload.margin_percent),
+      margin_amount: costingNumber(prepared.costingCalculation.summary.margin_amount),
+      discount: costingNumber(prepared.saveButtonPayload.discount),
+      gst_percent: costingNumber(prepared.saveButtonPayload.gst_percent),
+      inventory_line_count: Array.isArray(prepared.offerPayloadInput.inventory_items) ? prepared.offerPayloadInput.inventory_items.length : 0
+    }));
+    const workbookValueReceipt = calculationValidation.audit.workbook_value_receipt || {
+      algorithm: "sha256-canonical-workbook-cells-v1",
+      source_count: 0,
+      value_count: 0,
+      values_digest: "",
+      sources: []
+    };
+    const offerManagerValuePreview = preparedOffers.map((prepared) => openClawOfferManagerValuePreview(prepared));
+    const offerManagerValueCount = offerManagerValuePreview.reduce((sum, preview) => sum + Number(preview.value_count || 0), 0);
+    const previewSignature = costingConversionDigest({
+      calculated_data: calculatedDataForValidation,
+      save_all_workbooks: saveAllWorkbooks,
+      offer_manager_action: offerManagerAction,
+      offer_fields: offerFields,
+      calculation_preview: calculationPreview,
+      workbook_value_receipt: workbookValueReceipt,
+      offer_manager_value_preview: offerManagerValuePreview
+    });
+
+    if (requestType === "preview") {
+      const previewId = `costing-preview-${crypto.randomBytes(12).toString("hex")}`;
+      artifact.calculationPreview = {
+        id: previewId,
+        signature: previewSignature,
+        offerCount: preparedOffers.length,
+        formulaResultCount: Number(calculationValidation.audit.validated_formula_result_count || 0),
+        workbookValueCount: Number(workbookValueReceipt.value_count || 0),
+        workbookValueReceiptDigest: String(workbookValueReceipt.values_digest || ""),
+        offerManagerValueCount,
+        createdAt: Date.now()
+      };
+      retainArtifactForPreview = true;
+      return res.json({
+        ok: true,
+        action: "offer-manager-save-calculation-preview",
+        artifact_id: artifactId,
+        conversion_transfer_id: artifactId,
+        conversion_transfer_consumed: false,
+        converted_arrays_retained: false,
+        calculated_arrays_retained: false,
+        database_write_attempted: false,
+        database_write_count: 0,
+        formula_processing: calculationValidation.audit,
+        calculation_preview_id: previewId,
+        comparison_required_by: "OpenClaw",
+        comparison_tolerance: comparisonTolerance,
+        comparison_requirements: [
+          "Recompute and compare every workbook_value_receipt source digest and aggregate digest from the exact formula-free calculated_data sent to FUZI.",
+          "Compare every path in offer_manager_value_preview.values with the value expected from the evaluated .xlsx workbook and selected user-operable Offer Manager inputs.",
+          "Compare every openclaw_evaluated_total with fuzi_save_offer_total within comparison_tolerance."
+        ],
+        workbook_value_receipt: workbookValueReceipt,
+        offer_manager_value_count: offerManagerValueCount,
+        offer_manager_value_preview: offerManagerValuePreview,
+        calculation_preview: calculationPreview,
+        next_request: {
+          matching: { request_type: "save", calculation_check: { checked_by: "OpenClaw", all_workbooks_match: true, checked_offer_count: preparedOffers.length, checked_workbook_value_count: workbookValueReceipt.value_count, checked_offer_value_count: offerManagerValueCount, workbook_value_receipt_digest: workbookValueReceipt.values_digest, all_values_match: true, mismatches: [] } },
+          mismatching: { request_type: "reject", calculation_check: { checked_by: "OpenClaw", all_workbooks_match: false, checked_offer_count: preparedOffers.length, checked_workbook_value_count: workbookValueReceipt.value_count, checked_offer_value_count: offerManagerValueCount, workbook_value_receipt_digest: workbookValueReceipt.values_digest, all_values_match: false, mismatches: [{ type: "offer_manager_value or offer_total or workbook_receipt", source_index: "index", path: "field or inventory path", xlsx_value: "expected value", fuzi_value: "preview value" }] } }
+        },
+        exact_next_prompt_for_codex: null
+      });
+    }
+
+    const previewId = String(requestBody.calculation_preview_id || "").trim();
+    const previewMatches = Boolean(
+      previewId
+      && artifact.calculationPreview?.id === previewId
+      && artifact.calculationPreview?.signature === previewSignature
+      && artifact.calculationPreview?.offerCount === preparedOffers.length
+      && artifact.calculationPreview?.workbookValueCount === Number(workbookValueReceipt.value_count || 0)
+      && artifact.calculationPreview?.workbookValueReceiptDigest === String(workbookValueReceipt.values_digest || "")
+      && artifact.calculationPreview?.offerManagerValueCount === offerManagerValueCount
+    );
+    const calculationCheck = requestBody.calculation_check && typeof requestBody.calculation_check === "object" && !Array.isArray(requestBody.calculation_check)
+      ? requestBody.calculation_check
+      : {};
+    const unsupportedCheckFields = Object.keys(calculationCheck).filter((key) => !openClawCalculationCheckFieldNames.includes(key));
+    const missingCheckFields = openClawCalculationCheckFieldNames.filter((key) => !Object.prototype.hasOwnProperty.call(calculationCheck, key));
+    const mismatches = Array.isArray(calculationCheck.mismatches) ? calculationCheck.mismatches : [];
+    const calculationCheckBaseValid = previewMatches
+      && !unsupportedCheckFields.length
+      && !missingCheckFields.length
+      && String(calculationCheck.checked_by || "").trim().toLowerCase() === "openclaw"
+      && Number(calculationCheck.checked_offer_count) === preparedOffers.length
+      && Number(calculationCheck.checked_workbook_value_count) === Number(workbookValueReceipt.value_count || 0)
+      && Number(calculationCheck.checked_offer_value_count) === offerManagerValueCount
+      && String(calculationCheck.workbook_value_receipt_digest || "").trim() === String(workbookValueReceipt.values_digest || "");
+    if (!calculationCheckBaseValid) {
+      return res.status(422).json(openClawCalculationWarning("OpenClaw did not submit a valid comparison of the current FUZI calculation preview.", {
+        artifact_id: artifactId,
+        calculation_preview_matches: previewMatches,
+        checked_offer_count: calculationCheck.checked_offer_count,
+        required_checked_offer_count: preparedOffers.length,
+        checked_workbook_value_count: calculationCheck.checked_workbook_value_count,
+        required_checked_workbook_value_count: workbookValueReceipt.value_count,
+        checked_offer_value_count: calculationCheck.checked_offer_value_count,
+        required_checked_offer_value_count: offerManagerValueCount,
+        workbook_value_receipt_digest_matches: String(calculationCheck.workbook_value_receipt_digest || "").trim() === String(workbookValueReceipt.values_digest || ""),
+        missing_calculation_check_fields: missingCheckFields,
+        unsupported_calculation_check_fields: unsupportedCheckFields
+      }, artifactId));
+    }
+    if (requestType === "reject") {
+      if ((calculationCheck.all_workbooks_match !== false && calculationCheck.all_values_match !== false) || !mismatches.length) {
+        return res.status(422).json(openClawCalculationWarning("OpenClaw selected reject without identifying a workbook receipt, Offer Manager value, or FUZI total mismatch.", {
+          artifact_id: artifactId,
+          calculation_preview_id: previewId
+        }, artifactId));
+      }
+      return res.status(409).json(openClawCalculationWarning("OpenClaw evaluated every workbook formula, checked every value sent to FUZI, compared every visible Offer Manager value and total with the .xlsx data, and found mismatches.", {
+        artifact_id: artifactId,
+        calculation_preview_id: previewId,
+        comparison_tolerance: comparisonTolerance,
+        checked_workbook_value_count: calculationCheck.checked_workbook_value_count,
+        checked_offer_value_count: calculationCheck.checked_offer_value_count,
+        all_values_match: calculationCheck.all_values_match,
+        all_workbooks_match: calculationCheck.all_workbooks_match,
+        mismatches: mismatches.slice(0, 20),
+        required_code_change: "Correct every mismatching visible Offer Manager field, inventory value, and ordinary Save offer calculation so they reproduce the formula-free .xlsx results. Keep workbook formula evaluation and all-value comparison in OpenClaw and keep FUZI endpoint_evaluated_formula_count at 0."
+      }, artifactId));
+    }
+    if (calculationCheck.all_workbooks_match !== true || calculationCheck.all_values_match !== true || mismatches.length) {
+      return res.status(422).json(openClawCalculationWarning("OpenClaw cannot authorize Save offer until every workbook receipt, visible Offer Manager value, inventory value, and FUZI total matches the evaluated .xlsx data.", {
+        artifact_id: artifactId,
+        calculation_preview_id: previewId,
+        all_values_match: calculationCheck.all_values_match,
+        all_workbooks_match: calculationCheck.all_workbooks_match,
+        mismatches: mismatches.slice(0, 20)
+      }, artifactId));
+    }
+
+    const savedOffers = [];
+    for (const prepared of preparedOffers) {
+      const saveRes = {
+        req: { user: openClawUser },
+        statusCode: 200,
+        body: null,
+        status(code) {
+          this.statusCode = code;
+          return this;
+        },
+        json(payload) {
+          this.body = payload;
+          return payload;
+        }
+      };
+      await createOfferManagerRecord(prepared.offerPayloadInput, saveRes);
+      if (saveRes.statusCode >= 400 || !saveRes.body?.record) {
+        const warning = openClawMissingUiFeatureWarning("FUZI rejected one workbook's normal Offer Manager Save offer payload, so the app's Save offer feature cannot yet represent the converted costing data.", {
+          artifact_id: artifactId,
+          source_file: prepared.sourceFile,
+          status: saveRes.statusCode,
+          response: saveRes.body || null,
+          already_saved_offer_ids: savedOffers.map((offer) => offer.id),
+          sent_fields: Object.keys(prepared.saveButtonPayload),
+          save_attempted: true
+        }, artifactId);
+        return res.status(saveRes.statusCode >= 400 ? saveRes.statusCode : 400).json({ ...warning, validation: saveRes.body || null });
+      }
+      const offer = saveRes.body.record;
+      const missingSavedFields = offerManagerSaveControlFieldNames.filter((key) => !Object.prototype.hasOwnProperty.call(offer, key));
+      const expectedInventoryItems = Array.isArray(prepared.offerPayloadInput.inventory_items) ? prepared.offerPayloadInput.inventory_items : [];
+      const savedInventoryItems = Array.isArray(offer.inventory_items) ? offer.inventory_items : [];
+      const inventoryInputMismatches = offerManagerInventoryInputMismatches(expectedInventoryItems, savedInventoryItems);
+      const savedTotal = costingNumber(offer.total_cost || offer.calculated_total_cost);
+      const hasRawWorkbookAttachment = Boolean(offer.expanded_costing_data && Object.keys(offer.expanded_costing_data).length);
+      if (savedTotal <= 0 || missingSavedFields.length || inventoryInputMismatches.length || hasRawWorkbookAttachment) {
+        const warning = openClawMissingUiFeatureWarning("FUZI saved one Offer Manager record but its user-editable values do not match the workbook draft submitted to the normal Save offer path.", {
+          artifact_id: artifactId,
+          source_file: prepared.sourceFile,
+          saved_offer_id: offer.id,
+          missing_offer_manager_fields: missingSavedFields,
+          inventory_input_mismatches: inventoryInputMismatches.slice(0, 20),
+          total_cost: offer.total_cost,
+          calculated_total_cost: offer.calculated_total_cost,
+          has_expanded_costing_data: hasRawWorkbookAttachment,
+          expected_inventory_line_count: expectedInventoryItems.length,
+          saved_inventory_line_count: savedInventoryItems.length,
+          save_attempted: true
+        }, artifactId);
+        return res.status(422).json({ ...warning, saved_offer: { id: offer.id } });
+      }
+      savedOffers.push({
         id: offer.id,
         job_no: offer.job_no,
         offer_number: offer.offer_number,
         customer_id: offer.customer_id,
         customer_name: offer.customer_name,
-        costing_source_file: offer.costing_source_file,
-        expanded_costing_data_status: offer.expanded_costing_data_status,
-        source_count: sources.length,
-        total_values: sources.reduce((sum, source) => sum + Number(source.non_empty_cell_count || 0), 0)
+        total_cost: offer.total_cost,
+        calculated_total_cost: offer.calculated_total_cost,
+        inventory_line_count: savedInventoryItems.length,
+        inventory_material_total: offer.inventory_material_total,
+        workbook_value_count: Number(prepared.source.non_empty_cell_count || 0),
+        has_expanded_costing_data: false,
+        technical_fields: prepared.costingCalculation.summary.technical_fields || {}
+      });
+    }
+    const firstOffer = savedOffers[0];
+    if (firstOffer && preparedOffers[0]?.offerPayloadInput.source_inquiry_id) {
+      const sourceInquiryId = preparedOffers[0].offerPayloadInput.source_inquiry_id;
+      const leadStatus = preparedOffers[0].offerPayloadInput.lead_status;
+      const inquiryUpdateRes = {
+        req: { user: openClawUser },
+        statusCode: 200,
+        body: null,
+        status(code) {
+          this.statusCode = code;
+          return this;
+        },
+        json(payload) {
+          this.body = payload;
+          return payload;
+        }
+      };
+      await updateSalesInquiryRecord(sourceInquiryId, { lead_status: leadStatus, status: leadStatus }, inquiryUpdateRes);
+      if (inquiryUpdateRes.statusCode >= 400 || !inquiryUpdateRes.body?.record) {
+        const warning = openClawMissingUiFeatureWarning("FUZI saved the offers but could not run the same linked-enquiry status update handler used by the Offer Manager UI.", {
+          artifact_id: artifactId,
+          source_inquiry_id: sourceInquiryId,
+          status: inquiryUpdateRes.statusCode,
+          response: inquiryUpdateRes.body || null,
+          saved_offer_ids: savedOffers.map((offer) => offer.id),
+          save_attempted: true
+        }, artifactId);
+        return res.status(inquiryUpdateRes.statusCode >= 400 ? inquiryUpdateRes.statusCode : 500).json({
+          ...warning,
+          database_write_count: savedOffers.length
+        });
       }
+    }
+    res.json({
+      ok: true,
+      action: "offer-manager-save-emulated-batch",
+      ...costingTransferConsumedFields(artifactId),
+      exact_next_prompt_for_codex: null,
+      source_count: sources.length,
+      saved_offer_count: savedOffers.length,
+      total_values: sources.reduce((sum, source) => sum + Number(source.non_empty_cell_count || 0), 0),
+      formula_processing: calculationValidation.audit,
+      openclaw_calculation_check: {
+        checked_by: "OpenClaw",
+        calculation_preview_id: previewId,
+        checked_offer_count: preparedOffers.length,
+        checked_workbook_value_count: Number(workbookValueReceipt.value_count || 0),
+        checked_offer_value_count: offerManagerValueCount,
+        workbook_value_receipt_digest: String(workbookValueReceipt.values_digest || ""),
+        all_values_match: true,
+        all_workbooks_match: true,
+        mismatches: []
+      },
+      offer_manager_emulation: {
+        control: "Save offer",
+        method: "POST",
+        backend_path: "/api/portal/estimates",
+        typed_fields: offerManagerTypedFields,
+        typed_field_count: offerManagerTypedFields.length,
+        save_button_press_count: savedOffers.length,
+        saved_field_count_per_offer: offerManagerTypedFields.length,
+        missing_fields: [],
+        controls_exercised_by_backend: ["Save offer"],
+        database_handlers: ["createOfferManagerRecord", "updateSalesInquiryRecord"],
+        hidden_database_writes_allowed: false,
+        suggestions_used: false,
+        draft_values_applied: true,
+        raw_workbook_arrays_persisted_on_offers: false,
+        conversion_artifacts_retained: false,
+        inventory_lines_written: savedOffers.reduce((sum, offer) => sum + offer.inventory_line_count, 0)
+      },
+      saved_offer: firstOffer,
+      saved_offers: savedOffers
     });
   } catch (error) {
     const exactPrompt = openClawCostingNextPrompt("The backend failed while emulating typing converted costing data into Offer Manager Save offer.", {
       artifact_id: artifactId,
       error: error instanceof Error ? error.message : String(error)
     });
-    res.status(500).json({ ok: false, exact_next_prompt_for_codex: exactPrompt });
+    res.status(500).json({ ok: false, ...costingTransferConsumedFields(artifactId), exact_next_prompt_for_codex: exactPrompt });
+  } finally {
+    if (!retainArtifactForPreview) deleteCostingConversionTransfer(artifactId);
   }
 });
 
@@ -7190,7 +8497,7 @@ app.post("/api/openclaw/costing/convert", async (req, res) => {
     const orderDecisions = costingOrderDecisionsMap(req.body?.order_decisions || req.body?.orderDecisions || {});
     const defaultOrderMode = normalizeCostingOrderMode(req.body?.default_order_mode || req.body?.defaultOrderMode || "A1");
     const data = attachCostingManifestToSources(await parseCostingWorkbooks({ orderDecisions, defaultOrderMode }), manifest);
-    const artifact = await writeCostingConversionArtifact(data, orderDecisions, { manifest, sessionKey });
+    const artifact = await createCostingConversionTransfer(data, orderDecisions, { manifest, sessionKey });
     res.setHeader("Cache-Control", "no-store");
     res.type("text/plain");
     res.send(costingConversionOpenClawMessage(data, manifest, orderDecisions, artifact, req));
@@ -8070,18 +9377,22 @@ app.post("/api/portal/sales/inquiries", authRequired, async (req, res) => {
   res.json({ ok: true, inquiry, record: inquiry });
 });
 
-app.patch("/api/portal/sales/inquiries/:id", authRequired, async (req, res) => {
+async function updateSalesInquiryRecord(id, body, res) {
   const records = await readJson(listFiles.sales_inquiries, []);
-  const index = findRecordIndex(records, req.params.id);
+  const index = findRecordIndex(records, id);
   if (index < 0) return res.status(404).json({ ok: false, message: "Sales inquiry not found." });
   const previousInquiry = records[index];
   records[index] = {
-    ...normalizeSalesInquiryPayload(req.body, records[index]),
+    ...normalizeSalesInquiryPayload(body, records[index]),
     updated_at: new Date().toISOString()
   };
   await writeJson(listFiles.sales_inquiries, records);
-  await appendAuditLog({ user: req.user || {}, collection: "sales_inquiries", recordId: recordIdentityForAudit(records[index]), action: "update", before: previousInquiry, after: records[index] });
+  await appendAuditLog({ user: res.req?.user || {}, collection: "sales_inquiries", recordId: recordIdentityForAudit(records[index]), action: "update", before: previousInquiry, after: records[index] });
   res.json({ ok: true, inquiry: records[index], record: records[index] });
+}
+
+app.patch("/api/portal/sales/inquiries/:id", authRequired, async (req, res) => {
+  await updateSalesInquiryRecord(req.params.id, req.body, res);
 });
 
 app.post("/api/portal/sales/inquiries/:id/convert-customer", authRequired, async (req, res) => {
@@ -8198,26 +9509,23 @@ app.post("/api/portal/costing-source-data/openclaw-import", authRequired, async 
       costingManifestOpenClawMessage(manifest, req),
       { event_type: "costing-workbook-manifest", source_count: manifest.source_count }
     );
-    const orderDecisions = costingOrderDecisionsMap(req.body?.order_decisions || req.body?.orderDecisions || {});
-    const defaultOrderMode = normalizeCostingOrderMode(req.body?.default_order_mode || req.body?.defaultOrderMode || "A1");
-    const data = attachCostingManifestToSources(await parseCostingWorkbooks({ orderDecisions, defaultOrderMode }), manifest);
-    const artifact = await writeCostingConversionArtifact(data, orderDecisions, { manifest, sessionKey });
-    const resultDelivery = await communicationService.sendSessionMessage(
-      sessionKey,
-      costingConversionOpenClawMessage(data, manifest, orderDecisions, artifact, req),
-      { event_type: "costing-workbook-conversion-result", source_count: data.source_count || 0 }
-    );
-    res.status(manifestDelivery.ok || resultDelivery.ok ? 200 : 202).json({
+    res.status(manifestDelivery.ok ? 200 : 202).json({
       ok: true,
       manifest,
-      order_decisions: orderDecisions,
-      artifact_id: artifact.artifactId,
-      artifact_path: artifact.artifactPath,
-      ...data,
+      source_count: manifest.source_count,
+      sources: [],
+      next_action: {
+        method: "POST",
+        url: `${openClawTerminalBackendUrl(req)}/api/openclaw/costing/convert`,
+        body: {
+          session_key: sessionKey,
+          default_order_mode: "A1",
+          order_decisions: "OpenClaw chooses A1 or 1A per workbook before calling this endpoint."
+        }
+      },
       openclaw: {
         session_key: sessionKey,
-        manifest_delivery: manifestDelivery,
-        conversion_delivery: resultDelivery
+        manifest_delivery: manifestDelivery
       }
     });
   } catch (error) {
@@ -8313,10 +9621,84 @@ app.patch("/api/portal/inventory/:id", authRequired, async (req, res) => {
 });
 
 app.post("/api/portal/estimates/calculate", authRequired, async (req, res) => {
-  const base = Number(req.body?.base_cost || req.body?.material_cost || 0);
-  const markup = Number(req.body?.markup_percent || req.body?.markup || 15);
-  const total_cost = Math.round(base + (base * markup) / 100);
-  res.json({ ok: true, estimate: { ...cleanPayload(req.body), base_cost: base, markup_percent: markup, total_cost } });
+  const input = stripOfferCostingSourceMetadata(cleanPayload(req.body));
+  const calculation = offerReadOnlyCalculation(input);
+  res.setHeader("Cache-Control", "private, no-store");
+  res.json({ ok: true, calculation, estimate: { ...input, ...calculation } });
+});
+
+app.get("/api/portal/offer-manager/offers", authRequired, async (req, res) => {
+  if (!portalDataPartAllowed("estimates", accessForUser(req.user))) {
+    return res.status(403).json({ ok: false, message: "Offer Manager access is required." });
+  }
+  const estimates = await readJson(listFiles.estimates, []);
+  const offers = estimates.map((estimate) => {
+    const cost = offerCostSummary(estimate);
+    return {
+      id: String(estimate.id || "").trim(),
+      job_no: String(estimate.job_no || "").trim(),
+      offer_number: String(estimate.offer_number || "").trim(),
+      offer_date: String(estimate.offer_date || "").trim(),
+      customer_id: String(estimate.customer_id || "").trim(),
+      source_inquiry_id: String(estimate.source_inquiry_id || "").trim(),
+      enquiry_no: String(estimate.enquiry_no || "").trim(),
+      source_enquiry_no: String(estimate.source_enquiry_no || "").trim(),
+      customer_name: String(estimate.customer_name || "").trim(),
+      offer_name: String(estimate.offer_name || "").trim(),
+      status: String(estimate.status || "").trim(),
+      lead_status: String(estimate.lead_status || "").trim(),
+      offer_letter_status: String(estimate.offer_letter_status || "").trim(),
+      total_cost: cost.totalCost,
+      calculated_total_cost: cost.calculatedTotal,
+      created_at: String(estimate.created_at || "").trim(),
+      updated_at: String(estimate.updated_at || "").trim()
+    };
+  });
+  res.setHeader("Cache-Control", "private, no-store");
+  return res.json({ ok: true, total: offers.length, offers });
+});
+
+app.get("/api/portal/offer-manager/inventory-templates", authRequired, async (req, res) => {
+  if (!portalDataPartAllowed("estimates", accessForUser(req.user))) {
+    return res.status(403).json({ ok: false, message: "Offer Manager access is required." });
+  }
+  const estimates = await readJson(listFiles.estimates, []);
+  const workbookOffers = estimates.filter((estimate) => (
+    String(estimate.createdbyname || "").trim().toLowerCase() === "openclaw"
+    &&
+    Array.isArray(estimate.inventory_items)
+    && estimate.inventory_items.length > 0
+    && (
+      String(estimate.costing_configuration || "").trim()
+      || (Array.isArray(estimate.costing_travel_segments) && estimate.costing_travel_segments.length > 0)
+    )
+  ));
+  const items = offerInventoryTemplates(workbookOffers.flatMap((estimate) => estimate.inventory_items));
+  res.setHeader("Cache-Control", "private, no-store");
+  return res.json({
+    ok: true,
+    total: items.length,
+    workbook_offer_count: workbookOffers.length,
+    items: items.map((item, index) => ({
+      ...item,
+      id: `workbook-inventory-template-${index + 1}`,
+      template_source: "Workbook costing templates"
+    }))
+  });
+});
+
+app.get("/api/portal/estimates/:id", authRequired, async (req, res) => {
+  if (!portalDataPartAllowed("estimates", accessForUser(req.user))) {
+    return res.status(403).json({ ok: false, message: "Offer Manager access is required." });
+  }
+  const estimates = await readJson(listFiles.estimates, []);
+  const estimate = estimates.find((item) => String(item.id) === String(req.params.id));
+  if (!estimate) return res.status(404).json({ ok: false, message: "Estimate not found." });
+  res.setHeader("Cache-Control", "private, no-store");
+  return res.json({
+    ok: true,
+    record: stripOfferCostingSourceMetadata(estimate)
+  });
 });
 
 app.get("/api/portal/estimates/:id/report", authRequired, async (req, res) => {
@@ -8345,7 +9727,7 @@ app.get("/api/portal/estimates/:id/report", authRequired, async (req, res) => {
     <tr><th>Material cost</th><td>${moneyInr(cost.materialCost)}</td></tr>
     <tr><th>Install cost</th><td>${moneyInr(cost.installCost)}</td></tr>
     <tr><th>Overhead</th><td>${moneyInr(cost.overheadCost)}</td></tr>
-    <tr><th>Margin</th><td>${htmlEscape(cost.marginPercent)}% (${moneyInr(cost.marginAmount)})</td></tr>
+    <tr><th>Margin</th><td>${cost.marginMode === "fixed" ? `Fixed amount (${moneyInr(cost.marginAmount)})` : `${htmlEscape(cost.marginPercent)}% (${moneyInr(cost.marginAmount)})`}</td></tr>
     <tr><th>Discount</th><td>${moneyInr(cost.discount)}</td></tr>
     <tr><th>GST</th><td>${htmlEscape(cost.gstPercent)}% (${moneyInr(cost.gstAmount)})</td></tr>
     <tr><th>Client offer value</th><td><strong>${moneyInr(cost.totalCost)}</strong></td></tr>
@@ -8830,12 +10212,14 @@ for (const routeName of Object.keys(routeCollections).filter((route) => !route.i
   });
   if (!["customers", "breakdown", "install-jobs", "users"].includes(routeName)) {
     app.post(`/api/portal/${routeName}`, authRequired, async (req, res) => {
-      await createCollectionRecord(routeName, req.body, res);
+      if (routeName === "estimates") await createOfferManagerRecord(req.body, res);
+      else await createCollectionRecord(routeName, req.body, res);
     });
   }
   if (routeName !== "users") {
     app.patch(`/api/portal/${routeName}/:id`, authRequired, async (req, res) => {
-      await updateCollectionRecord(routeName, req.params.id, req.body, res);
+      if (routeName === "estimates") await updateOfferManagerRecord(req.params.id, req.body, res);
+      else await updateCollectionRecord(routeName, req.params.id, req.body, res);
     });
   }
   app.delete(`/api/portal/${routeName}/:id`, authRequired, async (req, res) => {
@@ -8936,6 +10320,7 @@ async function runDiscordBreakdownSync() {
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`FUZI Node API listening on http://127.0.0.1:${port}`);
+  ensureOfferCostingSourceMetadataRemoved().catch((error) => console.warn(`Offer costing source metadata cleanup failed: ${error?.message || error}`));
   runDiscordBreakdownSync().catch((error) => console.warn(`Discord breakdown sync failed: ${error?.message || error}`));
   const pollMs = defaultDiscordBreakdownSyncData(process.env, rootDir).pollMs;
   const interval = setInterval(() => {

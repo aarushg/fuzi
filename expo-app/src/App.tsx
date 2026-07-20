@@ -957,8 +957,8 @@ type OfferDraftState = {
   offerDraft: OfferDraft;
   offerDraftRef: MutableRefObject<OfferDraft>;
   setOfferDraft: LocalStateSetter<OfferDraft>;
+  setOfferDraftFromServer?: LocalStateSetter<OfferDraft>;
   setOfferDraftRefOnly: LocalStateSetter<OfferDraft>;
-  setOfferDraftDelayed?: LocalStateSetter<OfferDraft>;
 };
 
 const defaultCrmPageState: CrmPageState = {
@@ -1669,7 +1669,7 @@ function OfferDraftBoundary({
 }) {
   recordComponentRender("OfferDraftBoundary");
   const setOfferDraft: LocalStateSetter<OfferDraft> = (next) => {
-    draftRef.current = resolveLocalState(next, draftRef.current);
+    draftRef.current = offerDraftWithClientCalculations(resolveLocalState(next, draftRef.current));
     controllerRef.current?.(draftRef.current);
   };
   const setOfferDraftRefOnly: LocalStateSetter<OfferDraft> = (next) => {
@@ -1690,28 +1690,16 @@ function OfferDraftModalRenderBoundary({
 }) {
   recordComponentRender("OfferDraftModalRenderBoundary");
   const [, setDraftVersion] = useState(0);
-  const draftRenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const flushDraftRender = () => {
-    if (draftRenderTimerRef.current) {
-      clearTimeout(draftRenderTimerRef.current);
-      draftRenderTimerRef.current = null;
-    }
+  const setOfferDraft: LocalStateSetter<OfferDraft> = (next) => {
+    draftRef.current = offerDraftWithClientCalculations(resolveLocalState(next, draftRef.current));
     setDraftVersion((version) => version + 1);
   };
-  const setOfferDraft: LocalStateSetter<OfferDraft> = (next) => {
+  const setOfferDraftFromServer: LocalStateSetter<OfferDraft> = (next) => {
     draftRef.current = resolveLocalState(next, draftRef.current);
-    flushDraftRender();
+    setDraftVersion((version) => version + 1);
   };
   const setOfferDraftRefOnly: LocalStateSetter<OfferDraft> = (next) => {
     draftRef.current = resolveLocalState(next, draftRef.current);
-  };
-  const setOfferDraftDelayed: LocalStateSetter<OfferDraft> = (next) => {
-    draftRef.current = resolveLocalState(next, draftRef.current);
-    if (draftRenderTimerRef.current) clearTimeout(draftRenderTimerRef.current);
-    draftRenderTimerRef.current = setTimeout(() => {
-      draftRenderTimerRef.current = null;
-      setDraftVersion((version) => version + 1);
-    }, 600);
   };
 
   useEffect(() => {
@@ -1721,11 +1709,57 @@ function OfferDraftModalRenderBoundary({
     };
   }, [controllerRef]);
 
-  useEffect(() => () => {
-    if (draftRenderTimerRef.current) clearTimeout(draftRenderTimerRef.current);
-  }, []);
+  return <>{children({ offerDraft: draftRef.current, offerDraftRef: draftRef, setOfferDraft, setOfferDraftFromServer, setOfferDraftRefOnly })}</>;
+}
 
-  return <>{children({ offerDraft: draftRef.current, offerDraftRef: draftRef, setOfferDraft, setOfferDraftRefOnly, setOfferDraftDelayed })}</>;
+function OfferServerCalculationSync({
+  draft,
+  enabled,
+  onError,
+  setOfferDraft,
+  token,
+}: {
+  draft: OfferDraft;
+  enabled: boolean;
+  onError?: (message: string) => void;
+  setOfferDraft: LocalStateSetter<OfferDraft>;
+  token: string;
+}) {
+  const setterRef = useRef(setOfferDraft);
+  setterRef.current = setOfferDraft;
+  const errorRef = useRef(onError);
+  errorRef.current = onError;
+  const requestPayload = offerServerCalculationRequest(draft);
+  const requestPayloadRef = useRef({ payload: requestPayload, signature: JSON.stringify(requestPayload) });
+  requestPayloadRef.current = { payload: requestPayload, signature: JSON.stringify(requestPayload) };
+  const reconciliationSignature = offerServerReconciliationSignature(draft);
+
+  useEffect(() => {
+    if (!enabled || !token) return undefined;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      const pendingRequest = requestPayloadRef.current;
+      apiFetch<{ calculation?: OfferDraft }>("/api/portal/estimates/calculate", {
+        method: "POST",
+        token,
+        body: JSON.stringify(pendingRequest.payload),
+      }).then((response) => {
+        if (!cancelled && response.calculation && requestPayloadRef.current.signature === pendingRequest.signature) {
+          setterRef.current((current) => mergeOfferServerCalculation(current, response.calculation || {}));
+        }
+      }).catch((error) => {
+        if (!cancelled) {
+          errorRef.current?.(error instanceof Error ? `Offer calculation failed: ${error.message}` : "Offer calculation failed.");
+        }
+      });
+    }, 150);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [enabled, reconciliationSignature, token]);
+
+  return null;
 }
 
 function PortalNavigationBoundary({
@@ -3529,13 +3563,36 @@ const emptyOfferDraft = {
   drive_type: "",
   door_type: "",
   finish: "",
+  car_construction: "",
+  door_construction: "",
+  door_operation: "",
+  door_opening_type: "",
+  door_vision: "",
+  costing_door_size: "",
+  flooring: "",
+  compliance_standard: "",
+  controller_configuration: "",
+  motor_specification: "",
+  car_cabin_specification: "",
+  safety_specification: "",
+  rope_specification: "",
+  costing_configuration: "",
+  costing_pit_mm: "",
+  costing_overhead_mm: "",
+  costing_total_travel_mm: "",
+  costing_travel_profile: "",
+  costing_travel_segments: [],
   material_cost: "",
+  installation_local_cost: "",
+  commissioning_cost: "",
+  warranty_cost: "",
   install_cost: "",
   overhead_cost: "",
+  margin_mode: "percentage",
   margin_percent: "15",
+  margin_amount: "",
   discount: "",
   gst_percent: "18",
-  total_cost: "",
   offer_valid_until: "",
   payment_terms: "40% advance, 50% before dispatch, 10% after installation",
   delivery_timeline: "As per final technical approval and material readiness",
@@ -3547,9 +3604,6 @@ const emptyOfferDraft = {
   source_inquiry_id: "",
   offer_source: "CRM",
   linked_customer_source: "",
-  costing_source_file: "",
-  expanded_costing_data: {},
-  expanded_costing_data_status: "",
   inventory_items: [],
   inventory_material_total: "",
   inventory_pricing_source: "",
@@ -3781,27 +3835,103 @@ function paymentAccountSummary(record: Record<string, unknown>) {
 }
 
 function offerCostSummary(record: Record<string, unknown>) {
-  const materialCost = offerNumber(record.material_cost);
-  const installCost = offerNumber(record.install_cost);
-  const overheadCost = offerNumber(record.overhead_cost);
-  const marginPercent = offerNumber(record.margin_percent, 15);
+  const inventoryItems = offerInventoryLines(record);
+  const materialCost = inventoryItems.length ? offerInventoryTotal(record) : offerNumber(record.material_cost);
+  const hasInstallationBreakdown = String(record.installation_local_cost ?? "").trim() !== "" || String(record.commissioning_cost ?? "").trim() !== "";
+  const installCost = hasInstallationBreakdown
+    ? offerNumber(record.installation_local_cost) + offerNumber(record.commissioning_cost)
+    : offerNumber(record.install_cost);
+  const hasWarrantyBreakdown = String(record.warranty_cost ?? "").trim() !== "";
+  const overheadCost = hasWarrantyBreakdown ? offerNumber(record.warranty_cost) : offerNumber(record.overhead_cost);
+  const marginMode = String(record.margin_mode || "").trim().toLowerCase() === "fixed" ? "fixed" : "percentage";
+  const marginPercent = marginMode === "fixed" ? 0 : offerNumber(record.margin_percent, 15);
+  const fixedMarginAmount = offerNumber(record.margin_amount);
   const discount = offerNumber(record.discount);
   const gstPercent = offerNumber(record.gst_percent, 18);
   const baseCost = materialCost + installCost + overheadCost;
-  const marginAmount = Math.round((baseCost * marginPercent) / 100);
+  const marginAmount = marginMode === "fixed" ? fixedMarginAmount : (baseCost * marginPercent) / 100;
   const subtotal = Math.max(0, baseCost + marginAmount - discount);
-  const gstAmount = Math.round((subtotal * gstPercent) / 100);
+  const gstAmount = (subtotal * gstPercent) / 100;
   const calculatedTotal = subtotal + gstAmount;
-  const savedTotal = offerNumber(record.total_cost);
-  const totalCost = savedTotal || calculatedTotal;
-  return { materialCost, installCost, overheadCost, marginPercent, marginAmount, discount, gstPercent, gstAmount, baseCost, subtotal, totalCost };
+  const hasCalculationInputs = ["material_cost", "install_cost", "overhead_cost", "margin_mode", "margin_percent", "margin_amount", "discount", "gst_percent"]
+    .some((key) => Object.prototype.hasOwnProperty.call(record, key));
+  const totalCost = hasCalculationInputs ? calculatedTotal : offerNumber(record.calculated_total_cost ?? record.total_cost);
+  return { materialCost, installCost, overheadCost, marginMode, marginPercent, marginAmount, discount, gstPercent, gstAmount, baseCost, subtotal, calculatedTotal, hasCalculationInputs, totalCost };
+}
+
+const offerServerReadOnlyFieldNames = [
+  "material_cost",
+  "install_cost",
+  "overhead_cost",
+  "costing_pit_mm",
+  "costing_overhead_mm",
+  "costing_total_travel_mm",
+  "costing_travel_profile",
+  "inventory_material_total",
+  "gst_amount",
+  "base_cost",
+  "subtotal",
+  "total_cost",
+  "calculated_total_cost",
+];
+
+function offerServerCalculationRequest(record: OfferDraft): OfferDraft {
+  return {
+    inventory_items: offerInventoryLines(record).map((line) => {
+      const amountBasis = offerInventoryAmountBasis(line);
+      return {
+        ...line,
+        amount_basis: amountBasis,
+        line_total: amountBasis === "direct" ? line.line_total : "",
+      };
+    }),
+    installation_local_cost: record.installation_local_cost,
+    commissioning_cost: record.commissioning_cost,
+    warranty_cost: record.warranty_cost,
+    costing_travel_segments: offerTravelSegments(record),
+    margin_mode: record.margin_mode,
+    margin_percent: record.margin_percent,
+    margin_amount: record.margin_amount,
+    discount: record.discount,
+    gst_percent: record.gst_percent,
+  };
+}
+
+function offerServerReconciliationSignature(record: OfferDraft) {
+  return JSON.stringify({
+    offer: String(record.id || record.job_no || record.customer_id || "new"),
+    inventory_structure: offerInventoryLines(record).map((line, index) => ({
+      key: String(line.item_id || index),
+      amount_basis: offerInventoryAmountBasis(line),
+    })),
+    margin_mode: String(record.margin_mode || "percentage").trim().toLowerCase(),
+    travel_segment_count: offerTravelSegments(record).length,
+  });
+}
+
+function mergeOfferServerCalculation(record: OfferDraft, calculation: OfferDraft): OfferDraft {
+  const serverItems = offerInventoryLines(calculation);
+  const inventoryItems = offerInventoryLines(record).map((line, index) => (
+    offerInventoryAmountBasis(line) === "direct"
+      ? line
+      : { ...line, line_total: serverItems[index]?.line_total ?? line.line_total }
+  ));
+  const calculatedFields = Object.fromEntries(offerServerReadOnlyFieldNames.map((key) => [key, calculation[key]]));
+  const next = { ...record, ...calculatedFields, inventory_items: inventoryItems };
+  const currentProjection = {
+    ...Object.fromEntries(offerServerReadOnlyFieldNames.map((key) => [key, record[key]])),
+    line_totals: offerInventoryLines(record).map((line) => line.line_total),
+  };
+  const nextProjection = {
+    ...calculatedFields,
+    line_totals: inventoryItems.map((line) => line.line_total),
+  };
+  return JSON.stringify(currentProjection) === JSON.stringify(nextProjection) ? record : next;
 }
 
 function inventoryPrice(record: Record<string, unknown>) {
   return offerNumber(record.current_price || record.sale_price || record.unit_price || record.unit_cost || record.purchase_price);
 }
-
-const offerInventoryItemNames = ["Guide rail", "Bracket"];
 
 function normalizedOfferInventoryName(value: unknown) {
   return String(value || "").trim().toLowerCase();
@@ -3809,25 +3939,148 @@ function normalizedOfferInventoryName(value: unknown) {
 
 function isOfferInventoryItemAllowed(record: Record<string, unknown>) {
   const name = normalizedOfferInventoryName(record.name || record.item || record.item_id);
-  return offerInventoryItemNames.some((allowed) => normalizedOfferInventoryName(allowed) === name);
+  return Boolean(name);
 }
 
-function offerInventoryActualQuantity(line: Record<string, unknown>) {
-  const actual = String(line.actual ?? "").trim();
-  if (actual) return offerNumber(actual);
-  return offerNumber(line.qty, 1) || 1;
+function offerInventoryAmountBasis(line: Record<string, unknown>) {
+  const basis = String(line.amount_basis || "").trim().toLowerCase();
+  if (["quantity", "actual", "direct"].includes(basis)) return basis;
+  return String(line.actual ?? "").trim() ? "actual" : "quantity";
 }
 
-function offerInventoryLines(record: Record<string, unknown>) {
-  return Array.isArray(record.inventory_items) ? record.inventory_items as Array<Record<string, unknown>> : [];
+function offerInventoryLineAmount(line: Record<string, unknown>) {
+  const basis = offerInventoryAmountBasis(line);
+  if (basis === "direct") return offerNumber(line.line_total);
+  const price = offerNumber(line.current_price ?? line.unit_price ?? line.sale_price ?? line.unit_cost);
+  const factorValue = basis === "actual" ? line.actual : line.qty;
+  const factorFallback = factorValue === undefined || factorValue === null ? 1 : 0;
+  return offerNumber(factorValue, factorFallback) * price;
+}
+
+function offerInventoryDescription(line: Record<string, unknown>) {
+  const values = [line.description, line.specification]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const key = value.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).join(" / ");
+}
+
+function emptyOfferInventoryValue(value: unknown) {
+  return value === undefined || value === null || String(value).trim() === "";
+}
+
+function fillEmptyOfferInventoryValues(primary: Record<string, unknown>, secondary: Record<string, unknown>) {
+  const { specification: _primarySpecification, ...primaryValues } = primary;
+  const { specification: _secondarySpecification, ...secondaryValues } = secondary;
+  const next: Record<string, unknown> = {
+    ...primaryValues,
+    description: offerInventoryDescription(primary),
+  };
+  const candidate: Record<string, unknown> = {
+    ...secondaryValues,
+    description: offerInventoryDescription(secondary),
+  };
+  Object.entries(candidate).forEach(([key, value]) => {
+    if (emptyOfferInventoryValue(next[key]) && !emptyOfferInventoryValue(value)) next[key] = value;
+  });
+  return next;
+}
+
+function mergeOfferInventoryTemplates(records: Array<Record<string, unknown>>) {
+  const templates = new Map<string, Record<string, unknown>>();
+  records.forEach((record) => {
+    const name = String(record.name || record.item || record.item_id || "").trim();
+    const key = normalizedOfferInventoryName(name);
+    if (!key) return;
+    const normalized = { ...record, name, description: offerInventoryDescription(record) };
+    const existing = templates.get(key);
+    templates.set(key, existing ? fillEmptyOfferInventoryValues(existing, normalized) : normalized);
+  });
+  return [...templates.values()].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+}
+
+function offerInventoryLines(record: Record<string, unknown>): Array<Record<string, unknown>> {
+  if (!Array.isArray(record.inventory_items)) return [];
+  return (record.inventory_items as Array<Record<string, unknown>>).map((line): Record<string, unknown> => {
+    const { specification: _legacySpecification, ...rest } = line;
+    return { ...rest, description: offerInventoryDescription(line) };
+  });
 }
 
 function offerInventoryTotal(record: Record<string, unknown>) {
   return offerInventoryLines(record).filter(isOfferInventoryItemAllowed).reduce((sum, line) => {
-    const qty = offerInventoryActualQuantity(line);
-    const price = offerNumber(line.current_price || line.unit_price || line.sale_price || line.unit_cost);
-    return sum + qty * price;
+    return sum + offerInventoryLineAmount(line);
   }, 0);
+}
+
+function offerTravelSegments(record: Record<string, unknown>) {
+  return Array.isArray(record.costing_travel_segments)
+    ? record.costing_travel_segments.map((row) => ({
+        label: String((row as Record<string, unknown>)?.label || ""),
+        mm: String((row as Record<string, unknown>)?.mm ?? ""),
+      }))
+    : [];
+}
+
+function offerDraftWithTravelSegments(record: OfferDraft, rows: Array<Record<string, unknown>>): OfferDraft {
+  const segments = rows
+    .map((row) => ({ label: String(row.label || "").trim(), mm: String(row.mm ?? "").trim() }))
+    .filter((row) => row.label || row.mm !== "");
+  const segmentValue = (label: string) => segments.find((row) => row.label.trim().toLowerCase() === label)?.mm || "";
+  return {
+    ...record,
+    costing_travel_segments: segments,
+    costing_pit_mm: segmentValue("pit"),
+    costing_overhead_mm: segmentValue("overhead"),
+    costing_total_travel_mm: String(segments.reduce((sum, row) => sum + offerNumber(row.mm), 0)),
+    costing_travel_profile: segments
+      .filter((row) => row.label && row.mm !== "")
+      .map((row) => `${row.label}: ${row.mm} mm`)
+      .join("; "),
+  };
+}
+
+function offerDraftWithClientCalculations(record: OfferDraft): OfferDraft {
+  const inventoryItems = offerInventoryLines(record).map((line) => {
+    const amountBasis = offerInventoryAmountBasis(line);
+    const normalized = { ...line, amount_basis: amountBasis };
+    return amountBasis === "direct"
+      ? normalized
+      : { ...normalized, line_total: offerInventoryLineAmount(normalized) };
+  });
+  const materialCost = inventoryItems.reduce((sum, line) => sum + offerInventoryLineAmount(line), 0);
+  const installCost = offerNumber(record.installation_local_cost) + offerNumber(record.commissioning_cost);
+  const overheadCost = offerNumber(record.warranty_cost);
+  const travelCalculation = offerDraftWithTravelSegments(record, offerTravelSegments(record));
+  const cost = offerCostSummary({
+    ...record,
+    inventory_items: inventoryItems,
+    material_cost: materialCost,
+    install_cost: installCost,
+    overhead_cost: overheadCost,
+  });
+  return {
+    ...record,
+    inventory_items: inventoryItems,
+    inventory_material_total: materialCost,
+    material_cost: materialCost,
+    install_cost: installCost,
+    overhead_cost: overheadCost,
+    costing_pit_mm: travelCalculation.costing_pit_mm,
+    costing_overhead_mm: travelCalculation.costing_overhead_mm,
+    costing_total_travel_mm: travelCalculation.costing_total_travel_mm,
+    costing_travel_profile: travelCalculation.costing_travel_profile,
+    gst_amount: cost.gstAmount,
+    base_cost: cost.baseCost,
+    subtotal: cost.subtotal,
+    total_cost: cost.totalCost,
+    calculated_total_cost: cost.calculatedTotal,
+  };
 }
 
 const rawTransportKeys = new Set([
@@ -3916,6 +4169,9 @@ const PortalApp = memo(function PortalApp() {
   }
   const [token, setToken] = useState("");
   const [data, setData] = useState<PortalData | null>(null);
+  const [offerManagerOfferSummaries, setOfferManagerOfferSummaries] = useState<Array<Record<string, unknown>>>([]);
+  const [offerManagerOfferSummariesLoaded, setOfferManagerOfferSummariesLoaded] = useState(false);
+  const [offerManagerInventoryTemplates, setOfferManagerInventoryTemplates] = useState<Array<Record<string, unknown>>>([]);
   const [portalLanguage, setPortalLanguage] = useState<PortalLanguage>(() => {
     if (Platform.OS === "web" && typeof globalThis.localStorage !== "undefined") {
       const saved = globalThis.localStorage.getItem("fuzi_portal_language");
@@ -4302,6 +4558,7 @@ const PortalApp = memo(function PortalApp() {
   const isAdmin = ["admin", "ceo"].includes(String(data?.viewer?.role || "").trim().toLowerCase());
   const normalizedKey = (value: unknown) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
   const portalListDataPartForKey = (key: string) => {
+    if (offerManagerOfferSummariesLoaded && key.startsWith("offer-linked-offers-")) return "";
     const normalized = normalizedKey(key);
     const aliases: Array<[string, string[]]> = [
       ["dept_comms", ["notification", "notifications", "comms", "communication", "message", "messages"]],
@@ -4585,25 +4842,35 @@ const PortalApp = memo(function PortalApp() {
       teams: ["All", ...[...teams].sort()],
     };
   }, [customerStaffDirectory, data?.customer_assignments]);
-  function costingTotalFromSource(source?: CostingSource) {
-    if (!source) return "";
-    const totalCell = source.cells.find((cell) => String(cell.cell).toUpperCase() === "R53") || source.cells.find((cell) => String(cell.cell).toUpperCase().endsWith("53"));
-    return typeof totalCell?.value === "number" ? String(totalCell.value) : "";
-  }
-
   function offerCostingPayloadFromImport(importData: Record<string, any> | null | undefined, selectedSource?: CostingSource) {
     const sources = Array.isArray(importData?.sources) ? importData?.sources as CostingSource[] : [];
     const source = selectedSource || sources[0];
     if (!source && !sources.length) return null;
-    const sourceFiles = sources.length ? sources.map((item) => item.source_file).filter(Boolean) : [source?.source_file || ""].filter(Boolean);
+    const cellRow = (cell: CostingSourceCell) => Number(String(cell.cell || "").match(/\d+/)?.[0] || 0);
+    const cellColumn = (cell: CostingSourceCell) => {
+      const letters = String(cell.cell || "").toUpperCase().match(/[A-Z]+/)?.[0] || "";
+      return [...letters].reduce((column, char) => (column * 26) + char.charCodeAt(0) - 64, 0);
+    };
+    const normalizedLabel = (value: unknown) => String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+    const finalLabel = source?.cells.find((cell) => normalizedLabel(cell.value) === "final offer");
+    const finalRow = finalLabel ? cellRow(finalLabel) : 0;
+    const resultCell = source?.cells
+      .filter((cell) => cell.sheet === finalLabel?.sheet && cellRow(cell) === finalRow && (cell.formula || typeof cell.value === "number"))
+      .sort((a, b) => cellColumn(b) - cellColumn(a))[0];
+    const resultColumn = resultCell ? cellColumn(resultCell) : 0;
+    const marginLabel = source?.cells
+      .filter((cell) => cell.sheet === finalLabel?.sheet && cellRow(cell) < finalRow && normalizedLabel(cell.value) === "our margin")
+      .sort((a, b) => cellRow(b) - cellRow(a))[0];
+    const marginCell = marginLabel
+      ? source?.cells.find((cell) => cell.sheet === marginLabel.sheet && cellRow(cell) === cellRow(marginLabel) && cellColumn(cell) === resultColumn)
+      : undefined;
+    const percentageMatch = String(marginCell?.formula || "").match(/([0-9]+(?:\.[0-9]+)?)\s*%/);
+    const fixedMargin = typeof marginCell?.value === "number" ? String(marginCell.value) : "";
     return {
       offer_type: source?.variant || "",
-      total_cost: costingTotalFromSource(source),
-      costing_source_file: sourceFiles.join(", "),
-      expanded_costing_data: importData && sources.length ? importData : source,
-      expanded_costing_data_status: sources.length
-        ? `All converted costing data attached from ${sources.length} workbook${sources.length === 1 ? "" : "s"}`
-        : "All source values attached as user-entered costing data",
+      margin_mode: percentageMatch ? "percentage" : fixedMargin ? "fixed" : "percentage",
+      margin_percent: percentageMatch?.[1] || "",
+      margin_amount: percentageMatch ? "" : fixedMargin,
     };
   }
 
@@ -4626,22 +4893,26 @@ const PortalApp = memo(function PortalApp() {
         token,
         body: JSON.stringify({ default_order_mode: "A1" }),
       });
-      setCostingSources(response.sources || []);
+      const sourceResponse = await apiFetch<CostingImportResponse>("/api/portal/costing-source-data", {
+        method: "GET",
+        token,
+      });
+      setCostingSources(sourceResponse.sources || []);
       const importData = {
-        artifact_id: response.artifact_id || "",
-        artifact_path: response.artifact_path || "",
-        order_decisions: response.order_decisions || {},
-        source_count: response.source_count || response.manifest?.source_count || response.sources?.length || 0,
-        manifest: response.manifest,
-        sources: response.sources || [],
+        artifact_id: sourceResponse.artifact_id || "",
+        artifact_path: sourceResponse.artifact_path || "",
+        order_decisions: sourceResponse.order_decisions || {},
+        source_count: sourceResponse.source_count || sourceResponse.manifest?.source_count || sourceResponse.sources?.length || 0,
+        manifest: response.manifest || sourceResponse.manifest,
+        sources: sourceResponse.sources || [],
       };
       setStagedCostingImport(importData);
       setCostingSourceIndex(0);
       setCostingCellStep(0);
-      const openClawOk = response.openclaw?.manifest_delivery?.ok || response.openclaw?.conversion_delivery?.ok;
-      const fileCount = response.manifest?.source_count || response.sources?.length || 0;
+      const openClawOk = response.openclaw?.manifest_delivery?.ok;
+      const fileCount = response.manifest?.source_count || sourceResponse.sources?.length || 0;
       setMessage(openClawOk
-        ? `Sent ${fileCount} workbook names and sizes to OpenClaw and converted the selected order. OpenClaw must use the backend Save offer action to save it.`
+        ? `Sent ${fileCount} workbook names and sizes to OpenClaw. OpenClaw must choose A1/1A, call backend conversion, then use the backend Save offer action.`
         : `Loaded ${fileCount} workbook sources. OpenClaw delivery will retry from the backend when the session is available.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Costing source data could not be loaded.");
@@ -4664,12 +4935,11 @@ const PortalApp = memo(function PortalApp() {
     setOfferDraft((draft) => ({
       ...draft,
       offer_type: draft.offer_type || payload.offer_type,
-      total_cost: payload.total_cost || draft.total_cost,
-      costing_source_file: payload.costing_source_file,
-      expanded_costing_data: payload.expanded_costing_data,
-      expanded_costing_data_status: payload.expanded_costing_data_status,
+      margin_mode: payload.margin_mode,
+      margin_percent: payload.margin_percent,
+      margin_amount: payload.margin_amount,
     }));
-    setMessage(`Attached converted costing data from ${payload.costing_source_file}. Save offer will keep it with the client offer.`);
+    setMessage("Converted costing margin values are staged in the editable offer fields without a client-value override.");
   }
 
   function renderCostingWorkbookImportSection(costingState: CostingWorkbookState) {
@@ -4778,7 +5048,6 @@ const PortalApp = memo(function PortalApp() {
                 <Text style={styles.muted}>{JSON.stringify(matrixPreview)}</Text>
               </View>
             )}
-            <Text style={styles.muted}>Staged source: {offerDraftRef.current.costing_source_file || "none yet"}.</Text>
           </>
         ) : (
           <View style={styles.emptyState}>
@@ -11862,6 +12131,38 @@ const PortalApp = memo(function PortalApp() {
     setMessage(`Offer Manager opened for ${customerName}. CRM enquiry and linked site visit data are filled into the offer draft.`);
   }
 
+  async function openSavedOffer(offerSummary: Record<string, unknown>) {
+    const id = recordIdentity(offerSummary);
+    if (!id) {
+      setMessage("This saved offer cannot be opened because it has no record ID.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await apiFetch<{ record?: OfferDraft }>(`/api/portal/estimates/${encodeURIComponent(id)}`, { token });
+      if (!response.record) throw new Error(`Offer ${id} did not return a saved detail record.`);
+      const savedCost = offerCostSummary(response.record);
+      const editableRecord = { ...response.record };
+      delete editableRecord.total_cost;
+      delete editableRecord.calculated_total_cost;
+      const nextDraft = {
+        ...emptyOfferDraft,
+        ...editableRecord,
+        id,
+        margin_percent: savedCost.marginMode === "fixed" ? "" : String(savedCost.marginPercent),
+        margin_amount: savedCost.marginMode === "fixed" ? String(savedCost.marginAmount) : "",
+      };
+      setOfferDraft(nextDraft);
+      setActiveTab("offerManager");
+      setCostingEditorOpen(true);
+      setMessage(`Offer ${id} opened in Offer Manager.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : `Offer ${id} could not be opened.`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function offerCustomerOptions() {
     const savedCustomers = (data?.customers || []).map((customer) => ({
       id: String(customer.id || ""),
@@ -11937,7 +12238,14 @@ const PortalApp = memo(function PortalApp() {
               const visitId = recordIdentity(visit);
               const label = `${visitId || "Site visit"}${visit.site_visit_date ? ` - ${visit.site_visit_date}` : ""}`;
               return (
-                <Pressable key={`offer-site-source-${visitId || label}`} style={styles.smallButton} onPress={() => applySiteVisitToOffer(visit)} disabled={loading}>
+                <Pressable
+                  key={`offer-site-source-${visitId || label}`}
+                  testID={`offer-use-site-${visitId || "visit"}`}
+                  accessibilityLabel={`Use ${label}`}
+                  style={styles.smallButton}
+                  onPress={() => applySiteVisitToOffer(visit)}
+                  disabled={loading}
+                >
                   <Text style={styles.smallButtonText}>Use {label}</Text>
                 </Pressable>
               );
@@ -11954,9 +12262,11 @@ const PortalApp = memo(function PortalApp() {
             <View key={`offer-measurement-${key}`} style={styles.field}>
               <Text style={styles.label}>{label}</Text>
               <TextInput
+                key={`offer-measurement-input-${key}-${String(offerDraft[key] || "")}`}
+                testID={`offer-field-${key}`}
+                accessibilityLabel={label}
                 style={styles.input}
                 defaultValue={String(offerDraft[key] || "")}
-                editable={key !== "site_visit_id"}
                 onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, [key]: value }; }}
                 keyboardType={["pit_size_mm", "site_stops", "site_number_of_openings", "door_size_width_mm", "door_size_height_mm", "car_size_width_mm", "car_size_depth_mm", "site_capacity_persons", "site_capacity_kg", "shaft_width_mm", "shaft_depth_mm", "civil_door_height_mm"].includes(key) ? "numeric" : "default"}
               />
@@ -11965,11 +12275,11 @@ const PortalApp = memo(function PortalApp() {
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>Floor height profile</Text>
-          <TextInput style={[styles.input, styles.textarea]} defaultValue={String(offerDraft.floor_height_profile || "")} onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, floor_height_profile: value }; }} multiline />
+          <TextInput key={`offer-floor-height-${String(offerDraft.floor_height_profile || "")}`} testID="offer-field-floor_height_profile" accessibilityLabel="Floor height profile" style={[styles.input, styles.textarea]} defaultValue={String(offerDraft.floor_height_profile || "")} onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, floor_height_profile: value }; }} multiline />
         </View>
         <View style={styles.field}>
           <Text style={styles.label}>Opening schedule summary</Text>
-          <TextInput style={[styles.input, styles.textarea]} defaultValue={String(offerDraft.opening_schedule_summary || "")} onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, opening_schedule_summary: value }; }} multiline />
+          <TextInput key={`offer-opening-summary-${String(offerDraft.opening_schedule_summary || "")}`} testID="offer-field-opening_schedule_summary" accessibilityLabel="Opening schedule summary" style={[styles.input, styles.textarea]} defaultValue={String(offerDraft.opening_schedule_summary || "")} onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, opening_schedule_summary: value }; }} multiline />
         </View>
       </View>
     );
@@ -11982,102 +12292,173 @@ const PortalApp = memo(function PortalApp() {
     const currentDraft = offerDraftRef.current;
     const currentLines = offerInventoryLines(currentDraft);
     const existingIndex = currentLines.findIndex((line) => String(line.item_id || "") === id || normalizedOfferInventoryName(line.name) === normalizedOfferInventoryName(itemName));
-    const quantityIncreased = existingIndex >= 0;
+    const templateLine = {
+      item_id: String(item.item_id || id || itemName),
+      serial_no: String(item.serial_no || ""),
+      name: itemName,
+      description: offerInventoryDescription(item),
+      costing_basis: String(item.costing_basis || ""),
+      costing_notes: String(item.costing_notes || item.notes || ""),
+      category: String(item.category || ""),
+      unit: String(item.unit || "pcs"),
+      qty: item.qty === undefined || item.qty === null ? "1" : String(item.qty),
+      actual: item.actual === undefined || item.actual === null ? "" : String(item.actual),
+      current_price: item.current_price === undefined || item.current_price === null ? String(price || "") : String(item.current_price),
+      purchase_price: String(item.purchase_price ?? item.unit_cost ?? ""),
+      amount_basis: offerInventoryAmountBasis(item),
+      line_total: item.line_total === undefined || item.line_total === null ? "" : String(item.line_total),
+      price_date: String(item.price_date || item.last_updated || item.updated_at || ""),
+      vendor: String(item.vendor || ""),
+    };
     const nextLines = existingIndex >= 0
-      ? currentLines.map((line, index) => index === existingIndex ? { ...line, qty: String((offerNumber(line.qty, 1) || 1) + 1) } : line)
-      : [
-          ...currentLines,
-          {
-            item_id: id,
-            name: itemName,
-            description: String(item.description || item.specification || item.notes || ""),
-            category: String(item.category || ""),
-            unit: String(item.unit || "pcs"),
-            qty: "1",
-            actual: "",
-            current_price: String(price || ""),
-            purchase_price: String(item.purchase_price || item.unit_cost || ""),
-            price_date: String(item.price_date || item.last_updated || item.updated_at || ""),
-            vendor: String(item.vendor || ""),
-          },
-        ];
-    const materialTotal = offerInventoryTotal({ inventory_items: nextLines });
+      ? currentLines.map((line, index) => index === existingIndex
+        ? fillEmptyOfferInventoryValues(line, templateLine)
+        : line)
+      : [...currentLines, templateLine];
     offerDraftRef.current = {
       ...currentDraft,
       inventory_items: nextLines,
-      inventory_material_total: String(materialTotal),
-      inventory_pricing_source: `Inventory prices from ${new Date().toISOString().slice(0, 10)}`,
-      material_cost: String(materialTotal),
+      inventory_pricing_source: currentDraft.inventory_pricing_source || String(item.template_source || `Inventory prices from ${new Date().toISOString().slice(0, 10)}`),
     };
     setOfferDraft(offerDraftRef.current);
-    setMessage(quantityIncreased ? `${itemName} quantity increased in offer.` : `${itemName} added to offer inventory.`);
+    setMessage(existingIndex >= 0 ? `${itemName} is already in the offer; its empty values were filled.` : `${itemName} added to offer inventory.`);
+  }
+
+  function addCustomInventoryItemToOffer() {
+    const currentDraft = offerDraftRef.current;
+    const nextLines = [
+      ...offerInventoryLines(currentDraft),
+      {
+        item_id: `custom-offer-item-${Date.now()}`,
+        serial_no: "",
+        name: "New inventory item",
+        description: "",
+        costing_basis: "",
+        costing_notes: "",
+        category: "Offer custom item",
+        unit: "pcs",
+        qty: "1",
+        actual: "",
+        current_price: "",
+        purchase_price: "",
+        amount_basis: "quantity",
+        line_total: "",
+        price_date: new Date().toISOString().slice(0, 10),
+        vendor: "",
+      },
+    ];
+    const nextDraft = {
+      ...currentDraft,
+      inventory_items: nextLines,
+      inventory_pricing_source: currentDraft.inventory_pricing_source || "Offer Manager manual entry",
+    };
+    offerDraftRef.current = nextDraft;
+    setOfferDraft(nextDraft);
+    setMessage("Custom inventory line added to the offer.");
   }
 
   function updateOfferInventoryLineRefOnly(index: number, patch: Record<string, string>, offerDraftState?: OfferDraftState) {
-    const nextLines = offerInventoryLines(offerDraftRef.current).map((line, lineIndex) => lineIndex === index ? { ...line, ...patch } : line);
-    const materialTotal = offerInventoryTotal({ inventory_items: nextLines });
+    const nextLines = offerInventoryLines(offerDraftRef.current).map((line, lineIndex) => (
+      lineIndex === index
+        ? (() => {
+            const updated = { ...line, ...patch };
+            return offerInventoryAmountBasis(updated) === "direct" ? updated : { ...updated, line_total: "" };
+          })()
+        : line
+    ));
     const nextDraft = {
       ...offerDraftRef.current,
       inventory_items: nextLines,
-      inventory_material_total: String(materialTotal),
-      material_cost: String(materialTotal),
     };
     offerDraftRef.current = nextDraft;
-    offerDraftState?.setOfferDraftDelayed?.(nextDraft);
+    offerDraftState?.setOfferDraft(nextDraft);
   }
 
   function removeOfferInventoryLine(index: number) {
     setOfferDraft((draft) => {
       const nextLines = offerInventoryLines(draft).filter((_, lineIndex) => lineIndex !== index);
-      const materialTotal = offerInventoryTotal({ inventory_items: nextLines });
-      return { ...draft, inventory_items: nextLines, inventory_material_total: String(materialTotal), material_cost: materialTotal ? String(materialTotal) : "" };
+      return { ...draft, inventory_items: nextLines };
     });
+  }
+
+  function updateOfferTravelSegment(index: number, key: "label" | "mm", value: string, offerDraftState: OfferDraftState) {
+    const rows = offerTravelSegments(offerDraftRef.current).map((row, rowIndex) => (
+      rowIndex === index ? { ...row, [key]: value } : row
+    ));
+    const nextDraft = { ...offerDraftRef.current, costing_travel_segments: rows };
+    offerDraftRef.current = nextDraft;
+    offerDraftState.setOfferDraft(nextDraft);
+  }
+
+  function addOfferTravelSegment(offerDraftState: OfferDraftState) {
+    const nextDraft = {
+      ...offerDraftRef.current,
+      costing_travel_segments: [...offerTravelSegments(offerDraftRef.current), { label: "New segment", mm: "" }],
+    };
+    offerDraftRef.current = nextDraft;
+    offerDraftState.setOfferDraft(nextDraft);
+  }
+
+  function removeOfferTravelSegment(index: number, offerDraftState: OfferDraftState) {
+    const nextDraft = {
+      ...offerDraftRef.current,
+      costing_travel_segments: offerTravelSegments(offerDraftRef.current).filter((_, rowIndex) => rowIndex !== index),
+    };
+    offerDraftRef.current = nextDraft;
+    offerDraftState.setOfferDraft(nextDraft);
   }
 
   function renderOfferInventorySection(offerDraftState: OfferDraftState) {
     const { offerDraft, offerDraftRef } = offerDraftState;
     const liveOfferDraft = offerDraftRef.current || offerDraft;
-    const inventory = asRecords(data?.inventory);
+    const inventory = mergeOfferInventoryTemplates([
+      ...offerManagerInventoryTemplates,
+      ...asRecords(data?.inventory),
+    ]);
     const selectedLineEntries = offerInventoryLines(liveOfferDraft)
       .map((line, originalIndex) => ({ line, originalIndex }))
       .filter(({ line }) => isOfferInventoryItemAllowed(line));
     const selectedLines = selectedLineEntries.map(({ line }) => line);
     const materialTotal = offerInventoryTotal(liveOfferDraft);
-    const pricedInventory = offerInventoryItemNames
-      .map((name) => inventory.find((item) => normalizedOfferInventoryName(item.name || item.item || item.item_id) === normalizedOfferInventoryName(name)) || { id: name, name, unit: name === "Guide rail" ? "length" : "pcs" })
-      .filter((item) => String(item.name || item.item || "").trim())
+    const pricedInventory = inventory
+      .filter((item) => String(item.name || item.item || item.item_id || "").trim())
+      .sort((a, b) => String(a.name || a.item || a.item_id || "").localeCompare(String(b.name || b.item || b.item_id || "")));
     const offerInventoryPickerListKey = "offer-inventory-picker";
-    const offerInventoryLinesListKey = "offer-inventory-lines";
     return (
       <View style={styles.openingSchedulePanel}>
         <View style={styles.sectionHeaderRow}>
           <View>
             <Text style={styles.sectionTitle}>Inventory items used in offer</Text>
-            <Text style={styles.muted}>Add priced warehouse items to this offer. The current item prices become the offer's internal material cost.</Text>
+            <Text style={styles.muted}>Workbook costing templates and priced warehouse items.</Text>
           </View>
-          <Text style={styles.statusPill}>{formatMoney(materialTotal)}</Text>
+          <Text style={styles.statusPill}>{selectedLines.length} items - {formatMoney(materialTotal)}</Text>
         </View>
-        {!!pricedInventory.length && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
+            <Pressable testID="offer-inventory-add-custom" accessibilityLabel="Add custom inventory item" style={styles.smallButton} onPress={addCustomInventoryItemToOffer} disabled={loading}>
+              <Text style={styles.smallButtonText}>Add custom item</Text>
+            </Pressable>
+          {!!pricedInventory.length && (
+            <>
             {limitedItems(offerInventoryPickerListKey, pricedInventory).map((item, index) => {
               const id = recordIdentity(item) || String(item.id || item.name || index);
-              const price = inventoryPrice(item);
               return (
-                <Pressable key={`offer-inventory-${id}`} style={styles.smallButton} onPress={() => addInventoryItemToOffer(item)} disabled={loading}>
-                  <Text style={styles.smallButtonText}>{String(item.name || item.item || id)} - {formatMoney(price)}</Text>
+                <Pressable key={`offer-inventory-${id}`} testID={`offer-inventory-add-${index}`} accessibilityLabel={`Add ${String(item.name || item.item || id)}`} style={styles.smallButton} onPress={() => addInventoryItemToOffer(item)} disabled={loading}>
+                  <Text style={styles.smallButtonText}>{String(item.name || item.item || id)}</Text>
                 </Pressable>
               );
             })}
             {renderListControls(offerInventoryPickerListKey, pricedInventory.length)}
-          </ScrollView>
-        )}
+            </>
+          )}
+        </ScrollView>
         {!pricedInventory.length && (
           <View style={styles.emptyState}>
-            <Text style={styles.muted}>Add inventory items with current prices first, then they can be used in Offer Manager costing.</Text>
+            <Text style={styles.muted}>No workbook or warehouse item templates are available.</Text>
           </View>
         )}
-        {limitedItems(offerInventoryLinesListKey, selectedLineEntries).map(({ line, originalIndex }) => {
+        {selectedLineEntries.map(({ line, originalIndex }) => {
           const lineName = String(line.name || "Inventory line");
+          const amountBasis = offerInventoryAmountBasis(line);
           return (
             <View key={`offer-inventory-line-${String(line.item_id || originalIndex)}`} style={styles.offerInventoryEditor}>
               <View style={styles.sectionHeaderRow}>
@@ -12085,44 +12466,94 @@ const PortalApp = memo(function PortalApp() {
                   <Text style={styles.cardLabel}>Modify entry</Text>
                   <Text style={styles.cardTitle}>{lineName}</Text>
                 </View>
-                <Text style={styles.statusPill}>{formatMoney(offerNumber(line.current_price) * offerInventoryActualQuantity(line))}</Text>
+                <Text style={styles.statusPill}>{formatMoney(offerInventoryLineAmount(line))}</Text>
               </View>
               <View style={styles.offerInventoryEditorGrid}>
                 <View style={styles.offerInventoryEditorField}>
+                  <Text style={styles.label}>S.No.</Text>
+                  <TextInput testID={`offer-inventory-${originalIndex}-serial_no`} accessibilityLabel={`${lineName} serial number`} style={styles.offerInventoryInput} value={String(line.serial_no ?? "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { serial_no: value }, offerDraftState)} />
+                </View>
+                <View style={styles.offerInventoryEditorField}>
                   <Text style={styles.label}>Item</Text>
-                  <TextInput style={styles.offerInventoryInput} defaultValue={lineName} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { name: value }, offerDraftState)} />
+                  <TextInput testID={`offer-inventory-${originalIndex}-name`} accessibilityLabel={`${lineName} item`} style={styles.offerInventoryInput} value={lineName} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { name: value }, offerDraftState)} />
                 </View>
                 <View style={styles.offerInventoryEditorFieldWide}>
                   <Text style={styles.label}>Description</Text>
-                  <TextInput style={styles.offerInventoryInput} defaultValue={String(line.description || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { description: value }, offerDraftState)} />
+                  <TextInput testID={`offer-inventory-${originalIndex}-description`} accessibilityLabel={`${lineName} description`} style={styles.offerInventoryInput} value={String(line.description || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { description: value }, offerDraftState)} />
+                </View>
+                <View style={styles.offerInventoryEditorFieldWide}>
+                  <Text style={styles.label}>Costing basis</Text>
+                  <TextInput testID={`offer-inventory-${originalIndex}-costing_basis`} accessibilityLabel={`${lineName} costing basis`} style={styles.offerInventoryInput} value={String(line.costing_basis || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { costing_basis: value }, offerDraftState)} />
+                </View>
+                <View style={styles.offerInventoryEditorFieldWide}>
+                  <Text style={styles.label}>Costing notes</Text>
+                  <TextInput testID={`offer-inventory-${originalIndex}-costing_notes`} accessibilityLabel={`${lineName} costing notes`} style={styles.offerInventoryInput} value={String(line.costing_notes || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { costing_notes: value }, offerDraftState)} />
                 </View>
                 <View style={styles.offerInventoryEditorField}>
                   <Text style={styles.label}>Unit</Text>
-                  <TextInput style={styles.offerInventoryInput} defaultValue={String(line.unit || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { unit: value }, offerDraftState)} />
+                  <TextInput testID={`offer-inventory-${originalIndex}-unit`} accessibilityLabel={`${lineName} unit`} style={styles.offerInventoryInput} value={String(line.unit || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { unit: value }, offerDraftState)} />
                 </View>
                 <View style={styles.offerInventoryEditorField}>
                   <Text style={styles.label}>QTY</Text>
-                  <TextInput style={styles.offerInventoryInput} defaultValue={String(line.qty || "1")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { qty: value }, offerDraftState)} keyboardType="numeric" />
+                  <TextInput testID={`offer-inventory-${originalIndex}-qty`} accessibilityLabel={`${lineName} quantity`} style={styles.offerInventoryInput} value={String(line.qty ?? "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { qty: value }, offerDraftState)} keyboardType="numeric" />
+                </View>
+                <View style={styles.offerInventoryEditorField}>
+                  <Text style={styles.label}>Base price</Text>
+                  <TextInput testID={`offer-inventory-${originalIndex}-purchase_price`} accessibilityLabel={`${lineName} base price`} style={styles.offerInventoryInput} value={String(line.purchase_price ?? "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { purchase_price: value }, offerDraftState)} keyboardType="numeric" />
                 </View>
                 <View style={styles.offerInventoryEditorField}>
                   <Text style={styles.label}>Current price</Text>
-                  <TextInput style={styles.offerInventoryInput} defaultValue={String(line.current_price || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { current_price: value }, offerDraftState)} keyboardType="numeric" />
+                  <TextInput testID={`offer-inventory-${originalIndex}-current_price`} accessibilityLabel={`${lineName} current price`} style={styles.offerInventoryInput} value={String(line.current_price ?? "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { current_price: value }, offerDraftState)} keyboardType="numeric" />
                 </View>
                 <View style={styles.offerInventoryEditorField}>
                   <Text style={styles.label}>Actual</Text>
-                  <TextInput style={styles.offerInventoryInput} defaultValue={String(line.actual || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { actual: value }, offerDraftState)} keyboardType="numeric" />
+                  <TextInput testID={`offer-inventory-${originalIndex}-actual`} accessibilityLabel={`${lineName} actual quantity`} style={styles.offerInventoryInput} value={String(line.actual ?? "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { actual: value }, offerDraftState)} keyboardType="numeric" />
+                </View>
+                <View style={styles.offerInventoryEditorFieldWide}>
+                  <Text style={styles.label}>Amount basis</Text>
+                  <View style={styles.marginModeControl}>
+                    {[
+                      ["quantity", "QTY x price"],
+                      ["actual", "Actual x price"],
+                      ["direct", "Direct amount"],
+                    ].map(([basis, label]) => (
+                      <Pressable
+                        key={`offer-inventory-${originalIndex}-amount-basis-${basis}`}
+                        testID={`offer-inventory-${originalIndex}-amount_basis-${basis}`}
+                        accessibilityLabel={`${lineName} ${label}`}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: amountBasis === basis }}
+                        style={[styles.marginModeButton, amountBasis === basis && styles.selectorPillActive]}
+                        onPress={() => updateOfferInventoryLineRefOnly(originalIndex, { amount_basis: basis }, offerDraftState)}
+                        disabled={loading}
+                      >
+                        <Text style={[styles.selectorText, amountBasis === basis && styles.selectorTextActive]}>{label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+                <View style={styles.offerInventoryEditorField}>
+                  <Text style={styles.label}>Line amount</Text>
+                  <TextInput
+                    testID={`offer-inventory-${originalIndex}-line_total`}
+                    accessibilityLabel={`${lineName} line amount`}
+                    style={[styles.offerInventoryInput, amountBasis !== "direct" && styles.offerDerivedInput]}
+                    value={String(line.line_total ?? offerInventoryLineAmount(line))}
+                    onChangeText={amountBasis === "direct" ? (value) => updateOfferInventoryLineRefOnly(originalIndex, { line_total: value }, offerDraftState) : undefined}
+                    keyboardType="numeric"
+                    editable={amountBasis === "direct"}
+                  />
                 </View>
               </View>
               <View style={styles.inlineActions}>
-                <Pressable style={styles.smallButton} onPress={() => removeOfferInventoryLine(originalIndex)} disabled={loading}>
+                <Pressable testID={`offer-inventory-${originalIndex}-remove`} accessibilityLabel={`Remove ${lineName}`} style={styles.smallButton} onPress={() => removeOfferInventoryLine(originalIndex)} disabled={loading}>
                   <Text style={styles.smallButtonText}>Remove</Text>
                 </Pressable>
               </View>
             </View>
           );
         })}
-        {renderListControls(offerInventoryLinesListKey, selectedLines.length)}
-        <Text style={styles.muted}>Material cost from inventory: {formatMoney(materialTotal)}. You can still override the material cost field if needed.</Text>
+        <Text style={styles.muted}>Material cost from inventory: {formatMoney(materialTotal)}.</Text>
       </View>
     );
   }
@@ -12135,8 +12566,20 @@ const PortalApp = memo(function PortalApp() {
             {(liveOfferDraftState) => {
       const currentOfferDraftState = costingEditorOpen ? liveOfferDraftState : offerDraftState;
       const offerDraft = currentOfferDraftState.offerDraft;
+      const offerCost = offerCostSummary(offerDraft);
+      const marginMode = String(offerDraft.margin_mode || "percentage") === "fixed" ? "fixed" : "percentage";
+      const travelSegments = offerTravelSegments(offerDraft);
+      const isReadOnlyCoreField = (key: string) => ["material_cost", "install_cost", "overhead_cost"].includes(key);
+      const isServerCalculationInput = (key: string) => ["margin_percent", "margin_amount", "discount", "gst_percent"].includes(key);
       return (
       <Modal visible={costingEditorOpen} transparent animationType="fade" onRequestClose={() => setCostingEditorOpen(false)}>
+        <OfferServerCalculationSync
+          draft={offerDraft}
+          enabled={costingEditorOpen}
+          onError={setMessage}
+          setOfferDraft={currentOfferDraftState.setOfferDraftFromServer || currentOfferDraftState.setOfferDraft}
+          token={token}
+        />
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
@@ -12144,7 +12587,7 @@ const PortalApp = memo(function PortalApp() {
                 <Text style={styles.cardLabel}>Offer Manager</Text>
                 <Text style={styles.muted}>Customer ID: {offerDraft.customer_id || "-"}</Text>
               </View>
-              <Pressable style={styles.secondaryButton} onPress={() => { setCostingEditorOpen(false); setMessage("Offer editor closed."); }} disabled={loading}>
+              <Pressable testID="offer-editor-close" accessibilityLabel="Close offer editor" style={styles.secondaryButton} onPress={() => { setCostingEditorOpen(false); setMessage("Offer editor closed."); }} disabled={loading}>
                 <Text style={styles.secondaryButtonText}>Close</Text>
               </Pressable>
             </View>
@@ -12152,10 +12595,36 @@ const PortalApp = memo(function PortalApp() {
               <View style={styles.linkedSystemsPanel}>
                 <Text style={styles.cardLabel}>CRM linked offer</Text>
                 <Text style={styles.bodyText}>Customer {offerDraft.customer_id || "-"} - {offerDraft.customer_name || "-"}</Text>
-                <Text style={styles.muted}>Source: {offerDraft.linked_customer_source || "CRM"} - Enquiry {offerDraft.source_inquiry_id || "-"} - Site visit {offerDraft.site_visit_id || "none"} - Costing source {offerDraft.costing_source_file || "not selected"}</Text>
+                <Text style={styles.muted}>Source: {offerDraft.linked_customer_source || "CRM"} - Enquiry {offerDraft.source_inquiry_id || "-"} - Site visit {offerDraft.site_visit_id || "none"}</Text>
                 <Text style={styles.muted}>Offer/job number is generated when saved if left blank.</Text>
               </View>
               <View style={styles.formGrid}>
+                <View style={styles.field}>
+                  <Text style={styles.label}>Margin type</Text>
+                  <View style={styles.marginModeControl}>
+                    {[
+                      ["percentage", "Percentage"],
+                      ["fixed", "Fixed amount"],
+                    ].map(([mode, label]) => (
+                      <Pressable
+                        key={`offer-margin-mode-${mode}`}
+                        testID={`offer-field-margin-mode-${mode}`}
+                        accessibilityLabel={`${label} margin`}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: marginMode === mode }}
+                        style={[styles.marginModeButton, marginMode === mode && styles.selectorPillActive]}
+                        onPress={() => currentOfferDraftState.setOfferDraft((draft) => ({
+                          ...draft,
+                          margin_mode: mode,
+                          ...(mode === "fixed" ? { margin_percent: "" } : { margin_amount: "" }),
+                        }))}
+                        disabled={loading}
+                      >
+                        <Text style={[styles.selectorText, marginMode === mode && styles.selectorTextActive]}>{label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
                 {[
                   ["customer_id", "Customer ID"],
                   ["job_no", "Offer / job no (system generated if blank)"],
@@ -12171,59 +12640,165 @@ const PortalApp = memo(function PortalApp() {
                   ["door_type", "Door type"],
                   ["finish", "Cabin / finish"],
                   ["material_cost", "Internal material cost"],
-                  ["install_cost", "Internal install cost"],
-                  ["overhead_cost", "Internal overhead"],
+                  ["install_cost", "Installation + commissioning subtotal"],
+                  ["overhead_cost", "Warranty / overhead subtotal"],
                   ["margin_percent", "Margin percent"],
+                  ["margin_amount", "Fixed margin amount"],
                   ["discount", "Discount"],
                   ["gst_percent", "GST percent"],
-                  ["total_cost", "Client offer value override"],
                   ["offer_valid_until", "Offer valid until"],
                 ].map(([key, label]) => (
                   <View key={`standalone-offer-field-${key}`} style={styles.field}>
                     <Text style={styles.label}>{label}</Text>
                     <TextInput
-                      style={styles.input}
-                      defaultValue={String(offerDraft[key] || "")}
-                      editable={key !== "customer_id"}
+                      key={isReadOnlyCoreField(key) || isServerCalculationInput(key) ? `offer-core-input-${key}` : `offer-core-input-${key}-${String(offerDraft[key] || "")}`}
+                      testID={`offer-field-${key}`}
+                      accessibilityLabel={label}
+                      style={[styles.input, isReadOnlyCoreField(key) && styles.offerDerivedInput]}
+                      {...(isReadOnlyCoreField(key) || isServerCalculationInput(key)
+                        ? { controlled: true, value: String(offerDraft[key] ?? "") }
+                        : { defaultValue: String(offerDraft[key] || "") })}
+                      editable={!isReadOnlyCoreField(key)}
                       placeholder={key === "job_no" ? "Auto-generated on save" : undefined}
-                      onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, [key]: value, ...(key === "customer_name" ? { offer_name: value } : {}) }; }}
-                      keyboardType={["material_cost", "install_cost", "overhead_cost", "margin_percent", "discount", "gst_percent", "total_cost"].includes(key) ? "numeric" : "default"}
+                      onChangeText={isReadOnlyCoreField(key) ? undefined : (value) => {
+                        const nextDraft = { ...offerDraftRef.current, [key]: value, ...(key === "customer_name" ? { offer_name: value } : {}) };
+                        offerDraftRef.current = nextDraft;
+                        if (isServerCalculationInput(key)) currentOfferDraftState.setOfferDraft(nextDraft);
+                      }}
+                      keyboardType={["margin_percent", "margin_amount", "discount", "gst_percent"].includes(key) ? "numeric" : "default"}
                     />
                   </View>
                 ))}
+              </View>
+              <View style={styles.openingSchedulePanel}>
+                <Text style={styles.sectionTitle}>Costing design details</Text>
+                <View style={styles.formGrid}>
+                  {[
+                    ["car_construction", "Car construction"],
+                    ["door_construction", "Door construction"],
+                    ["door_operation", "Door operation"],
+                    ["door_opening_type", "Door opening type"],
+                    ["door_vision", "Door vision"],
+                    ["costing_door_size", "Door size / opening"],
+                    ["flooring", "Flooring"],
+                    ["compliance_standard", "Compliance standard"],
+                    ["controller_configuration", "Controller / drive package"],
+                    ["motor_specification", "Motor specification"],
+                    ["car_cabin_specification", "Car cabin specification"],
+                    ["safety_specification", "Safety specification"],
+                    ["rope_specification", "Rope specification"],
+                    ["costing_configuration", "Costing configuration"],
+                    ["costing_pit_mm", "Costing pit mm"],
+                    ["costing_overhead_mm", "Costing overhead mm"],
+                    ["costing_total_travel_mm", "Costing total travel mm"],
+                    ["installation_local_cost", "Installation local cost"],
+                    ["commissioning_cost", "Commissioning cost"],
+                    ["warranty_cost", "Warranty cost"],
+                  ].map(([key, label]) => (
+                    <View key={`offer-costing-detail-${key}`} style={styles.field}>
+                      <Text style={styles.label}>{label}</Text>
+                      <TextInput
+                        key={["costing_pit_mm", "costing_overhead_mm", "costing_total_travel_mm", "installation_local_cost", "commissioning_cost", "warranty_cost"].includes(key)
+                          ? `offer-costing-detail-input-${key}`
+                          : `offer-costing-detail-input-${key}-${String(offerDraft[key] || "")}`}
+                        testID={`offer-field-${key}`}
+                        accessibilityLabel={label}
+                        style={[styles.input, ["costing_pit_mm", "costing_overhead_mm", "costing_total_travel_mm"].includes(key) && styles.offerDerivedInput]}
+                        {...(["costing_pit_mm", "costing_overhead_mm", "costing_total_travel_mm", "installation_local_cost", "commissioning_cost", "warranty_cost"].includes(key)
+                          ? { controlled: true, value: String(offerDraft[key] ?? "") }
+                          : { defaultValue: String(offerDraft[key] || "") })}
+                        editable={!(["costing_pit_mm", "costing_overhead_mm", "costing_total_travel_mm"].includes(key))}
+                        onChangeText={["costing_pit_mm", "costing_overhead_mm", "costing_total_travel_mm"].includes(key) ? undefined : (value) => {
+                          const nextDraft = { ...offerDraftRef.current, [key]: value };
+                          offerDraftRef.current = nextDraft;
+                          if (["installation_local_cost", "commissioning_cost", "warranty_cost"].includes(key)) currentOfferDraftState.setOfferDraft(nextDraft);
+                        }}
+                        keyboardType={["costing_pit_mm", "costing_overhead_mm", "costing_total_travel_mm", "installation_local_cost", "commissioning_cost", "warranty_cost"].includes(key) ? "numeric" : "default"}
+                      />
+                    </View>
+                  ))}
+                </View>
+                <View style={styles.offerTravelSegmentsSection}>
+                  <View style={styles.sectionHeaderRow}>
+                    <Text style={styles.sectionTitle}>Travel segments</Text>
+                    <Pressable testID="offer-costing-travel-segment-add" accessibilityLabel="Add travel segment" style={styles.smallButton} onPress={() => addOfferTravelSegment(currentOfferDraftState)} disabled={loading}>
+                      <Text style={styles.smallButtonText}>Add segment</Text>
+                    </Pressable>
+                  </View>
+                  {travelSegments.map((segment, index) => (
+                    <View key={`offer-costing-travel-segment-${index}`} style={styles.offerTravelSegmentRow}>
+                      <View style={styles.offerTravelSegmentLabel}>
+                        <Text style={styles.label}>Segment</Text>
+                        <TextInput
+                          testID={`offer-costing-travel-segment-${index}-label`}
+                          accessibilityLabel={`Travel segment ${index + 1} label`}
+                          style={styles.offerInventoryInput}
+                          value={segment.label}
+                          onChangeText={(value) => updateOfferTravelSegment(index, "label", value, currentOfferDraftState)}
+                        />
+                      </View>
+                      <View style={styles.offerTravelSegmentValue}>
+                        <Text style={styles.label}>Millimetres</Text>
+                        <TextInput
+                          testID={`offer-costing-travel-segment-${index}-mm`}
+                          accessibilityLabel={`Travel segment ${index + 1} millimetres`}
+                          style={styles.offerInventoryInput}
+                          value={segment.mm}
+                          onChangeText={(value) => updateOfferTravelSegment(index, "mm", value, currentOfferDraftState)}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                      <Pressable testID={`offer-costing-travel-segment-${index}-remove`} accessibilityLabel={`Remove travel segment ${index + 1}`} style={styles.smallButton} onPress={() => removeOfferTravelSegment(index, currentOfferDraftState)} disabled={loading}>
+                        <Text style={styles.smallButtonText}>Remove</Text>
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+                <View style={styles.field}>
+                  <Text style={styles.label}>Costing travel profile</Text>
+                  <TextInput
+                    key={`offer-costing-travel-profile-${String(offerDraft.costing_travel_profile || "")}`}
+                    testID="offer-field-costing_travel_profile"
+                    accessibilityLabel="Costing travel profile"
+                    style={[styles.input, styles.textarea, styles.offerDerivedInput]}
+                    value={String(offerDraft.costing_travel_profile || "")}
+                    editable={false}
+                    multiline
+                  />
+                </View>
               </View>
               {renderOfferMeasurementSection(currentOfferDraftState)}
               {renderOfferInventorySection(currentOfferDraftState)}
               <View style={styles.linkedSystemsPanel}>
                 <Text style={styles.cardLabel}>Client offer preview</Text>
-                <Text style={styles.metricValue}>{formatMoney(offerCostSummary(offerDraft).totalCost)}</Text>
-                <Text style={styles.muted}>Base {formatMoney(offerCostSummary(offerDraft).baseCost)} + margin {offerCostSummary(offerDraft).marginPercent}% + GST {offerCostSummary(offerDraft).gstPercent}% after discount.</Text>
+                <Text style={styles.metricValue}>{formatMoney(offerCost.totalCost)}</Text>
+                <Text style={styles.muted}>Base {formatMoney(offerCost.baseCost)} + {offerCost.marginMode === "fixed" ? `fixed margin ${formatMoney(offerCost.marginAmount)}` : `margin ${offerCost.marginPercent}% (${formatMoney(offerCost.marginAmount)})`} + GST {offerCost.gstPercent}% after discount.</Text>
               </View>
               <View style={styles.formGrid}>
                 <View style={styles.field}>
                   <Text style={styles.label}>Payment terms</Text>
-                  <TextInput style={[styles.input, styles.textarea]} defaultValue={offerDraft.payment_terms} onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, payment_terms: value }; }} multiline />
+                  <TextInput testID="offer-field-payment_terms" accessibilityLabel="Payment terms" style={[styles.input, styles.textarea]} defaultValue={offerDraft.payment_terms} onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, payment_terms: value }; }} multiline />
                 </View>
                 <View style={styles.field}>
                   <Text style={styles.label}>Delivery timeline</Text>
-                  <TextInput style={[styles.input, styles.textarea]} defaultValue={offerDraft.delivery_timeline} onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, delivery_timeline: value }; }} multiline />
+                  <TextInput testID="offer-field-delivery_timeline" accessibilityLabel="Delivery timeline" style={[styles.input, styles.textarea]} defaultValue={offerDraft.delivery_timeline} onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, delivery_timeline: value }; }} multiline />
                 </View>
                 <View style={styles.field}>
                   <Text style={styles.label}>Warranty terms</Text>
-                  <TextInput style={[styles.input, styles.textarea]} defaultValue={offerDraft.warranty_terms} onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, warranty_terms: value }; }} multiline />
+                  <TextInput testID="offer-field-warranty_terms" accessibilityLabel="Warranty terms" style={[styles.input, styles.textarea]} defaultValue={offerDraft.warranty_terms} onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, warranty_terms: value }; }} multiline />
                 </View>
               </View>
               <View style={styles.field}>
                 <Text style={styles.label}>Internal costing notes</Text>
-                <TextInput style={[styles.input, styles.textarea]} defaultValue={offerDraft.notes} onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, notes: value }; }} multiline />
+                <TextInput testID="offer-field-notes" accessibilityLabel="Internal costing notes" style={[styles.input, styles.textarea]} defaultValue={offerDraft.notes} onChangeText={(value) => { offerDraftRef.current = { ...offerDraftRef.current, notes: value }; }} multiline />
               </View>
             </ScrollView>
             <View style={styles.modalActions}>
-              <Pressable style={styles.secondaryButton} onPress={() => { setCostingEditorOpen(false); setMessage("Offer edit cancelled."); }} disabled={loading}>
+              <Pressable testID="offer-editor-cancel" accessibilityLabel="Cancel offer edit" style={styles.secondaryButton} onPress={() => { setCostingEditorOpen(false); setMessage("Offer edit cancelled."); }} disabled={loading}>
                 <Text style={styles.secondaryButtonText}>Cancel</Text>
               </Pressable>
-              <Pressable style={styles.primaryButtonInline} onPress={() => saveOffer(offerDraftRef.current)} disabled={loading}>
-                <Text style={styles.primaryButtonText}>Save offer</Text>
+              <Pressable testID="offer-editor-save" accessibilityLabel={offerDraft.id ? "Update offer" : "Save offer"} style={styles.primaryButtonInline} onPress={() => saveOffer(offerDraftRef.current)} disabled={loading}>
+                <Text style={styles.primaryButtonText}>{offerDraft.id ? "Update offer" : "Save offer"}</Text>
               </Pressable>
             </View>
           </View>
@@ -12239,7 +12814,8 @@ const PortalApp = memo(function PortalApp() {
 
   function renderOfferManagerPage(offerManagerState: OfferManagerState, offerDraftState: OfferDraftState) {
     const { offerCustomerSearch, offerCustomerOfferFilter, setOfferCustomerSearch, setOfferCustomerOfferFilter } = offerManagerState;
-    const offers = [...asRecords(data?.estimates)].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
+    const offerRecords = offerManagerOfferSummariesLoaded ? offerManagerOfferSummaries : asRecords(data?.estimates);
+    const offers = [...offerRecords].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
     const customers = [...(data?.customers || [])].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
     const customerOptions = offerCustomerOptions();
     const offersByCustomerId = new Map<string, Array<Record<string, unknown>>>();
@@ -12400,13 +12976,16 @@ const PortalApp = memo(function PortalApp() {
                           <View key={`linked-offer-${customer.id}-${id}`} style={styles.analyticsRow}>
                             <View style={styles.analyticsRowHeader}>
                               <View style={styles.cardTitleBlock}>
-                                <Text style={styles.cardTitle}>{id}</Text>
-                                <Text style={styles.muted}>{String(offer.offer_date || offer.created_at || "-")} - {String(offer.status || offer.lead_status || "Offer Pending")} - {formatMoney(cost.totalCost)}</Text>
-                              </View>
-                              <Text style={styles.statusPill}>{String(offer.offer_letter_status || "Prepared")}</Text>
-                            </View>
-                            <View style={styles.inlineActions}>
-                              <Pressable style={styles.smallButton} onPress={() => openEstimateArtifact(id, "report")} disabled={loading}>
+                                 <Text style={styles.cardTitle}>{id}</Text>
+                                 <Text style={styles.muted}>{String(offer.offer_date || offer.created_at || "-")} - {String(offer.status || offer.lead_status || "Offer Pending")} - {formatMoney(cost.totalCost)}</Text>
+                               </View>
+                               <Text style={styles.statusPill}>{String(offer.offer_letter_status || "Prepared")}</Text>
+                             </View>
+                             <View style={styles.inlineActions}>
+                               <Pressable style={styles.primaryButtonInline} onPress={() => openSavedOffer(offer)} disabled={loading}>
+                                 <Text style={styles.primaryButtonText}>Open offer</Text>
+                               </Pressable>
+                               <Pressable style={styles.smallButton} onPress={() => openEstimateArtifact(id, "report")} disabled={loading}>
                                 <Text style={styles.smallButtonText}>Open costing</Text>
                               </Pressable>
                               <Pressable style={styles.smallButton} onPress={() => openEstimateArtifact(id, "offer.pdf")} disabled={loading}>
@@ -17908,6 +18487,27 @@ const PortalApp = memo(function PortalApp() {
     void ensurePortalDataParts(parts, { scope: activeTab }).catch((error) => {
       setMessage(error instanceof Error ? `Could not load ${activeTab} data: ${error.message}` : `Could not load ${activeTab} data.`);
     });
+    if (activeTab === "offerManager") {
+      void loadOfferManagerOfferSummaries().catch((error) => {
+        setMessage(error instanceof Error ? `Could not load complete offer history: ${error.message}` : "Could not load complete offer history.");
+      });
+      void loadOfferManagerInventoryTemplates().catch((error) => {
+        setMessage(error instanceof Error ? `Could not load workbook item templates: ${error.message}` : "Could not load workbook item templates.");
+      });
+    }
+  }
+
+  async function loadOfferManagerOfferSummaries(nextToken = token) {
+    if (!nextToken) return;
+    const response = await apiFetch<{ offers?: Array<Record<string, unknown>> }>("/api/portal/offer-manager/offers", { token: nextToken });
+    setOfferManagerOfferSummaries(Array.isArray(response.offers) ? response.offers : []);
+    setOfferManagerOfferSummariesLoaded(true);
+  }
+
+  async function loadOfferManagerInventoryTemplates(nextToken = token) {
+    if (!nextToken) return;
+    const response = await apiFetch<{ items?: Array<Record<string, unknown>> }>("/api/portal/offer-manager/inventory-templates", { token: nextToken });
+    setOfferManagerInventoryTemplates(Array.isArray(response.items) ? response.items : []);
   }
 
   async function loadPortal(nextToken = token, options: { display?: boolean } = {}) {
@@ -17947,6 +18547,14 @@ const PortalApp = memo(function PortalApp() {
     void loadPortal(token, { display: false }).catch((error) => {
       setMessage(error instanceof Error ? `Background refresh failed: ${error.message}` : "Background refresh failed.");
     });
+    if (activeTabRef.current === "offerManager") {
+      void loadOfferManagerOfferSummaries().catch((error) => {
+        setMessage(error instanceof Error ? `Could not refresh complete offer history: ${error.message}` : "Could not refresh complete offer history.");
+      });
+      void loadOfferManagerInventoryTemplates().catch((error) => {
+        setMessage(error instanceof Error ? `Could not refresh workbook item templates: ${error.message}` : "Could not refresh workbook item templates.");
+      });
+    }
   }
 
   function manualRefreshPortal() {
@@ -17954,7 +18562,12 @@ const PortalApp = memo(function PortalApp() {
     setMessage("Refreshing portal data...");
     setTimeout(() => {
       void loadPortal(token, { display: true })
-        .then(() => setMessage("Portal refreshed."))
+        .then(async () => {
+          if (activeTabRef.current === "offerManager") {
+            await Promise.all([loadOfferManagerOfferSummaries(), loadOfferManagerInventoryTemplates()]);
+          }
+          setMessage("Portal refreshed.");
+        })
         .catch((error) => {
           setMessage(error instanceof Error ? error.message : "Portal refresh failed.");
         })
@@ -18926,13 +19539,16 @@ const PortalApp = memo(function PortalApp() {
     setLoading(true);
     try {
       const draftForSave = offerDraft;
+      const cost = offerCostSummary(draftForSave);
       const payload = {
         ...draftForSave,
         offer_name: draftForSave.offer_name || draftForSave.customer_name,
         offer_number: draftForSave.offer_number || draftForSave.job_no || "",
         status: draftForSave.lead_status || "Offer Pending",
-        total_cost: offerCostSummary(draftForSave).totalCost,
-        calculated_total_cost: offerCostSummary(draftForSave).totalCost,
+        margin_percent: cost.marginPercent,
+        margin_amount: cost.marginMode === "fixed" ? cost.marginAmount : "",
+        total_cost: cost.totalCost,
+        calculated_total_cost: cost.calculatedTotal,
         source: "CRM Offer Manager",
         offer_source: draftForSave.offer_source || "CRM",
         source_snapshot: {
@@ -18941,13 +19557,13 @@ const PortalApp = memo(function PortalApp() {
           source_inquiry_id: draftForSave.source_inquiry_id,
           site_visit_id: draftForSave.site_visit_id,
           site_measurements_source: draftForSave.site_measurements_source,
-          costing_source_file: draftForSave.costing_source_file,
           linked_customer_source: draftForSave.linked_customer_source,
         },
         offer_letter_status: "Prepared",
       };
-      await apiFetch("/api/portal/estimates", {
-        method: "POST",
+      const savedOfferId = recordIdentity(draftForSave);
+      await apiFetch(savedOfferId ? `/api/portal/estimates/${encodeURIComponent(savedOfferId)}` : "/api/portal/estimates", {
+        method: savedOfferId ? "PATCH" : "POST",
         token,
         body: JSON.stringify(payload),
       });
@@ -18959,7 +19575,7 @@ const PortalApp = memo(function PortalApp() {
         });
       }
       refreshPortalCache();
-      setMessage("Offer saved and client offer letter prepared.");
+      setMessage(savedOfferId ? `Offer ${savedOfferId} updated.` : "Offer saved and client offer letter prepared.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Offer could not be saved.");
     } finally {
@@ -19003,6 +19619,9 @@ const PortalApp = memo(function PortalApp() {
     } finally {
       setToken("");
       setData(null);
+      setOfferManagerOfferSummaries([]);
+      setOfferManagerOfferSummariesLoaded(false);
+      setOfferManagerInventoryTemplates([]);
       setActiveTab("overview");
       setShowPortalLogin(false);
       setMessage("");
@@ -21022,6 +21641,8 @@ const styles = StyleSheet.create({
   cardTitleBlock: { flex: 1, minWidth: 220 },
   formCard: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e4e7ee", padding: 13, gap: 10, marginBottom: 10 },
   formGrid: { gap: 10 },
+  marginModeControl: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  marginModeButton: { minHeight: 40, minWidth: 132, borderWidth: 1, borderColor: "#d5dae4", borderRadius: 8, backgroundColor: "#f3f5f8", paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
   crmFilterTiles: { flexDirection: "row", flexWrap: "wrap", gap: 10, alignItems: "flex-start" },
   crmFilterTile: { flex: 1, minWidth: 220, borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 10, gap: 8 },
   formSectionBlock: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#f8fafc", padding: 12, gap: 10 },
@@ -21071,6 +21692,11 @@ const styles = StyleSheet.create({
   offerInventoryEditorField: { flexGrow: 1, flexBasis: 150, minWidth: 140, gap: 6 },
   offerInventoryEditorFieldWide: { flexGrow: 2, flexBasis: 260, minWidth: 220, gap: 6 },
   offerInventoryInput: { minHeight: 44, borderWidth: 1, borderColor: "#b8c4d6", borderRadius: 8, backgroundColor: "#fff", paddingHorizontal: 12, color: "#11131b", fontWeight: "800" },
+  offerDerivedInput: { backgroundColor: "#f3f5f8", color: "#596174" },
+  offerTravelSegmentsSection: { gap: 4, paddingTop: 4 },
+  offerTravelSegmentRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, alignItems: "flex-end", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#e4e7ee" },
+  offerTravelSegmentLabel: { flexGrow: 2, flexBasis: 240, minWidth: 200, gap: 6 },
+  offerTravelSegmentValue: { flexGrow: 1, flexBasis: 150, minWidth: 140, gap: 6 },
   statusSelectorPanel: { borderWidth: 1, borderColor: "#e4e7ee", borderRadius: 8, backgroundColor: "#fff", padding: 12, gap: 10, marginTop: 10 },
   statusChoiceGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   statusChoice: { minHeight: 34, borderRadius: 8, borderWidth: 1, borderColor: "#d5dae4", backgroundColor: "#f3f5f8", paddingHorizontal: 10, paddingVertical: 7, justifyContent: "center" },

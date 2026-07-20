@@ -42,6 +42,7 @@ npm run android
 | `http://127.0.0.1:5000/api/portal/data` | Authenticated portal data parts index |
 | `http://127.0.0.1:5000/api/portal/data/<workspace>/<part>` | Authenticated portal data part API, returning the first profile-sized chunk for array/list parts |
 | `http://127.0.0.1:5000/api/portal/data/<workspace>/<part>/chunks/<index>` | Specific profile-sized chunk of a portal data list |
+| `http://127.0.0.1:5000/api/portal/offer-manager/offers` | Compact authenticated summary of every saved offer for complete Offer Manager counts, CRM histories, and filters without bulk-loading costing details |
 | `http://127.0.0.1:5000/api/app` | App/export status API |
 
 **Default admin credentials:**
@@ -552,12 +553,17 @@ Build professional customer-linked elevator costing records and send bid reports
 - Door opening arrangement: `All Are Same Side` (default), `One Floor Reverse Opening`, `One Floor Both Side Opening`
 - Make: `Fuzi` (default), `Wittur German Kit`, `PVE`, `Fuzi IS 17900`, `Fuzi PWD BSR 2025`
 - Remarks / accessories: `Remark 1`, `Remark 2`, `Remark 3`
+- Costing design details: selected costing configuration, car and door construction, door operation/opening/vision, flooring, compliance standard, controller, motor, cabin, safety, rope, editable travel-segment labels and millimetres, and derived pit, overhead, total travel, and travel profile
+- Evaluated cost breakdown: material, local installation, commissioning, warranty, margin, discount, and GST
+- Inventory line details: S.No., item, description, specification, costing basis, costing notes, unit, quantity, actual quantity, base price, current price, amount basis, and exact line amount
 
 **Estimator behaviour:**
 - Passenger mode uses passenger-capacity options, while Goods and Dumbwaiter switch to the load-capacity options automatically.
 - Fixed rupee margin mirrors the Excel costing sheets and recalculates price live.
 - Recipient email, valid-until date, free-text notes, and add-ons remain available.
-- The **Costing Import** module under CRM & Sales reads every usable workbook in `docs/6-passenger-costing`, converts sheets to ordered cell arrays, shows formulas where present, and stages the selected source for the next saved offer.
+- The **Costing Import** module under CRM & Sales first sends only workbook names and byte sizes to OpenClaw. OpenClaw chooses A1/1A ordering, evaluates every workbook formula, verifies every formula-free value, every inventory input/line amount, and every FUZI total, then uses the normal Offer Manager save path.
+- Saved offers retain only normalized, user-editable Offer Manager values. Workbook filenames, formulas, lookup tables, cell coordinates, and converted arrays are not saved on offers.
+- Offer Manager loads a compact summary of the complete saved-offer history for its metrics, customer grouping, filters, and list controls. Full costing and inventory details are still fetched only when a user opens one offer.
 
 **Live pricing:** Cost engine reads workbook-style component costs, applies capacity/specification selections, and adds the approved rupee margin in real time.
 
@@ -1085,7 +1091,7 @@ node -e "const db=require('better-sqlite3')('fuzi.sqlite3'); console.log(db.prep
 - Customer/enquiry status can only be changed after clicking Edit; lost statuses require a reason.
 - The normal customer/enquiry card does not show `+3d/+7d/+14d/+30d`; follow-up interval controls appear in edit mode.
 - Costing Estimator saved estimates render in the Expo app.
-- Costing Estimator shows `.xlsx` source values step by step and can attach the complete source payload.
+- Costing Estimator exposes the evaluated workbook meaning through editable technical, travel, cost-breakdown, and inventory controls without attaching source files or converted arrays.
 - Sales Admin Panel shows FY (Apr-Mar) KPI totals and selected-date KPI drilldown.
 - "Send" on a saved estimate triggers the email client (or SMTP if configured).
 - Customers can log in and view their quotes.

@@ -1,8 +1,8 @@
 {
     "warning_code":  "LEGACY_CONVERSION_ARTIFACT_REMOVED",
     "warning":  "Bulky converted workbook arrays were removed. Their former retention indicated that FUZI was missing user-operable Offer Manager features that should have represented the workbook data.",
-    "generated_at":  "2026-06-20T04:35:23.575Z",
-    "artifact_id":  "costing-import-2026-06-20T04-35-23-575Z-b2a4431a",
+    "generated_at":  "2026-07-13T21:21:02.981Z",
+    "artifact_id":  "costing-import-2026-07-13T21-21-02-981Z-3779b897",
     "compacted_at":  "2026-07-14T20:21:16.6661579Z",
     "converted_arrays_retained":  false,
     "source_count":  18,
@@ -28,7 +28,24 @@
                          "8pIS17900NewCostingMay2026.xlsx"
                      ],
     "order_decisions":  {
-
+                            "10pIS17900NewCostingMay2026.xlsx":  "A1",
+                            "13pIS17900NewCostingMay2026.xlsx":  "A1",
+                            "15pIS17900NewCostingMay2026.xlsx":  "A1",
+                            "20pIS17900NewCostingMay2026.xlsx":  "A1",
+                            "26pIS17900NewCostingMay2026.xlsx":  "A1",
+                            "6 passenger big vision golden and rose gold gearless autodoor 2 stops.xlsx":  "A1",
+                            "6 passenger Big vision mild steel geared autodoor  2 stops.xlsx":  "A1",
+                            "6 passenger Big vision mild steel gearless autodoor 2 stops.xlsx":  "A1",
+                            "6 passenger Big vision stainless steel geared autodoor 2 stops.xlsx":  "A1",
+                            "6 passenger Big vision stainless steel gearless autodoor 2 stops.xlsx":  "A1",
+                            "6 passenger mild steel geared manual door 2 stops.xlsx":  "A1",
+                            "6 passenger Small vision mild steel geared autodoor 2 stops.xlsx":  "A1",
+                            "6 passenger Small vision mild steel gearless autodoor 2 stops.xlsx":  "A1",
+                            "6 passenger Small vision stainless steel geared autodoor 2 stops.xlsx":  "A1",
+                            "6 passenger Small vision stainless steel gearless autodoor 2 stops.xlsx":  "A1",
+                            "6 passenger stainless steel geared manual door 2 stops.xlsx":  "A1",
+                            "6pIS17900NewCostingMay2026.xlsx":  "A1",
+                            "8pIS17900NewCostingMay2026.xlsx":  "A1"
                         },
     "exact_next_prompt_for_codex":  "Update FUZI so every workbook value that represents editable Offer Manager business data has a visible user-operable control. When any required control is missing, OpenClaw must save nothing and return OFFER_MANAGER_UI_FEATURE_MISSING with the exact missing feature for Codex."
 }

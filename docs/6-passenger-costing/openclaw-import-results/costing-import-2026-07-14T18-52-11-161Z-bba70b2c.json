@@ -1,8 +1,8 @@
 {
     "warning_code":  "LEGACY_CONVERSION_ARTIFACT_REMOVED",
     "warning":  "Bulky converted workbook arrays were removed. Their former retention indicated that FUZI was missing user-operable Offer Manager features that should have represented the workbook data.",
-    "generated_at":  "2026-06-20T04:35:23.575Z",
-    "artifact_id":  "costing-import-2026-06-20T04-35-23-575Z-b2a4431a",
+    "generated_at":  "2026-07-14T18:52:11.161Z",
+    "artifact_id":  "costing-import-2026-07-14T18-52-11-161Z-bba70b2c",
     "compacted_at":  "2026-07-14T20:21:16.6661579Z",
     "converted_arrays_retained":  false,
     "source_count":  18,
