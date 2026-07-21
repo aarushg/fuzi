@@ -960,6 +960,10 @@ type OfferDraftState = {
   setOfferDraftFromServer?: LocalStateSetter<OfferDraft>;
   setOfferDraftRefOnly: LocalStateSetter<OfferDraft>;
 };
+type OfferCalculatedValuesStore = {
+  publish: LocalStateSetter<OfferDraft>;
+  subscribe: (listener: (draft: OfferDraft) => void) => () => void;
+};
 
 const defaultCrmPageState: CrmPageState = {
   crmSearch: "",
@@ -1008,6 +1012,30 @@ const defaultMarketingPageState: MarketingPageState = { marketingSearch: "" };
 
 function resolveLocalState<T>(next: T | ((current: T) => T), current: T) {
   return typeof next === "function" ? (next as (current: T) => T)(current) : next;
+}
+
+function createOfferCalculatedValuesStore(draftRef: MutableRefObject<OfferDraft>): OfferCalculatedValuesStore {
+  const listeners = new Set<(draft: OfferDraft) => void>();
+  return {
+    publish: (next) => {
+      const value = resolveLocalState(next, draftRef.current);
+      draftRef.current = value;
+      listeners.forEach((listener) => listener(value));
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
+function useOfferCalculatedDraft(
+  calculatedValuesStore: OfferCalculatedValuesStore,
+  draftRef: MutableRefObject<OfferDraft>
+) {
+  const [calculatedDraft, setCalculatedDraft] = useState<OfferDraft>(() => draftRef.current);
+  useEffect(() => calculatedValuesStore.subscribe(setCalculatedDraft), [calculatedValuesStore]);
+  return calculatedDraft;
 }
 
 function CrmStateBoundary({
@@ -1681,10 +1709,12 @@ function OfferDraftBoundary({
 
 function OfferDraftModalRenderBoundary({
   children,
+  calculatedValuesStore,
   controllerRef,
   draftRef,
 }: {
   children: (state: OfferDraftState) => ReactNode;
+  calculatedValuesStore: OfferCalculatedValuesStore;
   controllerRef: MutableRefObject<LocalStateSetter<OfferDraft> | null>;
   draftRef: MutableRefObject<OfferDraft>;
 }) {
@@ -1692,10 +1722,12 @@ function OfferDraftModalRenderBoundary({
   const [, setDraftVersion] = useState(0);
   const setOfferDraft: LocalStateSetter<OfferDraft> = (next) => {
     draftRef.current = offerDraftWithClientCalculations(resolveLocalState(next, draftRef.current));
+    calculatedValuesStore.publish(draftRef.current);
     setDraftVersion((version) => version + 1);
   };
   const setOfferDraftFromServer: LocalStateSetter<OfferDraft> = (next) => {
     draftRef.current = resolveLocalState(next, draftRef.current);
+    calculatedValuesStore.publish(draftRef.current);
     setDraftVersion((version) => version + 1);
   };
   const setOfferDraftRefOnly: LocalStateSetter<OfferDraft> = (next) => {
@@ -1760,6 +1792,32 @@ function OfferServerCalculationSync({
   }, [enabled, reconciliationSignature, token]);
 
   return null;
+}
+
+function OfferCalculatedServerCalculationSync({
+  calculatedValuesStore,
+  draftRef,
+  enabled,
+  onError,
+  token,
+}: {
+  calculatedValuesStore: OfferCalculatedValuesStore;
+  draftRef: MutableRefObject<OfferDraft>;
+  enabled: boolean;
+  onError?: (message: string) => void;
+  token: string;
+}) {
+  const calculatedDraft = useOfferCalculatedDraft(calculatedValuesStore, draftRef);
+
+  return (
+    <OfferServerCalculationSync
+      draft={calculatedDraft}
+      enabled={enabled}
+      onError={onError}
+      setOfferDraft={calculatedValuesStore.publish}
+      token={token}
+    />
+  );
 }
 
 function PortalNavigationBoundary({
@@ -4083,6 +4141,150 @@ function offerDraftWithClientCalculations(record: OfferDraft): OfferDraft {
   };
 }
 
+const OfferCalculatedReadonlyInput = memo(function OfferCalculatedReadonlyInput({
+  accessibilityLabel,
+  calculatedValuesStore,
+  draftRef,
+  fieldKey,
+}: {
+  accessibilityLabel: string;
+  calculatedValuesStore: OfferCalculatedValuesStore;
+  draftRef: MutableRefObject<OfferDraft>;
+  fieldKey: string;
+}) {
+  const calculatedDraft = useOfferCalculatedDraft(calculatedValuesStore, draftRef);
+  return (
+    <TextInput
+      testID={`offer-field-${fieldKey}`}
+      accessibilityLabel={accessibilityLabel}
+      style={[styles.input, styles.offerDerivedInput]}
+      controlled
+      value={String(calculatedDraft[fieldKey] ?? "")}
+      editable={false}
+    />
+  );
+});
+
+const OfferInventoryCalculatedSummary = memo(function OfferInventoryCalculatedSummary({
+  calculatedValuesStore,
+  draftRef,
+}: {
+  calculatedValuesStore: OfferCalculatedValuesStore;
+  draftRef: MutableRefObject<OfferDraft>;
+}) {
+  const calculatedDraft = useOfferCalculatedDraft(calculatedValuesStore, draftRef);
+  const selectedLineCount = offerInventoryLines(calculatedDraft).filter(isOfferInventoryItemAllowed).length;
+  return <Text style={styles.statusPill}>{selectedLineCount} items - {formatMoney(offerInventoryTotal(calculatedDraft))}</Text>;
+});
+
+const OfferInventoryCalculatedLineAmount = memo(function OfferInventoryCalculatedLineAmount({
+  fallbackLine,
+  calculatedValuesStore,
+  draftRef,
+  lineIndex,
+}: {
+  fallbackLine: Record<string, unknown>;
+  calculatedValuesStore: OfferCalculatedValuesStore;
+  draftRef: MutableRefObject<OfferDraft>;
+  lineIndex: number;
+}) {
+  const calculatedDraft = useOfferCalculatedDraft(calculatedValuesStore, draftRef);
+  const line = offerInventoryLines(calculatedDraft)[lineIndex] || fallbackLine;
+  return <Text style={styles.statusPill}>{formatMoney(offerInventoryLineAmount(line))}</Text>;
+});
+
+const OfferInventoryCalculatedLineControls = memo(function OfferInventoryCalculatedLineControls({
+  calculatedValuesStore,
+  draftRef,
+  fallbackLine,
+  lineIndex,
+  loading,
+  onUpdateAndCommit,
+}: {
+  calculatedValuesStore: OfferCalculatedValuesStore;
+  draftRef: MutableRefObject<OfferDraft>;
+  fallbackLine: Record<string, unknown>;
+  lineIndex: number;
+  loading: boolean;
+  onUpdateAndCommit: (index: number, patch: Record<string, string>) => void;
+}) {
+  const calculatedDraft = useOfferCalculatedDraft(calculatedValuesStore, draftRef);
+  const line = offerInventoryLines(calculatedDraft)[lineIndex] || fallbackLine;
+  const lineName = String(line.name || fallbackLine.name || "Inventory line");
+  const amountBasis = offerInventoryAmountBasis(line);
+  return (
+    <>
+      <View style={styles.offerInventoryEditorFieldWide}>
+        <Text style={styles.label}>Amount basis</Text>
+        <View style={styles.marginModeControl}>
+          {[
+            ["quantity", "QTY x price"],
+            ["actual", "Actual x price"],
+            ["direct", "Direct amount"],
+          ].map(([basis, label]) => (
+            <Pressable
+              key={`offer-inventory-${lineIndex}-amount-basis-${basis}`}
+              testID={`offer-inventory-${lineIndex}-amount_basis-${basis}`}
+              accessibilityLabel={`${lineName} ${label}`}
+              accessibilityRole="button"
+              accessibilityState={{ selected: amountBasis === basis }}
+              style={[styles.marginModeButton, amountBasis === basis && styles.selectorPillActive]}
+              onPress={() => onUpdateAndCommit(lineIndex, { amount_basis: basis })}
+              disabled={loading}
+            >
+              <Text style={[styles.selectorText, amountBasis === basis && styles.selectorTextActive]}>{label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+      <View style={styles.offerInventoryEditorField}>
+        <Text style={styles.label}>Line amount</Text>
+        <TextInput
+          key={`offer-inventory-${lineIndex}-line-total-${amountBasis}`}
+          testID={`offer-inventory-${lineIndex}-line_total`}
+          accessibilityLabel={`${lineName} line amount`}
+          style={[styles.offerInventoryInput, amountBasis !== "direct" && styles.offerDerivedInput]}
+          {...(amountBasis === "direct"
+            ? { defaultValue: String(line.line_total ?? offerInventoryLineAmount(line)) }
+            : { controlled: true, value: String(line.line_total ?? offerInventoryLineAmount(line)) })}
+          onChangeText={amountBasis === "direct" ? (value) => onUpdateAndCommit(lineIndex, { line_total: value }) : undefined}
+          keyboardType="numeric"
+          editable={amountBasis === "direct"}
+        />
+      </View>
+    </>
+  );
+});
+
+const OfferInventoryCalculatedMaterialTotal = memo(function OfferInventoryCalculatedMaterialTotal({
+  calculatedValuesStore,
+  draftRef,
+}: {
+  calculatedValuesStore: OfferCalculatedValuesStore;
+  draftRef: MutableRefObject<OfferDraft>;
+}) {
+  const calculatedDraft = useOfferCalculatedDraft(calculatedValuesStore, draftRef);
+  return <Text style={styles.muted}>Material cost from inventory: {formatMoney(offerInventoryTotal(calculatedDraft))}.</Text>;
+});
+
+const OfferCalculatedClientPreview = memo(function OfferCalculatedClientPreview({
+  calculatedValuesStore,
+  draftRef,
+}: {
+  calculatedValuesStore: OfferCalculatedValuesStore;
+  draftRef: MutableRefObject<OfferDraft>;
+}) {
+  const calculatedDraft = useOfferCalculatedDraft(calculatedValuesStore, draftRef);
+  const offerCost = offerCostSummary(calculatedDraft);
+  return (
+    <View style={styles.linkedSystemsPanel}>
+      <Text style={styles.cardLabel}>Client offer preview</Text>
+      <Text style={styles.metricValue}>{formatMoney(offerCost.totalCost)}</Text>
+      <Text style={styles.muted}>Base {formatMoney(offerCost.baseCost)} + {offerCost.marginMode === "fixed" ? `fixed margin ${formatMoney(offerCost.marginAmount)}` : `margin ${offerCost.marginPercent}% (${formatMoney(offerCost.marginAmount)})`} + GST {offerCost.gstPercent}% after discount.</Text>
+    </View>
+  );
+});
+
 const rawTransportKeys = new Set([
   "discord_fetch",
   "openclaw_history",
@@ -4478,6 +4680,9 @@ const PortalApp = memo(function PortalApp() {
   };
   const offerDraftRef = useRef<OfferDraft>({ ...emptyOfferDraft });
   const offerDraftControllerRef = useRef<LocalStateSetter<OfferDraft> | null>(null);
+  const offerCalculatedValuesStoreRef = useRef<OfferCalculatedValuesStore | null>(null);
+  if (!offerCalculatedValuesStoreRef.current) offerCalculatedValuesStoreRef.current = createOfferCalculatedValuesStore(offerDraftRef);
+  const offerCalculatedValuesStore = offerCalculatedValuesStoreRef.current;
   const setOfferDraftRefOnly: LocalStateSetter<OfferDraft> = (next) => {
     offerDraftRef.current = resolveLocalState(next, offerDraftRef.current);
   };
@@ -12357,7 +12562,7 @@ const PortalApp = memo(function PortalApp() {
     setMessage("Custom inventory line added to the offer.");
   }
 
-  function updateOfferInventoryLineRefOnly(index: number, patch: Record<string, string>, offerDraftState?: OfferDraftState) {
+  function updateOfferInventoryLineRefOnly(index: number, patch: Record<string, string>) {
     const nextLines = offerInventoryLines(offerDraftRef.current).map((line, lineIndex) => (
       lineIndex === index
         ? (() => {
@@ -12371,7 +12576,17 @@ const PortalApp = memo(function PortalApp() {
       inventory_items: nextLines,
     };
     offerDraftRef.current = nextDraft;
-    offerDraftState?.setOfferDraft(nextDraft);
+  }
+
+  function commitOfferInventoryLine() {
+    const calculatedDraft = offerDraftWithClientCalculations(offerDraftRef.current);
+    offerDraftRef.current = calculatedDraft;
+    offerCalculatedValuesStore.publish(calculatedDraft);
+  }
+
+  function updateOfferInventoryLine(index: number, patch: Record<string, string>) {
+    updateOfferInventoryLineRefOnly(index, patch);
+    commitOfferInventoryLine();
   }
 
   function removeOfferInventoryLine(index: number) {
@@ -12408,9 +12623,8 @@ const PortalApp = memo(function PortalApp() {
     offerDraftState.setOfferDraft(nextDraft);
   }
 
-  function renderOfferInventorySection(offerDraftState: OfferDraftState) {
-    const { offerDraft, offerDraftRef } = offerDraftState;
-    const liveOfferDraft = offerDraftRef.current || offerDraft;
+  function renderOfferInventorySection() {
+    const liveOfferDraft = offerDraftRef.current;
     const inventory = mergeOfferInventoryTemplates([
       ...offerManagerInventoryTemplates,
       ...asRecords(data?.inventory),
@@ -12418,8 +12632,6 @@ const PortalApp = memo(function PortalApp() {
     const selectedLineEntries = offerInventoryLines(liveOfferDraft)
       .map((line, originalIndex) => ({ line, originalIndex }))
       .filter(({ line }) => isOfferInventoryItemAllowed(line));
-    const selectedLines = selectedLineEntries.map(({ line }) => line);
-    const materialTotal = offerInventoryTotal(liveOfferDraft);
     const pricedInventory = inventory
       .filter((item) => String(item.name || item.item || item.item_id || "").trim())
       .sort((a, b) => String(a.name || a.item || a.item_id || "").localeCompare(String(b.name || b.item || b.item_id || "")));
@@ -12431,7 +12643,7 @@ const PortalApp = memo(function PortalApp() {
             <Text style={styles.sectionTitle}>Inventory items used in offer</Text>
             <Text style={styles.muted}>Workbook costing templates and priced warehouse items.</Text>
           </View>
-          <Text style={styles.statusPill}>{selectedLines.length} items - {formatMoney(materialTotal)}</Text>
+          <OfferInventoryCalculatedSummary calculatedValuesStore={offerCalculatedValuesStore} draftRef={offerDraftRef} />
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={Platform.OS === "web"} contentContainerStyle={styles.inlineActions}>
             <Pressable testID="offer-inventory-add-custom" accessibilityLabel="Add custom inventory item" style={styles.smallButton} onPress={addCustomInventoryItemToOffer} disabled={loading}>
@@ -12458,92 +12670,64 @@ const PortalApp = memo(function PortalApp() {
         )}
         {selectedLineEntries.map(({ line, originalIndex }) => {
           const lineName = String(line.name || "Inventory line");
-          const amountBasis = offerInventoryAmountBasis(line);
           return (
-            <View key={`offer-inventory-line-${String(line.item_id || originalIndex)}`} style={styles.offerInventoryEditor}>
+            <View key={`offer-inventory-line-${String(line.item_id || "item")}-${originalIndex}`} style={styles.offerInventoryEditor}>
               <View style={styles.sectionHeaderRow}>
                 <View>
                   <Text style={styles.cardLabel}>Modify entry</Text>
                   <Text style={styles.cardTitle}>{lineName}</Text>
                 </View>
-                <Text style={styles.statusPill}>{formatMoney(offerInventoryLineAmount(line))}</Text>
+                <OfferInventoryCalculatedLineAmount calculatedValuesStore={offerCalculatedValuesStore} draftRef={offerDraftRef} fallbackLine={line} lineIndex={originalIndex} />
               </View>
               <View style={styles.offerInventoryEditorGrid}>
                 <View style={styles.offerInventoryEditorField}>
                   <Text style={styles.label}>S.No.</Text>
-                  <TextInput testID={`offer-inventory-${originalIndex}-serial_no`} accessibilityLabel={`${lineName} serial number`} style={styles.offerInventoryInput} value={String(line.serial_no ?? "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { serial_no: value }, offerDraftState)} />
+                  <TextInput testID={`offer-inventory-${originalIndex}-serial_no`} accessibilityLabel={`${lineName} serial number`} style={styles.offerInventoryInput} defaultValue={String(line.serial_no ?? "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { serial_no: value })} />
                 </View>
                 <View style={styles.offerInventoryEditorField}>
                   <Text style={styles.label}>Item</Text>
-                  <TextInput testID={`offer-inventory-${originalIndex}-name`} accessibilityLabel={`${lineName} item`} style={styles.offerInventoryInput} value={lineName} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { name: value }, offerDraftState)} />
+                  <TextInput testID={`offer-inventory-${originalIndex}-name`} accessibilityLabel={`${lineName} item`} style={styles.offerInventoryInput} defaultValue={lineName} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { name: value })} />
                 </View>
                 <View style={styles.offerInventoryEditorFieldWide}>
                   <Text style={styles.label}>Description</Text>
-                  <TextInput testID={`offer-inventory-${originalIndex}-description`} accessibilityLabel={`${lineName} description`} style={styles.offerInventoryInput} value={String(line.description || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { description: value }, offerDraftState)} />
+                  <TextInput testID={`offer-inventory-${originalIndex}-description`} accessibilityLabel={`${lineName} description`} style={styles.offerInventoryInput} defaultValue={String(line.description || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { description: value })} />
                 </View>
                 <View style={styles.offerInventoryEditorFieldWide}>
                   <Text style={styles.label}>Costing basis</Text>
-                  <TextInput testID={`offer-inventory-${originalIndex}-costing_basis`} accessibilityLabel={`${lineName} costing basis`} style={styles.offerInventoryInput} value={String(line.costing_basis || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { costing_basis: value }, offerDraftState)} />
+                  <TextInput testID={`offer-inventory-${originalIndex}-costing_basis`} accessibilityLabel={`${lineName} costing basis`} style={styles.offerInventoryInput} defaultValue={String(line.costing_basis || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { costing_basis: value })} />
                 </View>
                 <View style={styles.offerInventoryEditorFieldWide}>
                   <Text style={styles.label}>Costing notes</Text>
-                  <TextInput testID={`offer-inventory-${originalIndex}-costing_notes`} accessibilityLabel={`${lineName} costing notes`} style={styles.offerInventoryInput} value={String(line.costing_notes || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { costing_notes: value }, offerDraftState)} />
+                  <TextInput testID={`offer-inventory-${originalIndex}-costing_notes`} accessibilityLabel={`${lineName} costing notes`} style={styles.offerInventoryInput} defaultValue={String(line.costing_notes || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { costing_notes: value })} />
                 </View>
                 <View style={styles.offerInventoryEditorField}>
                   <Text style={styles.label}>Unit</Text>
-                  <TextInput testID={`offer-inventory-${originalIndex}-unit`} accessibilityLabel={`${lineName} unit`} style={styles.offerInventoryInput} value={String(line.unit || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { unit: value }, offerDraftState)} />
+                  <TextInput testID={`offer-inventory-${originalIndex}-unit`} accessibilityLabel={`${lineName} unit`} style={styles.offerInventoryInput} defaultValue={String(line.unit || "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { unit: value })} />
                 </View>
                 <View style={styles.offerInventoryEditorField}>
                   <Text style={styles.label}>QTY</Text>
-                  <TextInput testID={`offer-inventory-${originalIndex}-qty`} accessibilityLabel={`${lineName} quantity`} style={styles.offerInventoryInput} value={String(line.qty ?? "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { qty: value }, offerDraftState)} keyboardType="numeric" />
+                  <TextInput testID={`offer-inventory-${originalIndex}-qty`} accessibilityLabel={`${lineName} quantity`} style={styles.offerInventoryInput} defaultValue={String(line.qty ?? "")} onChangeText={(value) => updateOfferInventoryLine(originalIndex, { qty: value })} keyboardType="numeric" />
                 </View>
                 <View style={styles.offerInventoryEditorField}>
                   <Text style={styles.label}>Base price</Text>
-                  <TextInput testID={`offer-inventory-${originalIndex}-purchase_price`} accessibilityLabel={`${lineName} base price`} style={styles.offerInventoryInput} value={String(line.purchase_price ?? "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { purchase_price: value }, offerDraftState)} keyboardType="numeric" />
+                  <TextInput testID={`offer-inventory-${originalIndex}-purchase_price`} accessibilityLabel={`${lineName} base price`} style={styles.offerInventoryInput} defaultValue={String(line.purchase_price ?? "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { purchase_price: value })} keyboardType="numeric" />
                 </View>
                 <View style={styles.offerInventoryEditorField}>
                   <Text style={styles.label}>Current price</Text>
-                  <TextInput testID={`offer-inventory-${originalIndex}-current_price`} accessibilityLabel={`${lineName} current price`} style={styles.offerInventoryInput} value={String(line.current_price ?? "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { current_price: value }, offerDraftState)} keyboardType="numeric" />
+                  <TextInput testID={`offer-inventory-${originalIndex}-current_price`} accessibilityLabel={`${lineName} current price`} style={styles.offerInventoryInput} defaultValue={String(line.current_price ?? "")} onChangeText={(value) => updateOfferInventoryLine(originalIndex, { current_price: value })} keyboardType="numeric" />
                 </View>
                 <View style={styles.offerInventoryEditorField}>
                   <Text style={styles.label}>Actual</Text>
-                  <TextInput testID={`offer-inventory-${originalIndex}-actual`} accessibilityLabel={`${lineName} actual quantity`} style={styles.offerInventoryInput} value={String(line.actual ?? "")} onChangeText={(value) => updateOfferInventoryLineRefOnly(originalIndex, { actual: value }, offerDraftState)} keyboardType="numeric" />
+                  <TextInput testID={`offer-inventory-${originalIndex}-actual`} accessibilityLabel={`${lineName} actual quantity`} style={styles.offerInventoryInput} defaultValue={String(line.actual ?? "")} onChangeText={(value) => updateOfferInventoryLine(originalIndex, { actual: value })} keyboardType="numeric" />
                 </View>
-                <View style={styles.offerInventoryEditorFieldWide}>
-                  <Text style={styles.label}>Amount basis</Text>
-                  <View style={styles.marginModeControl}>
-                    {[
-                      ["quantity", "QTY x price"],
-                      ["actual", "Actual x price"],
-                      ["direct", "Direct amount"],
-                    ].map(([basis, label]) => (
-                      <Pressable
-                        key={`offer-inventory-${originalIndex}-amount-basis-${basis}`}
-                        testID={`offer-inventory-${originalIndex}-amount_basis-${basis}`}
-                        accessibilityLabel={`${lineName} ${label}`}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: amountBasis === basis }}
-                        style={[styles.marginModeButton, amountBasis === basis && styles.selectorPillActive]}
-                        onPress={() => updateOfferInventoryLineRefOnly(originalIndex, { amount_basis: basis }, offerDraftState)}
-                        disabled={loading}
-                      >
-                        <Text style={[styles.selectorText, amountBasis === basis && styles.selectorTextActive]}>{label}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                </View>
-                <View style={styles.offerInventoryEditorField}>
-                  <Text style={styles.label}>Line amount</Text>
-                  <TextInput
-                    testID={`offer-inventory-${originalIndex}-line_total`}
-                    accessibilityLabel={`${lineName} line amount`}
-                    style={[styles.offerInventoryInput, amountBasis !== "direct" && styles.offerDerivedInput]}
-                    value={String(line.line_total ?? offerInventoryLineAmount(line))}
-                    onChangeText={amountBasis === "direct" ? (value) => updateOfferInventoryLineRefOnly(originalIndex, { line_total: value }, offerDraftState) : undefined}
-                    keyboardType="numeric"
-                    editable={amountBasis === "direct"}
-                  />
-                </View>
+                <OfferInventoryCalculatedLineControls
+                  calculatedValuesStore={offerCalculatedValuesStore}
+                  draftRef={offerDraftRef}
+                  fallbackLine={line}
+                  lineIndex={originalIndex}
+                  loading={loading}
+                  onUpdateAndCommit={updateOfferInventoryLine}
+                />
               </View>
               <View style={styles.inlineActions}>
                 <Pressable testID={`offer-inventory-${originalIndex}-remove`} accessibilityLabel={`Remove ${lineName}`} style={styles.smallButton} onPress={() => removeOfferInventoryLine(originalIndex)} disabled={loading}>
@@ -12553,7 +12737,7 @@ const PortalApp = memo(function PortalApp() {
             </View>
           );
         })}
-        <Text style={styles.muted}>Material cost from inventory: {formatMoney(materialTotal)}.</Text>
+        <OfferInventoryCalculatedMaterialTotal calculatedValuesStore={offerCalculatedValuesStore} draftRef={offerDraftRef} />
       </View>
     );
   }
@@ -12562,22 +12746,21 @@ const PortalApp = memo(function PortalApp() {
     return (
       <LocalImperativeToggle controllerRef={costingEditorOpenRef}>
         {(costingEditorOpen, setCostingEditorOpen) => (
-          <OfferDraftModalRenderBoundary controllerRef={offerDraftControllerRef} draftRef={offerDraftRef}>
+          <OfferDraftModalRenderBoundary calculatedValuesStore={offerCalculatedValuesStore} controllerRef={offerDraftControllerRef} draftRef={offerDraftRef}>
             {(liveOfferDraftState) => {
       const currentOfferDraftState = costingEditorOpen ? liveOfferDraftState : offerDraftState;
       const offerDraft = currentOfferDraftState.offerDraft;
-      const offerCost = offerCostSummary(offerDraft);
       const marginMode = String(offerDraft.margin_mode || "percentage") === "fixed" ? "fixed" : "percentage";
       const travelSegments = offerTravelSegments(offerDraft);
       const isReadOnlyCoreField = (key: string) => ["material_cost", "install_cost", "overhead_cost"].includes(key);
       const isServerCalculationInput = (key: string) => ["margin_percent", "margin_amount", "discount", "gst_percent"].includes(key);
       return (
       <Modal visible={costingEditorOpen} transparent animationType="fade" onRequestClose={() => setCostingEditorOpen(false)}>
-        <OfferServerCalculationSync
-          draft={offerDraft}
+        <OfferCalculatedServerCalculationSync
+          calculatedValuesStore={offerCalculatedValuesStore}
+          draftRef={offerDraftRef}
           enabled={costingEditorOpen}
           onError={setMessage}
-          setOfferDraft={currentOfferDraftState.setOfferDraftFromServer || currentOfferDraftState.setOfferDraft}
           token={token}
         />
         <View style={styles.modalOverlay}>
@@ -12650,23 +12833,26 @@ const PortalApp = memo(function PortalApp() {
                 ].map(([key, label]) => (
                   <View key={`standalone-offer-field-${key}`} style={styles.field}>
                     <Text style={styles.label}>{label}</Text>
-                    <TextInput
-                      key={isReadOnlyCoreField(key) || isServerCalculationInput(key) ? `offer-core-input-${key}` : `offer-core-input-${key}-${String(offerDraft[key] || "")}`}
-                      testID={`offer-field-${key}`}
-                      accessibilityLabel={label}
-                      style={[styles.input, isReadOnlyCoreField(key) && styles.offerDerivedInput]}
-                      {...(isReadOnlyCoreField(key) || isServerCalculationInput(key)
-                        ? { controlled: true, value: String(offerDraft[key] ?? "") }
-                        : { defaultValue: String(offerDraft[key] || "") })}
-                      editable={!isReadOnlyCoreField(key)}
-                      placeholder={key === "job_no" ? "Auto-generated on save" : undefined}
-                      onChangeText={isReadOnlyCoreField(key) ? undefined : (value) => {
-                        const nextDraft = { ...offerDraftRef.current, [key]: value, ...(key === "customer_name" ? { offer_name: value } : {}) };
-                        offerDraftRef.current = nextDraft;
-                        if (isServerCalculationInput(key)) currentOfferDraftState.setOfferDraft(nextDraft);
-                      }}
-                      keyboardType={["margin_percent", "margin_amount", "discount", "gst_percent"].includes(key) ? "numeric" : "default"}
-                    />
+                    {isReadOnlyCoreField(key) ? (
+                      <OfferCalculatedReadonlyInput accessibilityLabel={label} calculatedValuesStore={offerCalculatedValuesStore} draftRef={offerDraftRef} fieldKey={key} />
+                    ) : (
+                      <TextInput
+                        key={isServerCalculationInput(key) ? `offer-core-input-${key}` : `offer-core-input-${key}-${String(offerDraft[key] || "")}`}
+                        testID={`offer-field-${key}`}
+                        accessibilityLabel={label}
+                        style={styles.input}
+                        {...(isServerCalculationInput(key)
+                          ? { controlled: true, value: String(offerDraft[key] ?? "") }
+                          : { defaultValue: String(offerDraft[key] || "") })}
+                        placeholder={key === "job_no" ? "Auto-generated on save" : undefined}
+                        onChangeText={(value) => {
+                          const nextDraft = { ...offerDraftRef.current, [key]: value, ...(key === "customer_name" ? { offer_name: value } : {}) };
+                          offerDraftRef.current = nextDraft;
+                          if (isServerCalculationInput(key)) currentOfferDraftState.setOfferDraft(nextDraft);
+                        }}
+                        keyboardType={["margin_percent", "margin_amount", "discount", "gst_percent"].includes(key) ? "numeric" : "default"}
+                      />
+                    )}
                   </View>
                 ))}
               </View>
@@ -12768,12 +12954,8 @@ const PortalApp = memo(function PortalApp() {
                 </View>
               </View>
               {renderOfferMeasurementSection(currentOfferDraftState)}
-              {renderOfferInventorySection(currentOfferDraftState)}
-              <View style={styles.linkedSystemsPanel}>
-                <Text style={styles.cardLabel}>Client offer preview</Text>
-                <Text style={styles.metricValue}>{formatMoney(offerCost.totalCost)}</Text>
-                <Text style={styles.muted}>Base {formatMoney(offerCost.baseCost)} + {offerCost.marginMode === "fixed" ? `fixed margin ${formatMoney(offerCost.marginAmount)}` : `margin ${offerCost.marginPercent}% (${formatMoney(offerCost.marginAmount)})`} + GST {offerCost.gstPercent}% after discount.</Text>
-              </View>
+              {renderOfferInventorySection()}
+              <OfferCalculatedClientPreview calculatedValuesStore={offerCalculatedValuesStore} draftRef={offerDraftRef} />
               <View style={styles.formGrid}>
                 <View style={styles.field}>
                   <Text style={styles.label}>Payment terms</Text>
